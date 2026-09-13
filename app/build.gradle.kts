@@ -11,9 +11,22 @@ android {
         applicationId = "com.folio.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.1"
+        versionCode = providers.environmentVariable("VERSION_CODE").orElse("1").get().toInt()
+        versionName = providers.environmentVariable("VERSION_NAME").orElse("0.1.1").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file(providers.environmentVariable("ANDROID_KEYSTORE_PATH")
+                .orElse("missing-release-keystore.p12").get())
+            storeType = "PKCS12"
+            storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+            keyAlias = "folio"
+            keyPassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+        }
+    }
+    buildTypes {
+        getByName("release") { signingConfig = signingConfigs.getByName("release") }
     }
     buildFeatures { compose = true }
     compileOptions {

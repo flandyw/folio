@@ -13,6 +13,8 @@ local.properties
 *.iml
 *.jks
 *.keystore
+*.p12
+.signing/
 *.tgz
 
 # Local environment and OS metadata

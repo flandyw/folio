@@ -56,7 +56,11 @@ On this Windows workspace, a JDK and SDK have been installed under the ignored `
 .\build.ps1
 ```
 
-The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. A release requires your own signing configuration; signing secrets are not stored here.
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Signed APKs are published to [GitHub Releases](https://github.com/flandyw/folio/releases) for each new first-parent commit pushed to `main`. Versions are `0.1.N` and Android version codes are `N`, where `N` is `git rev-list --count HEAD` using full history. Keep `main` history append-only so versions keep increasing. Manual runs release the selected commit; reruns preserve existing releases. Each release includes the APK and `SHA256SUMS` and must pass unit tests, lint, and APK signature verification.
+
+Release signing uses one persistent RSA-3072 key (PKCS#12 alias `folio`) stored in the repository Actions secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. The workflow decodes it only for the signing step and removes it afterward. Local backup material lives in ignored `.signing/`; keep a secure backup, since replacing the key prevents updates to existing release installations. Debug installations use a different key and must be removed before installing a release (export notebooks first).
+
+To build a signed release locally with JDK 17 and SDK 35, set `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `VERSION_CODE`, and `VERSION_NAME`, then run `./gradlew :app:assembleRelease`. Missing signing credentials cause the release build to fail.
 
 ## Code organization
 

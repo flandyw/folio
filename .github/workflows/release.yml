@@ -1,0 +1,93 @@
+name: Android releases
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    runs-on: ubuntu-latest
+    outputs:
+      commits: ${{ steps.commits.outputs.commits }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: commits
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git merge-base --is-ancestor "$BEFORE" "$GITHUB_SHA" || { echo 'Release history must not be rewritten'; exit 1; }
+            commits=$(git rev-list --reverse --first-parent "$BEFORE..$GITHUB_SHA" | jq -R . | jq -sc .)
+          else
+            commits=$(jq -nc --arg sha "$GITHUB_SHA" '[$sha]')
+          fi
+          echo "commits=$commits" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: commits
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        commit: ${{ fromJSON(needs.commits.outputs.commits) }}
+    concurrency:
+      group: release-${{ matrix.commit }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.commit }}
+          fetch-depth: 0
+      - name: Calculate version
+        run: |
+          count=$(git rev-list --count HEAD)
+          echo "VERSION_CODE=$count" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=0.1.$count" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check app
+        run: bash ./gradlew :app:testDebugUnitTest :app:lintDebug
+      - name: Build signed release
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/folio-release.p12
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?Missing signing keystore secret}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?Missing signing password secret}"
+          umask 077
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          bash ./gradlew :app:assembleRelease
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/folio-$VERSION_NAME.apk"
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          "$signer" verify --verbose --print-certs "dist/folio-$VERSION_NAME.apk"
+          (cd dist && sha256sum "folio-$VERSION_NAME.apk" > SHA256SUMS)
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ matrix.commit }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$tag")" = "$COMMIT"
+            echo "Release $tag already exists"
+          else
+            gh release create "$tag" dist/* --target "$COMMIT" \
+              --title "Folio $VERSION_NAME" --generate-notes
+          fi
