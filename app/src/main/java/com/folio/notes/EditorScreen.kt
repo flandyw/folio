@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.graphics.Bitmap
@@ -544,8 +544,7 @@ private fun paperLabel(p: Paper): String = when (p) {
 
 @Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, change: (Tool) -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        if (value == selected) FilledTonalIconButton({ change(value) }, shape = RoundedCornerShape(16.dp)) { Icon(icon, "$label, selected") }
-        else IconButton({ change(value) }) { Icon(icon, label) }
+        FolioToolToggle(value == selected, { change(value) }, icon, label)
     }
 }
 
@@ -567,7 +566,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Surface(Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
         // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
         // of a blank stand-in and replace the content that is still on disk.
-        if (!page.loaded) Box(contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
             view.bind(page, background); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
@@ -583,7 +582,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Couldn't open this PDF page", color = Color.DarkGray)
                 TextButton({ retry++ }) { Text("Try again") }
-            } else CircularProgressIndicator()
+            } else LoadingIndicator(Modifier.semanticsLabel("Loading page"))
         }
     }
 }
@@ -675,9 +674,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Tool.ELLIPSE -> Icons.Rounded.Circle
                 else -> Icons.Rounded.CropSquare
             }
-            if (isShape) FilledTonalIconButton({ shapePicker = true }, shape = RoundedCornerShape(16.dp)) {
-                Icon(shapeIcon, "Shapes, ${tool.name.lowercase()} selected")
-            } else IconButton({ shapePicker = true }) { Icon(shapeIcon, "Shapes") }
+            FolioToolToggle(isShape, { shapePicker = true }, shapeIcon,
+                if (isShape) "Shapes, ${tool.name.lowercase()}" else "Shapes")
             DropdownMenu(shapePicker, { shapePicker = false }) {
                 listOf(Tool.LINE to "Straight line", Tool.RECTANGLE to "Rectangle", Tool.ELLIPSE to "Ellipse").forEach { (value, label) ->
                     DropdownMenuItem({ Text(label) }, { onTool(value); shapePicker = false },

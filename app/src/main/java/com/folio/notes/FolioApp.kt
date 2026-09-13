@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.Manifest
@@ -78,7 +78,7 @@ import java.io.File
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }, contentWindowInsets = WindowInsets.safeDrawing) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when {
-                    state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    state.loading -> LoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
                     state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Icon(Icons.Rounded.ErrorOutline, null)
                         Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
@@ -91,7 +91,7 @@ import java.io.File
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
                         Surface(shape = RoundedCornerShape(28.dp)) {
                             Row(Modifier.padding(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                CircularProgressIndicator(Modifier.size(28.dp)); Text(if (state.busy) "Opening your PDF…" else "Preparing your export…")
+                                LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) "Opening your PDF…" else "Preparing your export…")
                             }
                         }
                 }
@@ -215,6 +215,7 @@ import java.io.File
         val chosen = NotebookTemplate.byId(template)
         Button(
             { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount) },
+            shapes = ButtonDefaults.shapes(),
             enabled = title.isNotBlank()
         ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
     })

@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.os.Build
@@ -22,15 +23,17 @@ private val LightColors = lightColorScheme(
     surfaceContainerHigh = Color(0xFFEAE5DC), onSurface = Color(0xFF2E302B),
     onSurfaceVariant = Color(0xFF73746B), outlineVariant = Color(0xFFE0DED5)
 )
-@Composable fun FolioTheme(dynamic: Boolean = false, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+@Composable fun FolioTheme(dynamic: Boolean = false, dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (dynamic && Build.VERSION.SDK_INT >= 31) {
         if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
     } else if (dark) darkColorScheme(primary = Color(0xFFFFB595), secondary = Color(0xFFC6CEB8), background = Color(0xFF1C1D19), surface = Color(0xFF1C1D19)) else LightColors
-    MaterialTheme(colorScheme = colors, typography = Typography(
+    MaterialExpressiveTheme(colorScheme = colors, motionScheme = MotionScheme.expressive(), typography = Typography(
         displaySmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 38.sp, lineHeight = 44.sp),
         headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontSize = 32.sp, lineHeight = 39.sp),
         headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontSize = 28.sp, lineHeight = 34.sp),
-        titleLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 22.sp, lineHeight = 28.sp)
+        headlineSmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 24.sp, lineHeight = 32.sp),
+        titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
+        titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
+        labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
     ), content = content)
 }

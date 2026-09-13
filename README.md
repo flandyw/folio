@@ -38,6 +38,10 @@ A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3
 
 ## Build
 
+The UI uses Material 3 Expressive: `MaterialExpressiveTheme`, expressive motion, morphing creation and tool buttons, and `LoadingIndicator`. Folio retains its warm colors, serif headings, system dark mode, and optional wallpaper colors. Tool toggles expose their checked state to accessibility services and preserve tapping the active pen to open its settings.
+
+Material 3 is explicitly pinned to `1.5.0-alpha01` with Compose BOM `2025.06.01` to fit the existing SDK 35/Kotlin 2.0 toolchain. The stable Material 3 release omits the experimental Expressive APIs; review API changes before upgrading this pin. See [Android's Material 3 release notes](https://developer.android.com/jetpack/androidx/releases/compose-material3#1.5.0-alpha01). `ExpressiveComponents.kt` includes light, dark, and large-text previews; use interactive preview to inspect selection and press transitions.
+
 Open this directory in Android Studio and use **JDK 17**, Android SDK **35**, and the included Gradle wrapper. Android Studio can create `local.properties` with the SDK location.
 
 ```sh
