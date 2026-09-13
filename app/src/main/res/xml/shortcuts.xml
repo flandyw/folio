@@ -1,0 +1,5 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="new_notebook" android:enabled="true" android:icon="@drawable/ic_folio" android:shortcutShortLabel="@string/new_note">
+        <intent android:action="com.folio.notes.NEW_NOTE" android:targetPackage="com.folio.notes" android:targetClass="com.folio.notes.MainActivity" />
+    </shortcut>
+</shortcuts>

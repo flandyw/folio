@@ -1,0 +1,23 @@
+.gradle/
+.kotlin/
+.idea/
+.tooling/
+**/build/
+.cxx/
+captures/
+*.apk
+*.aab
+*.log
+*.hprof
+local.properties
+*.iml
+*.jks
+*.keystore
+*.tgz
+
+# Local environment and OS metadata
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

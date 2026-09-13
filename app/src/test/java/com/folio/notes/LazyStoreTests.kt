@@ -1,0 +1,139 @@
+package com.folio.notes
+
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+
+class LazyStoreTests {
+    private val marked = NotePage(
+        width = 840f, height = 1188f, paper = Paper.GRID, revision = 3,
+        strokes = listOf(Stroke(Tool.PEN, -16777216, 2.4f, listOf(InkPoint(1f, 2f, .5f), InkPoint(30f, 40f, 1f)))),
+        texts = listOf(TextBox(x = 10f, y = 20f, text = "V = IR", size = 30f, bold = true))
+    )
+    private val imported = NotePage(width = 600f, height = 800f, paper = Paper.PLAIN, pdfIndex = 4, revision = 1)
+    private val note = Notebook(id = "note-1", title = "Exam practice", folderId = "folder-1", cover = 2,
+        starred = true, updated = 1_700_000_000_000, pages = listOf(marked, imported))
+
+    @Test fun theIndexCarriesEveryPageButNoneOfTheirInk() {
+        val encoded = NoteMetaCodec.encode(note)
+        assertTrue(NoteMetaCodec.isV2(encoded))
+        // The whole point of the split: listing a library must never drag ink off the disk.
+        assertFalse(encoded.contains("strokes"))
+        assertFalse(encoded.contains("points"))
+        assertFalse(encoded.contains("texts"))
+        assertFalse(encoded.contains("V = IR"))
+
+        val index = NoteMetaCodec.decode(encoded)
+        assertEquals(note.id, index.id)
+        assertEquals(note.title, index.title)
+        assertEquals(note.folderId, index.folderId)
+        assertEquals(note.cover, index.cover)
+        assertEquals(note.starred, index.starred)
+        assertEquals(note.updated, index.updated)
+        assertEquals(2, index.pages.size)
+        assertEquals(listOf(marked.id, imported.id), index.pages.map { it.id })
+        assertTrue(index.pages.none { it.loaded })
+        assertTrue(index.pages.all { it.strokes.isEmpty() && it.texts.isEmpty() })
+        // Size, paper, PDF reference and revision are part of the shape, so they survive the split.
+        assertEquals(marked.width, index.pages[0].width, .001f)
+        assertEquals(Paper.GRID, index.pages[0].paper)
+        assertEquals(3, index.pages[0].revision)
+        assertEquals(4, index.pages[1].pdfIndex)
+        assertEquals(1, index.pages[1].revision)
+    }
+
+    @Test fun aPageSurvivesItsOwnFileAndTakesItsRevisionFromTheIndex() {
+        val summary = marked.asSummary().copy(revision = 9)
+        val restored = NotePageCodec.decode(NotePageCodec.encode(marked), summary)
+        assertEquals(marked.strokes, restored.strokes)
+        assertEquals(marked.texts, restored.texts)
+        // The summary is authoritative for everything outside the page's own content.
+        assertEquals(9, restored.revision)
+        assertEquals(marked.width, restored.width, .001f)
+        assertEquals(Paper.GRID, restored.paper)
+        assertTrue(restored.loaded)
+    }
+
+    @Test fun aPageFileWithoutTextStillReadsAsAnInkOnlyPage() {
+        val json = JSONObject(NotePageCodec.encode(marked))
+        json.remove("texts")
+        val restored = NotePageCodec.decode(json.toString(), marked.asSummary())
+        assertEquals(marked.strokes, restored.strokes)
+        assertTrue(restored.texts.isEmpty())
+    }
+
+    @Test fun splittingAnOldNotebookAndRebuildingItReturnsExactlyWhatWasThere() {
+        // This is the migration: the version-1 file is split into an index plus one file per page.
+        val index = NoteMetaCodec.encode(note)
+        val pageFiles = note.pages.associate { it.id to NotePageCodec.encode(it) }
+
+        val rebuilt = NoteMetaCodec.decode(index).let { meta ->
+            meta.copy(pages = meta.pages.map { NotePageCodec.decode(pageFiles.getValue(it.id), it) })
+        }
+        assertEquals(note, rebuilt)
+        assertTrue(rebuilt.pages.all { it.loaded })
+    }
+
+    @Test fun anUnknownIndexVersionIsRejectedRatherThanHalfRead() {
+        val future = NoteMetaCodec.encode(note).replace("\"version\":2", "\"version\":3")
+        assertFalse(NoteMetaCodec.isV2(future))
+        assertThrows(IllegalArgumentException::class.java) { NoteMetaCodec.decode(future) }
+        assertThrows(IllegalArgumentException::class.java) { NotePageCodec.decode("{\"version\":99}", marked.asSummary()) }
+    }
+
+    @Test fun thePortableCodecStillKeepsEveryPageAndItsRevision() {
+        val restored = NoteCodec.decode(NoteCodec.encode(note))
+        assertEquals(note, restored)
+        assertEquals(3, restored.pages[0].revision)
+        assertTrue(NoteCodec.decode(NoteCodec.encode(note)).pages.all { it.loaded })
+    }
+}
+
+class PageShapeTests {
+    private val page = NotePage(width = 500f, height = 700f, paper = Paper.RULED, revision = 2,
+        strokes = listOf(Stroke(Tool.PEN, 0, 2f, listOf(InkPoint(1f, 1f)))),
+        texts = listOf(TextBox(x = 0f, y = 0f, text = "hi")))
+
+    @Test fun aSummaryKeepsTheShapeAndDropsTheContent() {
+        val summary = page.asSummary()
+        assertEquals(page.id, summary.id)
+        assertEquals(page.width, summary.width, .001f)
+        assertEquals(page.paper, summary.paper)
+        assertEquals(page.revision, summary.revision)
+        assertFalse(summary.loaded)
+        assertTrue(summary.strokes.isEmpty())
+        assertTrue(summary.texts.isEmpty())
+    }
+
+    @Test fun revisingABumpsItsRevisionWithoutTouchingTheInk() {
+        val revised = page.revised()
+        assertEquals(3, revised.revision)
+        assertEquals(page.strokes, revised.strokes)
+        assertEquals(page.texts, revised.texts)
+    }
+
+    @Test fun aLoadedPageTakesItsPlaceInTheNotebook() {
+        val second = NotePage(paper = Paper.PLAIN)
+        val notebook = Notebook(title = "Two", pages = listOf(page.asSummary(), second))
+        val loaded = page.revised().copy(texts = listOf(TextBox(x = 1f, y = 1f, text = "edited")))
+        val merged = notebook.withPage(loaded)
+        assertEquals(2, merged.pages.size)
+        assertEquals(loaded, merged.pages[0])
+        assertEquals(second, merged.pages[1])
+        // A page that is not in the notebook leaves it untouched.
+        assertEquals(notebook, notebook.withPage(NotePage()))
+    }
+}
+
+class ThumbnailKeyTests {
+    @Test fun aPreviewIsNamedAfterItsSizeAndTheRevisionThatProducedIt() {
+        assertEquals("page-1-420-4.png", ThumbnailKeys.name("page-1", 4, 420))
+        assertTrue(ThumbnailKeys.isStale("page-1-420-3.png", "page-1", 4, 420))
+        assertFalse(ThumbnailKeys.isStale("page-1-420-4.png", "page-1", 4, 420))
+        // The library card's large preview and the page browser's small one never prune each other.
+        assertFalse(ThumbnailKeys.isStale("page-1-80-4.png", "page-1", 4, 420))
+        assertFalse(ThumbnailKeys.isStale("page-1-420-4.png", "page-1", 4, 80))
+        // A different page's preview is not this page's stale one, even with a shared prefix.
+        assertFalse(ThumbnailKeys.isStale("page-10-420-1.png", "page-1", 4, 420))
+    }
+}

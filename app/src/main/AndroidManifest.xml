@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!--
+        The OnePlus/OPPO Pencil reports its double tap through a vendor broadcast. This receiver
+        permission is declared as `normal`, so an ordinary app can hold it without a prompt. The
+        protected IPE haptics service (com.oplus.permission.safe.IOT) is separate and unavailable.
+    -->
+    <uses-permission android:name="com.oplus.ipemanager.permission.receiver.DOUBLE_CLICK" />
+    <!--
+        Optional pen haptics talk to the Pencil Pro directly over BLE, because the vendor routes are
+        unreachable: the IPE binder service needs `com.oplus.permission.safe.IOT` (signature|privileged)
+        and the touch-node framework call needs `oplus.permission.OPLUS_COMPONENT_SAFE` (signature).
+        These are only requested at runtime, only on Android 12+, and only if the user opts in.
+    -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <application android:name=".FolioApplication" android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules" android:fullBackupContent="@xml/backup_rules"
+        android:icon="@drawable/ic_folio" android:label="@string/app_name"
+        android:supportsRtl="true" android:theme="@style/Theme.Folio">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/pdf" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+        </activity>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

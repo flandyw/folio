@@ -1,0 +1,87 @@
+# Folio
+
+A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3. A quiet, warm workspace for handwriting, typed notes, sketches, and annotated PDFs. Android 8.0 or newer; no account, no network permission, and Bluetooth is asked for only if you switch on optional pen haptics.
+
+## What works
+
+- Stylus-first input: pressure-aware pen, translucent highlighter, line, rectangle, ellipse, and an eraser that draws a ring under the tip and cuts the ink it touches out of a stroke. A stylus eraser tip or primary barrel button erases temporarily, the stylus takes over from a finger that is already drawing, and resting palm touches are ignored while the stylus writes.
+- Ink that reads like ink: freehand samples are resampled through a spline so handwriting curves instead of showing the polyline, with one light averaging pass to take digitizer jitter out. Pen strokes follow pressure along their length and taper as they leave and return to the page. Stylus samples are dispatched unbuffered so the line keeps up with the tip, and a stroke that runs past the page edge ends on the boundary instead of smearing along it.
+- Lasso tool: draw a loop around handwriting to select it, then drag it to move it. The bar at the bottom of the editor copies, cuts, duplicates in place, rotates by a right angle, resizes uniformly, or deletes the selection, and a restyle sheet recolours it, changes its thickness by a factor, or sets its opacity without touching the strokes that were not selected. Copied ink pastes onto any page from the page menu, nudged along so it never hides under its source. Partially crossed strokes are left alone rather than half selected.
+- Typed text beside your ink: pick the text tool and tap the page to write a heading, label or note over paper, ink or an imported PDF. Tap a box to edit it, drag it to move it, and set its size, colour, bold and italics in the same dialog. The text wraps to the box and stays put on the page, in exports and in the page thumbnails.
+- Optional shape recognition: with **Tidy up shapes** on, a rough line, square, circle or triangle drawn with the pen becomes a clean one when the pen lifts, following the grid and 15° snapping if they are on. Undo still brings your own drawing back. Off by default.
+- OnePlus/OPPO Pencil double tap through the vendor `PENCIL_DOUBLE_CLICK` broadcast, configurable in **Settings** as pen/eraser, previous tool, pen/highlighter, lasso, colour palette, undo, or off.
+- Optional Pencil buzz when its double tap fires, over a direct BLE link to the pen. Every double tap the pen sends is confirmed, whatever the configured action, including colour palette and undo. Changing tools by hand stays silent, and a **Disabled** shortcut stays silent. Off by default, Android 12+ only, and never required for drawing. The pen is looked for by remembered address, then among the phone's paired devices (a bonded pen that the system pen service holds stops advertising, so scanning alone can miss it), and only then by scanning. The receiver is only registered while the editor is open, is de-duplicated across input paths, and stays inactive on devices that do not expose the broadcast.
+- Native pointer input, historical touch samples, two-finger pinch/pan, hand tool, fit-to-page, and a finger-drawing toggle for stylus use.
+- An editor that is almost all page: the notebook title and back button float on one side of the top edge with settings, share and page options on the other, and the tool strip runs between them when **Floating toolbar** is set to Top. Bottom, Left and Right still move the tools to that edge, on top of the page rather than in a row of their own. A fast-scroll thumb runs down the right edge: it shows how far through the document you are, and dragging it with a finger jumps between pages while the page number is shown. A stylus is never diverted by it, so the pen still reaches the right edge of the page, and the strip disappears while every page already fits on screen.
+- Per-page undo/redo, keyboard Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, ink colors and widths, and undoable page clearing.
+- Multipage notebooks with plain, ruled, dotted, grid, maths grid, or graph paper. Previous/next controls, a page counter that opens the page browser, direct page-number jumps, and one-tap blank pages. The page browser renders a live thumbnail of every page — paper, ink, text and imported PDF — and each page can be duplicated, have a blank page inserted after it, deleted, or dragged into place with a long press. Duplicating keeps the ink and imported PDF background with an independent page identity and undo history.
+- Built to stay quick on long notebooks: the library lists notebooks from a small index that holds no ink, a page is read from disk only as you reach it, each completed edit rewrites just that page, page previews are cached by page and revision (and by size, so a shelf card and the page browser never redraw each other), and one open PDF renderer serves the whole notebook instead of reparsing it for every page.
+- PDF import through Android's document picker or another app's **Open with / Share** action. Each PDF page becomes an annotatable notebook page; the source PDF is copied into app storage.
+- Export the current page to PNG, export the whole notebook to PDF, share a PDF using Android Sharesheet, or save the notebook as a self-contained `.folio` backup holding its pages and imported PDF. Import brings a `.folio` file back through the document picker, as a new notebook beside the ones already on the device. Save destinations use the system document picker, including installed cloud providers.
+- Notebook covers that show the work: a shelf card carries the notebook's own first page — its paper, ink, typed text or imported PDF — resting on the notebook's cover colour, and the compact list keeps a small version of the same preview. Both come from the preview cache the page browser uses, so a card costs one page read the first time it is drawn and nothing after that, and a notebook whose first page has never been drawn keeps its decorative cover and title.
+- Folder creation/renaming/removal, moving and renaming notebooks, favorites, search, and sorting. Removing a folder keeps its notebooks.
+- Home-page organization: filter unfiled items and notebook/PDF types, sort by last edited, oldest edited, name, or page count, and switch between covers and a compact list. Use **Select notebooks** to select individual items or all visible results, then move them to a folder or add/remove favorites together. Selection stays within the current filtered results.
+- Atomic local saves, visible saving/error states, retry, and Android backup/device-transfer rules. No broad storage permission.
+- Responsive phone/tablet library, system dark theme, optional Android wallpaper colors, a fullscreen layout with the status bar and gesture pill hidden across the whole app (they slide back on a swipe from their edge, and the display cutout inset is still respected), a launcher **New notebook** shortcut, and restoration of the selected notebook/page.
+
+## Editor improvements
+
+- The bottom bar separates notebook identity and page navigation into two rows on phones. Tap the title to rename, use the star to favorite, or retry a failed save directly from the status area. Tap the zoom percentage to reset the view.
+- The toolbar groups line, rectangle, and ellipse in a Shapes menu. On narrow screens the top toolbar gets its own row; bottom tools have a fixed height, and side tools use a compact palette button. Tool strips scroll when space is limited.
+- Lasso selections have an explicit dismiss action that returns to the pen, alongside undoable copy, cut, duplicate, rotate, resize, restyle and deletion. The restyle sheet starts from the selection's own colour, thickness and opacity, so changing one leaves the others alone. Undo covers text edits as well as ink, so a deleted or moved text box comes back.
+
+## Build
+
+Open this directory in Android Studio and use **JDK 17**, Android SDK **35**, and the included Gradle wrapper. Android Studio can create `local.properties` with the SDK location.
+
+```sh
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+On this Windows workspace, a JDK and SDK have been installed under the ignored `.tooling/` directory. Run:
+
+```powershell
+.\build.ps1
+```
+
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. A release requires your own signing configuration; signing secrets are not stored here.
+
+## Code organization
+
+| File | Responsibility |
+| --- | --- |
+| `Models.kt` | Immutable notebook/page/ink/text models, the portable notebook codec, page summaries and lazy-load state, page reordering, shape, smoothing, taper, erase, lasso, restyle and selection-edit geometry, and the shape tidier |
+| `NoteRepository.kt` | Atomic per-page persistence with version-1 migration, lazy page reads, folders, reused PDF renderer, deletion, `.folio` backup import/export |
+| `NoteStore.kt` | Pure codecs for the split index and per-page files, the shared ink codec, and preview cache keys |
+| `NotebookArchive.kt` | Pure `.folio` zip packing and unpacking, free of Android types so it stays testable |
+| `PageThumbnailCache.kt` | Disk and memory page previews keyed by page revision, so the page browser never redraws a page it has drawn before |
+| `FolioViewModel.kt` | Library/editor state, lazy page loading, page management, ink and text clipboard, restyling, serialized save queue, content undo/redo, lifecycle restoration |
+| `InkView.kt` | Native Android drawing surface, pressure, multitouch, palm rejection, partial erasing, page-edge limits, text boxes, stylus shape tidying |
+| `StylusShortcut.kt` | Stylus shortcut preference and its pure editor-effect resolution |
+| `StylusShortcutManager.kt` | Vendor stylus shortcut adapters (OnePlus/OPPO double tap) and cross-source debounce |
+| `PenHaptics.kt` | Recovered Pencil Pro BLE protocol constants and the one-shot pulse packet |
+| `PenHapticsManager.kt` | Opt-in BLE link used to buzz the pen on a tool switch |
+| `InkRenderer.kt` | Shared paper, ink and typed-text rendering for the editor, thumbnails and exports, with smoothed and tapered freehand ink |
+| `NoteExporter.kt` | PNG/PDF export, reading one page at a time so a long notebook never loads whole |
+| `LibraryScreen.kt` | Adaptive library, first-page notebook covers from the preview cache, folder organization |
+| `EditorScreen.kt` | Writing tools, text dialog, selection actions and restyle sheet, page navigation and the thumbnail page browser, PDF display |
+| `FolioApp.kt` | System pickers, sharing, settings and application flow |
+
+A notebook is a directory: `note.json` holds its title, folder, star and one summary per page — deliberately no ink — while each page's strokes and typed text live in `pages/<id>.json` and an imported PDF sits beside them as `source.pdf`. That split is what keeps a long notebook responsive: the library lists notebooks without opening a single page, the editor reads a page only as it reaches it, and every completed edit rewrites just that page and the small index. A notebook written by an earlier version, which kept every page inline, is split into this layout the first time it is opened; the page files are written before the index is swapped, so an interruption simply migrates again. Folder metadata is in `files/library.json`, and page previews for the browser are cached under the app cache directory. Saves survive Activity recreation and are queued in application scope. Android process termination can still interrupt an in-flight edit; wait for **Saved on device** before force-stopping the app. Android backup is subject to the user's system configuration and quotas; export important work separately.
+
+## First-version limits
+
+- Imported PDF backgrounds are rasterized in exported PDFs. Original searchable text, links, forms, and signatures are not preserved in exports. The imported source file is retained locally.
+- The eraser cuts samples out of a freehand stroke and drops a whole line, rectangle, or ellipse when it is touched; handwriting recognition and partial-shape erasing are not included. Every erase sample re-splits what is left, so dragging over one long stroke can leave many small fragments. The lasso moves, copies, cuts, duplicates, resizes, restyles and deletes strokes, but rotation is offered in right angles only — an arbitrary angle would turn a rectangle or ellipse into a shape its own geometry cannot describe — and restyling thickness scales the selection rather than matching a stroke width typed in. Shape recognition tidies straight lines, rectangles, ellipses and triangles only, and a drawing that does not read clearly as one of them is left exactly as it was drawn.
+- Typed text is placed and edited through a dialog rather than typed directly on the page, so there is no inline caret or text selection. Text uses the built-in serif face with bold and italics, and does not yet support per-word styling, opacity, or being selected together with ink in one lasso pass.
+- Pages are stored and loaded lazily, but an open page is held in memory and every edit rewrites that page's whole JSON, so a page carrying an extreme amount of ink stays the heaviest unit of work. Undo history is per page and in memory, so it does not survive closing the app. Notebook covers show the first page only, never a later one, and are drawn when the shelf is scrolled rather than ahead of time; deleting a page leaves its cached preview behind until the cache is cleared.
+- No cloud sync, audio recording, or real-time collaboration, and no cross-app exchange format beyond PDF, PNG and the app's own `.folio` backup, which only Folio itself can open. A `.folio` backup still expands the whole notebook into one file, which is what makes it portable; page previews are cached but the operating system may clear that cache at any time, in which case they are simply drawn again.
+- Material 3 Expressive informs the rounded surfaces, tonal controls, spacious typography, and adaptive layout; this uses stable Material 3 components rather than experimental Expressive APIs.
+- Stylus latency, palm-rejection tuning, the feel of the taper and unbuffered dispatch, and the OnePlus Pencil broadcast path still need testing on real Android hardware. The double-tap receiver is the confirmed OnePlus/OPPO path; other vendors will need their own `StylusShortcutAdapter`. No visual verification was performed, as requested; the same goes for the fullscreen layout and the floating editor chrome, which are checked by build and lint only, so their proportions on a narrow phone are unconfirmed.
+- Pen haptics fail silently by design, so there is no connection status in the UI: a pen that never links, because Bluetooth is off or its advertised name is not recognised, looks exactly like a pen that is simply out of range. Nothing here can make that visible yet. Beyond that they are narrow on purpose. Only the one-shot function pulse (`2C 92 01 02 FF 02`) is sent, because it is the single command a normally signed app was confirmed to deliver over GATT. Byte semantics are unknown, so it is not tunable. The writing texture and stored vibration profile are **not** implemented: they require the IPE binder service behind `com.oplus.permission.safe.IOT` (signature|privileged), and the touch-node route needs `oplus.permission.OPLUS_COMPONENT_SAFE` (signature). Neither is available to an ordinary app, and neither can be gained by declaring or requesting the permission. Coexistence with the system's own pen connection, and the felt result, remain unverified here; treat the pulse as a discrete confirmation buzz, not writing feedback.
+
+## Checks
+
+Unit tests cover notebook/PDF-reference round trips, unknown schema rejection, eraser geometry including sparse samples, reverse-drag ellipses, rectangles, and dots, lasso enclosure and stroke translation, spline smoothing and end taper, fast-scroll progress, page mapping and thumb sizing, partial erasing with a whole gesture's samples applied in one pass, page insertion/deletion/reordering and the page index the reader follows after a move, text-box persistence and notebooks saved before text existed, selection bounds with right-angle rotation, uniform resizing and relative restyling, the shape tidier's line/rectangle/ellipse/triangle detection and its rejections, the split index carrying no ink, a page read back onto its summary, splitting a version-1 notebook and rebuilding it unchanged, preview cache keys with their size and revision pruning, the `.folio` archive round trip with and without a PDF, and the pen pulse packet and BLE identifiers, plus stylus shortcut action resolution and preference fallback. The BLE link itself is not unit tested. Build and lint are included in CI. These checks do not substitute for hardware input testing.
+
+Platform references: [Material 3](https://developer.android.com/jetpack/androidx/releases/compose-material3), [Compose BOM](https://developer.android.com/develop/ui/compose/bom), [Android Gradle plugin](https://developer.android.com/build/releases/agp-8-7-0-release-notes).
