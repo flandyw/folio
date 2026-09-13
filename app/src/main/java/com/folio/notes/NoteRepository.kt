@@ -55,7 +55,7 @@ class NoteRepository(private val context: Context) {
 
     // ---- Reading -------------------------------------------------------------------------
 
-    suspend fun load(): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
+    suspend fun load(): Triple<List<Notebook>, List<Folder>, List<ExamSet>> = withContext(Dispatchers.IO) {
         val notes = root.listFiles().orEmpty()
             .filter { it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
             .map { readIndex(it) }
@@ -64,17 +64,31 @@ class NoteRepository(private val context: Context) {
             val array = JSONArray(AtomicFile(library).openRead().bufferedReader().use { it.readText() })
             (0 until array.length()).map { val f = array.getJSONObject(it); Folder(f.getString("id"), f.getString("name")) }
         }
-        notes to folders
+        Triple(notes, folders, loadSets())
+    }
+
+    private fun loadSets(): List<ExamSet> {
+        val file = File(context.filesDir, "exam-sets.json")
+        if (!file.exists() && !File(context.filesDir, "exam-sets.json.bak").exists()) return emptyList()
+        return ExamTagsCodec.decodeSets(AtomicFile(file).openRead().bufferedReader().use { JSONArray(it.readText()) })
     }
 
     /**
-     * Reads a notebook's shape. A file from an older version, which held every page's ink, is split
-     * first: every page file is written before the index is swapped, so an interruption leaves the
-     * original file in place and the next open simply migrates again.
+     * Reads a notebook's shape. A version-2 file is re-encoded onto the current index so exam tags
+     * gain their fields, and a version-1 file, which held every page's ink inline, is split first:
+     * every page file is written before the index is swapped, so an interruption leaves the original
+     * file in place and the next open simply migrates again.
      */
     private fun readIndex(dir: File): Notebook {
         val raw = AtomicFile(File(dir, "note.json")).openRead().bufferedReader().use { it.readText() }
-        if (NoteMetaCodec.isV2(raw)) return NoteMetaCodec.decode(raw)
+        when {
+            NoteMetaCodec.isCurrent(raw) -> return NoteMetaCodec.decode(raw)
+            NoteMetaCodec.isSplitIndex(raw) -> {
+                val note = NoteMetaCodec.decodeSplit(raw)
+                atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
+                return note
+            }
+        }
         val full = NoteCodec.decode(raw)
         val pages = File(dir, "pages").apply { mkdirs() }
         full.pages.forEach { atomicWrite(File(pages, "${it.id}.json"), NotePageCodec.encode(it)) }
@@ -134,6 +148,11 @@ class NoteRepository(private val context: Context) {
         lock.withLock { atomicWrite(File(context.filesDir, "library.json"), JSONArray().apply {
             folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) }
         }.toString()) }
+    }
+
+    /** Exam sets live beside the library file; the notebooks carry the membership link. */
+    suspend fun saveSets(sets: List<ExamSet>) = withContext(Dispatchers.IO) {
+        lock.withLock { atomicWrite(File(context.filesDir, "exam-sets.json"), ExamTagsCodec.encodeSets(sets).toString()) }
     }
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)

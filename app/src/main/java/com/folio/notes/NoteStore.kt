@@ -54,35 +54,51 @@ object InkCodec {
  * ```
  *
  * Version 1 kept every page inline in `note.json`, which is also the portable shape a `.folio`
- * archive carries, so [NoteCodec] still reads and writes that. [isV2] tells the two apart, and a
- * version-1 file is migrated the first time it is opened.
+ * archive carries, so [NoteCodec] still reads and writes that. Version 2 was the split index
+ * before exam metadata existed; version 3 adds exam tags, attempts, the exam-set link and the
+ * per-page redo flag. An older file is migrated the first time it is opened.
  */
 object NoteMetaCodec {
-    const val VERSION = 2
+    const val VERSION = 3
 
-    fun isV2(value: String): Boolean = try { JSONObject(value).optInt("version") == VERSION } catch (_: Exception) { false }
+    fun isCurrent(value: String): Boolean = try { JSONObject(value).optInt("version") == VERSION } catch (_: Exception) { false }
+
+    /** True when [value] is the version-2 split index, which carries no ink but no exam tags either. */
+    fun isSplitIndex(value: String): Boolean = try { JSONObject(value).optInt("version") == 2 } catch (_: Exception) { false }
 
     fun encode(note: Notebook): String = JSONObject().apply {
         put("version", VERSION); put("id", note.id); put("title", note.title)
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
+        put("exam", ExamTagsCodec.encode(note.exam))
+        put("set", note.setId ?: JSONObject.NULL)
+        put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height)
             put("paper", p.paper.name); put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
+            if (p.redoFlag) put("redo", true)
         }) } })
     }.toString()
 
     /** The notebook's shape: every page present in order, none of them carrying content. */
-    fun decode(value: String): Notebook {
+    fun decode(value: String): Notebook = decodeIndex(value, VERSION)
+
+    /** Reads the version-2 split index during migration; exam fields simply default. */
+    fun decodeSplit(value: String): Notebook = decodeIndex(value, 2)
+
+    private fun decodeIndex(value: String, version: Int): Notebook {
         val o = JSONObject(value)
-        require(o.getInt("version") == VERSION) { "Unsupported notebook index version" }
+        require(o.getInt("version") == version) { "Unsupported notebook index version" }
         return Notebook(o.getString("id"), o.getString("title"),
             if (o.isNull("folder")) null else o.getString("folder"), o.getInt("cover"),
             o.getBoolean("starred"), o.getLong("updated"), o.getJSONArray("pages").objects().map { p ->
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
-                    revision = p.optInt("revision", 0), loaded = false)
-            }.also { require(it.isNotEmpty()) { "Notebook has no pages" } })
+                    revision = p.optInt("revision", 0), loaded = false, redoFlag = p.optBoolean("redo", false))
+            }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
+            exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
+            setId = if (o.isNull("set")) null else o.optString("set"),
+            attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")))
     }
 
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }

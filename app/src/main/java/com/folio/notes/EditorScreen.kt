@@ -56,6 +56,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.GRID -> "Grid"
     Paper.MATH_GRID -> "Maths grid"
     Paper.GRAPH -> "Graph (with axes)"
+    Paper.MC_SHEET -> "Multiple choice"
 }
 
 @Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, toolbarPosition: ToolbarPosition, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit) {
@@ -139,6 +140,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     var scrubbing by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
+    var timerPanel by remember { mutableStateOf(false) }
+    var examPanel by remember { mutableStateOf(false) }
+    // Drives the countdown once a second; a stopped timer's tick is a no-op, so nothing recomposes.
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            model.tickTimer()
+        }
+    }
     val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex)
     val scope = rememberCoroutineScope()
     val motionDensity = LocalDensity.current.density
@@ -297,6 +307,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 ) {
                     EditorChromeChip(Modifier.height(chromeHeight)) {
                         IconButton(model::close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+                        ExamTimerChip(state.timer, chromeHeight) { timerPanel = true }
                     }
                     Box(
                         Modifier.weight(1f).fillMaxHeight().padding(horizontal = 8.dp),
@@ -328,7 +339,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
                                 onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
                                 onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                                onClear = { clear = true }, onRetry = model::retrySave)
+                                onClear = { clear = true }, onRetry = model::retrySave,
+                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true })
                         }
                     }
                 }
@@ -339,6 +351,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 ) {
                     EditorChromeChip(Modifier.height(chromeHeight)) {
                         IconButton(model::close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+                        ExamTimerChip(state.timer, chromeHeight) { timerPanel = true }
                     }
                     Spacer(Modifier.weight(1f))
                     EditorChromeChip(Modifier.height(chromeHeight)) {
@@ -349,7 +362,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
                                 onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
                                 onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                                onClear = { clear = true }, onRetry = model::retrySave)
+                                onClear = { clear = true }, onRetry = model::retrySave,
+                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true })
                         }
                     }
                 }
@@ -433,18 +447,33 @@ private fun paperLabel(p: Paper): String = when (p) {
     })
     if (paperMenu) AlertDialog(onDismissRequest = { paperMenu = false }, title = { Text("Change paper") }, text = {
         Column {
-            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED).forEach { p ->
+            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET).forEach { p ->
                 Row(Modifier.fillMaxWidth().clickable { model.setPaper(p); paperMenu = false }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(page.paper == p, { model.setPaper(p); paperMenu = false })
                     Column(Modifier.padding(start = 8.dp)) {
                         Text(paperLabel(p)); if (p == Paper.MATH_GRID) Text("Fine 20 px grid, bold every 5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (p == Paper.GRAPH) Text("Same grid + centred axes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (p == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet, 25 questions A–E", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
     }, confirmButton = { TextButton({ paperMenu = false }) { Text("Done") } })
     if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place, along with any typed text you delete separately. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); clear = false }) { Text("Clear ink") } })
+    if (timerPanel) ExamTimerPanel(
+        timer = state.timer,
+        onDismiss = { timerPanel = false },
+        onStart = { model.startTimer(it) },
+        onStop = { model.stopTimer() }
+    )
+    if (examPanel) ExamDetailsPanel(
+        note = note,
+        onDismiss = { examPanel = false },
+        onSave = { tags -> model.updateExamTags(note.id, tags); examPanel = false },
+        onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
+        onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
+        suggestedSeconds = state.lastTimedSeconds
+    )
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(
             originals = originals, quickColors = quick.colors(InkColors.INK_GROUP),
@@ -463,6 +492,33 @@ private fun paperLabel(p: Paper): String = when (p) {
             onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
             onDelete = { model.removeText(box.id); textEditor = null }
         )
+    }
+}
+
+/**
+ * The exam timer's place in the editor chrome: an icon while idle, the live clock while a sitting
+ * is running, so the countdown stays visible without covering any of the page.
+ */
+@Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+    val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
+    if (!active) {
+        IconButton(onClick) { Icon(Icons.Rounded.Timer, "Exam timer") }
+    } else {
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(14.dp),
+            color = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+            contentColor = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = (height - 34.dp) / 2)
+        ) {
+            Text(
+                if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
+                else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
+                else "Pens down",
+                Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
     }
 }
 
@@ -672,9 +728,18 @@ private fun paperLabel(p: Paper): String = when (p) {
 @Composable private fun PageOptionsMenu(
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
     canPaste: Boolean, onResetZoom: () -> Unit, onAxes: () -> Unit, onPaper: () -> Unit,
-    onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit
+    onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
+    onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit
 ) {
     DropdownMenu(expanded, onDismiss) {
+        DropdownMenuItem(
+            { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
+            { onDismiss(); onRedo() },
+            leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
+        )
+        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.Rounded.FactCheck, null) })
+        DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
+        HorizontalDivider()
         DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
         DropdownMenuItem({ Text("Add maths axes") }, { onDismiss(); onAxes() }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
         DropdownMenuItem({ Text("Paste ink") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })

@@ -16,7 +16,7 @@ class LazyStoreTests {
 
     @Test fun theIndexCarriesEveryPageButNoneOfTheirInk() {
         val encoded = NoteMetaCodec.encode(note)
-        assertTrue(NoteMetaCodec.isV2(encoded))
+        assertTrue(NoteMetaCodec.isCurrent(encoded))
         // The whole point of the split: listing a library must never drag ink off the disk.
         assertFalse(encoded.contains("strokes"))
         assertFalse(encoded.contains("points"))
@@ -75,10 +75,50 @@ class LazyStoreTests {
     }
 
     @Test fun anUnknownIndexVersionIsRejectedRatherThanHalfRead() {
-        val future = NoteMetaCodec.encode(note).replace("\"version\":2", "\"version\":3")
-        assertFalse(NoteMetaCodec.isV2(future))
+        val future = NoteMetaCodec.encode(note).replace("\"version\":3", "\"version\":4")
+        assertFalse(NoteMetaCodec.isCurrent(future))
+        assertFalse(NoteMetaCodec.isSplitIndex(future))
         assertThrows(IllegalArgumentException::class.java) { NoteMetaCodec.decode(future) }
         assertThrows(IllegalArgumentException::class.java) { NotePageCodec.decode("{\"version\":99}", marked.asSummary()) }
+    }
+
+    @Test fun theIndexCarriesExamTagsSetLinkAttemptsAndRedoFlagsWithoutInk() {
+        val examNote = note.copy(
+            exam = ExamTags(subject = VceSubject.MATHS_METHODS, year = 2022, company = "VCAA"),
+            setId = "set-1",
+            attempts = listOf(ExamAttempt(id = "a1", score = 31, total = 40, secondsTaken = 4800, timed = true)),
+            pages = note.pages.map { it.copy(redoFlag = it.pdfIndex != null) }
+        )
+        val encoded = NoteMetaCodec.encode(examNote)
+        // Still an index: no ink reaches the file even with exam metadata present.
+        assertFalse(encoded.contains("strokes"))
+        assertFalse(encoded.contains("points"))
+        assertFalse(encoded.contains("V = IR"))
+        val decoded = NoteMetaCodec.decode(encoded)
+        assertEquals(examNote.exam, decoded.exam)
+        assertEquals("set-1", decoded.setId)
+        assertEquals(examNote.attempts, decoded.attempts)
+        assertEquals(listOf(false, true), decoded.pages.map { it.redoFlag })
+    }
+
+    @Test fun aVersion2SplitIndexMigratesWithDefaultExamFields() {
+        val v2 = NoteMetaCodec.encode(note)
+            .replace("\"version\":3", "\"version\":2")
+            .let { json ->
+                // Strip the exam block, set link and attempts a v2 writer never emitted.
+                val obj = JSONObject(json)
+                obj.remove("exam"); obj.remove("set"); obj.remove("attempts")
+                obj.toString()
+            }
+        assertTrue(NoteMetaCodec.isSplitIndex(v2))
+        assertFalse(NoteMetaCodec.isCurrent(v2))
+        val migrated = NoteMetaCodec.decodeSplit(v2)
+        assertEquals(note.title, migrated.title)
+        assertEquals(ExamTags(), migrated.exam)
+        assertNull(migrated.setId)
+        assertTrue(migrated.attempts.isEmpty())
+        assertEquals(2, migrated.pages.size)
+        assertTrue(migrated.pages.none { it.loaded })
     }
 
     @Test fun thePortableCodecStillKeepsEveryPageAndItsRevision() {

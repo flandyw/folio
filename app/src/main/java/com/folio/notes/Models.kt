@@ -6,7 +6,7 @@ import java.util.UUID
 import kotlin.math.*
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND }
-enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH;
+enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET;
     /** Spacing used for paper rendering and for snap-to-grid when that paper is active. */
     val gridSpacing: Float get() = when (this) {
         MATH_GRID, GRAPH -> 20f
@@ -53,16 +53,34 @@ data class NotePage(
     /** Bumped on every change to this page, so a cached preview can tell a stale copy from a fresh one. */
     val revision: Int = 0,
     /** False while only this page's summary is in memory; its ink and text are still on disk. */
-    val loaded: Boolean = true
+    val loaded: Boolean = true,
+    /** Queued for the redo list — a question worth another attempt before the exam. */
+    val redoFlag: Boolean = false
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
     val folderId: String? = null, val cover: Int = 0, val starred: Boolean = false,
-    val updated: Long = System.currentTimeMillis(), val pages: List<NotePage> = listOf(NotePage())
-)
+    val updated: Long = System.currentTimeMillis(), val pages: List<NotePage> = listOf(NotePage()),
+    /** Exam metadata: subject, year, company and so on, carried as [ExamTags]. */
+    val exam: ExamTags = ExamTags(),
+    /** A [ExamSet] this notebook belongs to, e.g. one attempt within "VCAA 2022 Methods Exam 1". */
+    val setId: String? = null,
+    /** Marked attempts with scores and time taken, newest last. */
+    val attempts: List<ExamAttempt> = emptyList()
+) {
+    /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
+    val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
+}
 data class Folder(val id: String = UUID.randomUUID().toString(), val name: String)
 
 /** A new page identity keeps copied ink and PDF backgrounds independent in undo history. */
+/** Appends an attempt, or replaces one with the same id where it sits, keeping the history in order. */
+fun Notebook.withAttempt(attempt: ExamAttempt): Notebook {
+    val index = attempts.indexOfFirst { it.id == attempt.id }
+    if (index < 0) return copy(attempts = attempts + attempt)
+    return copy(attempts = attempts.toMutableList().apply { set(index, attempt) })
+}
+
 fun Notebook.withDuplicatedPage(index: Int): Notebook {
     if (index !in pages.indices) return this
     val duplicate = pages[index].copy(id = UUID.randomUUID().toString())
@@ -121,9 +139,13 @@ object NoteCodec {
         put("version", 1); put("id", note.id); put("title", note.title)
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
+        put("exam", ExamTagsCodec.encode(note.exam))
+        put("set", note.setId ?: JSONObject.NULL)
+        put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height); put("paper", p.paper.name)
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
+            if (p.redoFlag) put("redo", true)
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
         }) } })
@@ -138,8 +160,11 @@ object NoteCodec {
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
-                    p.optInt("revision", 0))
-            }.also { require(it.isNotEmpty()) { "Notebook has no pages" } })
+                    p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false))
+            }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
+            ExamTagsCodec.decode(o.optJSONObject("exam")),
+            if (o.isNull("set")) null else o.optString("set"),
+            ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")))
     }
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }

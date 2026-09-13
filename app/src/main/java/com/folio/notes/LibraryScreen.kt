@@ -36,6 +36,8 @@ import java.util.Locale
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 @Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit) {
+    var examDetails by remember { mutableStateOf<Notebook?>(null) }
+    var setAssign by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var starred by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENT) }
@@ -52,7 +54,13 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var folderMenu by remember { mutableStateOf(false) }
     var renameFolder by remember { mutableStateOf<Folder?>(null) }
     var deleteFolder by remember { mutableStateOf<Folder?>(null) }
+    var setsPanel by remember { mutableStateOf(false) }
+    var progressPanel by remember { mutableStateOf(false) }
+    var redoPanel by remember { mutableStateOf(false) }
+    var assignPanel by remember { mutableStateOf(false) }
+    val examFilter = state.examFilter
     val notes = organizeNotebooks(state.notes, state.folderId, starred, unfiled, query, kind, sort)
+        .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
     val visibleIds = notes.map { it.id }.toSet()
     val selection = selectedIds.filter { it in visibleIds }.toSet()
     LaunchedEffect(visibleIds) { selectedIds = selectedIds.filter { it in visibleIds } }
@@ -124,6 +132,16 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a notebook…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            state.daysToExam?.let { days ->
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                                    Text(
+                                        if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
+                                        Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
                             Spacer(Modifier.width(8.dp))
                             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
                             Spacer(Modifier.weight(1f))
@@ -148,18 +166,68 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
                             LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
                         }
+                        // Exam filters: one chip per subject that is actually in use, then year,
+                        // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
+                        val examNotes = state.notes.filter { it.exam.isTagged || it.setId != null }
+                        if (examNotes.isNotEmpty()) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                VceSubject.entries.forEach { subject ->
+                                    val count = examNotes.count { it.exam.subject == subject }
+                                    if (count > 0) {
+                                        SubjectChip(subject, examFilter.subject == subject, {
+                                            model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
+                                        })
+                                    }
+                                }
+                            }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
+                                    FilterChip(examFilter.year == year, {
+                                        model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
+                                    }, { Text("$year") })
+                                }
+                                examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
+                                    FilterChip(examFilter.company == company, {
+                                        model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
+                                    }, { Text(company) })
+                                }
+                                ExamStatus.entries.forEach { status ->
+                                    FilterChip(examFilter.status == status, {
+                                        model.setExamFilter(if (examFilter.status == status) examFilter.copy(status = null) else examFilter.copy(status = status))
+                                    }, { Text(status.label) })
+                                }
+                                FilterChip(examFilter.belowShare != null, {
+                                    model.setExamFilter(if (examFilter.belowShare != null) examFilter.copy(belowShare = null) else examFilter.copy(belowShare = 0.7f))
+                                }, { Text("Under 70%") })
+                            }
+                        }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton({ selecting = !selecting; selectedIds = emptyList() }) { Text(if (selecting) "Done" else "Select notebooks") }
                             if (selecting) {
                                 Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                 TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                                 TextButton({ bulkMove = true }, enabled = selection.isNotEmpty()) { Text("Move") }
+                                TextButton({ assignPanel = true }, enabled = selection.isNotEmpty()) { Text("Exam set") }
                                 val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
                                 TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
                             }
+                            TextButton({ progressPanel = true }) { Icon(Icons.Rounded.QueryStats, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Progress") }
+                            TextButton({ redoPanel = true }) { Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Redo") }
                         }
                         Text("Sorted by ${sort.label.lowercase()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.saveFailed) FilledTonalButton(model::retrySave) { Text("Changes need saving · Retry save") }
+                    }
+                }
+                // Exam sets appear above the shelf: one card per paper grouping its notebooks.
+                val groups = groupExamSets(state.sets, state.notes)
+                if (groups.isNotEmpty() && !selecting) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("EXAM SETS", style = MaterialTheme.typography.labelSmall, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.weight(1f))
+                            TextButton({ setsPanel = true }) { Text("Manage sets") }
+                        }
+                        groups.forEach { group -> ExamSetCard(group, openSet = { setsPanel = true }, openNote = { model.open(it.id) }) }
                     }
                 }
                 if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -190,10 +258,10 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                                 }
                                 if (!selecting) {
                                     IconButton({ model.star(note) }) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
-                                    NotebookMenu({ rename = note }, { move = note }, { delete = note })
+                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note })
                                 }
                             }
-                        } else NotebookCard(note, model.thumbnails, folder, open, { model.star(note) }, { rename = note }, { move = note }, { delete = note }, selecting)
+                        } else                        NotebookCard(note, model.thumbnails, folder, open, { model.star(note) }, { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note }, selecting, note.pages.count { it.redoFlag })
                     }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -205,6 +273,41 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             }
         }
     }
+    if (assignPanel) AlertDialog(onDismissRequest = { assignPanel = false }, title = { Text("Add ${selection.size} to an exam set") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            TextButton({ model.assignToExamSet(selection, null); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Remove from set") }
+            state.sets.forEach { set -> TextButton({ model.assignToExamSet(selection, set.id); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text(set.autoName()) } }
+            if (state.sets.isEmpty()) Text("No sets yet. Create one with Manage sets.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }, confirmButton = { TextButton({ assignPanel = false }) { Text("Cancel") } })
+    examDetails?.let { note ->
+        ExamDetailsPanel(
+            note = note,
+            onDismiss = { examDetails = null },
+            onSave = { tags -> model.updateExamTags(note.id, tags); examDetails = null },
+            onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
+            onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
+            suggestedSeconds = state.lastTimedSeconds
+        )
+    }
+    setAssign?.let { note ->
+        AlertDialog(onDismissRequest = { setAssign = null }, title = { Text("${note.title} — exam set") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                TextButton({ model.assignToExamSet(setOf(note.id), null); setAssign = null }) { Text("No set") }
+                state.sets.forEach { set -> TextButton({ model.assignToExamSet(setOf(note.id), set.id); setAssign = null }) { Text(set.autoName()) } }
+                if (state.sets.isEmpty()) Text("No sets yet. Create one with Manage sets.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }, confirmButton = { TextButton({ setAssign = null }) { Text("Cancel") } })
+    }
+    if (setsPanel) ExamSetsPanel(
+        groups = groupExamSets(state.sets, state.notes),
+        onDismiss = { setsPanel = false },
+        onCreate = { name, subject, year, company, type, duration -> model.createExamSet(name, subject, year, company, type, duration) },
+        onDelete = { model.deleteExamSet(it) },
+        openNote = { setsPanel = false; model.open(it.id) }
+    )
+    if (progressPanel) ExamProgressPanel(state.notes) { progressPanel = false }
+    if (redoPanel) RedoReviewPanel(state.notes, { redoPanel = false }, { id, index -> redoPanel = false; model.openAt(id, index) })
     if (bulkMove) AlertDialog(onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             TextButton({ model.moveNotebooks(selection, null); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Unfiled") }
@@ -239,7 +342,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     }
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, selecting: Boolean = false) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0) {
     Column {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().aspectRatio(.86f).clickable(onClickLabel = "Open ${note.title}", onClick = open))
@@ -250,17 +353,20 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (!selecting) NotebookMenu(rename, move, delete)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, assignSet)
         }
+        ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.Rounded.FactCheck, null) })
+            DropdownMenuItem({ Text("Exam set") }, { menu = false; assignSet() }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null) })
             DropdownMenuItem({ Text("Move to folder") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
         }

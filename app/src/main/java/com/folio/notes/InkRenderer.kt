@@ -19,6 +19,7 @@ object InkRenderer {
                 Paper.MATH_GRID -> drawMathGrid(canvas, page)
                 Paper.GRAPH -> drawGraph(canvas, page)
                 Paper.DOTS -> drawDots(canvas, page)
+                Paper.MC_SHEET -> drawMultipleChoice(canvas, page)
                 Paper.PLAIN -> Unit
             }
         }
@@ -58,6 +59,34 @@ object InkRenderer {
         val spacing = 28f
         var y = 70f
         while (y < page.height) { canvas.drawLine(36f, y, page.width - 36f, y, paint); y += spacing }
+    }
+
+    /**
+     * An Exam 2 Section A answer sheet: numbered rows with A–E bubbles to shade in with the pen.
+     * Drawing the bubbles as paper rather than ink keeps them out of undo, exports, and the
+     * clear-page action, so the sheet always reads like a fresh answer booklet.
+     */
+    private fun drawMultipleChoice(canvas: Canvas, page: NotePage) {
+        val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f; style = Paint.Style.STROKE }
+        val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(120, 120, 115); textSize = 11f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        }
+        val number = Paint(label).apply { color = Color.rgb(150, 150, 145); textAlign = Paint.Align.RIGHT; textSize = 13f }
+        canvas.drawText("Section A — shade one bubble per question", 36f, 40f, label)
+        var y = 78f
+        var index = 1
+        while (y < page.height - 30f) {
+            canvas.drawText(index.toString(), 44f, y + 4f, number)
+            var letter = 0
+            while (letter < 5) {
+                val cx = 84f + letter * 44f
+                canvas.drawCircle(cx, y, 11f, ink)
+                canvas.drawText(('A' + letter).toString(), cx - 4f, y + 4f, label)
+                letter++
+            }
+            y += 34f
+            index++
+        }
     }
 
     private fun drawDots(canvas: Canvas, page: NotePage) {

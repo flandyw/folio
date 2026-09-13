@@ -20,21 +20,41 @@ class FolioApplication : Application() {
 }
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
+    val sets: List<ExamSet> = emptyList(),
+    val examFilter: ExamFilter = ExamFilter(),
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
     val saveFailed: Boolean = false, val loadFailed: Boolean = false, val error: String? = null,
     val canUndo: Boolean = false, val canRedo: Boolean = false,
+    /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
+    val timer: ExamTimerState = ExamTimerState(),
+    /** Seconds the last stopped timed sitting ran for, offered when recording the mark. */
+    val lastTimedSeconds: Int? = null,
     /** Ink cut or copied from a lasso selection, kept so it can be pasted on any page. */
     val clipboard: List<Stroke> = emptyList()
 ) {
     val active get() = notes.find { it.id == activeId }
     val page get() = active?.pages?.getOrNull(pageIndex)
+    /** Days until the nearest upcoming exam date across the library, or null when none is set. */
+    val daysToExam: Int?
+        get() = notes.mapNotNull { it.exam.examDate }
+            .filter { it >= startOfDay() }
+            .minOrNull()
+            ?.let { date -> ((date - startOfDay()) / 86_400_000L).toInt() }
+
+    private fun startOfDay(): Long {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0); calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0); calendar.set(java.util.Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
+    }
 }
 
 /** One page's ink and text together, so undo restores whichever the last edit touched. */
 private typealias PageContent = Pair<List<Stroke>, List<TextBox>>
 
 class FolioViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
+    private val prefs = application.getSharedPreferences("preferences", 0)
     val repository = (application as FolioApplication).repository
     val thumbnails = (application as FolioApplication).thumbnails
     private val _state = MutableStateFlow(FolioState(activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
@@ -56,13 +76,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             }
         }
         loadLibrary()
+        // A sitting that was running when the process died resumes where the clock says it should.
+        ExamTimerState.resume(storedSitting(), prefs.getLong(TIMER_START_KEY, 0L))?.let { restored ->
+            _state.update { it.copy(timer = restored) }
+        }
         viewModelScope.launch { state.collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId } }
     }
     fun loadLibrary() {
         if (ready.isCompleted) ready = CompletableDeferred()
         _state.update { it.copy(loading = true, loadFailed = false) }
         viewModelScope.launch {
-            try { val (notes, folders) = repository.load(); _state.update { it.copy(notes = notes, folders = folders, loading = false) }; ready.complete(Unit) }
+            try { val (notes, folders, sets) = repository.load(); _state.update { it.copy(notes = notes, folders = folders, sets = sets, loading = false) }; ready.complete(Unit) }
             catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message}") }; ready.completeExceptionally(e) }
         }
     }
@@ -100,14 +124,23 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
-    fun create(title: String, cover: Int, paper: Paper) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
-        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = listOf(NotePage(paper = paper)))
+        val pages = List(pageCount.coerceIn(1, 40)) { NotePage(paper = paper) }
+        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
         enqueue { repository.saveAll(note) }
     }
     fun open(id: String) {
         _state.update { it.copy(activeId = id, pageIndex = 0) }
+        historyState()
+        _state.value.page?.let { loadPage(it.id) }
+    }
+
+    /** Opens a notebook straight onto one of its pages, so a flagged question is one tap away. */
+    fun openAt(id: String, index: Int) {
+        val target = _state.value.notes.find { it.id == id } ?: return
+        _state.update { it.copy(activeId = id, pageIndex = index.coerceIn(0, target.pages.lastIndex)) }
         historyState()
         _state.value.page?.let { loadPage(it.id) }
     }
@@ -119,6 +152,72 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun rename(note: Notebook, title: String) { if (title.isNotBlank()) updateNote(note.copy(title = title.trim())) }
     fun star(note: Notebook) = updateNote(note.copy(starred = !note.starred))
     fun move(note: Notebook, folderId: String?) = updateNote(note.copy(folderId = folderId))
+
+    // ---- Exam metadata --------------------------------------------------------------------
+
+    /** Rewrites one notebook's exam tags, keeping the rest of the notebook untouched. */
+    fun updateExamTags(noteId: String, tags: ExamTags) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        updateNote(note.copy(exam = tags))
+    }
+
+    fun toggleExamTag(noteId: String, tag: ExamTagType) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val tags = note.exam
+        val updated = if (tag in tags.tags) tags.copy(tags = tags.tags - tag) else tags.copy(tags = tags.tags + tag)
+        updateNote(note.copy(exam = updated))
+    }
+
+    fun setExamFilter(filter: ExamFilter) { _state.update { it.copy(examFilter = filter) } }
+
+    fun createExamSet(name: String, subject: VceSubject? = null, year: Int? = null,
+                      company: String = "", type: ExamType? = null, durationSeconds: Int? = null) {
+        if (name.isBlank() || _state.value.loadFailed) return
+        val sets = _state.value.sets + ExamSet(name = name.trim(), subject = subject, year = year,
+            company = company.trim(), type = type, durationSeconds = durationSeconds)
+        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
+    }
+
+    fun updateExamSet(set: ExamSet) {
+        val sets = _state.value.sets.map { if (it.id == set.id) set else it }
+        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
+    }
+
+    /** Removes a set and unlinks its notebooks, which stay in the library untouched. */
+    fun deleteExamSet(set: ExamSet) {
+        _state.value.notes.filter { it.setId == set.id }.forEach { updateNote(it.copy(setId = null)) }
+        val sets = _state.value.sets.filterNot { it.id == set.id }
+        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
+    }
+
+    /** Adds or removes notebooks from an exam set in one step; null unfiles them from any set. */
+    fun assignToExamSet(ids: Set<String>, setId: String?) {
+        if (setId != null && _state.value.sets.none { it.id == setId }) return
+        _state.value.notes.filter { it.id in ids && it.setId != setId }
+            .forEach { updateNote(it.copy(setId = setId)) }
+    }
+
+    /** Flips the open page's redo flag — a question worth another attempt before the exam. */
+    fun toggleRedoFlag() {
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
+        replacePage(page.copy(redoFlag = !page.redoFlag))
+    }
+
+    /** Records a marked sitting on a notebook, newest last; a first mark also marks it sat. */
+    fun recordAttempt(noteId: String, attempt: ExamAttempt) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val exam = if (note.exam.status == ExamStatus.TO_DO) note.exam.copy(status = ExamStatus.MARKED) else note.exam
+        updateNote(note.withAttempt(attempt).copy(exam = exam))
+        // A timed sitting is spent on the mark it belongs to, not offered to the next one.
+        if (attempt.timed) _state.update { it.copy(lastTimedSeconds = null) }
+    }
+
+    /** Removes one recorded sitting from a notebook's history. */
+    fun deleteAttempt(noteId: String, attemptId: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        updateNote(note.copy(attempts = note.attempts.filterNot { it.id == attemptId }))
+    }
     fun moveNotebooks(ids: Set<String>, folderId: String?) {
         if (folderId != null && _state.value.folders.none { it.id == folderId }) return
         _state.value.notes.filter { it.id in ids && it.folderId != folderId }
@@ -314,6 +413,53 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun undo() = history(undo, redo)
     fun redo() = history(redo, undo)
+
+    // ---- Exam timer -----------------------------------------------------------------------
+
+    /**
+     * The running sitting is saved to preferences the moment it starts, so a process death — the
+     * app swiped away, a crash, the system reclaiming memory — never ends an exam. Every timer
+     * state is derived from the start moment, so restoring is only a matter of keeping the preset
+     * and the start time; the record is cleared when the sitting stops.
+     */
+    private fun saveSitting(timer: ExamTimerState) {
+        prefs.edit()
+            .putLong(TIMER_START_KEY, timer.startedAt ?: 0L)
+            .putInt(TIMER_WRITING_KEY, timer.preset.writingSeconds)
+            .putInt(TIMER_READING_KEY, timer.preset.readingSeconds)
+            .putString(TIMER_LABEL_KEY, timer.preset.label)
+            .apply()
+    }
+
+    private fun clearSitting() {
+        prefs.edit().remove(TIMER_START_KEY).remove(TIMER_WRITING_KEY)
+            .remove(TIMER_READING_KEY).remove(TIMER_LABEL_KEY).apply()
+    }
+
+    /** The preset of a saved sitting, or null when none was running when the app last stopped. */
+    private fun storedSitting(): ExamTimerPreset? {
+        if (prefs.getLong(TIMER_START_KEY, 0L) <= 0L) return null
+        return ExamTimerPreset(
+            prefs.getString(TIMER_LABEL_KEY, "Exam") ?: "Exam",
+            prefs.getInt(TIMER_WRITING_KEY, 90 * 60),
+            prefs.getInt(TIMER_READING_KEY, 15 * 60)
+        )
+    }
+
+    /** Advances the countdown by however long has passed; a stopped timer ignores ticks. */
+    fun tickTimer() { _state.update { it.copy(timer = it.timer.tick()) } }
+    fun startTimer(preset: ExamTimerPreset) {
+        val started = ExamTimerState().start(preset)
+        saveSitting(started)
+        _state.update { it.copy(timer = started) }
+    }
+    /** Stops the timer, keeping how long the writing phase ran for the attempt record. */
+    fun stopTimer() {
+        val current = _state.value.timer
+        val spent = current.elapsedWriting().takeIf { current.startedAt != null && it > 0 }
+        clearSitting()
+        _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
+    }
     private fun record(page: NotePage) {
         undo.getOrPut(page.id) { mutableListOf() }.apply { add(page.strokes to page.texts); if (size > 60) removeAt(0) }
         redo.remove(page.id)
@@ -370,5 +516,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private companion object {
         /** How far each paste is nudged from the last, in page units. */
         const val PASTE_OFFSET = 22f
+        const val TIMER_START_KEY = "examTimer.startedAt"
+        const val TIMER_WRITING_KEY = "examTimer.writingSeconds"
+        const val TIMER_READING_KEY = "examTimer.readingSeconds"
+        const val TIMER_LABEL_KEY = "examTimer.label"
     }
 }

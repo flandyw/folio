@@ -1,0 +1,656 @@
+package com.folio.notes
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.*
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
+import kotlin.math.roundToInt
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun compactDate(time: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(time))
+
+private fun durationLabel(seconds: Int?): String {
+    if (seconds == null || seconds <= 0) return "—"
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (hours > 0) "$hours h ${minutes} min" else if (minutes > 0) "$minutes min" else "${seconds}s"
+}
+
+/** The subject's band colour, used by chips and cover badges. */
+fun subjectColor(subject: VceSubject?): Color =
+    subject?.let { Color(it.color) } ?: Color(0xFF606A60)
+
+/** A small tinted label for a subject, used in filter rows and on cards. */
+@Composable
+fun SubjectChip(subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
+    val color = subjectColor(subject)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) color else color.copy(alpha = .12f),
+        contentColor = if (selected) Color.White else color
+    ) {
+        Text(
+            subject?.label ?: "Other",
+            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** Cover badges: subject, score, year and redo count, kept small enough for a shelf card. */
+@Composable
+fun ExamBadges(note: Notebook, redoCount: Int = 0, modifier: Modifier = Modifier) {
+    val exam = note.exam
+    if (!exam.isTagged && note.attempts.isEmpty() && redoCount == 0) return
+    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        exam.subject?.let { subject ->
+            BadgePill(subject.label, subjectColor(subject), Color.White)
+        }
+        note.bestScore?.let { share ->
+            val percent = (share * 100).roundToInt()
+            val color = when {
+                percent >= 80 -> Color(0xFF2F6F4E)
+                percent >= 65 -> Color(0xFF8C7326)
+                else -> Color(0xFF8C3A2B)
+            }
+            BadgePill("$percent%", color, Color.White)
+        }
+        exam.year?.let { BadgePill(it.toString(), MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant) }
+        exam.company.takeIf { it.isNotBlank() }?.let { BadgePill(it, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (redoCount > 0) BadgePill("$redoCount to redo", Color(0xFF8C3A2B).copy(alpha = .15f), Color(0xFF8C3A2B))
+    }
+}
+
+@Composable
+private fun BadgePill(text: String, background: Color, content: Color) {
+    Surface(shape = RoundedCornerShape(7.dp), color = background, contentColor = content) {
+        Text(text, Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }
+}
+
+// ---- Exam details editor ---------------------------------------------------------------------------
+
+/**
+ * The tags behind one notebook: subject, year, company, type, unit, difficulty, marks, status,
+ * quick labels and the date of the real exam. Everything is optional; Save writes what is set.
+ * Attempts live on the model, not in this panel: recording and deleting go through the callbacks.
+ */
+@Composable
+fun ExamDetailsPanel(
+    note: Notebook, onDismiss: () -> Unit, onSave: (ExamTags) -> Unit,
+    onRecordMark: (ExamAttempt) -> Unit, onDeleteAttempt: (ExamAttempt) -> Unit,
+    /** Seconds a just-stopped timed sitting ran for, offered as the default on the next mark. */
+    suggestedSeconds: Int? = null
+) {
+    val exam = note.exam
+    var subject by remember { mutableStateOf(exam.subject) }
+    var subjectText by rememberSaveable { mutableStateOf(exam.subjectText) }
+    var year by rememberSaveable { mutableStateOf(exam.year?.toString() ?: "") }
+    var company by rememberSaveable { mutableStateOf(exam.company) }
+    var type by remember { mutableStateOf(exam.type) }
+    var unit by rememberSaveable { mutableStateOf(exam.unit?.toString() ?: "") }
+    var difficulty by remember { mutableStateOf(exam.difficulty) }
+    var marksTotal by rememberSaveable { mutableStateOf(exam.marksTotal?.toString() ?: "") }
+    var status by remember { mutableStateOf(exam.status) }
+    var tags by remember { mutableStateOf(exam.tags) }
+    var examDate by remember { mutableStateOf(exam.examDate) }
+    var scoreDialog by remember { mutableStateOf(false) }
+
+    FolioPanel(title = "Exam details", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("Tag this notebook so the library can group and filter it.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SubjectChip(subject, selected = subject == null, onClick = { subject = null })
+                VceSubject.entries.forEach { option -> SubjectChip(option, selected = subject == option, onClick = { subject = option }) }
+            }
+            if (subject == null) {
+                OutlinedTextField(
+                    subjectText, { subjectText = it },
+                    Modifier.fillMaxWidth(), label = { Text("Other subject") },
+                    placeholder = { Text("e.g. Indonesian, Data Analytics") }, singleLine = true
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    year, { year = it.filter(Char::isDigit).take(4) },
+                    Modifier.weight(1f), label = { Text("Year") }, placeholder = { Text("2022") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    unit, { unit = it.filter(Char::isDigit).take(1) },
+                    Modifier.weight(1f), label = { Text("Unit") }, placeholder = { Text("3") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    marksTotal, { marksTotal = it.filter(Char::isDigit).take(4) },
+                    Modifier.weight(1f), label = { Text("Marks") }, placeholder = { Text("40") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+            OutlinedTextField(
+                company, { company = it.take(40) },
+                Modifier.fillMaxWidth(), label = { Text("Company / source") },
+                placeholder = { Text("VCAA, NEAP, TSSM, Insight…") }, singleLine = true
+            )
+            Text("Type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ExamType.entries.forEach { option ->
+                    FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) })
+                }
+            }
+            Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ExamStatus.entries.forEach { option ->
+                    FilterChip(status == option, { status = option }, { Text(option.label) })
+                }
+            }
+            Text("Difficulty", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (1..3).forEach { stars ->
+                    FilterChip(
+                        selected = difficulty == stars,
+                        onClick = { difficulty = if (difficulty == stars) null else stars },
+                        label = { Text("★".repeat(stars)) }
+                    )
+                }
+            }
+            Text("Labels", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ExamTagType.entries.forEach { option ->
+                    FilterChip(option in tags, { tags = if (option in tags) tags - option else tags + option }, { Text(option.label) })
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Exam date", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        examDate?.let { compactDate(it) } ?: "Count down to the real sitting",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                examDate?.let { TextButton({ examDate = null }) { Text("Clear") } }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Attempts", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (note.attempts.isEmpty()) "No marks recorded yet" else "${note.attempts.size} recorded",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton({ scoreDialog = true }) { Text("Record a mark") }
+            }
+            note.attempts.sortedBy { it.date }.forEach { attempt ->
+                val share = attempt.share
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                listOfNotNull(
+                                    attempt.score.toString() + (attempt.total?.let { "/$it" } ?: ""),
+                                    share?.let { "${(it * 100).roundToInt()}%" },
+                                    attempt.takeIf { it.timed }?.let { durationLabel(it.secondsTaken) },
+                                    compactDate(attempt.date)
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        IconButton({ onDeleteAttempt(attempt) }) {
+                            Icon(Icons.Rounded.Close, "Delete this attempt", Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onDismiss) { Text("Cancel") }
+                Button({
+                    onSave(
+                        ExamTags(
+                            subject = subject, subjectText = subjectText.trim(),
+                            year = year.toIntOrNull(), company = company.trim(), type = type,
+                            unit = unit.toIntOrNull()?.coerceIn(1, 4), difficulty = difficulty,
+                            marksTotal = marksTotal.toIntOrNull(), status = status, tags = tags, examDate = examDate
+                        )
+                    )
+                    onDismiss()
+                }) { Text("Save") }
+            }
+        }
+    }
+    if (scoreDialog) {
+        ScoreDialog(
+            total = marksTotal.toIntOrNull(),
+            defaultSeconds = suggestedSeconds,
+            onDismiss = { scoreDialog = false },
+            onRecord = { score, total, seconds, timed ->
+                // The score dialog always asks for a total, so the attempt knows its own share.
+                onRecordMark(ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
+                scoreDialog = false
+            }
+        )
+    }
+}
+
+/** One mark entry: score out of a total, optional time taken and a timed flag. */
+@Composable
+fun ScoreDialog(total: Int?, defaultSeconds: Int?, onDismiss: () -> Unit, onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit) {
+    var score by rememberSaveable { mutableStateOf("") }
+    var totalText by rememberSaveable { mutableStateOf(total?.toString() ?: "") }
+    var minutes by rememberSaveable { mutableStateOf(defaultSeconds?.let { it / 60 }?.toString() ?: "") }
+    var timed by rememberSaveable { mutableStateOf(defaultSeconds != null) }
+    val parsedScore = score.toIntOrNull()
+    val parsedTotal = totalText.toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) },
+        title = { Text("Record a mark") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        score, { score = it.filter(Char::isDigit).take(4) },
+                        Modifier.weight(1f), label = { Text("Score") }, placeholder = { Text("32") },
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        totalText, { totalText = it.filter(Char::isDigit).take(4) },
+                        Modifier.weight(1f), label = { Text("Out of") }, placeholder = { Text("40") },
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Timed sitting", style = MaterialTheme.typography.titleSmall)
+                        Text("Records the time taken against this mark.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(timed, { timed = it })
+                }
+                if (timed) {
+                    OutlinedTextField(
+                        minutes, { minutes = it.filter(Char::isDigit).take(3) },
+                        Modifier.fillMaxWidth(), label = { Text("Minutes taken") }, placeholder = { Text("82") },
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+                if (parsedScore != null && parsedTotal != null && parsedTotal > 0) {
+                    Text(
+                        "${(parsedScore.toFloat() / parsedTotal * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            Button(
+                { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
+                enabled = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal
+            ) { Text("Record") }
+        }
+    )
+}
+
+// ---- Exam sets ---------------------------------------------------------------------------------------
+
+/** One exam set as a card: name, member count, best score, and links into the members. */
+@Composable
+fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -> Unit) {
+    Surface(onClick = openSet, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(group.set.autoName(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOfNotNull(
+                            group.set.summaryLine().ifBlank { null },
+                            "${group.notes.size} notebook${if (group.notes.size == 1) "" else "s"}",
+                            group.attemptCount.takeIf { it > 0 }?.let { "${group.attemptCount} attempt${if (it == 1) "" else "s"}" }
+                        ).joinToString(" · ").ifBlank { "No notebooks yet" },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                group.bestShare?.let { share ->
+                    Surface(shape = CircleShape, color = subjectColor(group.set.subject)) {
+                        Text(
+                            "${(share * 100).roundToInt()}%",
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+            if (group.notes.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                group.notes.forEach { note ->
+                    Surface(
+                        onClick = { openNote(note) },
+                        shape = RoundedCornerShape(9.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Text(note.title, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Manage sets: create one from tags or from scratch, rename it, delete it, or jump into its
+ * members. Membership itself is assigned from the library's selection actions.
+ */
+@Composable
+fun ExamSetsPanel(
+    groups: List<ExamSetGroup>,
+    onDismiss: () -> Unit,
+    onCreate: (String, VceSubject?, Int?, String, ExamType?, Int?) -> Unit,
+    onDelete: (ExamSet) -> Unit,
+    openNote: (Notebook) -> Unit
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var subject by remember { mutableStateOf<VceSubject?>(null) }
+    var year by rememberSaveable { mutableStateOf("") }
+    var company by rememberSaveable { mutableStateOf("") }
+    var type by remember { mutableStateOf<ExamType?>(null) }
+    var confirmDelete by remember { mutableStateOf<ExamSet?>(null) }
+
+    FolioPanel(title = "Exam sets", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("Group every attempt of one paper — your tries, the solutions, a corrections book — under one card.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            groups.forEach { group ->
+                ExamSetCard(group, openSet = {}, openNote = { openNote(it) })
+                if (group.notes.isEmpty()) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        Text("Select notebooks, then Exam set → this one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton({ confirmDelete = group.set }) { Text("Delete set") }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        TextButton({ confirmDelete = group.set }) { Text("Delete set") }
+                    }
+                }
+            }
+            if (groups.isEmpty()) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Text("No sets yet. Create one below, or select notebooks on the shelf and choose Exam set.",
+                        Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider()
+            Text("New set", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Set name") }, placeholder = { Text("VCAA 2022 Methods Exam 1") }, singleLine = true)
+            Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SubjectChip(subject, selected = subject == null, onClick = { subject = null })
+                VceSubject.entries.forEach { option -> SubjectChip(option, selected = subject == option, onClick = { subject = option }) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    year, { year = it.filter(Char::isDigit).take(4) },
+                    Modifier.weight(1f), label = { Text("Year") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(company, { company = it.take(40) }, Modifier.weight(1f), label = { Text("Company") }, singleLine = true)
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ExamType.entries.forEach { option -> FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) }) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                Button(
+                    { onCreate(name, subject, year.toIntOrNull(), company, type, null); name = ""; year = ""; company = "" },
+                    enabled = name.isNotBlank()
+                ) { Text("Create set") }
+            }
+        }
+    }
+    confirmDelete?.let { set ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete \"${set.autoName()}\"?") },
+            text = { Text("The notebooks in this set stay in your library; only the grouping is removed.") },
+            dismissButton = { TextButton({ confirmDelete = null }) { Text("Cancel") } },
+            confirmButton = { TextButton({ onDelete(set); confirmDelete = null }) { Text("Delete set") } }
+        )
+    }
+}
+
+// ---- Progress ---------------------------------------------------------------------------------------
+
+/** Per-subject score roll-up, or the empty state when nothing has been marked. */
+@Composable
+fun ExamProgressPanel(notes: List<Notebook>, onDismiss: () -> Unit) {
+    val progress = remember(notes) { subjectProgress(notes) }
+    FolioPanel(title = "Progress", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (progress.isEmpty()) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Text(
+                        "Tag a notebook with a subject and record a mark to see progress here.",
+                        Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            progress.forEach { row ->
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(10.dp).background(subjectColor(row.subject), CircleShape))
+                            Spacer(Modifier.width(8.dp))
+                            Text(row.subject?.label ?: "Other subjects", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "${row.paperCount} paper${if (row.paperCount == 1) "" else "s"}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (row.averageShare == null) {
+                            Text("No marks recorded yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            ProgressRow("Average", row.averageShare)
+                            row.recentShare?.let { ProgressRow("Recent attempts", it) }
+                            row.bestShare?.let { ProgressRow("Best", it) }
+                        }
+                    }
+                }
+            }
+            Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ProgressRow(label: String, share: Float) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text("${(share * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        }
+        LinearProgressIndicator(
+            progress = { share.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+}
+
+// ---- Redo review ---------------------------------------------------------------------------------------
+
+/** Every flagged page across the library, grouped by notebook, one tap from the page itself. */
+@Composable
+fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (String, Int) -> Unit) {
+    val flagged = notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
+    FolioPanel(title = "Redo list", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Pages you marked to try again, across every notebook. Clear a flag from the page's own menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (flagged.isEmpty()) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Text(
+                        "Nothing to redo. Flag a page from the editor's page menu when a question goes badly.",
+                        Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            flagged.groupBy { it.first }.forEach { (note, pages) ->
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        pages.forEach { (target, index, page) ->
+                            Surface(
+                                onClick = { onOpen(target.id, index) },
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Page ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                    if (page.paper == Paper.MC_SHEET) {
+                                        Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${index + 1}", Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---- Timer ---------------------------------------------------------------------------------------------
+
+/** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
+@Composable
+fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit) {
+    var customMinutes by rememberSaveable { mutableStateOf("90") }
+    var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
+    LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
+    FolioPanel(title = "Exam timer", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            when (timer.phase) {
+                ExamTimerPhase.IDLE -> {
+                    Text("Sit the paper under exam conditions: reading time first, then writing time, counted down live.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ExamTimerPreset.PRESETS.filter { it != ExamTimerPreset.CUSTOM }.forEach { preset ->
+                        Surface(
+                            onClick = { onStart(preset) },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(preset.label, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "${preset.readingSeconds / 60} min reading + ${preset.writingSeconds / 60} min writing",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Rounded.PlayArrow, "Start ${preset.label}")
+                            }
+                        }
+                    }
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Custom", style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    customMinutes, { customMinutes = it.filter(Char::isDigit).take(3) },
+                                    Modifier.weight(1f), label = { Text("Writing minutes") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                                Button({
+                                    val minutes = (customMinutes.toIntOrNull() ?: 90).coerceIn(1, 480)
+                                    customPreset = ExamTimerPreset("Custom · $minutes min", minutes * 60, 15 * 60)
+                                    onStart(customPreset)
+                                }) { Text("Start") }
+                            }
+                        }
+                    }
+                }
+                ExamTimerPhase.READING, ExamTimerPhase.WRITING -> {
+                    val active = timer.phase == ExamTimerPhase.WRITING
+                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                if (active) "WRITING TIME" else "READING TIME",
+                                style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                timer.clockText(),
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                if (active) "The clock is running" else "No pens yet — read the paper",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        TextButton({ onStop(null) }) { Text("Stop timer") }
+                    }
+                }
+                ExamTimerPhase.DONE -> {
+                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("PENS DOWN", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text("Time is up.", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        TextButton({ onStop(timer.elapsedWriting()) }) { Text("Record the sitting") }
+                    }
+                }
+            }
+        }
+    }
+}
