@@ -124,9 +124,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
-    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null, infinite: Boolean = false) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
-        val pages = List(pageCount.coerceIn(1, 40)) { NotePage(paper = paper) }
+        val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
         val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
         enqueue { repository.saveAll(note) }
@@ -274,7 +274,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.active ?: return
         // Inherit the current page's paper so an exam set stays consistent — keeps practice flowing.
         val chosen = paper ?: _state.value.page?.paper ?: Paper.MATH_GRID
-        updateNote(note.copy(pages = note.pages + NotePage(paper = chosen))); selectPage(note.pages.size)
+        updateNote(note.copy(pages = note.pages + NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))); selectPage(note.pages.size)
     }
     /**
      * Copies a page, reading its ink from disk first when only its summary is in memory. A copy of a
@@ -313,7 +313,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = state.active ?: return state.pageIndex
         val chosen = paper ?: state.page?.paper ?: Paper.MATH_GRID
         val at = index.coerceIn(0, note.pages.size)
-        val updated = note.withInsertedPage(at, NotePage(paper = chosen))
+        val updated = note.withInsertedPage(at, NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))
         updateNote(updated)
         _state.update { it.copy(pageIndex = at) }
         return at

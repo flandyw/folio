@@ -97,7 +97,7 @@ import java.io.File
                 }
             }
         }
-        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount -> model.create(title, cover, paper, exam, pageCount); newNote = false })
+        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite -> model.create(title, cover, paper, exam, pageCount, infinite = infinite); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize()) {
@@ -163,13 +163,15 @@ import java.io.File
     }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank()) { Text(action) } })
 }
 
-@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int) -> Unit) {
+@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean) -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
     var cover by rememberSaveable { mutableIntStateOf(0) }
     var paper by rememberSaveable { mutableStateOf(Paper.MATH_GRID) }
     var template by rememberSaveable { mutableStateOf<String?>(null) }
     var pageCount by rememberSaveable { mutableIntStateOf(1) }
+    var infinite by rememberSaveable { mutableStateOf(false) }
     fun chooseTemplate(item: NotebookTemplate) {
+        infinite = false
         template = item.id
         paper = item.paper
         pageCount = item.pages
@@ -179,11 +181,16 @@ import java.io.File
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(template == null, { template = null; pageCount = 1 }, { Text("Blank") })
+                FilterChip(template == null && !infinite, { template = null; pageCount = 1; infinite = false }, { Text("Blank") })
+                FilterChip(infinite, {
+                    template = null; pageCount = 1; infinite = true
+                    if (paper == Paper.MC_SHEET) paper = Paper.DOTS
+                }, { Text("Infinite canvas") })
                 NotebookTemplate.ALL.forEach { item ->
                     FilterChip(template == item.id, { chooseTemplate(item) }, { Text(item.title) })
                 }
             }
+            if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, placeholder = { Text("e.g. Calculus — exam practice") }, singleLine = true)
             Text("Cover color", style = MaterialTheme.typography.labelLarge)
@@ -200,7 +207,7 @@ import java.io.File
             Text("Paper style — pick for maths", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Maths papers first so an exam student sees them without scrolling.
-                listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET).forEach { item ->
+                listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET).filter { !infinite || it != Paper.MC_SHEET }.forEach { item ->
                     FilterChip(item == paper, { paper = item }, label = { Text(when (item) {
                         Paper.MATH_GRID -> "Maths grid"; Paper.GRAPH -> "Graph"; Paper.MC_SHEET -> "MC sheet"
                         else -> item.name.lowercase().replaceFirstChar(Char::uppercase)
@@ -214,7 +221,7 @@ import java.io.File
     }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } }, confirmButton = {
         val chosen = NotebookTemplate.byId(template)
         Button(
-            { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount) },
+            { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite) },
             shapes = ButtonDefaults.shapes(),
             enabled = title.isNotBlank()
         ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }

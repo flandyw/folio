@@ -84,9 +84,26 @@ class InkView(context: Context) : View(context) {
         color = 0xAA2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f
         pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
     }
-    private val scale get() = min(width / page.width, height / page.height).coerceAtLeast(.01f)
-    private val originX get() = (width - page.width * scale) / 2
-    private val originY get() = (height - page.height * scale) / 2
+    private val camera = InfiniteViewport()
+    var onCanvasZoom: (Float) -> Unit = {}
+    private var resetToken = -1
+    fun resetCanvas(token: Int) {
+        if (resetToken == token) return
+        resetToken = token
+        camera.reset(); invalidate()
+        if (page.infinite) onCanvasZoom(camera.zoom)
+    }
+    private val zoomDetector = android.view.ScaleGestureDetector(context,
+        object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                camera.scaleBy(detector.scaleFactor, detector.focusX, detector.focusY)
+                onCanvasZoom(camera.zoom); invalidate(); return true
+            }
+        }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
+    private val scale get() = if (page.infinite) camera.zoom else pageScale
+    private val pageScale get() = min(width / page.width, height / page.height).coerceAtLeast(.01f)
+    private val originX get() = if (page.infinite) camera.x else (width - page.width * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -109,7 +126,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?) {
-        if (page.id != value.id) { cancelGesture() }
+        if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1 }
         page = value; background = bitmap
         // Strokes deleted from outside the view simply stop being selected.
         if (selection.any { it !in value.strokes }) { selection = emptyList(); selectionDx = 0f; selectionDy = 0f }
@@ -121,8 +138,8 @@ class InkView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(234, 232, 226))
         canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale)
-        canvas.drawRect(-1f, -1f, page.width + 2f, page.height + 3f, shadowPaint)
-        canvas.clipRect(0f, 0f, page.width, page.height)
+        if (!page.infinite) canvas.drawRect(-1f, -1f, page.width + 2f, page.height + 3f, shadowPaint)
+        if (!page.infinite) canvas.clipRect(0f, 0f, page.width, page.height)
         val visible = if (erasing != null) page.copy(strokes = erasing!!) else page
         // A text box follows the finger while it is dragged, before the move is committed.
         val dragging = movingText
@@ -142,6 +159,9 @@ class InkView(context: Context) : View(context) {
         canvas.restore()
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (page.infinite && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
+            zoomDetector.onTouchEvent(event)
+        }
         // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
         if ((0 until event.pointerCount).any { isStylus(event, it) }) lastStylusAt = SystemClock.uptimeMillis()
         when (event.actionMasked) {
@@ -179,7 +199,7 @@ class InkView(context: Context) : View(context) {
                     else if (tool == Tool.TEXT) beginText(event, event.actionIndex)
                     else if (!navigating) beginStroke(event, event.actionIndex)
                 } else if (!stylus && !ignored) {
-                    draft = null; erasing = null; navigating = true
+                    draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; navigating = true
                     lastX = centroidX(event); lastY = centroidY(event)
                     panVelocity.resetTracking()
                     panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
@@ -201,7 +221,7 @@ class InkView(context: Context) : View(context) {
                 } else if (navigating) {
                     val x = centroidX(event); val y = centroidY(event)
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
-                    onDocumentPan(x - lastX, y - lastY)
+                    if (page.infinite) camera.pan(x - lastX, y - lastY) else onDocumentPan(x - lastX, y - lastY)
                     lastX = x; lastY = y
                 } else {
                     val points = (0 until event.historySize).map { point(event, index, it) } + point(event, index)
@@ -400,10 +420,10 @@ class InkView(context: Context) : View(context) {
         return InkPoint((x - originX) / scale, (y - originY) / scale, pressure)
     }
     /** Page coordinates, so a sample reported just off the page still lands on the boundary. */
-    private fun clampToPage(p: InkPoint) = InkPoint(p.x.coerceIn(0f, page.width), p.y.coerceIn(0f, page.height), p.pressure)
+    private fun clampToPage(p: InkPoint) = if (page.infinite) p else InkPoint(p.x.coerceIn(0f, page.width), p.y.coerceIn(0f, page.height), p.pressure)
     /** True on the page, with the slack that absorbs samples reported just outside a screen bezel. */
     private fun onPage(x: Float, y: Float) =
-        x >= -EDGE_TOLERANCE && x <= page.width + EDGE_TOLERANCE && y >= -EDGE_TOLERANCE && y <= page.height + EDGE_TOLERANCE
+        page.infinite || x >= -EDGE_TOLERANCE && x <= page.width + EDGE_TOLERANCE && y >= -EDGE_TOLERANCE && y <= page.height + EDGE_TOLERANCE
     /**
      * Samples to add to the stroke in progress. Anything past the page edge is clamped once so the
      * line ends on the boundary, and the rest of that gesture is dropped rather than smeared along it.

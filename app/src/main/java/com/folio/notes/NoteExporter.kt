@@ -17,7 +17,7 @@ class NoteExporter(private val repository: NoteRepository) {
         // The imported PDF is parsed once here and reused, so a long notebook isn't reparsed per page.
         repository.openPdf(note.id).use { source ->
             if (png) {
-                val page = content(note, note.pages.getOrNull(pageIndex) ?: note.pages.first())
+                val page = InkRenderer.exportPage(content(note, note.pages.getOrNull(pageIndex) ?: note.pages.first()))
                 val factor = minOf(2f, 2800f / page.height, 2800f / page.width)
                 val bitmap = Bitmap.createBitmap((page.width * factor).toInt().coerceAtLeast(1), (page.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
                 val background = source?.render(page, bitmap.width)
@@ -31,8 +31,10 @@ class NoteExporter(private val repository: NoteRepository) {
                 note.pages.forEachIndexed { index, page ->
                     // Each page is read from disk just before it is drawn, so exporting a long notebook
                     // never holds more than one page's ink in memory at a time.
-                    val loaded = content(note, page)
-                    val pdfPage = document.startPage(PdfDocument.PageInfo.Builder(loaded.width.toInt(), loaded.height.toInt(), index + 1).create())
+                    val loaded = InkRenderer.exportPage(content(note, page))
+                    val factor = minOf(1f, 14400f / loaded.width, 14400f / loaded.height)
+                    val pdfPage = document.startPage(PdfDocument.PageInfo.Builder((loaded.width * factor).toInt().coerceAtLeast(1), (loaded.height * factor).toInt().coerceAtLeast(1), index + 1).create())
+                    pdfPage.canvas.scale(factor, factor)
                     val background = source?.render(loaded, 1680)
                     try { InkRenderer.page(pdfPage.canvas, loaded, background) } finally { background?.recycle() }
                     document.finishPage(pdfPage)

@@ -126,7 +126,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
     fun placeTextBox(at: InkPoint) {
-        val width = (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
+        val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
         textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic)
         textEditorNew = true
     }
@@ -154,24 +154,30 @@ private fun paperLabel(p: Paper): String = when (p) {
     val motionDensity = LocalDensity.current.density
     val motion = remember(pages, note.id, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
     DisposableEffect(motion) { onDispose { motion.reset() } }
+    var canvasReset by remember { mutableIntStateOf(0) }
     fun resetZoom() {
+        canvasReset++
         motion.reset()
         pages.requestScrollToItem(pages.firstVisibleItemIndex, (pages.firstVisibleItemScrollOffset / documentZoom).roundToInt())
         documentZoom = 1f
         documentPan = 0f
     }
-    fun jumpTo(index: Int) { motion.reset(); scope.launch { pages.scrollToItem(index); model.selectPage(index) } }
+    fun jumpTo(index: Int) { motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
     fun addPage() {
         motion.reset()
         val index = note.pages.size
         model.addPage()
+        if (page.infinite) return
         scope.launch {
             snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it > index + 1 }
             pages.scrollToItem(index)
             model.selectPage(index)
         }
     }
-    LaunchedEffect(note.id) {
+    LaunchedEffect(note.id, page.infinite) {
+        if (page.infinite) return@LaunchedEffect
+        pages.scrollToItem(state.pageIndex)
+        documentZoom = 1f
         snapshotFlow { pages.firstVisibleItemIndex }.distinctUntilChanged().collect { model.selectPage(it) }
     }
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
@@ -202,7 +208,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
-            Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, note.pages.size) {
+            if (page.infinite) {
+                EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
+                    onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
+                    onSelection = { selection = page.id to it },
+                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
+                    onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
+                    onCanvasZoom = { documentZoom = it })
+            } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, note.pages.size) {
                 fun scrubTo(y: Float) {
                     val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(1f)
                     pages.requestScrollToItem(DocumentViewport.pageAt(((y - trackTopPx) / span).coerceIn(0f, 1f), note.pages.size))
@@ -288,7 +301,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     item { OutlinedButton({ addPage() }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
             }
-            Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(stripWidth).fillMaxHeight()) {
+            if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(stripWidth).fillMaxHeight()) {
                 FastScrollTrack(pages, scrubbing, Modifier.fillMaxSize())
             }
             if (scrubbing) Surface(Modifier.align(Alignment.TopEnd).padding(top = trackTop, end = stripInset + stripWidth + 8.dp), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp) {
@@ -548,7 +561,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
 }
 
-@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit) {
+@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
@@ -563,12 +576,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             catch (_: Exception) { error = true }
         }
     }
-    Surface(Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
+    Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
         // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
         // of a blank stand-in and replace the content that is still on disk.
         if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
-            view.bind(page, background); view.tool = tool; view.inkColor = options.color
+            view.onCanvasZoom = onCanvasZoom; view.bind(page, background); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition

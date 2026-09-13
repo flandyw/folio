@@ -51,7 +51,8 @@ class PageThumbnailCache(private val context: Context, private val repository: N
 
     private suspend fun render(noteId: String, page: NotePage, widthPx: Int): Bitmap? {
         // A page still only on disk is read here; a failure simply leaves no preview, never a crash.
-        val content = if (page.loaded) page else try { repository.loadPage(noteId, page) } catch (_: Exception) { return null }
+        val loaded = if (page.loaded) page else try { repository.loadPage(noteId, page) } catch (_: Exception) { return null }
+        val content = InkRenderer.exportPage(loaded)
         return try {
             val heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, 4096)
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)

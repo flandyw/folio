@@ -96,6 +96,7 @@ object InkRenderer {
     fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true) {
         canvas.drawColor(Color.WHITE)
         if (background != null) canvas.drawBitmap(background, null, RectF(0f, 0f, page.width, page.height), Paint(Paint.FILTER_BITMAP_FLAG))
+        else if (page.infinite) infinitePaper(canvas, page)
         else if (page.pdfIndex == null) {
             when (page.paper) {
                 Paper.RULED -> drawRuled(canvas, page)
@@ -108,6 +109,56 @@ object InkRenderer {
             }
         }
         if (ink) { page.strokes.forEach { stroke(canvas, it) }; page.texts.forEach { text(canvas, it) } }
+    }
+
+    /** Only the visible lattice is drawn, even when the camera is far from the origin. */
+    private fun infinitePaper(canvas: Canvas, page: NotePage) {
+        if (page.paper == Paper.PLAIN) return
+        val bounds = canvas.clipBounds
+        val baseSpacing = if (page.paper.isGrid) page.paper.gridSpacing else 28f
+        // Thin the pattern at extreme export scales instead of iterating over an enormous world.
+        val stride = ceil(max(bounds.width(), bounds.height()) / (baseSpacing * 180f)).coerceAtLeast(1f)
+        val spacing = baseSpacing * stride
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0E0DA.toInt(); strokeWidth = .8f }
+        val firstX = floor(bounds.left / spacing).toInt()
+        val lastX = ceil(bounds.right / spacing).toInt()
+        val firstY = floor(bounds.top / spacing).toInt()
+        val lastY = ceil(bounds.bottom / spacing).toInt()
+        for (row in firstY..lastY) {
+            val y = row * spacing
+            if (page.paper == Paper.DOTS) {
+                for (column in firstX..lastX) canvas.drawCircle(column * spacing, y, 1.2f, paint)
+            } else canvas.drawLine(bounds.left.toFloat(), y, bounds.right.toFloat(), y, paint)
+        }
+        if (page.paper.isGrid) for (column in firstX..lastX) {
+            val x = column * spacing
+            canvas.drawLine(x, bounds.top.toFloat(), x, bounds.bottom.toFloat(), paint)
+        }
+        if (page.paper == Paper.GRAPH) {
+            paint.color = 0xFF919A98.toInt(); paint.strokeWidth = 1.5f
+            canvas.drawLine(0f, bounds.top.toFloat(), 0f, bounds.bottom.toFloat(), paint)
+            canvas.drawLine(bounds.left.toFloat(), 0f, bounds.right.toFloat(), 0f, paint)
+        }
+    }
+
+    /** A finite, translated copy for previews and exports; stored coordinates stay untouched. */
+    fun exportPage(page: NotePage): NotePage {
+        if (!page.infinite) return page
+        var left = 0f; var top = 0f; var right = page.width; var bottom = page.height
+        page.strokes.forEach { stroke ->
+            val pad = stroke.width * 2f + 24f
+            stroke.points.forEach {
+                left = min(left, it.x - pad); top = min(top, it.y - pad)
+                right = max(right, it.x + pad); bottom = max(bottom, it.y + pad)
+            }
+        }
+        page.texts.forEach {
+            left = min(left, it.x - 24f); top = min(top, it.y - 24f)
+            right = max(right, it.x + it.width + 24f); bottom = max(bottom, it.y + textHeight(it) + 24f)
+        }
+        return page.copy(width = right - left, height = bottom - top,
+            strokes = page.strokes.map { InkGeometry.translate(it, -left, -top) },
+            texts = page.texts.map { it.moved(-left, -top) })
     }
 
     /**

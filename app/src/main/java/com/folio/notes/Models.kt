@@ -55,7 +55,8 @@ data class NotePage(
     /** False while only this page's summary is in memory; its ink and text are still on disk. */
     val loaded: Boolean = true,
     /** Queued for the redo list — a question worth another attempt before the exam. */
-    val redoFlag: Boolean = false
+    val redoFlag: Boolean = false,
+    val infinite: Boolean = false
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
@@ -146,6 +147,7 @@ object NoteCodec {
             put("id", p.id); put("width", p.width); put("height", p.height); put("paper", p.paper.name)
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
             if (p.redoFlag) put("redo", true)
+            if (p.infinite) put("infinite", true)
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
         }) } })
@@ -160,7 +162,7 @@ object NoteCodec {
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
-                    p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false))
+                    p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             if (o.isNull("set")) null else o.optString("set"),
