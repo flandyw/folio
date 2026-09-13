@@ -29,6 +29,11 @@ android {
         getByName("release") { signingConfig = signingConfigs.getByName("release") }
     }
     buildFeatures { compose = true }
+    lint {
+        // These dependency detectors crash with IncompatibleClassChangeError against
+        // AGP 8.7's Kotlin analysis API. Re-enable when upgrading the lint toolchain.
+        disable += setOf("NullSafeMutableLiveData", "FrequentlyChangingValue")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
