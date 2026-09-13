@@ -44,6 +44,8 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var kind by rememberSaveable { mutableStateOf(LibraryKind.ALL) }
     var unfiled by rememberSaveable { mutableStateOf(false) }
     var listView by rememberSaveable { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable { mutableStateOf(false) }
+    var setsExpanded by rememberSaveable { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -67,21 +69,22 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     fun toggleSelection(id: String) {
         selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
     }
+    val filtersActive = kind != LibraryKind.ALL || unfiled || examFilter.isActive
     val folderName = state.folders.find { it.id == state.folderId }?.name
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         Row(Modifier.fillMaxSize()) {
-            if (wide) Surface(Modifier.width(224.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Brand(); Spacer(Modifier.height(32.dp))
+            if (wide) Surface(Modifier.width(200.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Brand(); Spacer(Modifier.height(16.dp))
                     FilledTonalButton(onNew, Modifier.fillMaxWidth().height(52.dp)) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
-                    Spacer(Modifier.height(28.dp))
+                    Spacer(Modifier.height(12.dp))
                     NavItem("All notebooks", Icons.Rounded.GridView, !starred && !unfiled && state.folderId == null, state.notes.size) { starred = false; unfiled = false; model.folder(null) }
                     NavItem("Favorites", Icons.Rounded.StarOutline, starred, state.notes.count { it.starred }) { starred = true; unfiled = false; model.folder(null) }
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("YOUR FOLDERS", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onFolder, Modifier.size(40.dp)) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                        IconButton(onFolder, Modifier.size(48.dp)) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         state.folders.forEach { folder -> NavItem(folder.name, Icons.Rounded.FolderOpen, state.folderId == folder.id, state.notes.count { it.folderId == folder.id }) { starred = false; unfiled = false; model.folder(folder.id) } }
@@ -94,34 +97,23 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                     }
                 }
             }
-            LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(if (wide) 210.dp else 154.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(if (wide) 36.dp else 20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!wide) Brand() else Text("YOUR PERSONAL WORKSPACE", style = MaterialTheme.typography.labelSmall, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.weight(1f))
-                            if (!wide) IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Settings") }
-                            else Text(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(when { folderName != null -> folderName; starred -> "Worth coming back to."; else -> "Room for a little wonder." }, style = if (wide) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineLarge)
-                            Text(if (folderName != null) "A home for connected ideas." else if (starred) "Your favorite notebooks, right here." else "Loose thoughts. Big plans. Everything in between.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(onNew, Modifier.weight(1f, fill = !wide), shape = RoundedCornerShape(18.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)) {
-                                Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("New notebook")
-                            }
-                            Box(Modifier.weight(1f, fill = !wide)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                            if (!wide) Spacer(Modifier.weight(1f))
+                            if (!wide) FilledTonalIconButton(onNew) { Icon(Icons.Rounded.Add, "New notebook") }
+                            Box {
                                 var importMenu by remember { mutableStateOf(false) }
-                                OutlinedButton({ importMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)) {
-                                    Icon(Icons.Rounded.FileOpen, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Import"); Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp))
-                                }
+                                IconButton({ importMenu = true }) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
                                 DropdownMenu(importMenu, { importMenu = false }) {
                                     DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                                     DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
                                 }
                             }
+                            if (!wide) IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Settings") }
                         }
                         if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(state.folderId == null && !starred && !unfiled, { model.folder(null); starred = false; unfiled = false }, { Text("All notebooks") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
@@ -131,20 +123,9 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                         }
                         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a notebook…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            state.daysToExam?.let { days ->
-                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                                    Text(
-                                        if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
-                                        Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                                Spacer(Modifier.width(6.dp))
-                            }
+                            Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(8.dp))
                             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
-                            Spacer(Modifier.weight(1f))
                             Box {
                                 IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
                                 DropdownMenu(sortMenu, { sortMenu = false }) {
@@ -162,82 +143,99 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                                 }
                             } }
                         }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
-                            LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FilterChip(filtersExpanded || filtersActive, { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
+                                leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
+                                trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+                            TextButton({ selecting = !selecting; selectedIds = emptyList() }) { Text(if (selecting) "Done" else "Select") }
+                            TextButton({ setsPanel = true }) { Text("Exam sets") }
+                            TextButton({ progressPanel = true }) { Text("Progress") }
+                            TextButton({ redoPanel = true }) { Text("Redo") }
                         }
-                        // Exam filters: one chip per subject that is actually in use, then year,
-                        // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
-                        val examNotes = state.notes.filter { it.exam.isTagged || it.setId != null }
-                        if (examNotes.isNotEmpty()) {
-                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                VceSubject.entries.forEach { subject ->
-                                    val count = examNotes.count { it.exam.subject == subject }
-                                    if (count > 0) {
-                                        SubjectChip(subject, examFilter.subject == subject, {
-                                            model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
-                                        })
+                        if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }) { Text("Reset filters") }
+                        }
+                        state.daysToExam?.let { days ->
+                            Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                        }
+                        if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
+                                LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
+                            }
+                            // Exam filters: one chip per subject that is actually in use, then year,
+                            // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
+                            val examNotes = state.notes.filter { it.exam.isTagged || it.setId != null }
+                            if (examNotes.isNotEmpty()) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    VceSubject.entries.forEach { subject ->
+                                        val count = examNotes.count { it.exam.subject == subject }
+                                        if (count > 0) {
+                                            SubjectChip(subject, examFilter.subject == subject, {
+                                                model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
+                                            })
+                                        }
                                     }
                                 }
-                            }
-                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
-                                    FilterChip(examFilter.year == year, {
-                                        model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
-                                    }, { Text("$year") })
+                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
+                                        FilterChip(examFilter.year == year, {
+                                            model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
+                                        }, { Text("$year") })
+                                    }
+                                    examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
+                                        FilterChip(examFilter.company == company, {
+                                            model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
+                                        }, { Text(company) })
+                                    }
+                                    ExamStatus.entries.forEach { status ->
+                                        FilterChip(examFilter.status == status, {
+                                            model.setExamFilter(if (examFilter.status == status) examFilter.copy(status = null) else examFilter.copy(status = status))
+                                        }, { Text(status.label) })
+                                    }
+                                    FilterChip(examFilter.belowShare != null, {
+                                        model.setExamFilter(if (examFilter.belowShare != null) examFilter.copy(belowShare = null) else examFilter.copy(belowShare = 0.7f))
+                                    }, { Text("Under 70%") })
                                 }
-                                examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
-                                    FilterChip(examFilter.company == company, {
-                                        model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
-                                    }, { Text(company) })
-                                }
-                                ExamStatus.entries.forEach { status ->
-                                    FilterChip(examFilter.status == status, {
-                                        model.setExamFilter(if (examFilter.status == status) examFilter.copy(status = null) else examFilter.copy(status = status))
-                                    }, { Text(status.label) })
-                                }
-                                FilterChip(examFilter.belowShare != null, {
-                                    model.setExamFilter(if (examFilter.belowShare != null) examFilter.copy(belowShare = null) else examFilter.copy(belowShare = 0.7f))
-                                }, { Text("Under 70%") })
                             }
                         }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton({ selecting = !selecting; selectedIds = emptyList() }) { Text(if (selecting) "Done" else "Select notebooks") }
-                            if (selecting) {
+                        if (selecting) Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                 TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                                 TextButton({ bulkMove = true }, enabled = selection.isNotEmpty()) { Text("Move") }
                                 TextButton({ assignPanel = true }, enabled = selection.isNotEmpty()) { Text("Exam set") }
                                 val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
                                 TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
-                            }
-                            TextButton({ progressPanel = true }) { Icon(Icons.Rounded.QueryStats, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Progress") }
-                            TextButton({ redoPanel = true }) { Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Redo") }
                         }
-                        Text("Sorted by ${sort.label.lowercase()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.saveFailed) FilledTonalButton(model::retrySave) { Text("Changes need saving · Retry save") }
                     }
                 }
-                // Exam sets appear above the shelf: one card per paper grouping its notebooks.
+                // Keep grouped papers available without pushing the notebook shelf off screen.
                 val groups = groupExamSets(state.sets, state.notes)
                 if (groups.isNotEmpty() && !selecting) item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("EXAM SETS", style = MaterialTheme.typography.labelSmall, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton({ setsExpanded = !setsExpanded }) {
+                                Icon(if (setsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Exam sets (${groups.size})")
+                            }
                             Spacer(Modifier.weight(1f))
                             TextButton({ setsPanel = true }) { Text("Manage sets") }
                         }
-                        groups.forEach { group -> ExamSetCard(group, openSet = { setsPanel = true }, openNote = { model.open(it.id) }) }
+                        if (setsExpanded) groups.forEach { group -> ExamSetCard(group, openSet = { setsPanel = true }, openNote = { model.open(it.id) }) }
                     }
                 }
                 if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
-                            Text(if (query.isNotEmpty() || kind != LibraryKind.ALL || unfiled) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
-                            Text(if (query.isNotEmpty() || kind != LibraryKind.ALL || unfiled) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (query.isNotEmpty() || kind != LibraryKind.ALL || unfiled) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false }) { Text("Clear filters") }
-                            if (query.isEmpty() && !starred && !unfiled && kind == LibraryKind.ALL) TextButton(onNew) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                            Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
+                            Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }) { Text("Clear filters") }
+                            if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
                         }
                     }
                 }
@@ -250,7 +248,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             Text("Select notebook", style = MaterialTheme.typography.labelSmall)
                         }
                         if (listView) Surface(onClick = open, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
@@ -264,12 +262,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                         } else                        NotebookCard(note, model.thumbnails, folder, open, { model.star(note) }, { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note }, selecting, note.pages.count { it.redoFlag })
                     }
                 }
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Spa, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(8.dp))
-                        Text("Less noise. More possibility.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+
             }
         }
     }
@@ -345,10 +338,10 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 @Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0) {
     Column {
         Box {
-            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().aspectRatio(.86f).clickable(onClickLabel = "Open ${note.title}", onClick = open))
+            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().aspectRatio(1.1f).clickable(onClickLabel = "Open ${note.title}", onClick = open))
             if (!selecting) IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", tint = Color(0xFF343931), modifier = Modifier.size(21.dp)) }
         }
-        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).clickable(onClick = open)) {
                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -383,7 +376,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 260.dp.roundToPx() })
     Box(modifier) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp, 20.dp, 20.dp, 8.dp)).background(cover)) {
-            if (preview == null) NotebookCover(note, Modifier.fillMaxSize())
+            if (preview == null) NotebookCover(note, Modifier.fillMaxSize(), compact = true)
             // The page keeps its whole height and sits inside the cover colour, so nothing is cropped.
             else Box(Modifier.fillMaxSize().padding(start = 6.dp, top = 4.dp, end = 4.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
                 Image(preview.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -411,7 +404,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     return preview
 }
 
-@Composable fun NotebookCover(note: Notebook, modifier: Modifier = Modifier) {
+@Composable fun NotebookCover(note: Notebook, modifier: Modifier = Modifier, compact: Boolean = false) {
     val color = CoverColors[note.cover.mod(CoverColors.size)]
     Box(modifier.clip(RoundedCornerShape(6.dp, 18.dp, 18.dp, 6.dp)).background(color)) {
         Canvas(Modifier.fillMaxSize()) {
@@ -425,12 +418,12 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             drawPath(path, Color(0xFF343931).copy(alpha = .28f), style = Stroke(width = 2.5f))
             drawCircle(Color.White.copy(alpha = .25f), size.width * .21f, Offset(size.width * .83f, size.height * .88f))
         }
-        Column(Modifier.fillMaxSize().padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 20.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.fillMaxSize().padding(start = if (compact) 14.dp else 24.dp, top = if (compact) 14.dp else 24.dp, end = if (compact) 14.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (note.pages.any { it.pdfIndex != null }) "DOCUMENT" else "NOTEBOOK", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, letterSpacing = 2.sp, color = Color(0xFF343931).copy(alpha = .7f))
-                Text(note.title, fontFamily = FontFamily.Serif, fontSize = 23.sp, lineHeight = 28.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, color = Color(0xFF343931))
+                Text(note.title, fontFamily = FontFamily.Serif, fontSize = if (compact) 18.sp else 23.sp, lineHeight = if (compact) 22.sp else 28.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis, color = Color(0xFF343931))
             }
-            Text("f.", fontFamily = FontFamily.Serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 23.sp, color = Color(0xFF343931).copy(alpha = .7f))
+            if (!compact) Text("f.", fontFamily = FontFamily.Serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 23.sp, color = Color(0xFF343931).copy(alpha = .7f))
         }
     }
 }
