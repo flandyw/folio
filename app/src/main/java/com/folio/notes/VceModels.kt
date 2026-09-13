@@ -132,14 +132,22 @@ data class ExamSet(
     val subject: VceSubject? = null,
     val year: Int? = null,
     val company: String = "",
+    /** Legacy paper metadata retained when reading existing sets. New sets span both papers. */
     val type: ExamType? = null,
-    /** Seconds allowed, e.g. 5400 for Methods Exam 1; drives the timer's default preset. */
+    /** Legacy duration retained for backup compatibility. */
     val durationSeconds: Int? = null
 ) {
     /** Short cover line, matching the notebook tags' format. */
     fun summaryLine(): String = listOfNotNull(
-        company.ifBlank { null }, year?.toString(), type?.label
+        subject?.label, company.ifBlank { null }, year?.toString()
     ).joinToString(" · ")
+
+    /** Only pair papers with a complete, matching subject/year/company identity. */
+    fun matchesPaper(note: Notebook): Boolean =
+        subject != null && year != null && company.isNotBlank() &&
+            note.exam.subject == subject && note.exam.year == year &&
+            note.exam.company.trim().equals(company.trim(), ignoreCase = true) &&
+            note.exam.type in listOf(ExamType.EXAM_1, ExamType.EXAM_2)
 }
 
 // ---- Codec ---------------------------------------------------------------------------------------
@@ -235,8 +243,9 @@ object ExamTagsCodec {
 
 /** Pairs a set with the notebooks that link to it, which is everything the set screens need. */
 data class ExamSetGroup(val set: ExamSet, val notes: List<Notebook>) {
-    /** The best share across every attempt of every notebook in the set, or null when unmarked. */
-    val bestShare: Float? get() = notes.mapNotNull { it.bestScore }.maxOrNull()
+    fun papers(type: ExamType): List<Notebook> = notes.filter { it.exam.type == type }
+    fun bestShare(type: ExamType): Float? = papers(type).mapNotNull { it.bestScore }.maxOrNull()
+    val pairedPaperCount: Int get() = listOf(ExamType.EXAM_1, ExamType.EXAM_2).count { papers(it).isNotEmpty() }
     /** Number of distinct sitting records across the whole set. */
     val attemptCount: Int get() = notes.sumOf { it.attempts.size }
 }
@@ -244,7 +253,7 @@ data class ExamSetGroup(val set: ExamSet, val notes: List<Notebook>) {
 fun groupExamSets(sets: List<ExamSet>, notes: List<Notebook>): List<ExamSetGroup> =
     sets.map { set -> ExamSetGroup(set, notes.filter { it.setId == set.id }) }
 
-/** Builds a set's name from its tags when the student has not typed one, e.g. "VCAA 2022 Exam 1". */
+/** Builds a set's name from its tags when the student has not typed one, e.g. "Maths Methods · VCAA · 2022". */
 fun ExamSet.autoName(): String =
     name.ifBlank { summaryLine().ifBlank { "Exam set" } }
 

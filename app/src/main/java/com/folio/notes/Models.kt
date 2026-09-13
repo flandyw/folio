@@ -63,7 +63,7 @@ data class Notebook(
     val updated: Long = System.currentTimeMillis(), val pages: List<NotePage> = listOf(NotePage()),
     /** Exam metadata: subject, year, company and so on, carried as [ExamTags]. */
     val exam: ExamTags = ExamTags(),
-    /** A [ExamSet] this notebook belongs to, e.g. one attempt within "VCAA 2022 Methods Exam 1". */
+    /** A [ExamSet] this notebook belongs to, e.g. Exam 1 within "VCAA 2022 Methods". */
     val setId: String? = null,
     /** Marked attempts with scores and time taken, newest last. */
     val attempts: List<ExamAttempt> = emptyList()

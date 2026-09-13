@@ -140,16 +140,40 @@ class ExamSetTests {
     }
 
     @Test fun anEmptyNameFallsBackToTheTagLine() {
-        assertEquals("VCAA · 2022 · Exam 1", set.autoName())
+        assertEquals("Maths Methods · VCAA · 2022", set.autoName())
         assertEquals("My paper", set.copy(name = "My paper").autoName())
     }
 
-    @Test fun theSetScoreIsTheBestAcrossEveryMember() {
-        val attempts = Notebook(id = "a", title = "First go", setId = "s1", attempts = listOf(ExamAttempt(id = "a1", score = 20, total = 40)))
-        val redo = Notebook(id = "b", title = "Redo", setId = "s1", attempts = listOf(ExamAttempt(id = "b1", score = 34, total = 40)))
+    @Test fun scoresStaySeparateForEachPaper() {
+        val attempts = Notebook(id = "a", title = "First go", setId = "s1", exam = ExamTags(type = ExamType.EXAM_1), attempts = listOf(ExamAttempt(id = "a1", score = 20, total = 40)))
+        val redo = Notebook(id = "b", title = "Redo", setId = "s1", exam = ExamTags(type = ExamType.EXAM_2), attempts = listOf(ExamAttempt(id = "b1", score = 34, total = 40)))
         val group = groupExamSets(listOf(set), listOf(attempts, redo)).single()
-        assertEquals(.85f, group.bestShare!!, .0001f)
+        assertEquals(.5f, group.bestShare(ExamType.EXAM_1)!!, .0001f)
+        assertEquals(.85f, group.bestShare(ExamType.EXAM_2)!!, .0001f)
+        assertEquals(2, group.pairedPaperCount)
         assertEquals(2, group.attemptCount)
+    }
+
+    @Test fun matchingRequiresTheSameSubjectYearAndCompanyForEitherExam() {
+        val paper = Notebook(title = "Paper", exam = ExamTags(subject = set.subject, year = 2022, company = " vcaa ", type = ExamType.EXAM_1))
+        assertTrue(set.matchesPaper(paper))
+        assertTrue(set.matchesPaper(paper.copy(exam = paper.exam.copy(type = ExamType.EXAM_2))))
+        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(year = 2021))))
+        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(company = "NEAP"))))
+        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(subject = VceSubject.PHYSICS))))
+        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(type = ExamType.SAC))))
+        assertFalse(set.copy(subject = null).matchesPaper(paper))
+    }
+
+    @Test fun incompletePairsKeepSupportingNotebooksWithoutCountingThemAsPapers() {
+        val paper = Notebook(title = "Exam 2", setId = set.id, exam = ExamTags(type = ExamType.EXAM_2))
+        val supporting = Notebook(title = "Corrections", setId = set.id)
+        val group = groupExamSets(listOf(set), listOf(supporting, paper)).single()
+        assertEquals(1, group.pairedPaperCount)
+        assertTrue(group.papers(ExamType.EXAM_1).isEmpty())
+        assertEquals(listOf(paper), group.papers(ExamType.EXAM_2))
+        assertNull(group.bestShare(ExamType.EXAM_2))
+        assertEquals(2, group.notes.size)
     }
 
     @Test fun setsRoundTripThroughJson() {

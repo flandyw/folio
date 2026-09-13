@@ -296,7 +296,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     if (setsPanel) ExamSetsPanel(
         groups = groupExamSets(state.sets, state.notes),
         onDismiss = { setsPanel = false },
-        onCreate = { name, subject, year, company, type, duration -> model.createExamSet(name, subject, year, company, type, duration) },
+        onCreate = { name, subject, year, company -> model.createExamSet(name, subject, year, company) },
         onDelete = { model.deleteExamSet(it) },
         openNote = { setsPanel = false; model.open(it.id) }
     )

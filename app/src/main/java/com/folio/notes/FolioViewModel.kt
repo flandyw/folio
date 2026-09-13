@@ -170,12 +170,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     fun setExamFilter(filter: ExamFilter) { _state.update { it.copy(examFilter = filter) } }
 
-    fun createExamSet(name: String, subject: VceSubject? = null, year: Int? = null,
-                      company: String = "", type: ExamType? = null, durationSeconds: Int? = null) {
-        if (name.isBlank() || _state.value.loadFailed) return
-        val sets = _state.value.sets + ExamSet(name = name.trim(), subject = subject, year = year,
-            company = company.trim(), type = type, durationSeconds = durationSeconds)
-        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
+    fun createExamSet(name: String, subject: VceSubject?, year: Int?, company: String) {
+        if (subject == null || year == null || year !in 1000..9999 || company.isBlank() || _state.value.loadFailed) return
+        val existing = _state.value.sets.find {
+            it.subject == subject && it.year == year && it.company.trim().equals(company.trim(), ignoreCase = true)
+        }
+        val set = existing ?: ExamSet(name = name.trim(), subject = subject, year = year, company = company.trim())
+        if (existing == null) {
+            val sets = _state.value.sets + set
+            _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
+        }
+        val matching = _state.value.notes.filter { it.setId == null && set.matchesPaper(it) }.map { it.id }.toSet()
+        assignToExamSet(matching, set.id)
     }
 
     fun updateExamSet(set: ExamSet) {

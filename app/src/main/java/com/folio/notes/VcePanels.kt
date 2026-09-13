@@ -322,7 +322,7 @@ fun ScoreDialog(total: Int?, defaultSeconds: Int?, onDismiss: () -> Unit, onReco
 
 // ---- Exam sets ---------------------------------------------------------------------------------------
 
-/** One exam set as a card: name, member count, best score, and links into the members. */
+/** A subject/year/company pair with separate paper links and scores. */
 @Composable
 fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -> Unit) {
     Surface(onClick = openSet, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -339,40 +339,53 @@ fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                group.bestShare?.let { share ->
-                    Surface(shape = CircleShape, color = subjectColor(group.set.subject)) {
-                        Text(
-                            "${(share * 100).roundToInt()}%",
-                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            color = Color.White, style = MaterialTheme.typography.labelLarge
-                        )
+                Text("${group.pairedPaperCount}/2 papers", style = MaterialTheme.typography.labelLarge)
+            }
+            listOf(ExamType.EXAM_1, ExamType.EXAM_2).forEach { type ->
+                val papers = group.papers(type)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(type.label, style = MaterialTheme.typography.labelLarge)
+                        group.bestShare(type)?.let { share ->
+                            Text("Best ${(share * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    if (papers.isEmpty()) {
+                        Text("Not added yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        ExamSetMembers(papers, openNote)
                     }
                 }
             }
-            if (group.notes.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                group.notes.forEach { note ->
-                    Surface(
-                        onClick = { openNote(note) },
-                        shape = RoundedCornerShape(9.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ) {
-                        Text(note.title, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                    }
-                }
+            val supporting = group.notes.filter { it.exam.type !in listOf(ExamType.EXAM_1, ExamType.EXAM_2) }
+            if (supporting.isNotEmpty()) {
+                Text("Other notebooks", style = MaterialTheme.typography.labelMedium)
+                ExamSetMembers(supporting, openNote)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamSetMembers(notes: List<Notebook>, openNote: (Notebook) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        notes.forEach { note ->
+            Surface(onClick = { openNote(note) }, shape = RoundedCornerShape(9.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                Text(note.title, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
             }
         }
     }
 }
 
 /**
- * Manage sets: create one from tags or from scratch, rename it, delete it, or jump into its
- * members. Membership itself is assigned from the library's selection actions.
+ * Create a paired set from shared tags, delete it, or open its papers.
+ * Additional notebooks can be assigned from the library selection actions.
  */
 @Composable
 fun ExamSetsPanel(
     groups: List<ExamSetGroup>,
     onDismiss: () -> Unit,
-    onCreate: (String, VceSubject?, Int?, String, ExamType?, Int?) -> Unit,
+    onCreate: (String, VceSubject?, Int?, String) -> Unit,
     onDelete: (ExamSet) -> Unit,
     openNote: (Notebook) -> Unit
 ) {
@@ -380,7 +393,6 @@ fun ExamSetsPanel(
     var subject by remember { mutableStateOf<VceSubject?>(null) }
     var year by rememberSaveable { mutableStateOf("") }
     var company by rememberSaveable { mutableStateOf("") }
-    var type by remember { mutableStateOf<ExamType?>(null) }
     var confirmDelete by remember { mutableStateOf<ExamSet?>(null) }
 
     FolioPanel(title = "Exam sets", onDismissRequest = onDismiss) {
@@ -389,7 +401,7 @@ fun ExamSetsPanel(
                 .padding(horizontal = 24.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("Group every attempt of one paper — your tries, the solutions, a corrections book — under one card.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Keep Exam 1 and Exam 2 together for the same subject, year and company. Matching ungrouped papers are added when you create the set.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             groups.forEach { group ->
                 ExamSetCard(group, openSet = {}, openNote = { openNote(it) })
                 if (group.notes.isEmpty()) {
@@ -411,7 +423,8 @@ fun ExamSetsPanel(
             }
             HorizontalDivider()
             Text("New set", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Set name") }, placeholder = { Text("VCAA 2022 Methods Exam 1") }, singleLine = true)
+            Text("Choose a subject, four-digit year and company. If a set already matches, its ungrouped papers will be added to it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Set name (optional)") }, placeholder = { Text("VCAA 2022 Methods") }, singleLine = true)
             Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SubjectChip(subject, selected = subject == null, onClick = { subject = null })
@@ -425,13 +438,10 @@ fun ExamSetsPanel(
                 )
                 OutlinedTextField(company, { company = it.take(40) }, Modifier.weight(1f), label = { Text("Company") }, singleLine = true)
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ExamType.entries.forEach { option -> FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) }) }
-            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 Button(
-                    { onCreate(name, subject, year.toIntOrNull(), company, type, null); name = ""; year = ""; company = "" },
-                    enabled = name.isNotBlank()
+                    { onCreate(name, subject, year.toIntOrNull(), company); name = ""; year = ""; company = "" },
+                    enabled = subject != null && (year.toIntOrNull() ?: 0) in 1000..9999 && company.isNotBlank()
                 ) { Text("Create set") }
             }
         }
