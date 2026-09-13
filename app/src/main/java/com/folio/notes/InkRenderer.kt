@@ -4,10 +4,93 @@ import android.graphics.*
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import kotlin.math.*
 
 object InkRenderer {
     /** Tools whose geometry traces the drag rather than freehand samples, so it is never smoothed. */
     private val SHAPES = listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+
+    /**
+     * Tiny handwriting needs its direction changes left intact. A normal smoothing pass is useful on
+     * long sweeps, but averaging across a fast, tight turn can erase the hump of a small n/m/r.
+     */
+    private const val DUPLICATE_EPSILON = 0.05f
+    private const val FAST_SAMPLE_GAP = 5f
+    private const val MICRO_STROKE_SPAN = 36f
+    private const val MICRO_TURN_COS = 0.94f
+    private const val NORMAL_TURN_COS = 0.82f
+    private const val MIN_VISIBLE_TAPER = 0.68f
+
+    /**
+     * Smooths handwriting in sections, splitting at tight turns and sparse/fast samples. Each split
+     * point becomes the endpoint of both neighbouring spline sections, so it cannot be averaged away.
+     * This keeps small letters legible while still smoothing the straighter parts of a long stroke.
+     */
+    internal fun handwritingCentreline(points: List<InkPoint>): List<InkPoint> {
+        if (points.size < 3) return points
+
+        val clean = ArrayList<InkPoint>(points.size)
+        points.forEach { point ->
+            if (clean.isEmpty() || hypot(point.x - clean.last().x, point.y - clean.last().y) > DUPLICATE_EPSILON) {
+                clean += point
+            }
+        }
+        if (clean.size < 3) return clean
+
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        clean.forEach {
+            minX = min(minX, it.x); minY = min(minY, it.y)
+            maxX = max(maxX, it.x); maxY = max(maxY, it.y)
+        }
+        val microStroke = hypot(maxX - minX, maxY - minY) <= MICRO_STROKE_SPAN
+        val turnThreshold = if (microStroke) MICRO_TURN_COS else NORMAL_TURN_COS
+
+        fun shouldPreserve(index: Int): Boolean {
+            val previous = clean[index - 1]
+            val point = clean[index]
+            val next = clean[index + 1]
+            val inX = point.x - previous.x; val inY = point.y - previous.y
+            val outX = next.x - point.x; val outY = next.y - point.y
+            val inLength = hypot(inX, inY); val outLength = hypot(outX, outY)
+            if (inLength <= DUPLICATE_EPSILON || outLength <= DUPLICATE_EPSILON) return true
+
+            // A large per-sample jump usually means a fast stroke; avoid inventing a broad curve
+            // across it because that is exactly where quick small letters lose their shape.
+            if (max(inLength, outLength) >= FAST_SAMPLE_GAP) return true
+
+            val turnCos = ((inX * outX + inY * outY) / (inLength * outLength)).coerceIn(-1f, 1f)
+            return turnCos < turnThreshold
+        }
+
+        val result = ArrayList<InkPoint>(clean.size * 2)
+        var sectionStart = 0
+
+        fun appendSection(endInclusive: Int) {
+            if (endInclusive <= sectionStart) return
+            val section = clean.subList(sectionStart, endInclusive + 1)
+            val smoothed = if (section.size <= 2) section else InkGeometry.smooth(section)
+            if (result.isEmpty()) result.addAll(smoothed)
+            else result.addAll(smoothed.drop(1))
+            sectionStart = endInclusive
+        }
+
+        for (index in 1 until clean.lastIndex) {
+            if (shouldPreserve(index)) appendSection(index)
+        }
+        appendSection(clean.lastIndex)
+        return result
+    }
+
+    /**
+     * Raw stylus pressure is deliberately compressed around the selected pen width. Fast light
+     * strokes stay visible instead of collapsing to a hairline, while hard presses still thicken a
+     * little. p=1 remains exactly the chosen width.
+     */
+    internal fun penPressureScale(pressure: Float): Float {
+        val p = pressure.coerceIn(.25f, 1.8f)
+        return if (p <= 1f) 0.72f + 0.28f * sqrt(p) else 1f + 0.20f * (p - 1f)
+    }
 
     fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true) {
         canvas.drawColor(Color.WHITE)
@@ -43,7 +126,7 @@ object InkRenderer {
             .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.1f).build()
     }
 
-    /** The box's rendered height in page units, used for hit-testing and for the drag outline. */
+    /** The box's rendered height, used for hit-testing and for the drag outline. */
     fun textHeight(box: TextBox): Float = textLayout(box).height.toFloat()
 
     fun text(canvas: Canvas, box: TextBox) {
@@ -189,11 +272,15 @@ object InkRenderer {
             color = stroke.color; alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255); strokeWidth = stroke.width; strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
         }
-        // Freehand ink is resampled through a spline, so the line reads as a curve, not a polyline.
-        val centre = if (stroke.tool in SHAPES) points else InkGeometry.smooth(points)
+        val centre = when {
+            stroke.tool in SHAPES -> points
+            stroke.tool == Tool.PEN -> handwritingCentreline(points)
+            else -> InkGeometry.smooth(points)
+        }
         if (centre.size < 2) {
             paint.style = Paint.Style.FILL
-            canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * centre[0].pressure / 2, paint)
+            val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
+            canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * widthScale / 2, paint)
             return
         }
         // Translucent ink is drawn as one Path, so overlapping segments never darken the line.
@@ -202,10 +289,12 @@ object InkRenderer {
             canvas.drawPath(path, paint)
             return
         }
-        // A pen follows the pressure along the stroke and eases in and out of the page at both ends.
+        // Pen pressure is compressed around the selected width so quick light strokes stay readable.
         val taper = InkGeometry.taperScales(centre)
         centre.zipWithNext().forEachIndexed { index, (a, b) ->
-            paint.strokeWidth = stroke.width * ((a.pressure + b.pressure) / 2f).coerceIn(.25f, 1.8f) * (taper[index] + taper[index + 1]) / 2f
+            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
+            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
+            paint.strokeWidth = stroke.width * pressure * taperScale
             canvas.drawLine(a.x, a.y, b.x, b.y, paint)
         }
     }
