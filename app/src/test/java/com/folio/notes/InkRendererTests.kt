@@ -6,6 +6,33 @@ import org.junit.Test
 import kotlin.math.abs
 
 class InkRendererTests {
+    @Test fun nearbySplitEndpointSurvivesBothSectionJoins() {
+        for (gap in listOf(.051f, .2f, .35f)) {
+            val turn = InkPoint(2f + gap, 0f, .45f)
+            val points = listOf(
+                InkPoint(0f, 0f), InkPoint(2f, 0f), turn,
+                InkPoint(turn.x, 2f), InkPoint(turn.x, 4f)
+            )
+
+            val centre = InkRenderer.handwritingCentreline(points)
+
+            assertEquals(1, centre.count { it == turn })
+            val join = centre.indexOf(turn)
+            assertTrue(join > 0 && join < centre.lastIndex)
+            assertTrue(centre[join - 1].x < turn.x)
+            assertTrue(centre[join + 1].y > turn.y)
+            assertEquals(points.first(), centre.first())
+            assertEquals(points.last(), centre.last())
+        }
+    }
+
+    @Test fun shortDenseSectionRetainsItsSplitEndpoint() {
+        val turn = InkPoint(.2f, 0f, .45f)
+        val points = listOf(InkPoint(0f, 0f), InkPoint(.1f, 0f), turn, InkPoint(.2f, 2f))
+
+        assertEquals(listOf(points.first(), turn, points.last()), InkRenderer.handwritingCentreline(points))
+    }
+
     @Test fun smallTightTurnSurvivesHandwritingSmoothing() {
         val apex = InkPoint(4f, 0f, .45f)
         val points = listOf(

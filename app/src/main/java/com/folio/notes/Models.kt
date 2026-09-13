@@ -309,10 +309,14 @@ object InkGeometry {
      * the line is resampled through a Catmull-Rom spline. The endpoints are preserved, so the drawn
      * line still starts and ends exactly where the pen did. Only the rendered line is smoothed:
      * erase, lasso and hit geometry keep using the stored samples.
+     * [preserveEndpoints] also retains endpoints within the cleanup distance for handwriting joins.
      */
-    fun smooth(points: List<InkPoint>): List<InkPoint> {
+    fun smooth(points: List<InkPoint>, preserveEndpoints: Boolean = false): List<InkPoint> {
         val clean = ArrayList<InkPoint>(points.size)
-        points.forEach { if (clean.isEmpty() || distance(clean.last(), it) > MIN_SAMPLE) clean += it }
+        points.forEachIndexed { index, point ->
+            if (clean.isEmpty() || (preserveEndpoints && index == points.lastIndex) ||
+                distance(clean.last(), point) > MIN_SAMPLE) clean += point
+        }
         if (clean.size < 2) return clean
         val averaged = if (clean.size < 3) clean else clean.mapIndexed { index, point ->
             if (index == 0 || index == clean.lastIndex) point
@@ -331,6 +335,8 @@ object InkGeometry {
             val steps = (distance(p1, p2) / SMOOTH_STEP).roundToInt().coerceIn(1, MAX_SMOOTH_STEPS)
             for (step in 1..steps) result += catmullRom(p0, p1, p2, p3, step.toFloat() / steps)
         }
+        // Keep the exact endpoint (including pressure), avoiding spline round-off at section joins.
+        if (preserveEndpoints) result[result.lastIndex] = clean.last()
         return result
     }
 

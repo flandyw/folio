@@ -5,6 +5,20 @@ import org.junit.Test
 import kotlin.math.abs
 
 class InkGeometryTests {
+    @Test fun endpointPreservationStillCleansAndAveragesInteriorSamples() {
+        val start = InkPoint(0f, 0f)
+        val end = InkPoint(2.2f, 0f, .45f)
+        val smooth = InkGeometry.smooth(
+            listOf(start, InkPoint(.1f, 0f), InkPoint(2f, 0f), end),
+            preserveEndpoints = true
+        )
+
+        assertEquals(3, smooth.size)
+        assertEquals(start, smooth.first())
+        assertEquals(1.55f, smooth[1].x, .0001f)
+        assertEquals(end, smooth.last())
+    }
+
     @Test fun smoothingKeepsTheEndsAndDensifiesTheLine() {
         val smooth = InkGeometry.smooth(listOf(InkPoint(0f, 0f), InkPoint(30f, 0f), InkPoint(60f, 0f)))
         assertTrue(smooth.size > 3)

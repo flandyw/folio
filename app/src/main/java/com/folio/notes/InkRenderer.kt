@@ -69,7 +69,8 @@ object InkRenderer {
         fun appendSection(endInclusive: Int) {
             if (endInclusive <= sectionStart) return
             val section = clean.subList(sectionStart, endInclusive + 1)
-            val smoothed = if (section.size <= 2) section else InkGeometry.smooth(section)
+            val smoothed = if (section.size <= 2) section else InkGeometry.smooth(section, preserveEndpoints = true)
+            // Both sections retain the exact shared endpoint, so only its duplicate is skipped.
             if (result.isEmpty()) result.addAll(smoothed)
             else result.addAll(smoothed.drop(1))
             sectionStart = endInclusive
