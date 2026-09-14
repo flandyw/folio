@@ -459,6 +459,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         saveSitting(started)
         _state.update { it.copy(timer = started) }
     }
+    fun adjustTimer(seconds: Int) {
+        val adjusted = _state.value.timer.adjust(seconds)
+        saveSitting(adjusted)
+        _state.update { it.copy(timer = adjusted) }
+    }
+    fun skipTimerPhase() {
+        val skipped = _state.value.timer.skip()
+        saveSitting(skipped)
+        _state.update { it.copy(timer = skipped) }
+    }
     /** Stops the timer, keeping how long the writing phase ran for the attempt record. */
     fun stopTimer() {
         val current = _state.value.timer

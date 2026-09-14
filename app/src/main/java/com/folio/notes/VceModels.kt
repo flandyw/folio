@@ -469,6 +469,27 @@ data class ExamTimerState(
     fun start(preset: ExamTimerPreset, now: Long = System.currentTimeMillis()): ExamTimerState =
         copy(preset = preset, startedAt = now, phase = if (preset.readingSeconds > 0) ExamTimerPhase.READING else ExamTimerPhase.WRITING,
             remaining = if (preset.readingSeconds > 0) preset.readingSeconds else preset.writingSeconds)
+    /** Adjust the active phase without changing time already spent writing. */
+    fun adjust(seconds: Int, now: Long = System.currentTimeMillis()): ExamTimerState {
+        val current = tick(now)
+        if (!current.running || current.startedAt == null) return current
+        val elapsed = ((now - current.startedAt) / 1000).toInt().coerceAtLeast(0)
+        val updated = if (current.phase == ExamTimerPhase.READING) {
+            current.preset.copy(readingSeconds = (current.preset.readingSeconds.toLong() + seconds)
+                .coerceIn(elapsed.toLong(), Int.MAX_VALUE.toLong() - current.preset.writingSeconds).toInt())
+        } else {
+            val spent = (elapsed - current.preset.readingSeconds).coerceAtLeast(0)
+            current.preset.copy(writingSeconds = (current.preset.writingSeconds.toLong() + seconds)
+                .coerceIn(spent.toLong(), Int.MAX_VALUE.toLong() - current.preset.readingSeconds).toInt())
+        }
+        return current.copy(preset = updated).tick(now)
+    }
+
+    fun skip(now: Long = System.currentTimeMillis()): ExamTimerState {
+        val current = tick(now)
+        return current.adjust(-current.remaining, now)
+    }
+
     fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null)
     /** "1:28:03" style, used by the countdown chip and the timer panel. */
     fun clockText(): String {

@@ -416,3 +416,48 @@ class MultipleChoicePaperTests {
         assertEquals(20f, Paper.MC_SHEET.gridSpacing)
     }
 }
+
+class ExamTimerAdjustmentTests {
+    private val start = 1_000L
+    private val preset = ExamTimerPreset("Practice", 600, 120)
+
+    @Test fun skippingReadingStartsFullWritingPhaseAndSurvivesRestore() {
+        val now = start + 30_000
+        val skipped = ExamTimerState().start(preset, start).skip(now)
+        assertEquals(ExamTimerPhase.WRITING, skipped.phase)
+        assertEquals(600, skipped.remaining)
+        assertEquals(0, skipped.elapsedWriting(now))
+        val restored = ExamTimerState.resume(skipped.preset, skipped.startedAt, now + 10_000)!!
+        assertEquals(590, restored.remaining)
+        assertEquals(10, restored.elapsedWriting(now + 10_000))
+    }
+
+    @Test fun extendingReadingDelaysWriting() {
+        val adjusted = ExamTimerState().start(preset, start).adjust(60, start + 30_000)
+        assertEquals(150, adjusted.remaining)
+        assertEquals(ExamTimerPhase.READING, adjusted.tick(start + 120_000).phase)
+        assertEquals(600, adjusted.tick(start + 180_000).remaining)
+    }
+
+    @Test fun adjustingWritingPreservesActualElapsedTime() {
+        val now = start + 180_000
+        val adjusted = ExamTimerState().start(preset, start).adjust(300, now)
+        assertEquals(840, adjusted.remaining)
+        assertEquals(60, adjusted.elapsedWriting(now))
+        val finished = adjusted.adjust(-1000, now)
+        assertEquals(ExamTimerPhase.DONE, finished.phase)
+        assertEquals(60, finished.elapsedWriting(now + 60_000))
+    }
+
+    @Test fun subtractingPastReadingEndDoesNotConsumeWritingTime() {
+        val adjusted = ExamTimerState().start(preset, start).adjust(-300, start + 30_000)
+        assertEquals(ExamTimerPhase.WRITING, adjusted.phase)
+        assertEquals(600, adjusted.remaining)
+    }
+
+    @Test fun skipUsesCurrentPhaseWhenDisplayedCountdownIsStale() {
+        val skipped = ExamTimerState().start(preset, start).skip(start + 180_000)
+        assertEquals(ExamTimerPhase.DONE, skipped.phase)
+        assertEquals(60, skipped.elapsedWriting(start + 180_000))
+    }
+}

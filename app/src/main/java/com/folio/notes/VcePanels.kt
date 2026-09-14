@@ -570,7 +570,7 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
 
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
 @Composable
-fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit) {
+fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit) {
     var customMinutes by rememberSaveable { mutableStateOf("90") }
     var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
     LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
@@ -644,6 +644,18 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
+                    }
+                    Text("Adjust ${if (active) "writing" else "reading"} time", style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(-5, -1, 1, 5).forEach { minutes ->
+                            OutlinedButton({ onAdjust(minutes * 60) }, Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+                                Text("${if (minutes > 0) "+" else "−"}${kotlin.math.abs(minutes)} min")
+                            }
+                        }
+                    }
+                    FilledTonalButton(onSkip, Modifier.fillMaxWidth()) {
+                        Text(if (active) "Finish writing now" else "Skip reading · start writing")
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                         TextButton({ onStop(null) }) { Text("Stop timer") }

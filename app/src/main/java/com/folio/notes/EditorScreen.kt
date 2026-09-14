@@ -477,7 +477,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         timer = state.timer,
         onDismiss = { timerPanel = false },
         onStart = { model.startTimer(it) },
-        onStop = { model.stopTimer() }
+        onStop = { model.stopTimer() },
+        onAdjust = model::adjustTimer,
+        onSkip = model::skipTimerPhase
     )
     if (examPanel) ExamDetailsPanel(
         note = note,
@@ -519,10 +521,10 @@ private fun paperLabel(p: Paper): String = when (p) {
     } else {
         Surface(
             onClick = onClick,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(10.dp),
             color = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
             contentColor = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.padding(horizontal = 2.dp, vertical = (height - 34.dp) / 2)
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = (height - 36.dp) / 2)
         ) {
             Text(
                 if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
@@ -550,7 +552,7 @@ private fun paperLabel(p: Paper): String = when (p) {
 
 /** A floating piece of editor chrome: a rounded surface holding one row of controls over the page. */
 @Composable private fun EditorChromeChip(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
-    Surface(modifier, shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(modifier, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
