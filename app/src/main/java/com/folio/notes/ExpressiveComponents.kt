@@ -1,13 +1,17 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -20,18 +24,29 @@ import androidx.compose.ui.unit.dp
     onClick: () -> Unit,
     icon: ImageVector,
     label: String,
+    /** Current ink colour shown as a dot, so the pen reads its colour without opening options. */
+    indicatorColor: Color? = null,
 ) {
-    FilledTonalIconToggleButton(
-        checked = selected,
-        // Tapping the active pen still opens its options rather than deselecting the tool.
-        onCheckedChange = { onClick() },
-        shapes = IconButtonDefaults.toggleableShapes(),
-        modifier = Modifier.size(48.dp),
-        colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    ) { Icon(icon, label) }
+    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        FilledTonalIconToggleButton(
+            checked = selected,
+            // Tapping the active pen still opens its options rather than deselecting the tool.
+            onCheckedChange = { onClick() },
+            shapes = IconButtonDefaults.toggleableShapes(),
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        ) { Icon(icon, label) }
+        if (indicatorColor != null) {
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(end = 7.dp, bottom = 7.dp).size(10.dp)
+                    .background(indicatorColor, CircleShape)
+                    .border(1.5.dp, MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
+            )
+        }
+    }
 }
 
 @Preview(name = "Expressive light", showBackground = true)

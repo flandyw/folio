@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.UUID
 
 class FolioApplication : Application() {
     val repository by lazy { NoteRepository(this) }
@@ -42,8 +43,8 @@ data class FolioState(
     val lastTimedSeconds: Int? = null,
     /** Timing record of the last stopped sitting, offered alongside the mark for its report. */
     val lastTelemetry: ExamTelemetry? = null,
-    /** Ink cut or copied from a lasso selection, kept so it can be pasted on any page. */
-    val clipboard: List<Stroke> = emptyList(),
+    /** Ink, text and pictures cut or copied from a lasso selection, kept so they paste on any page. */
+    val clipboard: CanvasSelection = CanvasSelection(),
     /** Text search over the open notebook's imported PDF, driven by [FolioViewModel.searchPdf]. */
     val pdfSearch: PdfSearchState = PdfSearchState()
 ) {
@@ -532,38 +533,140 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val target = page.images.find { it.id == id } ?: return
         images(page.id, listOf(target) + page.images.filterNot { it.id == id })
     }
+    /**
+     * Stores one page's new ink, text and pictures together, bumping its revision so caches and
+     * exports know it changed. A single record covers all three, so a lasso drag that moved ink,
+     * text and pictures undoes in one step.
+     */
+    fun updateContent(pageId: String, strokes: List<Stroke>, texts: List<TextBox>, images: List<PageImage>) {
+        val page = _state.value.active?.pages?.find { it.id == pageId } ?: return
+        if (!page.loaded) return
+        if (page.strokes == strokes && page.texts == texts && page.images == images) return
+        record(page); replacePage(page.copy(strokes = strokes, texts = texts, images = images)); historyState()
+    }
     /** Remembers a lasso selection for pasting, on this page or another one. */
-    fun copyToClipboard(strokes: List<Stroke>) {
-        if (strokes.isEmpty()) return
+    fun copyToClipboard(selection: CanvasSelection) {
+        if (selection.isEmpty()) return
         pasteGeneration = 0
-        _state.update { it.copy(clipboard = strokes) }
+        _state.update { it.copy(clipboard = selection) }
     }
     /** Copies the selection to the clipboard and takes it off the current page in one step. */
-    fun cutSelection(strokes: List<Stroke>) {
-        if (strokes.isEmpty()) return
-        copyToClipboard(strokes)
+    fun cutSelection(selection: CanvasSelection) {
+        if (selection.isEmpty()) return
+        copyToClipboard(selection)
         val page = _state.value.page ?: return
-        this.strokes(page.id, page.strokes.filterNot { it in strokes })
+        updateContent(
+            page.id,
+            page.strokes.filterNot { it in selection.strokes },
+            page.texts.filterNot { box -> selection.texts.any { it.id == box.id } },
+            page.images.filterNot { image -> selection.images.any { it.id == image.id } }
+        )
     }
-    /** Appends the clipboard to the open page, nudged along so a paste never hides under its source. */
-    fun pasteClipboard(): List<Stroke> {
-        val page = _state.value.page ?: return emptyList()
+    /** Deletes a lasso selection — ink, text and pictures — in one undoable step. */
+    fun deleteSelection(selection: CanvasSelection) {
+        if (selection.isEmpty()) return
+        val page = _state.value.page ?: return
+        updateContent(
+            page.id,
+            page.strokes.filterNot { it in selection.strokes },
+            page.texts.filterNot { box -> selection.texts.any { it.id == box.id } },
+            page.images.filterNot { image -> selection.images.any { it.id == image.id } }
+        )
+    }
+    /**
+     * Duplicates a lasso selection in place: the originals stay where they are and editable
+     * copies land nudged along so they never hide under their source. Texts get fresh ids;
+     * pictures get fresh ids with their bytes copied, since two placements on one page must
+     * never share an id. One undoable step.
+     */
+    fun duplicateSelection(selection: CanvasSelection) {
+        if (selection.isEmpty()) return
+        val note = _state.value.active ?: return
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
+        copyToClipboard(selection)
+        val offset = 18f
+        val movedStrokes = selection.strokes.map { InkGeometry.translate(it, offset, offset) }
+        val movedTexts = selection.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(offset, offset) }
+        viewModelScope.launch {
+            val movedImages = selection.images.map { image ->
+                val placed = image.moved(offset, offset)
+                val freshId = UUID.randomUUID().toString()
+                try {
+                    repository.loadImageBytes(note.id, image.id)?.let { repository.saveImage(note.id, freshId, it) }
+                } catch (_: Exception) { }
+                placed.copy(id = freshId)
+            }
+            updateContent(
+                page.id,
+                page.strokes + movedStrokes,
+                page.texts + movedTexts,
+                page.images + movedImages
+            )
+        }
+    }
+    /**
+     * Appends the clipboard to the open page, nudged along so a paste never hides under its
+     * source. Texts paste with fresh ids; pictures paste with fresh ids (and copied bytes) when
+     * the page already uses their id, otherwise they share the notebook-scoped image file like a
+     * duplicated page does. One undoable step.
+     */
+    fun pasteClipboard() {
+        val note = _state.value.active ?: return
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
         val clip = _state.value.clipboard
-        if (clip.isEmpty()) return emptyList()
+        if (clip.isEmpty()) return
         val offset = PASTE_OFFSET * ++pasteGeneration
         // A paste lands now, whatever the source strokes' own timestamps were.
         val now = System.currentTimeMillis()
-        val pasted = clip.map { InkGeometry.translate(it, offset, offset).copy(createdAt = now) }
-        strokes(page.id, page.strokes + pasted)
-        return pasted
+        val pastedStrokes = clip.strokes.map { InkGeometry.translate(it, offset, offset).copy(createdAt = now) }
+        val pastedTexts = clip.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(offset, offset) }
+        viewModelScope.launch {
+            val existingIds = page.images.map { it.id }.toSet()
+            val pastedImages = clip.images.map { image ->
+                val placed = image.moved(offset, offset)
+                if (placed.id !in existingIds) return@map placed
+                val freshId = UUID.randomUUID().toString()
+                try {
+                    repository.loadImageBytes(note.id, image.id)?.let { repository.saveImage(note.id, freshId, it) }
+                } catch (_: Exception) { }
+                placed.copy(id = freshId)
+            }
+            updateContent(
+                page.id,
+                page.strokes + pastedStrokes,
+                page.texts + pastedTexts,
+                page.images + pastedImages
+            )
+        }
     }
     /** Applies a new look to the selection as one undoable step; nulls leave those properties alone. */
-    fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?) {
+    fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null) {
         if (strokes.isEmpty()) return
         val page = _state.value.page ?: return
-        val restyled = InkGeometry.restyle(strokes, color, widthScale, opacity)
+        val restyled = InkGeometry.restyle(strokes, color, widthScale, opacity, style)
         if (restyled == strokes) return
         this.strokes(page.id, page.strokes.filterNot { it in strokes } + restyled)
+    }
+
+    /**
+     * Inserts a reusable diagram element (arrow, star, checkbox…) as ordinary editable ink,
+     * centred on the open page like GoodNotes' Elements. One undoable step.
+     */
+    fun insertStamp(kind: InkStamps.Kind, color: Int? = null, width: Float? = null) {
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
+        val now = System.currentTimeMillis()
+        val cx = if (page.infinite) 0f else page.width / 2f
+        val cy = if (page.infinite) 0f else page.height / 2f
+        val inkColor = color ?: 0xFF303431.toInt()
+        val inkWidth = width ?: 2.2f
+        val stamp = InkStamps.make(kind, cx, cy, color = inkColor, width = inkWidth, createdAt = now)
+        // Nudge stamps stacked on the same centre so repeated inserts never hide under each other.
+        val offset = (page.strokes.size % 5) * 14f
+        val placed = if (offset == 0f) stamp else stamp.map { InkGeometry.translate(it, offset, offset) }
+        strokes(page.id, page.strokes + placed)
     }
     fun undo() = history(undo, redo)
     fun redo() = history(redo, undo)
@@ -631,8 +734,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         prefs.edit().remove(TIMER_VISITS_KEY).apply()
     }
 
-    /** Advances the countdown by however long has passed; a stopped timer ignores ticks. */
-    fun tickTimer() { _state.update { it.copy(timer = it.timer.tick()) } }
+    /**
+     * Advances the countdown by however long has passed. The editor ticks once a second, so a
+     * no-op tick must not emit a new state: otherwise every open editor recomposes every second
+     * even with no timer running.
+     */
+    fun tickTimer(now: Long = System.currentTimeMillis()) {
+        val current = _state.value.timer
+        val next = current.tick(now)
+        if (next != current) _state.update { it.copy(timer = next) }
+    }
     fun startTimer(preset: ExamTimerPreset) {
         val started = ExamTimerState().start(preset)
         saveSitting(started)

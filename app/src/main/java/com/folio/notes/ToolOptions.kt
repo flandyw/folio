@@ -20,13 +20,15 @@ import kotlin.math.roundToInt
 
 data class ToolOptions(
     val color: Int, val width: Float, val opacity: Float, val pressure: Boolean,
-    val pressureSensitivity: Float = 1f, val pressureVariation: Float = 1f
+    val pressureSensitivity: Float = 1f, val pressureVariation: Float = 1f,
+    val style: StrokeStyle = StrokeStyle.SOLID
 ) {
     fun save(prefs: SharedPreferences, tool: Tool) {
         prefs.edit().putInt("${tool.name}.color", color).putFloat("${tool.name}.width", width)
             .putFloat("${tool.name}.opacity", opacity).putBoolean("${tool.name}.pressure", pressure)
             .putFloat("${tool.name}.pressureSensitivity", PenPressure.sensitivity(pressureSensitivity))
-            .putFloat("${tool.name}.pressureVariation", PenPressure.variation(pressureVariation)).apply()
+            .putFloat("${tool.name}.pressureVariation", PenPressure.variation(pressureVariation))
+            .putString("${tool.name}.style", style.name).apply()
     }
     companion object {
         /** Finer defaults for math: thin pen, tiny ruler-straight line, compact eraser. */
@@ -41,7 +43,8 @@ data class ToolOptions(
             return ToolOptions(prefs.getInt("${tool.name}.color", d.color), prefs.getFloat("${tool.name}.width", d.width),
                 prefs.getFloat("${tool.name}.opacity", d.opacity), prefs.getBoolean("${tool.name}.pressure", d.pressure),
                 PenPressure.sensitivity(prefs.getFloat("${tool.name}.pressureSensitivity", 1f)),
-                PenPressure.variation(prefs.getFloat("${tool.name}.pressureVariation", 1f)))
+                PenPressure.variation(prefs.getFloat("${tool.name}.pressureVariation", 1f)),
+                try { StrokeStyle.valueOf(prefs.getString("${tool.name}.style", "SOLID") ?: "SOLID") } catch (_: Exception) { StrokeStyle.SOLID })
         }
     }
 }
@@ -56,7 +59,7 @@ object EditorQuickPrefs {
     const val MULTI_TOUCH_UNDO = "multiTouchUndo"
 }
 
-@Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState) {
+@Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, presets: ToolPresetState? = null) {
     val label = tool.name.lowercase().replaceFirstChar(Char::uppercase)
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -64,7 +67,7 @@ object EditorQuickPrefs {
         if (tool == Tool.HAND) {
             Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.")
         } else if (tool == Tool.LASSO) {
-            Text("Draw a loop around strokes to select them, then drag the selection to move it. Copy, cut, duplicate, rotate, resize or delete it from the bar at the bottom of the editor.")
+            Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, cut, duplicate, rotate, resize or delete it from the bar at the bottom of the editor.")
         } else if (tool == Tool.TEXT) {
             Text("Tap the page to write a heading or a label. Tap a box to edit it or drag it to move it. Text sits on top of your ink and travels with the page.")
         } else {
@@ -123,7 +126,17 @@ object EditorQuickPrefs {
                     AssistChip({ onChange(options.copy(width = 2f)) }, { Text("Regular") })
                     AssistChip({ onChange(options.copy(width = 3.5f)) }, { Text("Heavy") })
                 }
+                Text("Line style", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(options.style == StrokeStyle.SOLID, { onChange(options.copy(style = StrokeStyle.SOLID)) }, { Text("Solid") })
+                    FilterChip(options.style == StrokeStyle.DASHED, { onChange(options.copy(style = StrokeStyle.DASHED)) }, { Text("Dashed") })
+                    FilterChip(options.style == StrokeStyle.DOTTED, { onChange(options.copy(style = StrokeStyle.DOTTED)) }, { Text("Dotted") })
+                }
+                Text("Dashed and dotted lines suit diagrams and maths sketches. Freehand pen stays solid.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle snap in the editor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (presets != null && tool in listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+                ToolPresetSection(tool, options, presets)
             }
             // For pen/highlighter the scribble switch already appeared above; repeating would duplicate.
             if (tool != Tool.PEN && tool != Tool.HIGHLIGHTER && tool != Tool.ERASER) {
@@ -310,5 +323,50 @@ object EditorQuickPrefs {
         },
         dismissButton = { TextButton({ naming = false }) { Text("Cancel") } },
         confirmButton = { TextButton({ quick.savePreset(group, presetName); naming = false }, enabled = presetName.isNotBlank()) { Text("Save") } }
+    )
+}
+
+/**
+ * Favorite tool setups: saves the current tool's colour, width, opacity and line style under a
+ * name, like GoodNotes' pen slots, so a revision black fine-liner and a diagram blue dashed
+ * line are each one tap away in any notebook.
+ */
+@Composable private fun ToolPresetSection(tool: Tool, options: ToolOptions, presets: ToolPresetState) {
+    var naming by remember { mutableStateOf(false) }
+    var presetName by remember { mutableStateOf("") }
+    val saved = presets.presets
+    HorizontalDivider()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Tool presets", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS) { Text("Save current") }
+    }
+    if (saved.isEmpty()) Text("Save this tool setup as a preset to bring it back in one tap.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        saved.forEach { preset ->
+            val styleSuffix = if (preset.style != StrokeStyle.SOLID) " · ${preset.style.name.lowercase()}" else ""
+            InputChip(
+                selected = preset.tool == tool && preset.color == options.color && preset.width == options.width,
+                onClick = { },
+                label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
+                trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { presets.delete(preset.id) }) }
+            )
+        }
+        Text("Apply a preset from the toolbar's More menu.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (naming) AlertDialog(
+        onDismissRequest = { naming = false },
+        title = { Text("Save tool preset") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Saves colour, width, opacity and line style for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true)
+            }
+        },
+        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } },
+        confirmButton = {
+            TextButton({
+                if (presets.save(presetName, tool, options, options.style)) naming = false
+            }, enabled = presetName.isNotBlank()) { Text("Save") }
+        }
     )
 }

@@ -12,6 +12,7 @@ object InkCodec {
         strokes.forEach { s -> put(JSONObject().apply {
             put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
             if (s.createdAt > 0L) put("createdAt", s.createdAt)
+            if (s.style != StrokeStyle.SOLID) put("style", s.style.name)
             put("points", JSONArray().apply { s.points.forEach { put(JSONArray(listOf(it.x, it.y, it.pressure))) } })
         }) }
     }
@@ -25,7 +26,8 @@ object InkCodec {
                 (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
                     InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
                 s.optDouble("opacity", if (s.getString("tool") == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
-                if (s.has("createdAt") && !s.isNull("createdAt")) s.optLong("createdAt") else 0L)
+                if (s.has("createdAt") && !s.isNull("createdAt")) s.optLong("createdAt") else 0L,
+                if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
         }
     }
 
@@ -33,6 +35,8 @@ object InkCodec {
         texts.forEach { t -> put(JSONObject().apply {
             put("id", t.id); put("x", t.x); put("y", t.y); put("w", t.width); put("text", t.text)
             put("size", t.size); put("color", t.color); put("bold", t.bold); put("italic", t.italic)
+            if (t.align != TextAlignMode.LEFT) put("align", t.align.name)
+            if (t.underline) put("underline", true)
         }) }
     }
 
@@ -42,7 +46,9 @@ object InkCodec {
             val t = array.getJSONObject(index)
             TextBox(t.getString("id"), t.getDouble("x").toFloat(), t.getDouble("y").toFloat(),
                 t.getDouble("w").toFloat(), t.getString("text"), t.getDouble("size").toFloat(),
-                t.getInt("color"), t.optBoolean("bold", false), t.optBoolean("italic", false))
+                t.getInt("color"), t.optBoolean("bold", false), t.optBoolean("italic", false),
+                if (t.isNull("align")) TextAlignMode.LEFT else TextAlignMode.safeValueOf(t.optString("align", "LEFT")),
+                t.optBoolean("underline", false))
         }
     }
 

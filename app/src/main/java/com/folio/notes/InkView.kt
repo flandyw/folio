@@ -38,6 +38,8 @@ class InkView(context: Context) : View(context) {
     var inkWidth = 3f
     var fingerDrawing = true
     var inkOpacity = 1f
+    /** Line pattern for new shape strokes; freehand ink always draws solid. */
+    var inkStyle: StrokeStyle = StrokeStyle.SOLID
     var pressureEnabled = true
     var pressureSensitivity = 1f
     var pressureVariation = 1f
@@ -56,8 +58,13 @@ class InkView(context: Context) : View(context) {
     var onDocumentPanEnd: (Float) -> Unit = {}
     private val panVelocity = VelocityTracker()
     var onStrokesChanged: (List<Stroke>) -> Unit = {}
-    /** Reports the strokes inside the lasso loop so the editor can offer actions such as delete. */
-    var onSelectionChanged: (List<Stroke>) -> Unit = {}
+    /** Reports the ink, text and pictures inside the lasso loop so the editor can offer actions. */
+    var onSelectionChanged: (CanvasSelection) -> Unit = {}
+    /**
+     * Commits a lasso drag that moved ink, text and pictures together, so the editor can store
+     * it as one undoable step instead of three.
+     */
+    var onContentChanged: (List<Stroke>, List<TextBox>, List<PageImage>) -> Unit = { _, _, _ -> }
     /** When on, a neat pen drawing is replaced by a clean line, rectangle, ellipse or triangle. */
     var shapeRecognition = false
     /** A tap on an existing text box, and a tap on bare page asking for a new box there. */
@@ -79,6 +86,8 @@ class InkView(context: Context) : View(context) {
     private var erasing: List<Stroke>? = null
     private var lasso: List<InkPoint>? = null
     private var selection: List<Stroke> = emptyList()
+    private var selectedTexts: List<TextBox> = emptyList()
+    private var selectedImages: List<PageImage> = emptyList()
     private var selectionDx = 0f; private var selectionDy = 0f
     private var movingSelection = false
     private var lastMoveX = 0f; private var lastMoveY = 0f
@@ -175,8 +184,16 @@ class InkView(context: Context) : View(context) {
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1 }
         page = value; background = bitmap; imageBitmaps = images
-        // Strokes deleted from outside the view simply stop being selected.
-        if (selection.any { it !in value.strokes }) { selection = emptyList(); selectionDx = 0f; selectionDy = 0f }
+        // Content deleted from outside the view stops being selected, per list so one removed
+        // stroke does not drop a still-present text box from the selection.
+        val keptStrokes = selection.filter { it in value.strokes }
+        val keptTexts = selectedTexts.filter { kept -> value.texts.any { it.id == kept.id } }
+        val keptImages = selectedImages.filter { kept -> value.images.any { it.id == kept.id } }
+        if (keptStrokes.size != selection.size || keptTexts.size != selectedTexts.size || keptImages.size != selectedImages.size) {
+            selection = keptStrokes; selectedTexts = keptTexts; selectedImages = keptImages
+            selectionDx = 0f; selectionDy = 0f
+            onSelectionChanged(CanvasSelection(selection, selectedTexts, selectedImages))
+        }
         // A text box that was edited or removed elsewhere cannot still be under the finger.
         if (movingText != null && value.texts.none { it.id == movingText!!.id }) { movingText = null; textDx = 0f; textDy = 0f }
         // A picture that was removed elsewhere cannot still be under the finger.
@@ -199,25 +216,75 @@ class InkView(context: Context) : View(context) {
         // A picture follows the finger the same way, so a move or resize reads live.
         val liveImage = movingImage
         val placed = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
-        // Selected strokes draw last, at their drag offset, so a move reads clearly.
-        val rest = if (selection.isEmpty()) placed else placed.copy(strokes = placed.strokes.filterNot { it in selection })
+        // Selected content draws last, at its drag offset, so a move reads clearly.
+        val hasSelection = selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()
+        val rest = if (!hasSelection) placed else placed.copy(
+            strokes = placed.strokes.filterNot { it in selection },
+            texts = placed.texts.filterNot { box -> selectedTexts.any { it.id == box.id } },
+            images = placed.images.filterNot { image -> selectedImages.any { it.id == image.id } }
+        )
         InkRenderer.page(canvas, rest, background, images = imageBitmaps)
         if (selection.isNotEmpty()) {
             val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
             moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
             moved.forEach { InkRenderer.stroke(canvas, it) }
         }
+        if (selectedTexts.isNotEmpty()) {
+            selectedTexts.forEach {
+                val moved = it.moved(selectionDx, selectionDy)
+                InkRenderer.text(canvas, moved)
+                drawTextBox(canvas, moved)
+            }
+        }
+        if (selectedImages.isNotEmpty()) {
+            selectedImages.forEach {
+                val moved = it.moved(selectionDx, selectionDy)
+                imageBitmaps[moved.id]?.let { bitmap -> InkRenderer.image(canvas, bitmap, moved) }
+                drawImageSelection(canvas, moved, withHandle = false)
+            }
+        }
         draft?.let { InkRenderer.stroke(canvas, it) }
-        draft?.let { if (shapeMeasurements && it.tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) drawMeasurement(canvas, it) }
+        draft?.let { if (shapeMeasurements && it.tool in MEASURE_TOOLS) drawMeasurement(canvas, it) }
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
         eraserMark?.let { drawEraser(canvas, it) }
         dragging?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
-        // The selected picture keeps its outline while another picture is dragged.
-        val outlined = liveImage?.takeIf { it.id == selectedImageId } ?: placed.images.find { it.id == selectedImageId }
+        // The selected picture keeps its outline while another picture is dragged, unless it is
+        // part of the lasso selection, which already draws its own outline at the drag offset.
+        val outlined = (liveImage?.takeIf { it.id == selectedImageId } ?: placed.images.find { it.id == selectedImageId })
+            ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         outlined?.let { drawImageSelection(canvas, it) }
         canvas.restore()
     }
+    /**
+     * Redraws only the neighbourhood of new samples while freehand ink or the eraser moves.
+     * A full invalidate on every 8 ms sample forced the whole page (paper + every stroke) to
+     * redraw at stylus rate; the dirty rect lets the hardware renderer keep the rest and, together
+     * with InkRenderer's viewport culling, only the strokes under the tip are re-walked.
+     */
+    private fun invalidateForSamples(samples: List<InkPoint>): Boolean {
+        if (samples.isEmpty()) return false
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (p in samples) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        // Smoothing reshapes the tail slightly behind the newest sample; the margin covers the
+        // stroke width, the spline overshoot and the eraser ring.
+        val margin = inkWidth * scale + 64f * scale.coerceAtMost(2f) + 24f
+        val l = (originX + minX * scale - margin).toInt()
+        val t = (originY + minY * scale - margin).toInt()
+        val r = (originX + maxX * scale + margin).toInt()
+        val b = (originY + maxY * scale + margin).toInt()
+        @Suppress("DEPRECATION")
+        invalidate(l, t, r, b)
+        return true
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        var dirtyInvalidated = false
         if (page.infinite && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
             zoomDetector.onTouchEvent(event)
         }
@@ -345,7 +412,7 @@ class InkView(context: Context) : View(context) {
                         val accepted = pagePoints(points)
                         draft = when {
                             accepted.isEmpty() -> current
-                            current.tool in listOf(Tool.PEN, Tool.HIGHLIGHTER) -> current.copy(points = current.points + accepted)
+                            current.tool in FREEHAND_TOOLS -> current.copy(points = current.points + accepted)
                             else -> {
                                 var end = accepted.last()
                                 var start = current.points.first()
@@ -360,6 +427,14 @@ class InkView(context: Context) : View(context) {
                                 current.copy(points = listOf(start, end))
                             }
                         }
+                        // Freehand grows incrementally, so only its tip needs redrawing; shapes
+                        // re-derive from their start corner and fall through to a full invalidate.
+                        if (draft?.tool in FREEHAND_TOOLS || erasing != null) {
+                            dirtyInvalidated = invalidateForSamples(accepted.ifEmpty { points })
+                        }
+                    }
+                    if (erasing != null && draft == null) {
+                        dirtyInvalidated = invalidateForSamples(points)
                     }
                 }
             }
@@ -397,11 +472,11 @@ class InkView(context: Context) : View(context) {
                         // Follow the tracked pointer, which may be a stylus that took over from a finger.
                         var end = pagePoints(listOf(point(event, event.findPointerIndex(pointerId).coerceAtLeast(0)))).lastOrNull()
                         if (end != null) {
-                            if (snapEnabled && current.tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+                            if (snapEnabled && current.tool in MEASURE_TOOLS) {
                                 if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)
                                 if (current.tool == Tool.LINE) end = InkGeometry.snapAngle(current.points.first(), end, 15f)
                             }
-                            draft = current.copy(points = if (current.tool in listOf(Tool.PEN, Tool.HIGHLIGHTER)) current.points + end else listOf(current.points.first(), end))
+                            draft = current.copy(points = if (current.tool in FREEHAND_TOOLS) current.points + end else listOf(current.points.first(), end))
                         }
                     }
                     finishGesture()
@@ -411,7 +486,8 @@ class InkView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_CANCEL -> { multiTapActive = false; multiTapMax = 1; cancelGesture() }
         }
-        invalidate(); return true
+        if (!dirtyInvalidated) invalidate()
+        return true
     }
     private fun finishGesture() {
         val wasErasing = erasing != null
@@ -543,7 +619,7 @@ class InkView(context: Context) : View(context) {
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         val start = clampToPage(raw)
         if (insideSelection(start)) { movingSelection = true; lastMoveX = start.x; lastMoveY = start.y; return }
-        setSelection(emptyList())
+        setSelection(CanvasSelection())
         lasso = listOf(start)
     }
     private fun finishLasso() {
@@ -552,35 +628,48 @@ class InkView(context: Context) : View(context) {
             val loop = lasso ?: emptyList()
             lasso = null
             // A tap sized loop is not a selection, so stroking elsewhere clears instead of flickering.
-            setSelection(if (loop.size >= 3) page.strokes.filter { InkGeometry.lassoSelects(loop, it) } else emptyList())
+            setSelection(if (loop.size >= 3) CanvasSelection(
+                strokes = page.strokes.filter { InkGeometry.lassoSelects(loop, it) },
+                texts = page.texts.filter { InkGeometry.lassoSelectsText(loop, it, InkRenderer.textHeight(it)) },
+                images = page.images.filter { InkGeometry.lassoSelectsImage(loop, it) }
+            ) else CanvasSelection())
         }
         movingSelection = false
     }
     private fun commitSelectionMove() {
-        if (selection.isNotEmpty() && (selectionDx != 0f || selectionDy != 0f)) {
-            val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
-            val strokes = page.strokes.filterNot { it in selection } + moved
-            page = page.copy(strokes = strokes)
-            setSelection(moved)
-            onStrokesChanged(strokes)
+        if ((selectionDx != 0f || selectionDy != 0f) &&
+            (selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty())
+        ) {
+            val movedStrokes = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
+            val movedTexts = selectedTexts.map { it.moved(selectionDx, selectionDy) }
+            val movedImages = selectedImages.map { it.moved(selectionDx, selectionDy) }
+            val strokes = page.strokes.filterNot { it in selection } + movedStrokes
+            val texts = page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + movedTexts
+            val images = page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + movedImages
+            page = page.copy(strokes = strokes, texts = texts, images = images)
+            setSelection(CanvasSelection(movedStrokes, movedTexts, movedImages))
+            onContentChanged(strokes, texts, images)
         }
     }
-    private fun setSelection(value: List<Stroke>) {
-        selection = value; selectionDx = 0f; selectionDy = 0f
+    private fun setSelection(value: CanvasSelection) {
+        selection = value.strokes; selectedTexts = value.texts; selectedImages = value.images
+        selectionDx = 0f; selectionDy = 0f
         onSelectionChanged(value); invalidate()
     }
     /** Drops the lasso selection, e.g. when the page scrolls away or another tool is picked. */
-    fun clearSelection() { if (selection.isNotEmpty()) setSelection(emptyList()) }
+    fun clearSelection() {
+        if (selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()) setSelection(CanvasSelection())
+    }
     private fun insideSelection(point: InkPoint): Boolean {
         val bounds = selectionBounds() ?: return false
         return point.x in bounds[0]..bounds[2] && point.y in bounds[1]..bounds[3]
     }
-    private fun selectionBounds(margin: Float = 14f): FloatArray? {
-        val xs = mutableListOf<Float>(); val ys = mutableListOf<Float>()
-        selection.forEach { stroke -> InkGeometry.pathPoints(stroke).forEach { xs.add(it.x + selectionDx); ys.add(it.y + selectionDy) } }
-        if (xs.isEmpty()) return null
-        return floatArrayOf(xs.minOrNull()!! - margin, ys.minOrNull()!! - margin, xs.maxOrNull()!! + margin, ys.maxOrNull()!! + margin)
-    }
+    private fun selectionBounds(margin: Float = 14f): FloatArray? =
+        InkGeometry.selectionBounds(selection, selectedTexts, selectedImages, { InkRenderer.textHeight(it) }, margin)
+            ?.let { bounds ->
+                // The drag offset counts: grabbing the moved selection's new position keeps working.
+                floatArrayOf(bounds[0] + selectionDx, bounds[1] + selectionDy, bounds[2] + selectionDx, bounds[3] + selectionDy)
+            }
     private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) {
         val polygon = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) }; close() }
         canvas.drawPath(polygon, lassoFillPaint); canvas.drawPath(polygon, lassoEdgePaint)
@@ -590,8 +679,9 @@ class InkView(context: Context) : View(context) {
         canvas.drawRect(box.x - 4f, box.y - 4f, box.x + box.width + 4f, box.y + InkRenderer.textHeight(box) + 4f, textBoxPaint)
     }
     /** A dashed outline with a bottom-right handle around the selected picture. */
-    private fun drawImageSelection(canvas: Canvas, image: PageImage) {
+    private fun drawImageSelection(canvas: Canvas, image: PageImage, withHandle: Boolean = true) {
         canvas.drawRect(image.x - 4f, image.y - 4f, image.x + image.width + 4f, image.y + image.height + 4f, imageEdgePaint)
+        if (!withHandle) return
         val cx = image.x + image.width
         val cy = image.y + image.height
         val r = 14f
@@ -692,11 +782,11 @@ class InkView(context: Context) : View(context) {
         canvas.drawCircle(at.x, at.y, radius, eraserFillPaint)
         canvas.drawCircle(at.x, at.y, radius, eraserEdgePaint)
     }
-    /** Selects every stroke on the current page; call from toolbar/overflow. */
+    /** Selects every stroke, text box and picture on the current page; call from toolbar/overflow. */
     fun selectAll() {
-        if (page.strokes.isEmpty()) return
+        if (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty()) return
         tool = Tool.LASSO
-        setSelection(page.strokes.toList())
+        setSelection(CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList()))
     }
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
@@ -713,7 +803,8 @@ class InkView(context: Context) : View(context) {
                 page.strokes.filterNot { InkGeometry.hits(it, start, radius) }
             } else page.strokes.flatMap { InkGeometry.erase(it, start, radius) }
             eraserMark = start
-        } else draft = Stroke(tool, inkColor, inkWidth, listOf(start), inkOpacity)
+        } else draft = Stroke(tool, inkColor, inkWidth, listOf(start), inkOpacity,
+            style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
     }
     private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
     private fun isPalm(event: MotionEvent, index: Int) = !isStylus(event, index) && SystemClock.uptimeMillis() - lastStylusAt < PALM_REJECT_MS
@@ -751,6 +842,10 @@ class InkView(context: Context) : View(context) {
     private fun centroidY(e: MotionEvent, skip: Int = -1) = (0 until e.pointerCount).filter { it != skip }.map { e.getY(it) }.average().toFloat() + e.rawY - e.y
     override fun performClick(): Boolean { super.performClick(); return true }
     private companion object {
+        /** Freehand tools grow sample-by-sample; shapes re-derive from two corners. */
+        val FREEHAND_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER)
+        /** Shapes that show live measurements while drawn. */
+        val MEASURE_TOOLS = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
         /** How long after stylus activity a finger still counts as a resting palm. */
         const val PALM_REJECT_MS = 500L
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */

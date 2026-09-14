@@ -8,7 +8,31 @@ import kotlin.math.*
 
 object InkRenderer {
     /** Tools whose geometry traces the drag rather than freehand samples, so it is never smoothed. */
-    private val SHAPES = listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+    private val SHAPE_SET = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+    // One Paint per thread, reused across strokes: onDraw used to allocate a Paint per stroke
+    // per frame, which churned hundreds of objects while writing or scrolling a dense page.
+    // Each thread (UI + thumbnail IO) gets its own instance, so reuse never races.
+    // Everything here is lazy so object init stays free of Android types: unit tests run on a
+    // plain JVM where Paint/Path are stubs, and they only exercise the pure geometry below.
+    private val strokePaintPool by lazy { ThreadLocal.withInitial { Paint(Paint.ANTI_ALIAS_FLAG) } }
+    private val bitmapPaintPool by lazy { ThreadLocal.withInitial { Paint(Paint.FILTER_BITMAP_FLAG) } }
+    // Paper paints never change, so they are shared read-only instead of rebuilt every frame.
+    private val paperMinorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0E0DA.toInt(); strokeWidth = .8f } }
+    private val paperGridMinorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0E0DA.toInt(); strokeWidth = .7f } }
+    private val paperGridMajorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f } }
+    private val paperMathMinorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(232, 232, 228); strokeWidth = .65f } }
+    private val paperMathMajorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(214, 214, 210); strokeWidth = .9f } }
+    private val graphAxisPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(140, 145, 150); strokeWidth = 1.4f } }
+    private val graphTickPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(175, 180, 185); strokeWidth = 0.85f } }
+    private val arrowPathPool by lazy { ThreadLocal.withInitial { Path() } }
+    // Text layouts are pure functions of their box, but building a StaticLayout parses and
+    // measures text — far too heavy to redo for every box on every frame. Boxes are immutable,
+    // so the layout itself can be memoized; drawing the cached layout is just a blit.
+    private const val MAX_CACHED_TEXT_LAYOUTS = 64
+    private val textLayoutCache = object : LinkedHashMap<TextBox, StaticLayout>(MAX_CACHED_TEXT_LAYOUTS, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TextBox, StaticLayout>?): Boolean =
+            size > MAX_CACHED_TEXT_LAYOUTS
+    }
 
     /**
      * Tiny handwriting needs its direction changes left intact. A normal smoothing pass is useful on
@@ -95,7 +119,7 @@ object InkRenderer {
 
     fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true, images: Map<String, Bitmap?>? = null) {
         canvas.drawColor(Color.WHITE)
-        if (background != null) canvas.drawBitmap(background, null, RectF(0f, 0f, page.width, page.height), Paint(Paint.FILTER_BITMAP_FLAG))
+        if (background != null) canvas.drawBitmap(background, null, RectF(0f, 0f, page.width, page.height), bitmapPaintPool.get()!!)
         else if (page.infinite) infinitePaper(canvas, page)
         else if (page.pdfIndex == null) {
             when (page.paper) {
@@ -111,18 +135,53 @@ object InkRenderer {
             }
         }
         if (ink) {
+            // Cull to the visible region: a long page only draws what is on screen, so scrolling
+            // past dense ink no longer pays for the strokes above and below the viewport.
+            val clip = canvas.clipBounds
             // Photos sit under the ink so handwriting annotates the picture, like GoodNotes.
-            page.images.forEach { box -> images?.get(box.id)?.let { image(canvas, it, box) } }
-            page.strokes.forEach { stroke(canvas, it) }
-            page.texts.forEach { text(canvas, it) }
+            page.images.forEach { box ->
+                if (!rectVisible(box.x, box.y, box.x + box.width, box.y + box.height, clip)) return@forEach
+                images?.get(box.id)?.let { image(canvas, it, box) }
+            }
+            page.strokes.forEach { if (strokeVisible(it, clip)) stroke(canvas, it) }
+            page.texts.forEach {
+                val h = textHeight(it)
+                if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
+            }
         }
+    }
+
+    private fun rectVisible(l: Float, t: Float, r: Float, b: Float, clip: Rect): Boolean =
+        r >= clip.left && l <= clip.right && b >= clip.top && t <= clip.bottom
+
+    /**
+     * Fast bounds check on the stored samples (shapes re-derive from two corners, so their raw
+     * points already bound the rendered geometry). Smoothed centrelines never leave this box by
+     * more than the stroke width, which the margin covers.
+     */
+    private fun strokeVisible(stroke: Stroke, clip: Rect): Boolean {
+        val points = stroke.points
+        if (points.isEmpty()) return false
+        val margin = stroke.width * 2f + 8f
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        // Shapes only store their corners; iterating raw points bounds them exactly without
+        // expanding an ellipse into 65 samples just to test visibility.
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        return maxX + margin >= clip.left && minX - margin <= clip.right &&
+            maxY + margin >= clip.top && minY - margin <= clip.bottom
     }
 
     /** A placed photo drawn into its box, scaled to fill while keeping the bitmap filtered. */
     fun image(canvas: Canvas, bitmap: Bitmap, box: PageImage) {
         if (box.width <= 0f || box.height <= 0f) return
         canvas.drawBitmap(bitmap, null, RectF(box.x, box.y, box.x + box.width, box.y + box.height),
-            Paint(Paint.FILTER_BITMAP_FLAG))
+            bitmapPaintPool.get()!!)
     }
 
     /** Only the visible lattice is drawn, even when the camera is far from the origin. */
@@ -137,7 +196,7 @@ object InkRenderer {
         // Thin the pattern at extreme export scales instead of iterating over an enormous world.
         val stride = ceil(max(bounds.width(), bounds.height()) / (baseSpacing * 180f)).coerceAtLeast(1f)
         val spacing = baseSpacing * stride
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0E0DA.toInt(); strokeWidth = .8f }
+        val paint = paperMinorPaint
         val firstX = floor(bounds.left / spacing).toInt()
         val lastX = ceil(bounds.right / spacing).toInt()
         val firstY = floor(bounds.top / spacing).toInt()
@@ -187,8 +246,11 @@ object InkRenderer {
     /**
      * The measured layout for a text box. Drawing and hit-testing share it, so a box is tapped and
      * dragged exactly where it is drawn, and its height is never stored out of date.
+     * Layouts are cached because measuring text on every frame made scrolling past text-heavy
+     * pages visibly heavy; boxes are immutable so the cache key is the box itself.
      */
     fun textLayout(box: TextBox): StaticLayout {
+        synchronized(textLayoutCache) { textLayoutCache[box]?.let { return it } }
         val value = box.text.ifEmpty { " " }
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = box.color
@@ -196,9 +258,17 @@ object InkRenderer {
             typeface = Typeface.create(Typeface.SERIF, if (box.bold) Typeface.BOLD else Typeface.NORMAL)
             isFakeBoldText = box.bold
             textSkewX = if (box.italic) -0.25f else 0f
+            isUnderlineText = box.underline
         }
-        return StaticLayout.Builder.obtain(value, 0, value.length, paint, box.width.toInt().coerceAtLeast(1))
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setLineSpacing(0f, 1.1f).build()
+        val alignment = when (box.align) {
+            TextAlignMode.CENTER -> Layout.Alignment.ALIGN_CENTER
+            TextAlignMode.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
+            TextAlignMode.LEFT -> Layout.Alignment.ALIGN_NORMAL
+        }
+        val layout = StaticLayout.Builder.obtain(value, 0, value.length, paint, box.width.toInt().coerceAtLeast(1))
+            .setAlignment(alignment).setIncludePad(false).setLineSpacing(0f, 1.1f).build()
+        synchronized(textLayoutCache) { textLayoutCache[box] = layout }
+        return layout
     }
 
     /** The box's rendered height, used for hit-testing and for the drag outline. */
@@ -213,7 +283,7 @@ object InkRenderer {
     }
 
     private fun drawRuled(canvas: Canvas, page: NotePage) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(224, 224, 218); strokeWidth = .8f }
+        val paint = paperMinorPaint
         val spacing = 28f
         var y = 70f
         while (y < page.height) { canvas.drawLine(36f, y, page.width - 36f, y, paint); y += spacing }
@@ -248,7 +318,7 @@ object InkRenderer {
     }
 
     private fun drawDots(canvas: Canvas, page: NotePage) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(224, 224, 218); strokeWidth = .8f }
+        val paint = paperMinorPaint
         val spacing = 28f
         var y = spacing
         while (y < page.height) {
@@ -259,8 +329,9 @@ object InkRenderer {
     }
 
     private fun drawGrid(canvas: Canvas, page: NotePage, spacing: Float, minorAlpha: Int, majorEvery: Int) {
-        val minor = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = minorAlpha; strokeWidth = .7f }
-        val major = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f }
+        val minor = if (minorAlpha == 0xFFE0E0DA.toInt()) paperGridMinorPaint
+            else Paint(Paint.ANTI_ALIAS_FLAG).apply { color = minorAlpha; strokeWidth = .7f }
+        val major = paperGridMajorPaint
         var x = spacing
         var idx = 1
         while (x < page.width) {
@@ -282,8 +353,8 @@ object InkRenderer {
      */
     private fun drawMathGrid(canvas: Canvas, page: NotePage) {
         val spacing = 20f
-        val minor = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(232, 232, 228); strokeWidth = .65f }
-        val major = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(214, 214, 210); strokeWidth = .9f }
+        val minor = paperMathMinorPaint
+        val major = paperMathMajorPaint
         // Minor grid
         var x = spacing
         var i = 1
@@ -308,14 +379,14 @@ object InkRenderer {
         drawMathGrid(canvas, page)
         val cx = page.width / 2f
         val cy = page.height / 2f
-        val axis = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(140, 145, 150); strokeWidth = 1.4f }
-        val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(175, 180, 185); strokeWidth = 0.85f }
+        val axis = graphAxisPaint
+        val tick = graphTickPaint
         // Axes
         canvas.drawLine(0f, cy, page.width, cy, axis)
         canvas.drawLine(cx, 0f, cx, page.height, axis)
         // Arrowheads — small V at each end so direction reads instantly
         val ah = 9f
-        val p = Path()
+        val p = arrowPathPool.get()!!
         // X+ (right)
         p.reset(); p.moveTo(page.width - ah, cy - ah / 1.9f); p.lineTo(page.width, cy); p.lineTo(page.width - ah, cy + ah / 1.9f); canvas.drawPath(p, axis)
         // X- (left)
@@ -421,28 +492,35 @@ object InkRenderer {
     fun stroke(canvas: Canvas, stroke: Stroke) {
         val points = InkGeometry.pathPoints(stroke)
         if (points.isEmpty()) return
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val paint = strokePaintPool.get()!!.apply {
             color = stroke.color; alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255); strokeWidth = stroke.width; strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
+            // Dashes only apply to shape tools drawn as one path; freehand ink stays solid so
+            // pressure-varying segments never break into uneven fragments.
+            pathEffect = if (stroke.tool in SHAPE_SET) dashEffect(stroke.style, stroke.width) else null
         }
         val centre = when {
-            stroke.tool in SHAPES -> points
+            stroke.tool in SHAPE_SET -> points
             stroke.tool == Tool.PEN -> handwritingCentreline(points)
             else -> InkGeometry.smooth(points)
         }
         if (centre.size < 2) {
             paint.style = Paint.Style.FILL
+            paint.pathEffect = null
             val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
             canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * widthScale / 2, paint)
             return
         }
         // Translucent ink is drawn as one Path, so overlapping segments never darken the line.
-        if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPES) {
+        if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
             val path = Path().apply { moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) } }
             canvas.drawPath(path, paint)
             return
         }
         // Pen pressure is compressed around the selected width so quick light strokes stay readable.
+        // The thread-local paint is reused, so a dashed shape must not leak its effect into the
+        // next solid stroke drawn with the same Paint instance.
+        paint.pathEffect = null
         val taper = InkGeometry.taperScales(centre)
         centre.zipWithNext().forEachIndexed { index, (a, b) ->
             val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
@@ -450,5 +528,16 @@ object InkRenderer {
             paint.strokeWidth = stroke.width * pressure * taperScale
             canvas.drawLine(a.x, a.y, b.x, b.y, paint)
         }
+        paint.pathEffect = null
+    }
+
+    /**
+     * Dash pattern for a shape stroke, scaled by its width so thin and heavy lines read alike.
+     * Dotted uses a zero-length dash with a round cap, which renders as evenly spaced dots.
+     */
+    internal fun dashEffect(style: StrokeStyle, width: Float): android.graphics.PathEffect? = when (style) {
+        StrokeStyle.SOLID -> null
+        StrokeStyle.DASHED -> android.graphics.DashPathEffect(floatArrayOf(14f.coerceAtLeast(width * 3f), 10f.coerceAtLeast(width * 2f)), 0f)
+        StrokeStyle.DOTTED -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 3f).coerceAtLeast(8f)), 0f)
     }
 }

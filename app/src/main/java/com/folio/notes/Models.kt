@@ -6,6 +6,20 @@ import java.util.UUID
 import kotlin.math.*
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND }
+/** Line pattern for shape tools, like GoodNotes' dashed and dotted lines for diagrams. */
+enum class StrokeStyle {
+    SOLID, DASHED, DOTTED;
+    companion object {
+        fun safeValueOf(name: String): StrokeStyle = try { valueOf(name) } catch (_: Exception) { SOLID }
+    }
+}
+/** Horizontal alignment for typed text boxes, matching Notability's text controls. */
+enum class TextAlignMode {
+    LEFT, CENTER, RIGHT;
+    companion object {
+        fun safeValueOf(name: String): TextAlignMode = try { valueOf(name) } catch (_: Exception) { LEFT }
+    }
+}
 enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET, TIAN_GRID, MI_GRID;
     /** Spacing used for paper rendering and for snap-to-grid when that paper is active. */
     val gridSpacing: Float get() = when (this) {
@@ -35,7 +49,12 @@ data class Stroke(
      * Wall-clock milliseconds when the stroke landed on the page, for exam timing reports and
      * replay. Zero means unknown — ink from before timestamps existed — and is never analysed.
      */
-    val createdAt: Long = 0L
+    val createdAt: Long = 0L,
+    /**
+     * Line pattern for shape tools (line, rectangle, ellipse). Freehand pen and highlighter
+     * always draw solid so pressure-varying ink never breaks into uneven dashes.
+     */
+    val style: StrokeStyle = StrokeStyle.SOLID
 )
 
 /**
@@ -47,7 +66,9 @@ data class TextBox(
     val x: Float, val y: Float, val width: Float = DEFAULT_WIDTH,
     val text: String = "", val size: Float = 26f,
     val color: Int = 0xFF303431.toInt(),
-    val bold: Boolean = false, val italic: Boolean = false
+    val bold: Boolean = false, val italic: Boolean = false,
+    val align: TextAlignMode = TextAlignMode.LEFT,
+    val underline: Boolean = false
 ) {
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
     companion object {
@@ -75,6 +96,23 @@ data class PageImage(
         /** Half-size of the bottom-right resize handle, in page units. */
         const val HANDLE_HALF = 22f
     }
+}
+
+/**
+ * Everything a lasso loop picked up in one pass: ink plus the typed text boxes and placed
+ * pictures it enclosed, so they move, copy, rotate, resize and delete together like one
+ * GoodNotes-style selection. Strokes match by value (they carry no id); texts and pictures
+ * match by id, which survives moves and restyles.
+ */
+data class CanvasSelection(
+    val strokes: List<Stroke> = emptyList(),
+    val texts: List<TextBox> = emptyList(),
+    val images: List<PageImage> = emptyList()
+) {
+    fun isEmpty(): Boolean = strokes.isEmpty() && texts.isEmpty() && images.isEmpty()
+    fun isNotEmpty(): Boolean = !isEmpty()
+    /** Every selected item — ink, text and pictures — as one count for the selection bar. */
+    val size: Int get() = strokes.size + texts.size + images.size
 }
 data class NotePage(
     val id: String = UUID.randomUUID().toString(),
@@ -248,6 +286,116 @@ object InkGeometry {
         val points = pathPoints(stroke)
         return points.isNotEmpty() && points.all { lassoContains(polygon, it) }
     }
+    /**
+     * True when the whole axis-aligned rectangle is inside the loop. Text boxes and pictures use
+     * the same all-or-nothing rule as ink, so a half-crossed box stays put rather than half
+     * selected. A degenerate loop never selects anything.
+     */
+    fun lassoSelectsRect(polygon: List<InkPoint>, left: Float, top: Float, right: Float, bottom: Float): Boolean {
+        if (polygon.size < 3) return false
+        return lassoContains(polygon, InkPoint(left, top)) &&
+            lassoContains(polygon, InkPoint(right, top)) &&
+            lassoContains(polygon, InkPoint(right, bottom)) &&
+            lassoContains(polygon, InkPoint(left, bottom))
+    }
+    /** A text box is selected only when its whole rendered extent is enclosed. */
+    fun lassoSelectsText(polygon: List<InkPoint>, box: TextBox, height: Float): Boolean =
+        lassoSelectsRect(polygon, box.x, box.y, box.x + box.width, box.y + height)
+    /** A picture is selected only when its whole frame is enclosed. */
+    fun lassoSelectsImage(polygon: List<InkPoint>, image: PageImage): Boolean =
+        lassoSelectsRect(polygon, image.x, image.y, image.x + image.width, image.y + image.height)
+    /**
+     * The bounding box of a mixed selection as `[minX, minY, maxX, maxY]`, or null when there is
+     * nothing selected. [textHeight] measures each box's rendered height, which is not stored.
+     */
+    fun selectionBounds(
+        strokes: List<Stroke>,
+        texts: List<TextBox>,
+        images: List<PageImage>,
+        textHeight: (TextBox) -> Float,
+        margin: Float = 0f
+    ): FloatArray? {
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        var any = false
+        fun include(left: Float, top: Float, right: Float, bottom: Float) {
+            any = true
+            if (left < minX) minX = left
+            if (top < minY) minY = top
+            if (right > maxX) maxX = right
+            if (bottom > maxY) maxY = bottom
+        }
+        strokes.forEach { stroke -> pathPoints(stroke).forEach { include(it.x, it.y, it.x, it.y) } }
+        texts.forEach { box -> include(box.x, box.y, box.x + box.width, box.y + textHeight(box)) }
+        images.forEach { image -> include(image.x, image.y, image.x + image.width, image.y + image.height) }
+        if (!any) return null
+        return floatArrayOf(minX - margin, minY - margin, maxX + margin, maxY + margin)
+    }
+
+    /** The middle of a mixed selection's bounding box, used as the pivot for rotation and resizing. */
+    fun selectionCenter(
+        strokes: List<Stroke>,
+        texts: List<TextBox>,
+        images: List<PageImage>,
+        textHeight: (TextBox) -> Float
+    ): InkPoint? =
+        selectionBounds(strokes, texts, images, textHeight)?.let { InkPoint((it[0] + it[2]) / 2f, (it[1] + it[3]) / 2f) }
+
+    /** Turns one point about [center] by [degrees], matching [rotate] for strokes. */
+    fun rotatePoint(point: InkPoint, center: InkPoint, degrees: Float): InkPoint {
+        val radians = Math.toRadians(degrees.toDouble())
+        val cos = cos(radians).toFloat(); val sin = sin(radians).toFloat()
+        val dx = point.x - center.x; val dy = point.y - center.y
+        return InkPoint(center.x + dx * cos - dy * sin, center.y + dx * sin + dy * cos, point.pressure)
+    }
+
+    /**
+     * Moves each text box's position about [center] by [degrees]. Boxes stay axis-aligned — only
+     * their place turns, never their glyphs — which is what an editor without rotated text can
+     * honestly describe.
+     */
+    fun rotateTexts(texts: List<TextBox>, center: InkPoint, degrees: Float): List<TextBox> =
+        texts.map { box ->
+            val at = rotatePoint(InkPoint(box.x, box.y), center, degrees)
+            box.copy(x = at.x, y = at.y)
+        }
+
+    /** Moves each picture's frame about [center] by [degrees]; the bitmap itself is never rotated. */
+    fun rotateImages(images: List<PageImage>, center: InkPoint, degrees: Float): List<PageImage> =
+        images.map { image ->
+            val at = rotatePoint(InkPoint(image.x, image.y), center, degrees)
+            image.copy(x = at.x, y = at.y)
+        }
+
+    /**
+     * Grows or shrinks each text box about [center], scaling its width and type size with its
+     * place so the selection stays in proportion. Sizes clamp to the same limits as the text
+     * dialog, so a box can never become invisible or huge.
+     */
+    fun scaleTexts(texts: List<TextBox>, center: InkPoint, factor: Float): List<TextBox> =
+        texts.map { box ->
+            box.copy(
+                x = center.x + (box.x - center.x) * factor,
+                y = center.y + (box.y - center.y) * factor,
+                width = (box.width * factor).coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
+                size = (box.size * factor).coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
+            )
+        }
+
+    /**
+     * Grows or shrinks each picture about [center], scaling its frame uniformly so the aspect
+     * ratio never distorts. Frames clamp to the same limits as the resize handle.
+     */
+    fun scaleImages(images: List<PageImage>, center: InkPoint, factor: Float): List<PageImage> =
+        images.map { image ->
+            val width = (image.width * factor).coerceIn(PageImage.MIN_SIZE, PageImage.MAX_SIZE)
+            val height = (image.height * factor).coerceIn(PageImage.MIN_SIZE, PageImage.MAX_SIZE)
+            image.copy(
+                x = center.x + (image.x - center.x) * factor,
+                y = center.y + (image.y - center.y) * factor,
+                width = width, height = height
+            )
+        }
     /** Moves every sample of a stroke without changing its tool, colour, width or pressure. */
     fun translate(stroke: Stroke, dx: Float, dy: Float): Stroke =
         stroke.copy(points = stroke.points.map { InkPoint(it.x + dx, it.y + dy, it.pressure) })
@@ -304,17 +452,23 @@ object InkGeometry {
      * A null argument leaves that property exactly as it was, so one control can be changed on its
      * own. [widthScale] is relative rather than absolute, which keeps the thickness differences
      * inside a selection intact — a 1x scale is therefore "leave the thickness alone".
+     * [style] only applies to shape tools (line, rectangle, ellipse); freehand ink keeps its
+     * solid look so pressure-varying strokes never break into uneven dashes.
      */
     fun restyle(
         strokes: List<Stroke>,
         color: Int? = null,
         widthScale: Float? = null,
-        opacity: Float? = null
+        opacity: Float? = null,
+        style: StrokeStyle? = null
     ): List<Stroke> = strokes.map { stroke ->
         stroke.copy(
             color = color ?: stroke.color,
             width = widthScale?.let { (stroke.width * it).coerceIn(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH) } ?: stroke.width,
-            opacity = opacity?.coerceIn(MIN_OPACITY, MAX_OPACITY) ?: stroke.opacity
+            opacity = opacity?.coerceIn(MIN_OPACITY, MAX_OPACITY) ?: stroke.opacity,
+            style = style?.takeIf {
+                stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE
+            } ?: stroke.style
         )
     }
 

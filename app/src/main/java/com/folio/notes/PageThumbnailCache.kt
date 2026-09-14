@@ -84,8 +84,11 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         const val MEDIUM = 200
         const val LARGE = 420
 
-        /** A few dozen previews at most; the disk copies are the cache that actually persists. */
-        const val MAX_BYTES = 8 * 1024 * 1024
+        /**
+         * A shelf of covers plus an open page browser fits comfortably; the disk copies are the
+         * cache that actually persists, this only keeps scrolling from re-decoding PNGs.
+         */
+        const val MAX_BYTES = 24 * 1024 * 1024
 
         /** Rounds a requested width to the nearest size the cache keeps, so layouts share previews. */
         fun bucket(widthPx: Int) = when {

@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
     onAdd: () -> Unit, onFit: () -> Unit,
     onDeselect: () -> Unit, onCopySelection: () -> Unit, onCutSelection: () -> Unit,
     onDuplicateSelection: () -> Unit, onRotateSelection: (Float) -> Unit,
-    onResizeSelection: (Float) -> Unit, onRestyleSelection: () -> Unit, onDeleteSelection: () -> Unit
+    onResizeSelection: (Float) -> Unit, onRestyleSelection: () -> Unit, onDeleteSelection: () -> Unit,
+    canRestyle: Boolean = true
 ) {
     val note = state.active ?: return
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
@@ -38,19 +39,20 @@ import androidx.compose.ui.unit.dp
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onDeselect) { Icon(Icons.Rounded.Close, "Deselect ink") }
+                    IconButton(onDeselect) { Icon(Icons.Rounded.Close, "Deselect selection") }
                     Text("$selectedCount selected", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.titleSmall)
-                    IconButton(onCopySelection) { Icon(Icons.Rounded.ContentCopy, "Copy ink") }
-                    IconButton(onCutSelection) { Icon(Icons.Rounded.ContentCut, "Cut ink") }
-                    IconButton(onDuplicateSelection) { Icon(Icons.Rounded.ControlPointDuplicate, "Duplicate ink in place") }
+                    IconButton(onCopySelection) { Icon(Icons.Rounded.ContentCopy, "Copy selection") }
+                    IconButton(onCutSelection) { Icon(Icons.Rounded.ContentCut, "Cut selection") }
+                    IconButton(onDuplicateSelection) { Icon(Icons.Rounded.ControlPointDuplicate, "Duplicate selection in place") }
                     IconButton({ onRotateSelection(-90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate selection left") }
                     IconButton({ onRotateSelection(90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateRight, "Rotate selection right") }
                     IconButton({ onResizeSelection(0.9f) }) { Icon(Icons.Rounded.ZoomOut, "Shrink selection") }
                     IconButton({ onResizeSelection(1.1f) }) { Icon(Icons.Rounded.ZoomIn, "Grow selection") }
-                    IconButton(onRestyleSelection) { Icon(Icons.Rounded.Palette, "Restyle selection") }
+                    // Restyling recolours ink, so it is only offered when the selection holds strokes.
+                    if (canRestyle) IconButton(onRestyleSelection) { Icon(Icons.Rounded.Palette, "Restyle selection") }
                     TextButton(onDeleteSelection) {
                         Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp)); Text("Delete ink")
+                        Spacer(Modifier.width(6.dp)); Text("Delete")
                     }
                 }
             } else BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {

@@ -27,8 +27,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,8 +69,15 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var redoPanel by remember { mutableStateOf(false) }
     var assignPanel by remember { mutableStateOf(false) }
     val examFilter = state.examFilter
-    val notes = organizeNotebooks(state.notes, state.folderId, starred, unfiled, query, kind, sort)
-        .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
+    // Filtering + sorting runs once per input change, not on every recomposition (selection
+    // ticks, thumbnail arrivals), so scrolling and multi-select stay smooth on large libraries.
+    val notes = remember(state.notes, state.folderId, starred, unfiled, query, kind, sort, examFilter) {
+        organizeNotebooks(state.notes, state.folderId, starred, unfiled, query, kind, sort)
+            .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
+    }
+    // Grouping is pure but not free; memoized here (a @Composable context) rather than inside
+    // the grid content, where remember is not allowed.
+    val groups = remember(state.sets, state.notes) { groupExamSets(state.sets, state.notes) }
     val visibleIds = notes.map { it.id }.toSet()
     val selection = selectedIds.filter { it in visibleIds }.toSet()
     LaunchedEffect(visibleIds) { selectedIds = selectedIds.filter { it in visibleIds } }
@@ -132,7 +141,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             state.folders.forEach { folder -> FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) }) }
                             AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                         }
-                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a notebook…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
+                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a notebook…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(8.dp))
@@ -237,7 +246,6 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                     }
                 }
                 // Keep grouped papers available without pushing the notebook shelf off screen.
-                val groups = groupExamSets(state.sets, state.notes)
                 if (groups.isNotEmpty() && !selecting) item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -426,7 +434,14 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                     }
                 }
             } else {
-                IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", tint = Color(0xFF343931), modifier = Modifier.size(21.dp)) }
+                IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                    Icon(
+                        if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                        if (note.starred) "Remove from favorites" else "Add to favorites",
+                        tint = if (note.starred) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .85f),
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
             }
         }
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -468,12 +483,14 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 @Composable fun NotebookFace(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 260.dp.roundToPx() })
     val first = note.pages.firstOrNull()
+    // Reserve the page's own aspect up front so the card never jumps when the preview
+    // arrives a frame later; the decorative cover simply fills the same box until then.
+    val aspect = first?.let { page ->
+        val ratio = if (page.height > 0) page.width / page.height else 0.7f
+        ratio.coerceIn(0.4f, 1.5f)
+    } ?: 0.71f
     val bitmap = preview
     if (note.pageCover && bitmap != null) {
-        val aspect = first?.let { page ->
-            val ratio = if (page.height > 0) page.width / page.height else 0.7f
-            ratio.coerceIn(0.4f, 1.5f)
-        } ?: 0.71f
         Box(
             modifier
                 .aspectRatio(aspect)
@@ -485,7 +502,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
     } else {
-        NotebookCover(note, modifier.aspectRatio(1.1f), compact = true)
+        NotebookCover(note, modifier.aspectRatio(aspect), compact = true)
     }
 }
 
