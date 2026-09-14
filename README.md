@@ -1,6 +1,6 @@
 # Folio
 
-A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3. A quiet, warm workspace for handwriting, typed notes, sketches, and annotated PDFs. Android 8.0 or newer; no account, no network permission, and Bluetooth is asked for only if you switch on optional pen haptics.
+A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3. A quiet, warm workspace for handwriting, typed notes, sketches, and annotated PDFs. Android 8.0 or newer; no account, and network access is used only to check and download signed Folio releases. Bluetooth is asked for only if you switch on optional pen haptics.
 
 ## What works
 
@@ -30,6 +30,7 @@ A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3
 - Folder creation/renaming/removal, moving and renaming notebooks, favorites, search, and sorting. Removing a folder keeps its notebooks.
 - Home-page organization: filter unfiled items and notebook/PDF types, sort by last edited, oldest edited, name, or page count, and switch between covers and a compact list. Use **Select notebooks** to select individual items or all visible results, then move them to a folder or add/remove favorites together. Selection stays within the current filtered results.
 - Atomic local saves, visible saving/error states, retry, and Android backup/device-transfer rules. No broad storage permission.
+- In-app updates: Folio checks the official GitHub Releases feed on launch and from **Settings → App updates**, downloads the newer APK, verifies its `SHA256SUMS` entry, and hands it to Android's native installer. Android may ask you to allow Folio to install updates from this source; the existing release signing key still has to match.
 - Responsive phone/tablet library, system dark theme, optional Android wallpaper colors, a fullscreen layout with the status bar and gesture pill hidden across the whole app (they slide back on a swipe from their edge, and the display cutout inset is still respected), a launcher **New notebook** shortcut, and restoration of the selected notebook/page.
 
 ## Editor improvements

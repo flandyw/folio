@@ -22,7 +22,7 @@ enum class ToolbarPosition(val label: String, val description: String) {
     BOTTOM("Bottom", "Keep your tools close to hand")
 }
 
-@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, position: ToolbarPosition, onPosition: (ToolbarPosition) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onBack: () -> Unit) {
+@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, position: ToolbarPosition, onPosition: (ToolbarPosition) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -66,6 +66,15 @@ enum class ToolbarPosition(val label: String, val description: String) {
             PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
             PreferenceSwitch("Wallpaper colors", "Use your Android color palette", dynamic, onDynamic)
             HorizontalDivider()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("App updates", style = MaterialTheme.typography.titleSmall)
+                    Text("Check GitHub for a newer signed Folio release.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
+                    if (updateChecking) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Check")
+                }
+            }
             Text("Your notebooks stay on this device. Export a PDF to keep a copy or share your work.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

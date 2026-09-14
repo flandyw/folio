@@ -3,7 +3,11 @@ package com.folio.notes
 
 import android.Manifest
 import android.content.ClipData
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +31,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -46,6 +51,17 @@ import java.io.File
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
+    val updateChecker = remember(context) { FolioUpdateChecker(context.applicationContext) }
+    val updateScope = rememberCoroutineScope()
+    var updateInfo by remember { mutableStateOf<FolioUpdate?>(null) }
+    var updateReady by remember { mutableStateOf<Uri?>(null) }
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var updateDialog by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var updateFailure by remember { mutableStateOf(false) }
+    val updateProgressFlow = remember { MutableStateFlow(0) }
+    val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val exporter = remember { NoteExporter(model.repository) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importPdf) }
@@ -71,6 +87,81 @@ import java.io.File
         prefs.edit().putBoolean("penHaptics", allowed).apply()
         if (!allowed) model.reportError("Pen haptics need Bluetooth permission")
     }
+    fun installUpdate(uri: Uri) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            updateReady = uri
+            updateMessage = "Allow Folio to install updates, then tap Install update again."
+            updateDialog = true
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+            }.onFailure {
+                updateMessage = "Open Android settings to allow Folio to install updates."
+            }
+            return
+        }
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            updateReady = null
+            updateDialog = false
+        } catch (_: ActivityNotFoundException) {
+            updateMessage = "Android could not open the downloaded update."
+            updateFailure = true
+            updateDialog = true
+        }
+    }
+    fun downloadUpdate(update: FolioUpdate) {
+        if (updateDownloading) return
+        updateDownloading = true
+        updateMessage = null
+        updateFailure = false
+        updateProgressFlow.value = 0
+        updateDialog = true
+        updateScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    updateChecker.download(update) { updateProgressFlow.tryEmit(it) }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                updateReady = uri
+                installUpdate(uri)
+            } catch (error: Exception) {
+                updateMessage = error.message ?: "The update could not be downloaded."
+                updateFailure = true
+                updateDialog = true
+            } finally {
+                updateDownloading = false
+            }
+        }
+    }
+    fun checkForUpdates(showDialog: Boolean) {
+        if (updateChecking || updateDownloading) return
+        updateChecking = true
+        updateInfo = null
+        updateReady = null
+        updateMessage = null
+        updateFailure = false
+        updateDialog = showDialog
+        updateScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { updateChecker.check() }
+                updateInfo = result
+                if (result != null) updateDialog = true
+                else if (showDialog) updateMessage = "You’re up to date."
+            } catch (error: Exception) {
+                if (showDialog) {
+                    updateMessage = error.message ?: "Could not check for updates."
+                    updateFailure = true
+                    updateDialog = true
+                }
+            } finally {
+                updateChecking = false
+            }
+        }
+    }
+    LaunchedEffect(Unit) { checkForUpdates(showDialog = false) }
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
     BackHandler(state.active != null && !exportBusy) { model.close() }
@@ -110,6 +201,8 @@ import java.io.File
                         else if (PenHapticsManager.isSupported(context)) hapticPermissions.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT))
                     },
                     shapeRecognition, { shapeRecognition = it; prefs.edit().putBoolean("shapeRecognition", it).apply() },
+                    onCheckForUpdates = { checkForUpdates(showDialog = true) },
+                    updateChecking = updateChecking,
                     onBack = { settings = false })
             }
         }
@@ -143,6 +236,34 @@ import java.io.File
                 }
             }
         }
+        if (updateDialog) AlertDialog(
+            onDismissRequest = { if (!updateChecking && !updateDownloading) updateDialog = false },
+            title = { Text(if (updateInfo != null) "Folio update available" else "App updates") },
+            text = {
+                when {
+                    updateChecking -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Text("Checking GitHub releases…")
+                    }
+                    updateDownloading -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Downloading and verifying Folio ${updateInfo?.versionName ?: "update"}…")
+                        LinearProgressIndicator(progress = { updateProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                        Text("$updateProgress%", style = MaterialTheme.typography.labelMedium)
+                    }
+                    updateReady != null -> Text(updateMessage ?: "The update is ready to install.")
+                    updateInfo != null -> Text("Folio ${updateInfo!!.versionName} is ready. Download it and Android will verify the existing release signature before installing.")
+                    else -> Text(updateMessage ?: "No update information available.")
+                }
+            },
+            dismissButton = { if (!updateChecking && !updateDownloading) TextButton({ updateDialog = false }) { Text("Later") } },
+            confirmButton = {
+                when {
+                    updateReady != null && !updateDownloading -> Button({ installUpdate(updateReady!!) }) { Text("Install update") }
+                    updateInfo != null && !updateDownloading -> Button({ downloadUpdate(updateInfo!!) }) { Text("Download & install") }
+                    updateFailure && !updateChecking -> TextButton({ checkForUpdates(showDialog = true) }) { Text("Retry") }
+                }
+            }
+        )
     }
 }
 
