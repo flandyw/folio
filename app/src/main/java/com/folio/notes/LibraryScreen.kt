@@ -359,7 +359,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-            DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.Rounded.FactCheck, null) })
+            DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Exam set") }, { menu = false; assignSet() }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null) })
             DropdownMenuItem({ Text("Move to folder") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })

@@ -43,8 +43,8 @@ import androidx.compose.ui.unit.dp
                     IconButton(onCopySelection) { Icon(Icons.Rounded.ContentCopy, "Copy ink") }
                     IconButton(onCutSelection) { Icon(Icons.Rounded.ContentCut, "Cut ink") }
                     IconButton(onDuplicateSelection) { Icon(Icons.Rounded.ControlPointDuplicate, "Duplicate ink in place") }
-                    IconButton({ onRotateSelection(-90f) }) { Icon(Icons.Rounded.RotateLeft, "Rotate selection left") }
-                    IconButton({ onRotateSelection(90f) }) { Icon(Icons.Rounded.RotateRight, "Rotate selection right") }
+                    IconButton({ onRotateSelection(-90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate selection left") }
+                    IconButton({ onRotateSelection(90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateRight, "Rotate selection right") }
                     IconButton({ onResizeSelection(0.9f) }) { Icon(Icons.Rounded.ZoomOut, "Shrink selection") }
                     IconButton({ onResizeSelection(1.1f) }) { Icon(Icons.Rounded.ZoomIn, "Grow selection") }
                     IconButton(onRestyleSelection) { Icon(Icons.Rounded.Palette, "Restyle selection") }

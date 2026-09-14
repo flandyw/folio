@@ -171,15 +171,15 @@ object ExamTagsCodec {
     fun decode(o: JSONObject?): ExamTags {
         if (o == null) return ExamTags()
         return ExamTags(
-            subject = VceSubject.safeValueOf(o.optString("subject", null)),
+            subject = if (o.has("subject") && !o.isNull("subject")) VceSubject.safeValueOf(o.optString("subject")) else null,
             subjectText = o.optString("subjectText", ""),
             year = if (o.has("year") && !o.isNull("year")) o.optInt("year") else null,
             company = o.optString("company", ""),
-            type = ExamType.safeValueOf(o.optString("type", null)),
+            type = if (o.has("type") && !o.isNull("type")) ExamType.safeValueOf(o.optString("type")) else null,
             unit = if (o.has("unit") && !o.isNull("unit")) o.optInt("unit") else null,
             difficulty = if (o.has("difficulty") && !o.isNull("difficulty")) o.optInt("difficulty") else null,
             marksTotal = if (o.has("marksTotal") && !o.isNull("marksTotal")) o.optInt("marksTotal") else null,
-            status = ExamStatus.safeValueOf(o.optString("status", null)) ?: ExamStatus.TO_DO,
+            status = if (o.has("status") && !o.isNull("status")) ExamStatus.safeValueOf(o.optString("status")) ?: ExamStatus.TO_DO else ExamStatus.TO_DO,
             tags = o.optJSONArray("tags")?.let { array ->
                 (0 until array.length()).mapNotNull { ExamTagType.entries.find { t -> t.name == array.optString(it) } }.toSet()
             } ?: emptySet(),
@@ -229,10 +229,10 @@ object ExamTagsCodec {
             ExamSet(
                 id = s.getString("id"),
                 name = s.getString("name"),
-                subject = VceSubject.safeValueOf(s.optString("subject", null)),
+                subject = if (s.has("subject") && !s.isNull("subject")) VceSubject.safeValueOf(s.optString("subject")) else null,
                 year = if (s.has("year") && !s.isNull("year")) s.optInt("year") else null,
                 company = s.optString("company", ""),
-                type = ExamType.safeValueOf(s.optString("type", null)),
+                type = if (s.has("type") && !s.isNull("type")) ExamType.safeValueOf(s.optString("type")) else null,
                 durationSeconds = if (s.has("durationSeconds") && !s.isNull("durationSeconds")) s.optInt("durationSeconds") else null
             )
         }

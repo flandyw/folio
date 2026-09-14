@@ -558,7 +558,7 @@ private fun paperLabel(p: Paper): String = when (p) {
 }
 
 @Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, change: (Tool) -> Unit) {
-    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         FolioToolToggle(value == selected, { change(value) }, icon, label)
     }
 }
@@ -626,7 +626,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     @Composable fun WidthControl() {
         Box {
-            TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Stroke width ${String.format(java.util.Locale.ROOT, "%.1f", options.width)} pt — tap to adjust") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Stroke width ${String.format(java.util.Locale.ROOT, "%.1f", options.width)} pt — tap to adjust") } }, state = rememberTooltipState()) {
                 AssistChip(
                     onClick = { showWidth = true },
                     label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
@@ -707,7 +707,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             ToolbarDivider()
             if (tool != Tool.ERASER) QuickColors()
             WidthControl()
-            TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
                 IconButton({ onSnap(!snapEnabled) }) {
                     Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 }
@@ -750,7 +750,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             { onDismiss(); onRedo() },
             leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
         )
-        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.Rounded.FactCheck, null) })
+        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
         DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         HorizontalDivider()
         DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })

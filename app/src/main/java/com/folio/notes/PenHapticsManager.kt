@@ -159,6 +159,7 @@ class PenHapticsManager(private val context: Context) {
         if (!write(connection, characteristic)) { handler.removeCallbacks(writeTimeout); writing = false }
     }
 
+    @Suppress("DEPRECATION")
     private fun write(connection: BluetoothGatt, characteristic: BluetoothGattCharacteristic): Boolean {
         val bytes = PenHaptics.functionPulse()
         val type = if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0)
