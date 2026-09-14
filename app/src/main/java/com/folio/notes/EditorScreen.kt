@@ -295,6 +295,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val stripInsetPx = with(density) { stripInset.toPx() }
             val trackTopPx = with(density) { trackTop.toPx() }
             val trackBottomPx = with(density) { trackBottom.toPx() }
+            val minimumThumbPx = with(density) { 24.dp.toPx() }
             LaunchedEffect(viewportWidth, baseWidthPx) {
                 documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentZoom, viewportWidth)
             }
@@ -312,11 +313,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink)
-            } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, note.pages.size) {
-                fun scrubTo(y: Float) {
-                    val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(1f)
-                    pages.requestScrollToItem(DocumentViewport.pageAt(((y - trackTopPx) / span).coerceIn(0f, 1f), note.pages.size))
-                }
+            } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     motion.stop()
@@ -325,18 +322,38 @@ private fun paperLabel(p: Paper): String = when (p) {
                         motion.reset()
                         return@awaitEachGesture
                     }
-                    if (down.position.x >= size.width - stripInsetPx - stripWidthPx) {
+                    val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(0f)
+                    val geometry = fastScrollGeometry(pages, span, minimumThumbPx)
+                    val onThumb = geometry != null &&
+                        down.position.x in (size.width - stripInsetPx - stripWidthPx)..(size.width - stripInsetPx) &&
+                        down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
+                    if (onThumb) {
                         motion.reset()
-                        scrubbing = true
-                        scrubTo(down.position.y)
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            change.consume()
-                            if (!change.pressed) break
-                            scrubTo(change.position.y)
+                        down.consume()
+                        val travelSpan = (span - geometry.height).coerceAtLeast(1f)
+                        val startProgress = DocumentViewport.scrollProgress(pages.firstVisibleItemIndex,
+                            pages.firstVisibleItemScrollOffset, pages.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0,
+                            note.pages.size)
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                // Additional fingers or a pen cancel the scrub before it moves the page.
+                                if (event.changes.any { it.id != down.id && it.pressed }) break
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (!change.pressed) break
+                                val delta = change.position - down.position
+                                if (!scrubbing) {
+                                    if (kotlin.math.abs(delta.x) > viewConfiguration.touchSlop &&
+                                        kotlin.math.abs(delta.x) >= kotlin.math.abs(delta.y)) break
+                                    if (kotlin.math.abs(delta.y) <= viewConfiguration.touchSlop) continue
+                                    scrubbing = true
+                                }
+                                pages.requestScrollToItem(DocumentViewport.pageAt(startProgress + delta.y / travelSpan, note.pages.size))
+                            }
+                        } finally {
+                            scrubbing = false
                         }
-                        scrubbing = false
                     } else {
                         var transforming = false
                         val velocity = VelocityTracker()
@@ -403,11 +420,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     item { OutlinedButton({ addPage() }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
             }
-            if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(stripWidth).fillMaxHeight()) {
-                FastScrollTrack(pages, scrubbing, Modifier.fillMaxSize())
-            }
-            if (scrubbing) Surface(Modifier.align(Alignment.TopEnd).padding(top = trackTop, end = stripInset + stripWidth + 8.dp), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp) {
-                Text("${state.pageIndex + 1} / ${note.pages.size}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+            if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
+                FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
             val toolbarAlignment = when (toolbarPosition) {
                 ToolbarPosition.TOP -> Alignment.TopCenter
@@ -754,16 +768,37 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
 }
 
-/** The fast-scroll thumb. It reads the list state itself, so scrolling only recomposes this strip. */
-@Composable private fun FastScrollTrack(pages: LazyListState, scrubbing: Boolean, modifier: Modifier = Modifier) {
+private data class FastScrollGeometry(val top: Float, val height: Float)
+
+/** Shared geometry keeps the touch target aligned with the visible thumb. */
+private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb: Float): FastScrollGeometry? {
     val info = pages.layoutInfo
-    if (info.totalItemsCount <= info.visibleItemsInfo.size) return
-    val progress = DocumentViewport.scrollProgress(pages.firstVisibleItemIndex, pages.firstVisibleItemScrollOffset, info.visibleItemsInfo.firstOrNull()?.size ?: 0, info.totalItemsCount)
+    if (height <= 0f || (!pages.canScrollBackward && !pages.canScrollForward)) return null
+    val progress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(pages.firstVisibleItemIndex, pages.firstVisibleItemScrollOffset, info.visibleItemsInfo.firstOrNull()?.size ?: 0, info.totalItemsCount)
     val share = DocumentViewport.thumbFraction(info.visibleItemsInfo.size, info.totalItemsCount)
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
-        val thumb = (constraints.maxHeight * share).coerceAtLeast(with(LocalDensity.current) { 24.dp.toPx() })
-        Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .25f)))
-        Box(Modifier.align(Alignment.TopCenter).offset { IntOffset(0, ((constraints.maxHeight - thumb) * progress).roundToInt()) }.width(5.dp).height(with(LocalDensity.current) { thumb.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = if (scrubbing) 1f else .6f)))
+    val thumb = (height * share).coerceAtLeast(minimumThumb).coerceAtMost(height)
+    return FastScrollGeometry((height - thumb) * progress, thumb)
+}
+
+/** The page count follows the thumb without making the label a touch target. */
+@Composable private fun FastScrollTrack(pages: LazyListState, pageCount: Int, scrubbing: Boolean, modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier) {
+        val geometry = fastScrollGeometry(pages, constraints.maxHeight.toFloat(), with(density) { 24.dp.toPx() })
+            ?: return@BoxWithConstraints
+        Box(Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .25f)))
+            Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(5.dp).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = if (scrubbing) 1f else .6f)))
+        }
+        val labelHeightPx = with(density) { 28.dp.toPx() }
+        val labelTop = (geometry.top + geometry.height / 2 - labelHeightPx / 2)
+            .coerceIn(0f, (constraints.maxHeight - labelHeightPx).coerceAtLeast(0f))
+        Box(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp)
+            .clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+            Text("${(pages.firstVisibleItemIndex + 1).coerceAtMost(pageCount)} / $pageCount",
+                Modifier.padding(horizontal = 8.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)
+        }
     }
 }
 
