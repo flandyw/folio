@@ -21,10 +21,11 @@ class NoteExporter(private val repository: NoteRepository) {
                 val factor = minOf(2f, 2800f / page.height, 2800f / page.width)
                 val bitmap = Bitmap.createBitmap((page.width * factor).toInt().coerceAtLeast(1), (page.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
                 val background = source?.render(page, bitmap.width)
+                val images = repository.loadImages(note.id, page)
                 try {
-                    val canvas = Canvas(bitmap); canvas.scale(factor, factor); InkRenderer.page(canvas, page, background)
+                    val canvas = Canvas(bitmap); canvas.scale(factor, factor); InkRenderer.page(canvas, page, background, images = images)
                     check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "Image export failed" }
-                } finally { bitmap.recycle(); background?.recycle() }
+                } finally { bitmap.recycle(); background?.recycle(); images.values.forEach { it.recycle() } }
             } else {
                 val document = PdfDocument()
                 try {
@@ -36,7 +37,8 @@ class NoteExporter(private val repository: NoteRepository) {
                     val pdfPage = document.startPage(PdfDocument.PageInfo.Builder((loaded.width * factor).toInt().coerceAtLeast(1), (loaded.height * factor).toInt().coerceAtLeast(1), index + 1).create())
                     pdfPage.canvas.scale(factor, factor)
                     val background = source?.render(loaded, 1680)
-                    try { InkRenderer.page(pdfPage.canvas, loaded, background) } finally { background?.recycle() }
+                    val images = repository.loadImages(note.id, loaded)
+                    try { InkRenderer.page(pdfPage.canvas, loaded, background, images = images) } finally { background?.recycle(); images.values.forEach { it.recycle() } }
                     document.finishPage(pdfPage)
                 }
                 document.writeTo(output)

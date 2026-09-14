@@ -6,8 +6,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/** A notebook and its optional imported PDF, as read back out of a `.folio` archive. */
-data class ArchivedNotebook(val note: Notebook, val pdf: ByteArray?)
+/** A notebook, its optional imported PDF and its placed images, as read back out of a `.folio` archive. */
+data class ArchivedNotebook(val note: Notebook, val pdf: ByteArray?, val images: Map<String, ByteArray> = emptyMap())
 
 /**
  * A self-contained `.folio` archive: the notebook JSON, plus its imported source PDF when there is
@@ -17,11 +17,17 @@ data class ArchivedNotebook(val note: Notebook, val pdf: ByteArray?)
 object NotebookArchive {
     const val ENTRY_NOTE = "note.json"
     const val ENTRY_PDF = "source.pdf"
+    const val ENTRY_IMAGE_PREFIX = "images/"
 
     /** A bound so a malformed archive cannot make the app pull an unbounded PDF into memory. */
     const val MAX_PDF_BYTES = 256L * 1024 * 1024
+    /** The same bound for a single placed image; phone photos are far smaller than this. */
+    const val MAX_IMAGE_BYTES = 48L * 1024 * 1024
 
-    fun write(note: Notebook, pdf: ByteArray?, output: OutputStream) {
+    fun write(note: Notebook, pdf: ByteArray?, output: OutputStream) =
+        write(note, pdf, emptyMap(), output)
+
+    fun write(note: Notebook, pdf: ByteArray?, images: Map<String, ByteArray>, output: OutputStream) {
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry(ENTRY_NOTE))
             zip.write(NoteCodec.encode(note).toByteArray(Charsets.UTF_8))
@@ -29,6 +35,11 @@ object NotebookArchive {
             if (pdf != null) {
                 zip.putNextEntry(ZipEntry(ENTRY_PDF))
                 zip.write(pdf)
+                zip.closeEntry()
+            }
+            images.forEach { (id, bytes) ->
+                zip.putNextEntry(ZipEntry(ENTRY_IMAGE_PREFIX + id))
+                zip.write(bytes)
                 zip.closeEntry()
             }
         }
@@ -42,21 +53,30 @@ object NotebookArchive {
     fun read(input: InputStream): ArchivedNotebook {
         var json: String? = null
         var pdf: ByteArray? = null
+        val images = mutableMapOf<String, ByteArray>()
         ZipInputStream(input).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                when (entry.name) {
-                    ENTRY_NOTE -> json = zip.readBytes().toString(Charsets.UTF_8)
-                    ENTRY_PDF -> {
+                when {
+                    entry.name == ENTRY_NOTE -> json = zip.readBytes().toString(Charsets.UTF_8)
+                    entry.name == ENTRY_PDF -> {
                         val bytes = zip.readBytes()
                         require(bytes.size.toLong() <= MAX_PDF_BYTES) { "This backup's PDF is too large to import" }
                         pdf = bytes
+                    }
+                    entry.name.startsWith(ENTRY_IMAGE_PREFIX) && entry.name.length > ENTRY_IMAGE_PREFIX.length -> {
+                        val id = entry.name.removePrefix(ENTRY_IMAGE_PREFIX).take(64)
+                        if (id.matches(Regex("[a-zA-Z0-9-]+"))) {
+                            val bytes = zip.readBytes()
+                            require(bytes.size.toLong() <= MAX_IMAGE_BYTES) { "This backup's image is too large to import" }
+                            images[id] = bytes
+                        }
                     }
                 }
                 zip.closeEntry()
             }
         }
         val note = json?.let(NoteCodec::decode) ?: error("This file is not a Folio backup")
-        return ArchivedNotebook(note, pdf)
+        return ArchivedNotebook(note, pdf, images)
     }
 }

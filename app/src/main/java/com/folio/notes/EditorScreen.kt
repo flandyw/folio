@@ -2,6 +2,7 @@
 package com.folio.notes
 
 import android.graphics.Bitmap
+import android.content.Intent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.foundation.Image
@@ -20,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,10 +46,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 private fun paperLabel(p: Paper): String = when (p) {
     Paper.PLAIN -> "Plain"
@@ -112,6 +122,9 @@ private fun paperLabel(p: Paper): String = when (p) {
     var textEditorNew by remember { mutableStateOf(false) }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
+    // The picture tapped with the hand tool, so the editor can offer delete and layering.
+    var selectedImage by remember { mutableStateOf<Pair<String, PageImage>?>(null) }
+    LaunchedEffect(page.id) { if (selectedImage?.first != page.id) selectedImage = null }
     fun rememberTextLook(box: TextBox) {
         textSize = box.size; textColor = box.color; textBold = box.bold; textItalic = box.italic
         appPrefs.edit().putFloat("text.size", box.size).putInt("text.color", box.color)
@@ -142,6 +155,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     var paperMenu by remember { mutableStateOf(false) }
     var timerPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
+    var pdfSearchOpen by remember { mutableStateOf(false) }
+    var pdfQuery by remember { mutableStateOf("") }
+    var pdfContentsOpen by remember { mutableStateOf(false) }
+    var pdfOutline by remember(note.id) { mutableStateOf<List<PdfOutlineEntry>?>(null) }
+    var pdfLinks by remember(note.id) { mutableStateOf(emptyList<PdfLink>()) }
     // Drives the countdown once a second; a stopped timer's tick is a no-op, so nothing recomposes.
     LaunchedEffect(Unit) {
         while (true) {
@@ -163,6 +181,24 @@ private fun paperLabel(p: Paper): String = when (p) {
         documentPan = 0f
     }
     fun jumpTo(index: Int) { motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
+    /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
+    fun openPdfLink(link: PdfLink) {
+        when (val target = link.target) {
+            is PdfLinkTarget.Page -> jumpTo(target.pageIndex.coerceIn(0, note.pages.lastIndex))
+            is PdfLinkTarget.Url -> {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target.uri)))
+                } catch (_: Exception) { model.reportError("Couldn't open this link") }
+            }
+        }
+    }
+    /** Opens the contents panel, reading the PDF's bookmarks the first time it is needed. */
+    fun loadOutline() {
+        if (pdfOutline != null) return
+        scope.launch {
+            pdfOutline = try { model.repository.pdfOutline(note.id) } catch (_: Exception) { emptyList() }
+        }
+    }
     fun addPage() {
         motion.reset()
         val index = note.pages.size
@@ -173,6 +209,62 @@ private fun paperLabel(p: Paper): String = when (p) {
             pages.scrollToItem(index)
             model.selectPage(index)
         }
+    }
+    /** Decodes a picked picture, stores it beside the notebook and places it centred on the page. */
+    fun insertImage(uri: android.net.Uri) {
+        val target = state.page ?: return
+        scope.launch {
+            try {
+                val (bytes, srcWidth, srcHeight) = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        val raw = input.readBytes()
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+                        var sample = 1
+                        while (kotlin.math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 2048) sample *= 2
+                        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                        val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size, opts)
+                            ?: error("This picture could not be opened")
+                        val capped = if (kotlin.math.max(decoded.width, decoded.height) > 2048) {
+                            val s = 2048f / kotlin.math.max(decoded.width, decoded.height)
+                            Bitmap.createScaledBitmap(decoded, (decoded.width * s).toInt().coerceAtLeast(1),
+                                (decoded.height * s).toInt().coerceAtLeast(1), true).also { decoded.recycle() }
+                        } else decoded
+                        val out = ByteArrayOutputStream()
+                        check(capped.compress(Bitmap.CompressFormat.JPEG, 85, out)) { "This picture could not be saved" }
+                        val w = capped.width; val h = capped.height
+                        capped.recycle()
+                        Triple(out.toByteArray(), w, h)
+                    } ?: error("This picture could not be opened")
+                }
+                val maxWidth = if (target.infinite) 560f else (target.width - 96f).coerceIn(200f, 640f)
+                val (w, h) = InkGeometry.fitImage(srcWidth.toFloat(), srcHeight.toFloat(), maxWidth)
+                val x = if (target.infinite) -w / 2f else (target.width - w) / 2f
+                val y = if (target.infinite) -h / 2f else (target.height - h) / 2f
+                val image = PageImage(
+                    x = if (target.infinite) x else x.coerceAtLeast(0f),
+                    y = if (target.infinite) y else y.coerceAtLeast(0f),
+                    width = w, height = h
+                )
+                model.addImage(image, bytes)
+                selectedImage = target.id to image
+                if (tool != Tool.HAND) selectTool(Tool.HAND)
+            } catch (e: Exception) {
+                model.reportError("Couldn't add this picture: ${e.message.orEmpty()}")
+            }
+        }
+    }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+            insertImage(it)
+        }
+    }
+    // Link rectangles arrive once per notebook; a native notebook simply has none.
+    LaunchedEffect(note.id) {
+        pdfLinks = if (note.pages.any { it.pdfIndex != null }) {
+            try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() }
+        } else emptyList()
     }
     LaunchedEffect(note.id, page.infinite) {
         if (page.infinite) return@LaunchedEffect
@@ -214,7 +306,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelection = { selection = page.id to it },
                     onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
-                    onCanvasZoom = { documentZoom = it })
+                    onCanvasZoom = { documentZoom = it },
+                    selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
+                    onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
+                    pdfLinks = pdfLinks, onPdfLink = ::openPdfLink)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, note.pages.size) {
                 fun scrubTo(y: Float) {
                     val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(1f)
@@ -296,7 +391,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onSelection = { strokes -> if (item.id == page.id) selection = item.id to strokes },
                             onTextEdit = { box -> textEditor = box; textEditorNew = false },
                             onTextCreate = ::placeTextBox,
-                            onLoad = { model.loadPage(item.id) })
+                            onLoad = { model.loadPage(item.id) },
+                            selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
+                            onImageSelected = { image ->
+                                selectedImage = image?.let { item.id to it }
+                            },
+                            pdfLinks = pdfLinks, onPdfLink = ::openPdfLink)
                     }
                     item { OutlinedButton({ addPage() }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
@@ -353,7 +453,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
                                 onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                                 onClear = { clear = true }, onRetry = model::retrySave,
-                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true })
+                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
+                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                                onContents = { pdfContentsOpen = true; loadOutline() })
                         }
                     }
                 }
@@ -376,7 +479,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
                                 onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                                 onClear = { clear = true }, onRetry = model::retrySave,
-                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true })
+                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
+                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                                onContents = { pdfContentsOpen = true; loadOutline() })
                         }
                     }
                 }
@@ -472,7 +578,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         }
     }, confirmButton = { TextButton({ paperMenu = false }) { Text("Done") } })
-    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place, along with any typed text you delete separately. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); clear = false }) { Text("Clear ink") } })
+    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
     if (timerPanel) ExamTimerPanel(
         timer = state.timer,
         onDismiss = { timerPanel = false },
@@ -507,6 +613,112 @@ private fun paperLabel(p: Paper): String = when (p) {
             onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
             onDelete = { model.removeText(box.id); textEditor = null }
         )
+    }
+    selectedImage?.let { (ownerId, image) ->
+        val live = note.pages.find { it.id == ownerId }?.images?.find { it.id == image.id }
+        if (live != null && ownerId == page.id) {
+            FolioPanel(title = "Picture", onDismissRequest = { selectedImage = null }) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Drag with the hand tool to move. Drag the blue dot to resize. Ink draws over the picture.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton({ model.bringImageToFront(live.id) }, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.FlipToFront, null); Spacer(Modifier.width(8.dp)); Text("Bring to front")
+                    }
+                    OutlinedButton({ model.sendImageToBack(live.id) }, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.FlipToBack, null); Spacer(Modifier.width(8.dp)); Text("Send to back")
+                    }
+                    TextButton(
+                        { model.removeImage(live.id); selectedImage = null },
+                        Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Rounded.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("Remove picture")
+                    }
+                }
+            }
+        }
+    }
+    if (pdfSearchOpen) FolioPanel(title = "Search this PDF", onDismissRequest = { pdfSearchOpen = false }) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                pdfQuery, { pdfQuery = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("Find in this PDF") },
+                placeholder = { Text("e.g. quadratic formula") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { model.searchPdf(pdfQuery) }),
+                trailingIcon = {
+                    if (pdfQuery.isNotEmpty()) IconButton({ pdfQuery = ""; model.searchPdf("") }) {
+                        Icon(Icons.Rounded.Clear, "Clear search")
+                    }
+                }
+            )
+            Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Search, null); Spacer(Modifier.width(8.dp)); Text("Search")
+            }
+            val search = state.pdfSearch
+            if (search.searching) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching PDF"))
+                    Text("Reading this PDF's text…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (search.searched && search.query.isNotBlank()) {
+                if (search.results.isEmpty()) {
+                    Text(
+                        "No matches for “${search.query.trim().take(80)}”. Scanned or locked PDFs have no searchable text.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(search.results, key = { it.pageIndex }) { hit ->
+                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
+                                        Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${hit.pageIndex + 1}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (pdfContentsOpen) FolioPanel(title = "Contents", onDismissRequest = { pdfContentsOpen = false }) {
+        val outline = pdfOutline
+        if (outline == null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Loading contents"))
+                Text("Reading bookmarks…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (outline.isEmpty()) {
+            Text(
+                "This PDF has no bookmarks.",
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = 16.dp), contentPadding = PaddingValues(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                itemsIndexed(outline) { _, entry ->
+                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + entry.depth * 16.dp, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${entry.title}")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -563,11 +775,12 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
 }
 
-@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}) {
+@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
     var retry by remember(page.id) { mutableIntStateOf(0) }
+    var pictures by remember(page.id) { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     // A page whose ink is still on disk is fetched as soon as it is about to be shown.
     LaunchedEffect(page.id, page.loaded) { if (!page.loaded) onLoad() }
     LaunchedEffect(noteId, page.id, retry) {
@@ -578,12 +791,21 @@ private fun paperLabel(p: Paper): String = when (p) {
             catch (_: Exception) { error = true }
         }
     }
+    // Pictures arrive with the page content; a missing file simply leaves no bitmap to draw.
+    LaunchedEffect(noteId, page.id, page.loaded, page.images.map { it.id }, page.revision) {
+        if (!page.loaded) return@LaunchedEffect
+        if (page.images.isEmpty()) {
+            pictures = emptyMap()
+            return@LaunchedEffect
+        }
+        pictures = model.repository.loadImages(noteId, page)
+    }
     Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
         // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
         // of a blank stand-in and replace the content that is still on disk.
         if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
-            view.onCanvasZoom = onCanvasZoom; view.bind(page, background); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
+            view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition
@@ -592,6 +814,11 @@ private fun paperLabel(p: Paper): String = when (p) {
             view.onSelectionChanged = onSelection
             view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
             view.onTextsChanged = { model.texts(page.id, it) }
+            view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
+            view.onImagesChanged = { model.images(page.id, it) }
+            view.onImageSelected = onImageSelected
+            view.pdfLinks = pdfLinks.filter { it.pageIndex == page.pdfIndex }
+            view.onPdfLink = onPdfLink
             if (!active) view.clearSelection()
         }) else Box(contentAlignment = Alignment.Center) {
             if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -702,7 +929,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser") { if (it == tool) onPalette(true) else onTool(it) }
         ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text") { onTool(it) }
         ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onTool)
-        ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Scroll and zoom", onTool)
+        ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onTool)
         if (isDrawing || tool == Tool.ERASER) {
             ToolbarDivider()
             if (tool != Tool.ERASER) QuickColors()
@@ -742,7 +969,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
     canPaste: Boolean, onResetZoom: () -> Unit, onAxes: () -> Unit, onPaper: () -> Unit,
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit
+    onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onContents: () -> Unit
 ) {
     DropdownMenu(expanded, onDismiss) {
         DropdownMenuItem(
@@ -753,12 +981,15 @@ private fun paperLabel(p: Paper): String = when (p) {
         DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
         DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         HorizontalDivider()
+        DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
+        DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.FormatListBulleted, null) })
         DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
         DropdownMenuItem({ Text("Add maths axes") }, { onDismiss(); onAxes() }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
         DropdownMenuItem({ Text("Paste ink") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
         DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onDismiss(); onSnap() }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
-        DropdownMenuItem({ Text("Clear page ink") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
+        DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
         if (saveFailed) DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
     }
 }

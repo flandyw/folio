@@ -57,11 +57,12 @@ class PageThumbnailCache(private val context: Context, private val repository: N
             val heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, 4096)
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val background = if (content.pdfIndex != null) repository.pdfBackground(noteId, content, widthPx) else null
+            val images = repository.loadImages(noteId, content)
             try {
                 val canvas = Canvas(bitmap)
                 canvas.scale(widthPx / content.width, heightPx / content.height)
-                InkRenderer.page(canvas, content, background)
-            } finally { background?.recycle() }
+                InkRenderer.page(canvas, content, background, images = images)
+            } finally { background?.recycle(); images.values.forEach { it.recycle() } }
             bitmap
         } catch (_: Exception) { null }
     }

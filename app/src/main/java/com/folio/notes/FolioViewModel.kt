@@ -18,6 +18,14 @@ class FolioApplication : Application() {
     /** App-scoped so a pen connection survives configuration changes but is still editor-bound. */
     val penHaptics by lazy { PenHapticsManager(this) }
 }
+/** Text search over the open notebook's imported PDF: what was asked and what matched. */
+data class PdfSearchState(
+    val query: String = "",
+    val searching: Boolean = false,
+    val searched: Boolean = false,
+    val results: List<PdfSearchHit> = emptyList()
+)
+
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
     val sets: List<ExamSet> = emptyList(),
@@ -33,7 +41,9 @@ data class FolioState(
     /** Seconds the last stopped timed sitting ran for, offered when recording the mark. */
     val lastTimedSeconds: Int? = null,
     /** Ink cut or copied from a lasso selection, kept so it can be pasted on any page. */
-    val clipboard: List<Stroke> = emptyList()
+    val clipboard: List<Stroke> = emptyList(),
+    /** Text search over the open notebook's imported PDF, driven by [FolioViewModel.searchPdf]. */
+    val pdfSearch: PdfSearchState = PdfSearchState()
 ) {
     val active get() = notes.find { it.id == activeId }
     val page get() = active?.pages?.getOrNull(pageIndex)
@@ -52,8 +62,8 @@ data class FolioState(
     }
 }
 
-/** One page's ink and text together, so undo restores whichever the last edit touched. */
-private typealias PageContent = Pair<List<Stroke>, List<TextBox>>
+/** One page's ink, text and placed pictures together, so undo restores whichever the last edit touched. */
+private typealias PageContent = Triple<List<Stroke>, List<TextBox>, List<PageImage>>
 
 class FolioViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("preferences", 0)
@@ -130,11 +140,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
         val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId, pageCover = pageCover)
-        _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
+        _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
         enqueue { repository.saveAll(note) }
     }
     fun open(id: String) {
-        _state.update { it.copy(activeId = id, pageIndex = 0) }
+        _state.update { it.copy(activeId = id, pageIndex = 0, pdfSearch = PdfSearchState()) }
         historyState()
         _state.value.page?.let { loadPage(it.id) }
     }
@@ -142,12 +152,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Opens a notebook straight onto one of its pages, so a flagged question is one tap away. */
     fun openAt(id: String, index: Int) {
         val target = _state.value.notes.find { it.id == id } ?: return
-        _state.update { it.copy(activeId = id, pageIndex = index.coerceIn(0, target.pages.lastIndex)) }
+        _state.update { it.copy(activeId = id, pageIndex = index.coerceIn(0, target.pages.lastIndex), pdfSearch = PdfSearchState()) }
         historyState()
         _state.value.page?.let { loadPage(it.id) }
     }
     fun close() {
-        _state.update { it.copy(activeId = null) }
+        _state.update { it.copy(activeId = null, pdfSearch = PdfSearchState()) }
         // The notebook's PDF renderer is no longer needed once the editor is put away.
         viewModelScope.launch { repository.closePdf() }
     }
@@ -258,7 +268,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     fun delete(note: Notebook) {
-        _state.update { it.copy(notes = it.notes.filterNot { n -> n.id == note.id }, activeId = if (it.activeId == note.id) null else it.activeId) }
+        _state.update {
+            val closing = it.activeId == note.id
+            it.copy(
+                notes = it.notes.filterNot { n -> n.id == note.id },
+                activeId = if (closing) null else it.activeId,
+                pdfSearch = if (closing) PdfSearchState() else it.pdfSearch
+            )
+        }
         thumbnails.clear(note.id)
         enqueue {
             try { repository.delete(note.id) }
@@ -271,9 +288,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val removed = _state.value.notes.filter { it.id in ids }
         if (removed.isEmpty()) return
         _state.update { state ->
+            val closing = state.activeId in ids
             state.copy(
                 notes = state.notes.filterNot { it.id in ids },
-                activeId = state.activeId?.takeIf { it !in ids }
+                activeId = state.activeId?.takeIf { it !in ids },
+                pdfSearch = if (closing) PdfSearchState() else state.pdfSearch
             )
         }
         removed.forEach { thumbnails.clear(it.id) }
@@ -428,11 +447,66 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box) }
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
     fun removeText(id: String) { val page = _state.value.page ?: return; texts(page.id, page.texts.filterNot { it.id == id }) }
-    /** Wipes the open page's ink and text in one undoable step, leaving its paper or PDF in place. */
+    /** Wipes the open page's ink, text and pictures in one undoable step, leaving its paper or PDF in place. */
     fun clearPage() {
         val page = _state.value.page ?: return
-        if (!page.loaded || (page.strokes.isEmpty() && page.texts.isEmpty())) return
-        record(page); replacePage(page.copy(strokes = emptyList(), texts = emptyList())); historyState()
+        if (!page.loaded || (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty())) return
+        record(page); replacePage(page.copy(strokes = emptyList(), texts = emptyList(), images = emptyList())); historyState()
+    }
+
+    // ---- Placed images ------------------------------------------------------------------
+
+    fun images(pageId: String, images: List<PageImage>) {
+        val page = _state.value.active?.pages?.find { it.id == pageId } ?: return
+        // Pictures cannot be changed on a page whose own content has not been read yet.
+        if (!page.loaded || page.images == images) return
+        record(page); replacePage(page.copy(images = images)); historyState()
+    }
+
+    /** Adds a picture whose bytes are already on disk, or stores [bytes] first when provided. */
+    fun addImage(image: PageImage, bytes: ByteArray? = null) {
+        val state = _state.value
+        val note = state.active ?: return
+        val page = state.page ?: return
+        if (!page.loaded) return
+        record(page)
+        val updated = note.copy(
+            pages = note.pages.map { if (it.id == page.id) it.revised().copy(images = it.images + image) else it },
+            updated = System.currentTimeMillis()
+        )
+        val revised = updated.pages.first { it.id == page.id }
+        _state.update { current ->
+            current.copy(notes = current.notes.map { if (it.id == updated.id) updated else it })
+        }
+        historyState()
+        enqueue {
+            if (bytes != null) repository.saveImage(note.id, image.id, bytes)
+            repository.savePage(updated, revised)
+        }
+    }
+
+    fun updateImage(image: PageImage) {
+        val page = _state.value.page ?: return
+        images(page.id, page.images.map { if (it.id == image.id) image else it })
+    }
+
+    fun removeImage(id: String) {
+        val page = _state.value.page ?: return
+        images(page.id, page.images.filterNot { it.id == id })
+    }
+
+    /** Lifts a picture above the others without touching its place or size. */
+    fun bringImageToFront(id: String) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        images(page.id, page.images.filterNot { it.id == id } + target)
+    }
+
+    /** Drops a picture behind the others without touching its place or size. */
+    fun sendImageToBack(id: String) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        images(page.id, listOf(target) + page.images.filterNot { it.id == id })
     }
     /** Remembers a lasso selection for pasting, on this page or another one. */
     fun copyToClipboard(strokes: List<Stroke>) {
@@ -525,15 +599,15 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
     }
     private fun record(page: NotePage) {
-        undo.getOrPut(page.id) { mutableListOf() }.apply { add(page.strokes to page.texts); if (size > 60) removeAt(0) }
+        undo.getOrPut(page.id) { mutableListOf() }.apply { add(Triple(page.strokes, page.texts, page.images)); if (size > 60) removeAt(0) }
         redo.remove(page.id)
     }
     private fun history(from: MutableMap<String, MutableList<PageContent>>, to: MutableMap<String, MutableList<PageContent>>) {
         val page = _state.value.page ?: return
         if (!page.loaded) return
         val previous = from[page.id]?.removeLastOrNull() ?: return
-        to.getOrPut(page.id) { mutableListOf() }.add(page.strokes to page.texts)
-        replacePage(page.copy(strokes = previous.first, texts = previous.second)); historyState()
+        to.getOrPut(page.id) { mutableListOf() }.add(Triple(page.strokes, page.texts, page.images))
+        replacePage(page.copy(strokes = previous.first, texts = previous.second, images = previous.third)); historyState()
     }
     private fun historyState() { _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) } }
     fun retrySave() {
@@ -543,6 +617,21 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             _state.update { it.copy(saveFailed = false) }
         }
     }
+    /** Searches the open notebook's imported PDF text; a blank query clears the results. */
+    fun searchPdf(query: String) {
+        val note = _state.value.active ?: return
+        if (query.isBlank()) { _state.update { it.copy(pdfSearch = PdfSearchState()) }; return }
+        val noteId = note.id
+        _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searching = true, searched = true)) }
+        viewModelScope.launch {
+            val pages = try { repository.pdfPageTexts(noteId) } catch (_: Exception) { emptyList() }
+            val hits = PdfSearch.search(pages, query)
+            // A search finishing after its notebook closed belongs nowhere.
+            if (_state.value.activeId != noteId) return@launch
+            _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searched = true, results = hits)) }
+        }
+    }
+    fun clearPdfSearch() { _state.update { it.copy(pdfSearch = PdfSearchState()) } }
     fun preparePdfImport(uris: List<Uri>) {
         if (uris.isEmpty()) return
         _state.update { it.copy(pendingPdfImports = (it.pendingPdfImports + uris).distinct()) }
@@ -575,7 +664,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 if (imported.isNotEmpty()) {
                     _state.update { it.copy(activeId = if (uris.size == 1) imported.single().id else null,
                         folderId = folderId, pageIndex = 0, canUndo = false, canRedo = false,
-                        examFilter = ExamFilter()) }
+                        examFilter = ExamFilter(), pdfSearch = PdfSearchState()) }
                 }
                 reportError(buildString {
                     append("Imported ${imported.size} of ${uris.size} PDFs.")
@@ -592,7 +681,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             try {
                 ready.await()
                 val note = repository.importArchive(uri, _state.value.folderId)
-                _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
+                _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
             } catch (e: Exception) { reportError("Couldn't open this backup. It may be damaged. ${e.message.orEmpty()}") }
             finally { _state.update { it.copy(busy = false) } }
         }

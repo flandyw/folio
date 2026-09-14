@@ -93,7 +93,7 @@ object InkRenderer {
         return if (p <= 1f) 0.72f + 0.28f * sqrt(p) else 1f + 0.20f * (p - 1f)
     }
 
-    fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true) {
+    fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true, images: Map<String, Bitmap?>? = null) {
         canvas.drawColor(Color.WHITE)
         if (background != null) canvas.drawBitmap(background, null, RectF(0f, 0f, page.width, page.height), Paint(Paint.FILTER_BITMAP_FLAG))
         else if (page.infinite) infinitePaper(canvas, page)
@@ -108,7 +108,19 @@ object InkRenderer {
                 Paper.PLAIN -> Unit
             }
         }
-        if (ink) { page.strokes.forEach { stroke(canvas, it) }; page.texts.forEach { text(canvas, it) } }
+        if (ink) {
+            // Photos sit under the ink so handwriting annotates the picture, like GoodNotes.
+            page.images.forEach { box -> images?.get(box.id)?.let { image(canvas, it, box) } }
+            page.strokes.forEach { stroke(canvas, it) }
+            page.texts.forEach { text(canvas, it) }
+        }
+    }
+
+    /** A placed photo drawn into its box, scaled to fill while keeping the bitmap filtered. */
+    fun image(canvas: Canvas, bitmap: Bitmap, box: PageImage) {
+        if (box.width <= 0f || box.height <= 0f) return
+        canvas.drawBitmap(bitmap, null, RectF(box.x, box.y, box.x + box.width, box.y + box.height),
+            Paint(Paint.FILTER_BITMAP_FLAG))
     }
 
     /** Only the visible lattice is drawn, even when the camera is far from the origin. */
@@ -156,9 +168,14 @@ object InkRenderer {
             left = min(left, it.x - 24f); top = min(top, it.y - 24f)
             right = max(right, it.x + it.width + 24f); bottom = max(bottom, it.y + textHeight(it) + 24f)
         }
+        page.images.forEach {
+            left = min(left, it.x - 24f); top = min(top, it.y - 24f)
+            right = max(right, it.x + it.width + 24f); bottom = max(bottom, it.y + it.height + 24f)
+        }
         return page.copy(width = right - left, height = bottom - top,
             strokes = page.strokes.map { InkGeometry.translate(it, -left, -top) },
-            texts = page.texts.map { it.moved(-left, -top) })
+            texts = page.texts.map { it.moved(-left, -top) },
+            images = page.images.map { it.moved(-left, -top) })
     }
 
     /**

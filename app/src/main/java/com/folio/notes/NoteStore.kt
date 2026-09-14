@@ -43,6 +43,22 @@ object InkCodec {
                 t.getInt("color"), t.optBoolean("bold", false), t.optBoolean("italic", false))
         }
     }
+
+    fun encodeImages(images: List<PageImage>): JSONArray = JSONArray().apply {
+        images.forEach { image -> put(JSONObject().apply {
+            put("id", image.id); put("x", image.x); put("y", image.y)
+            put("w", image.width); put("h", image.height)
+        }) }
+    }
+
+    fun decodeImages(array: JSONArray?): List<PageImage> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).map { index ->
+            val o = array.getJSONObject(index)
+            PageImage(o.getString("id"), o.getDouble("x").toFloat(), o.getDouble("y").toFloat(),
+                o.getDouble("w").toFloat(), o.getDouble("h").toFloat())
+        }
+    }
 }
 
 /**
@@ -122,6 +138,7 @@ object NotePageCodec {
         put("version", VERSION)
         put("strokes", InkCodec.encodeStrokes(page.strokes))
         put("texts", InkCodec.encodeTexts(page.texts))
+        put("images", InkCodec.encodeImages(page.images))
     }.toString()
 
     /**
@@ -135,6 +152,7 @@ object NotePageCodec {
         return summary.copy(
             strokes = InkCodec.decodeStrokes(o.optJSONArray("strokes")),
             texts = InkCodec.decodeTexts(o.optJSONArray("texts")),
+            images = InkCodec.decodeImages(o.optJSONArray("images")),
             loaded = true
         )
     }

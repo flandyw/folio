@@ -28,6 +28,8 @@ class InkView(context: Context) : View(context) {
             if (value != Tool.ERASER) eraserMark = null
             // A half-finished text gesture belongs to the text tool.
             if (value != Tool.TEXT) { movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f }
+            // A half-dragged picture belongs to the hand tool.
+            if (value != Tool.HAND) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null }
         }
     var inkColor = Color.rgb(47, 49, 47)
     var inkWidth = 3f
@@ -49,6 +51,17 @@ class InkView(context: Context) : View(context) {
     var onTextEdit: (TextBox) -> Unit = {}
     var onTextCreate: (InkPoint) -> Unit = {}
     var onTextsChanged: (List<TextBox>) -> Unit = {}
+    /** Placed pictures decoded for drawing, keyed by image id. Missing entries simply do not draw. */
+    var imageBitmaps: Map<String, Bitmap> = emptyMap()
+    /** The picture showing resize handles, or null when none is selected. */
+    var selectedImageId: String? = null
+    var onImagesChanged: (List<PageImage>) -> Unit = {}
+    /** A tap on a picture with the hand tool, so the editor can offer delete and layering. */
+    var onImageSelected: (PageImage?) -> Unit = {}
+    /** Tappable links of the shown PDF page, in Folio page coordinates. */
+    var pdfLinks: List<PdfLink> = emptyList()
+    /** A tap on a PDF link with the hand tool, so the editor can open or follow it. */
+    var onPdfLink: (PdfLink) -> Unit = {}
     private var draft: Stroke? = null
     private var erasing: List<Stroke>? = null
     private var lasso: List<InkPoint>? = null
@@ -72,6 +85,14 @@ class InkView(context: Context) : View(context) {
     private var pendingTextBox: InkPoint? = null
     private var textDx = 0f; private var textDy = 0f
     private var textFromX = 0f; private var textFromY = 0f
+    // Picture gestures with the hand tool: the picture under the finger, or null while panning.
+    private var movingImage: PageImage? = null
+    private var resizingImage = false
+    private var imageFromX = 0f; private var imageFromY = 0f
+    private var imageMoved = false
+    // A PDF link pressed with the hand tool: a tap follows it, a drag pans instead.
+    private var pendingLink: PdfLink? = null
+    private var linkFromX = 0f; private var linkFromY = 0f
     private val shadowPaint = Paint().apply { color = 0x18000000 }
     private val lassoFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2E2F6FBA; style = Paint.Style.FILL }
     private val lassoEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -84,6 +105,12 @@ class InkView(context: Context) : View(context) {
         color = 0xAA2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f
         pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
     }
+    private val imageEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f
+        pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
+    }
+    private val imageHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.FILL }
+    private val imageHandleEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f }
     private val camera = InfiniteViewport()
     var onCanvasZoom: (Float) -> Unit = {}
     private var resetToken = -1
@@ -125,13 +152,18 @@ class InkView(context: Context) : View(context) {
         }
         return super.onGenericMotionEvent(event)
     }
-    fun bind(value: NotePage, bitmap: Bitmap?) {
+    fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1 }
-        page = value; background = bitmap
+        page = value; background = bitmap; imageBitmaps = images
         // Strokes deleted from outside the view simply stop being selected.
         if (selection.any { it !in value.strokes }) { selection = emptyList(); selectionDx = 0f; selectionDy = 0f }
         // A text box that was edited or removed elsewhere cannot still be under the finger.
         if (movingText != null && value.texts.none { it.id == movingText!!.id }) { movingText = null; textDx = 0f; textDy = 0f }
+        // A picture that was removed elsewhere cannot still be under the finger.
+        if (movingImage != null && value.images.none { it.id == movingImage!!.id }) {
+            movingImage = null; resizingImage = false; imageMoved = false
+        }
+        if (selectedImageId != null && value.images.none { it.id == selectedImageId }) selectedImageId = null
         invalidate()
     }
     override fun onDraw(canvas: Canvas) {
@@ -144,9 +176,12 @@ class InkView(context: Context) : View(context) {
         // A text box follows the finger while it is dragged, before the move is committed.
         val dragging = movingText
         val laid = if (dragging == null) visible else visible.copy(texts = visible.texts.map { if (it.id == dragging.id) it.moved(textDx, textDy) else it })
+        // A picture follows the finger the same way, so a move or resize reads live.
+        val liveImage = movingImage
+        val placed = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
         // Selected strokes draw last, at their drag offset, so a move reads clearly.
-        val rest = if (selection.isEmpty()) laid else laid.copy(strokes = laid.strokes.filterNot { it in selection })
-        InkRenderer.page(canvas, rest, background)
+        val rest = if (selection.isEmpty()) placed else placed.copy(strokes = placed.strokes.filterNot { it in selection })
+        InkRenderer.page(canvas, rest, background, images = imageBitmaps)
         if (selection.isNotEmpty()) {
             val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
             moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
@@ -156,6 +191,9 @@ class InkView(context: Context) : View(context) {
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
         eraserMark?.let { drawEraser(canvas, it) }
         dragging?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
+        // The selected picture keeps its outline while another picture is dragged.
+        val outlined = liveImage?.takeIf { it.id == selectedImageId } ?: placed.images.find { it.id == selectedImageId }
+        outlined?.let { drawImageSelection(canvas, it) }
         canvas.restore()
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -182,7 +220,11 @@ class InkView(context: Context) : View(context) {
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
                 panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
-                if (lassoActive()) beginLasso(event, 0)
+                if (tool == Tool.HAND && !ignored && beginImage(event, 0)) {
+                    navigating = false
+                } else if (tool == Tool.HAND && !ignored && beginLink(event, 0)) {
+                    navigating = false
+                } else if (lassoActive()) beginLasso(event, 0)
                 else if (tool == Tool.TEXT && !ignored) beginText(event, 0)
                 else if (!navigating && !ignored) beginStroke(event, 0)
             }
@@ -195,11 +237,12 @@ class InkView(context: Context) : View(context) {
                     navigating = tool == Tool.HAND
                     draft = null; erasing = null; lasso = null; movingSelection = false; offPage = false; eraserMark = null
                     movingText = null; pendingTextBox = null
+                    movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null
                     if (lassoActive()) beginLasso(event, event.actionIndex)
                     else if (tool == Tool.TEXT) beginText(event, event.actionIndex)
                     else if (!navigating) beginStroke(event, event.actionIndex)
                 } else if (!stylus && !ignored) {
-                    draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; navigating = true
+                    draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     lastX = centroidX(event); lastY = centroidY(event)
                     panVelocity.resetTracking()
                     panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
@@ -208,7 +251,37 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
-                if (tool == Tool.TEXT && movingText != null) {
+                if (pendingLink != null) {
+                    val at = point(event, index)
+                    if (hypot(at.x - linkFromX, at.y - linkFromY) > LINK_SLOP) {
+                        // A drag that started on a link is a pan; the tap is cancelled.
+                        pendingLink = null
+                        navigating = true
+                        lastX = centroidX(event); lastY = centroidY(event)
+                        panVelocity.resetTracking()
+                        panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
+                    }
+                }
+                if (movingImage != null) {
+                    val at = point(event, index)
+                    val current = movingImage!!
+                    if (resizingImage) {
+                        val targetWidth = current.width + (at.x - imageFromX)
+                        val resized = InkGeometry.resizeImage(current, targetWidth)
+                        if (resized != current) { movingImage = resized; imageMoved = true }
+                    } else {
+                        val dx = at.x - imageFromX; val dy = at.y - imageFromY
+                        if (dx != 0f || dy != 0f) {
+                            movingImage = if (page.infinite) current.moved(dx, dy)
+                            else current.moved(dx, dy).let {
+                                it.copy(x = it.x.coerceIn(-it.width + 40f, page.width - 40f),
+                                    y = it.y.coerceIn(-it.height + 40f, page.height - 40f))
+                            }
+                            if (hypot(dx, dy) > 1f) imageMoved = true
+                        }
+                    }
+                    imageFromX = at.x; imageFromY = at.y
+                } else if (tool == Tool.TEXT && movingText != null) {
                     val moved = clampToPage(point(event, index))
                     textDx += moved.x - textFromX; textDy += moved.y - textFromY
                     textFromX = moved.x; textFromY = moved.y
@@ -268,10 +341,19 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (navigating && !ignored) {
+                val hadImage = movingImage != null
+                val hadLink = pendingLink != null
+                if (hadImage) {
+                    finishImage()
+                } else if (hadLink) {
+                    val link = pendingLink
+                    pendingLink = null
+                    link?.let(onPdfLink)
+                } else if (navigating && !ignored) {
                     panVelocity.addPosition(event.eventTime, Offset(event.rawX, event.rawY))
                     onDocumentPanEnd(panVelocity.calculateVelocity().y)
                 }
+                if (!hadImage && !hadLink) {
                 if (tool == Tool.TEXT) finishText()
                 else if (lassoActive()) finishLasso()
                 else {
@@ -287,6 +369,7 @@ class InkView(context: Context) : View(context) {
                         }
                     }
                     finishGesture()
+                }
                 }
                 performClick()
             }
@@ -339,7 +422,76 @@ class InkView(context: Context) : View(context) {
     private fun boxAt(at: InkPoint): TextBox? = page.texts.lastOrNull {
         at.x >= it.x && at.x <= it.x + it.width && at.y >= it.y && at.y <= it.y + InkRenderer.textHeight(it)
     }
-    private fun cancelGesture() { draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; parent?.requestDisallowInterceptTouchEvent(false) }
+
+    /**
+     * With the hand tool, a press picks up the picture under it. Returns true when a picture was
+     * hit, so the gesture becomes a move or resize instead of a document pan. Tapping the selected
+     * picture's handle resizes; dragging anywhere else on it moves.
+     */
+    private fun beginImage(event: MotionEvent, index: Int): Boolean {
+        val raw = point(event, index)
+        if (!onPage(raw.x, raw.y)) return false
+        val at = if (page.infinite) raw else clampToPage(raw)
+        val selected = selectedImageId?.let { id -> page.images.find { it.id == id } }
+        if (selected != null && InkGeometry.imageHandleContains(selected, at)) {
+            movingImage = selected; resizingImage = true; imageMoved = false
+            imageFromX = at.x; imageFromY = at.y
+            return true
+        }
+        val hit = InkGeometry.imageAt(page.images, at) ?: return false
+        movingImage = hit; imageMoved = false
+        // A new picture is selected on press so its outline is visible while it is dragged.
+        if (selectedImageId != hit.id) {
+            selectedImageId = hit.id
+            onImageSelected(hit)
+        }
+        resizingImage = InkGeometry.imageHandleContains(hit, at)
+        imageFromX = at.x; imageFromY = at.y
+        return true
+    }
+
+    /** A drag commits the picture's new place or size; a tap reports it as selected. */
+    private fun finishImage() {
+        val preview = movingImage
+        movingImage = null
+        val wasResize = resizingImage
+        resizingImage = false
+        if (preview == null) return
+        if (imageMoved) {
+            val images = page.images.map { if (it.id == preview.id) preview else it }
+            page = page.copy(images = images)
+            selectedImageId = preview.id
+            onImagesChanged(images)
+        } else if (!wasResize) {
+            selectedImageId = preview.id
+            onImageSelected(preview)
+        }
+        imageMoved = false
+    }
+
+    /** Clears the picture selection, e.g. when tapping bare page with the hand tool. */
+    fun clearImageSelection() {
+        if (selectedImageId != null) {
+            selectedImageId = null
+            onImageSelected(null)
+            invalidate()
+        }
+    }
+
+    /**
+     * With the hand tool, a press on a PDF link arms it. Returns true so the gesture becomes a
+     * tap instead of a document pan; dragging past a small slop pans as usual.
+     */
+    private fun beginLink(event: MotionEvent, index: Int): Boolean {
+        val raw = point(event, index)
+        if (!onPage(raw.x, raw.y)) return false
+        val at = if (page.infinite) raw else clampToPage(raw)
+        val hit = pdfLinks.lastOrNull { it.contains(at.x, at.y) } ?: return false
+        pendingLink = hit
+        linkFromX = at.x; linkFromY = at.y
+        return true
+    }
+    private fun cancelGesture() { draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, or picks up the current selection when the drag begins inside it. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -392,6 +544,15 @@ class InkView(context: Context) : View(context) {
     /** A dashed outline around a text box while it is dragged, so its extent is visible. */
     private fun drawTextBox(canvas: Canvas, box: TextBox) {
         canvas.drawRect(box.x - 4f, box.y - 4f, box.x + box.width + 4f, box.y + InkRenderer.textHeight(box) + 4f, textBoxPaint)
+    }
+    /** A dashed outline with a bottom-right handle around the selected picture. */
+    private fun drawImageSelection(canvas: Canvas, image: PageImage) {
+        canvas.drawRect(image.x - 4f, image.y - 4f, image.x + image.width + 4f, image.y + image.height + 4f, imageEdgePaint)
+        val cx = image.x + image.width
+        val cy = image.y + image.height
+        val r = 14f
+        canvas.drawCircle(cx, cy, r, imageHandlePaint)
+        canvas.drawCircle(cx, cy, r, imageHandleEdgePaint)
     }
     /** A ring under the tip, so the eraser's size is visible while it hovers and while it cuts. */
     private fun drawEraser(canvas: Canvas, at: InkPoint) {
@@ -446,6 +607,8 @@ class InkView(context: Context) : View(context) {
         const val PALM_REJECT_MS = 500L
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
         const val EDGE_TOLERANCE = 24f
+        /** How far a press on a PDF link may wander before the gesture becomes a pan. */
+        const val LINK_SLOP = 12f
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()
     }
 }

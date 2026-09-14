@@ -45,11 +45,30 @@ data class TextBox(
         const val MAX_SIZE = 120f
     }
 }
+
+/**
+ * A photo or figure placed on a page, stored as an image file beside the notebook with only its
+ * placement kept in the page JSON. Coordinates are page units from the page's top-left corner,
+ * matching [TextBox] so ink drawn over the picture lines up in exports and thumbnails.
+ */
+data class PageImage(
+    val id: String = UUID.randomUUID().toString(),
+    val x: Float, val y: Float, val width: Float, val height: Float
+) {
+    fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
+    companion object {
+        const val MIN_SIZE = 40f
+        const val MAX_SIZE = 2400f
+        /** Half-size of the bottom-right resize handle, in page units. */
+        const val HANDLE_HALF = 22f
+    }
+}
 data class NotePage(
     val id: String = UUID.randomUUID().toString(),
     val width: Float = 840f, val height: Float = 1188f,
     val paper: Paper = Paper.DOTS, val pdfIndex: Int? = null,
     val strokes: List<Stroke> = emptyList(), val texts: List<TextBox> = emptyList(),
+    val images: List<PageImage> = emptyList(),
     /** Bumped on every change to this page, so a cached preview can tell a stale copy from a fresh one. */
     val revision: Int = 0,
     /** False while only this page's summary is in memory; its ink and text are still on disk. */
@@ -120,7 +139,7 @@ fun Notebook.withPage(page: NotePage): Notebook =
     copy(pages = pages.map { if (it.id == page.id) page else it })
 
 /** This page as the on-disk index holds it: its identity, paper and revision, but none of its ink. */
-fun NotePage.asSummary(): NotePage = copy(strokes = emptyList(), texts = emptyList(), loaded = false)
+fun NotePage.asSummary(): NotePage = copy(strokes = emptyList(), texts = emptyList(), images = emptyList(), loaded = false)
 
 /** Marks a content change, so cached previews and exports know their copy is out of date. */
 fun NotePage.revised(): NotePage = copy(revision = revision + 1)
@@ -157,6 +176,7 @@ object NoteCodec {
             if (p.infinite) put("infinite", true)
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
+            put("images", InkCodec.encodeImages(p.images))
         }) } })
     }.toString()
 
@@ -169,6 +189,7 @@ object NoteCodec {
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
+                    InkCodec.decodeImages(p.optJSONArray("images")),
                     p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
@@ -287,6 +308,49 @@ object InkGeometry {
     /** The look a restyle sheet starts from, read from the first stroke of a selection. */
     fun styleOf(strokes: List<Stroke>): SelectionStyle? =
         strokes.firstOrNull()?.let { SelectionStyle(it.color, it.width, it.opacity) }
+
+    // ---- Placed images ---------------------------------------------------------------
+
+    /** True when [point] lands on the picture itself, so a drag there moves it. */
+    fun imageContains(image: PageImage, point: InkPoint): Boolean =
+        point.x >= image.x && point.x <= image.x + image.width &&
+            point.y >= image.y && point.y <= image.y + image.height
+
+    /** True when [point] lands on the bottom-right resize handle. */
+    fun imageHandleContains(image: PageImage, point: InkPoint): Boolean {
+        val cx = image.x + image.width
+        val cy = image.y + image.height
+        val half = PageImage.HANDLE_HALF
+        return point.x >= cx - half && point.x <= cx + half &&
+            point.y >= cy - half && point.y <= cy + half
+    }
+
+    /** The topmost picture under [point], or null when the touch lands on bare page. */
+    fun imageAt(images: List<PageImage>, point: InkPoint): PageImage? =
+        images.lastOrNull { imageContains(it, point) }
+
+    /**
+     * Resizes [image] keeping its aspect ratio, anchored at its top-left corner so the picture
+     * grows towards the finger. [targetWidth] usually comes from the handle drag position.
+     */
+    fun resizeImage(image: PageImage, targetWidth: Float): PageImage {
+        if (image.width <= 0f || image.height <= 0f) return image
+        val aspect = image.height / image.width
+        val width = targetWidth.coerceIn(PageImage.MIN_SIZE, PageImage.MAX_SIZE)
+        val height = (width * aspect).coerceIn(PageImage.MIN_SIZE, PageImage.MAX_SIZE)
+        // When the height clamps first the width follows it, so the ratio never distorts.
+        return if (height >= PageImage.MAX_SIZE || height <= PageImage.MIN_SIZE)
+            image.copy(width = (height / aspect).coerceIn(PageImage.MIN_SIZE, PageImage.MAX_SIZE), height = height)
+        else image.copy(width = width, height = height)
+    }
+
+    /** Fits [originalWidth]×[originalHeight] inside [maxSize] preserving the aspect ratio. */
+    fun fitImage(originalWidth: Float, originalHeight: Float, maxSize: Float): Pair<Float, Float> {
+        if (originalWidth <= 0f || originalHeight <= 0f) return PageImage.MIN_SIZE to PageImage.MIN_SIZE
+        val scale = (maxSize / max(originalWidth, originalHeight)).coerceAtMost(1f)
+        return (originalWidth * scale).coerceIn(PageImage.MIN_SIZE, maxSize) to
+            (originalHeight * scale).coerceIn(PageImage.MIN_SIZE, maxSize)
+    }
 
     fun hits(stroke: Stroke, point: InkPoint, radius: Float): Boolean {
         val path = pathPoints(stroke)
