@@ -289,7 +289,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             val stripWidth = 26.dp
             val stripInset = 2.dp
             val stackedToolbar = toolbarPosition == ToolbarPosition.TOP && maxWidth < 840.dp
-            val trackTop = if (stackedToolbar) 136.dp else 76.dp
+            val toolbarTopInset = if (stackedToolbar) 190.dp else 130.dp
+            val trackTop = if (toolbarPosition == ToolbarPosition.TOP) toolbarTopInset else 76.dp
             val trackBottom = 20.dp
             val stripWidthPx = with(density) { stripWidth.toPx() }
             val stripInsetPx = with(density) { stripInset.toPx() }
@@ -401,7 +402,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch },
-                    contentPadding = PaddingValues(top = if (stackedToolbar) 136.dp else if (toolbarPosition == ToolbarPosition.TOP) 76.dp else 64.dp, bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 96.dp else 24.dp),
+                    contentPadding = PaddingValues(top = if (toolbarPosition == ToolbarPosition.TOP) toolbarTopInset else 64.dp, bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 142.dp else 24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp * documentZoom), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
@@ -431,19 +432,19 @@ private fun paperLabel(p: Paper): String = when (p) {
             val chromeHeight = 52.dp
             if (toolbarUpTop && !stackedToolbar) {
                 Row(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp).height(chromeHeight),
-                    verticalAlignment = Alignment.CenterVertically
+                    Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
                     EditorChromeChip(Modifier.height(chromeHeight)) {
                         IconButton(model::close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
                         ExamTimerChip(state.timer, chromeHeight) { timerPanel = true }
                     }
                     Box(
-                        Modifier.weight(1f).fillMaxHeight().padding(horizontal = 8.dp),
-                        contentAlignment = Alignment.Center
+                        Modifier.weight(1f).padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.TopCenter
                     ) {
                         FloatingInkToolbar(
-                            modifier = Modifier.height(chromeHeight),
+                            modifier = Modifier,
                             tool = tool,
                             onTool = { selectTool(it) },
                             options = options,
@@ -504,7 +505,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
             if (!toolbarUpTop || stackedToolbar) FloatingInkToolbar(
-                Modifier.align(toolbarAlignment).padding(start = 12.dp, end = 12.dp, top = if (stackedToolbar) 68.dp else 76.dp, bottom = 12.dp).height(chromeHeight),
+                Modifier.align(toolbarAlignment).padding(start = 12.dp, end = 12.dp, top = if (stackedToolbar) 68.dp else 76.dp, bottom = 12.dp),
                 tool, { selectTool(it) }, options, ::changeOptions, quick, state.canUndo, state.canRedo, model::undo, model::redo, palette, snapEnabled, ::setSnap, model::insertAxes
             ) { palette = it }
         }
@@ -973,16 +974,6 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
         ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text") { onTool(it) }
         ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onTool)
         ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onTool)
-        if (isDrawing || tool == Tool.ERASER) {
-            ToolbarDivider()
-            if (tool != Tool.ERASER) QuickColors()
-            WidthControl()
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
-                IconButton({ onSnap(!snapEnabled) }) {
-                    Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                }
-            }
-        }
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
             IconButton({ shapes = true }) { Icon(Icons.Rounded.MoreHoriz, "More options") }
@@ -995,12 +986,27 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
                 DropdownMenuItem({ Text("Tool settings") }, { onPalette(true); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
             }
         }
-        if (!isDrawing && tool != Tool.ERASER) {
-            IconButton({ onPalette(true) }) { Icon(Icons.Rounded.Tune, "Tool settings") }
-        }
     }
-    Surface(modifier, shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
+    // Reserve both rows so contextual settings never move the tools, including at the bottom.
+    // Width is constrained by the viewport on phones; each row scrolls independently.
+    Column(modifier.width(520.dp).height(106.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
+        }
+        if (isDrawing || tool == Tool.ERASER) {
+            Box(Modifier.width(20.dp).height(6.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Surface(Modifier.widthIn(max = 480.dp).height(48.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (tool != Tool.ERASER) QuickColors()
+                    WidthControl()
+                    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
+                        IconButton({ onSnap(!snapEnabled) }) {
+                            Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                        }
+                    }
+                }
+            }
+        }
     }
     if (palette) FolioPanel(title = "Tool settings", onDismissRequest = { onPalette(false) }) {
         ToolOptionsPanel(tool, options, onOptions, quick)
