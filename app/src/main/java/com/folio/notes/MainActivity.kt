@@ -42,10 +42,20 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent) {
         when (intent.action) {
             "com.folio.notes.NEW_NOTE" -> shortcutRequest++
-            Intent.ACTION_SEND -> if (intent.type == "application/pdf") {
-                (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: intent.clipData?.getItemAt(0)?.uri)?.let(model::importPdf)
+            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE, Intent.ACTION_VIEW -> {
+                if (intent.type != "application/pdf") return
+                val uris = buildList {
+                    if (intent.action == Intent.ACTION_VIEW) intent.data?.let(::add)
+                    if (intent.action == Intent.ACTION_SEND) intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let(::add)
+                    if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+                        intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let(::addAll)
+                    }
+                    intent.clipData?.let { clip ->
+                        repeat(clip.itemCount) { clip.getItemAt(it).uri?.let(::add) }
+                    }
+                }.distinct().filter { it.scheme == "content" }
+                model.preparePdfImport(uris)
             }
-            Intent.ACTION_VIEW -> if (intent.type == "application/pdf") intent.data?.let(model::importPdf)
         }
     }
 }

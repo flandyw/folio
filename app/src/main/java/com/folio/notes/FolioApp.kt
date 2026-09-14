@@ -64,7 +64,7 @@ import java.io.File
     val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val exporter = remember { NoteExporter(model.repository) }
-    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importPdf) }
+    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> model.preparePdfImport(uris) }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importArchive) }
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { target -> state.active?.let { model.exportArchive(it, target) } }
@@ -182,11 +182,14 @@ import java.io.File
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
                         Surface(shape = RoundedCornerShape(28.dp)) {
                             Row(Modifier.padding(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) "Opening your PDF…" else "Preparing your export…")
+                                LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) (state.importProgress ?: "Opening your file…") else "Preparing your export…")
                             }
                         }
                 }
             }
+        }
+        if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
+            PdfImportDialog(state, model::cancelPdfImport, model::importPdfs)
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite -> model.create(title, cover, paper, exam, pageCount, infinite = infinite); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
@@ -347,4 +350,29 @@ import java.io.File
             enabled = title.isNotBlank()
         ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
     })
+}
+
+@Composable
+private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: (String?) -> Unit) {
+    var destination by rememberSaveable { mutableStateOf(state.folderId) }
+    val validDestination = destination?.takeIf { id -> state.folders.any { it.id == id } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text("Each PDF becomes a separate notebook. Choose where to put them.")
+                Spacer(Modifier.height(16.dp))
+                (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
+                    Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = validDestination == id, onClick = { destination = id })
+                        Text(name, Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { onImport(validDestination) }) { Text("Import") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }

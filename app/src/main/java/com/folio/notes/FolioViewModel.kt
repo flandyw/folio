@@ -25,6 +25,8 @@ data class FolioState(
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
     val saveFailed: Boolean = false, val loadFailed: Boolean = false, val error: String? = null,
+    val pendingPdfImports: List<Uri> = emptyList(),
+    val importProgress: String? = null,
     val canUndo: Boolean = false, val canRedo: Boolean = false,
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
     val timer: ExamTimerState = ExamTimerState(),
@@ -495,16 +497,45 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             _state.update { it.copy(saveFailed = false) }
         }
     }
-    fun importPdf(uri: Uri) {
-        if (_state.value.busy) return
-        _state.update { it.copy(busy = true) }
+    fun preparePdfImport(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        _state.update { it.copy(pendingPdfImports = (it.pendingPdfImports + uris).distinct()) }
+    }
+    fun cancelPdfImport() { _state.update { it.copy(pendingPdfImports = emptyList()) } }
+
+    fun importPdfs(folderId: String?) {
+        val request = _state.value
+        if (request.busy || request.loading || request.loadFailed || request.pendingPdfImports.isEmpty()) return
+        if (folderId != null && request.folders.none { it.id == folderId }) return
+        val uris = request.pendingPdfImports
+        _state.update { it.copy(busy = true, pendingPdfImports = emptyList()) }
         viewModelScope.launch {
+            val imported = mutableListOf<Notebook>()
+            val failures = mutableListOf<String>()
             try {
                 ready.await()
-                val note = repository.importPdf(uri, _state.value.folderId)
-                _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
-            } catch (e: Exception) { reportError("Couldn't import PDF. It may be protected or damaged. ${e.message.orEmpty()}") }
-            finally { _state.update { it.copy(busy = false) } }
+                importBatch(uris,
+                    importItem = { repository.importPdf(it, folderId) },
+                    onSuccess = { note ->
+                        imported += note
+                        _state.update { it.copy(notes = it.notes + note) }
+                    },
+                    onFailure = { index, error ->
+                        failures += "PDF $index: ${error.message ?: "Protected, damaged, or unavailable file"}"
+                    },
+                    onProgress = { current, total ->
+                        _state.update { it.copy(importProgress = "Importing PDF $current of $total…") }
+                    })
+                if (imported.isNotEmpty()) {
+                    _state.update { it.copy(activeId = if (uris.size == 1) imported.single().id else null,
+                        folderId = folderId, pageIndex = 0, canUndo = false, canRedo = false,
+                        examFilter = ExamFilter()) }
+                }
+                reportError(buildString {
+                    append("Imported ${imported.size} of ${uris.size} PDFs.")
+                    if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
+                })
+            } finally { _state.update { it.copy(busy = false, importProgress = null) } }
         }
     }
     /** Opens a `.folio` backup as a new notebook beside the ones already on the device. */
