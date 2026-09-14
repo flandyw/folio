@@ -490,9 +490,15 @@ data class ExamTimerState(
     /** Seconds left in [phase]. */
     val remaining: Int = 0,
     val preset: ExamTimerPreset = ExamTimerPreset.CUSTOM,
-    val startedAt: Long? = null
+    val startedAt: Long? = null,
+    val pausedAt: Long? = null,
+    val pausedMillis: Long = 0L
 ) {
-    val running: Boolean get() = phase == ExamTimerPhase.READING || phase == ExamTimerPhase.WRITING
+    val active: Boolean get() = phase == ExamTimerPhase.READING || phase == ExamTimerPhase.WRITING
+    val paused: Boolean get() = pausedAt != null
+    val running: Boolean get() = active && !paused
+    private fun elapsedMillis(now: Long): Long =
+        ((pausedAt ?: now) - (startedAt ?: now) - pausedMillis).coerceAtLeast(0L)
 
     /**
      * Seconds spent writing so far, recorded onto the attempt when the exam is stopped. Measured
@@ -500,15 +506,15 @@ data class ExamTimerState(
      * and it never grows past the paper's writing time no matter how late the stop comes.
      */
     fun elapsedWriting(now: Long = System.currentTimeMillis()): Int {
-        val started = startedAt ?: return 0
-        val total = ((now - started) / 1000).toInt()
+        if (startedAt == null) return 0
+        val total = (elapsedMillis(now) / 1000).toInt()
         val plannedReading = if (preset.readingSeconds > 0 && phase != ExamTimerPhase.IDLE) preset.readingSeconds else 0
         return (total - plannedReading).coerceIn(0, preset.writingSeconds)
     }
     /** The state one second later, or this state when the timer is not running. */
     fun tick(now: Long = System.currentTimeMillis()): ExamTimerState {
-        if (!running || startedAt == null) return this
-        val elapsed = ((now - startedAt) / 1000).toInt()
+        if (!active || startedAt == null) return this
+        val elapsed = (elapsedMillis(now) / 1000).toInt()
         val reading = preset.readingSeconds
         val writing = preset.writingSeconds
         return when {
@@ -516,17 +522,17 @@ data class ExamTimerState(
                 copy(phase = ExamTimerPhase.READING, remaining = reading - elapsed)
             elapsed < reading + writing ->
                 copy(phase = ExamTimerPhase.WRITING, remaining = reading + writing - elapsed)
-            else -> copy(phase = ExamTimerPhase.DONE, remaining = 0)
+            else -> copy(phase = ExamTimerPhase.DONE, remaining = 0, pausedAt = null)
         }
     }
     fun start(preset: ExamTimerPreset, now: Long = System.currentTimeMillis()): ExamTimerState =
-        copy(preset = preset, startedAt = now, phase = if (preset.readingSeconds > 0) ExamTimerPhase.READING else ExamTimerPhase.WRITING,
+        copy(preset = preset, startedAt = now, pausedAt = null, pausedMillis = 0L, phase = if (preset.readingSeconds > 0) ExamTimerPhase.READING else ExamTimerPhase.WRITING,
             remaining = if (preset.readingSeconds > 0) preset.readingSeconds else preset.writingSeconds)
     /** Adjust the active phase without changing time already spent writing. */
     fun adjust(seconds: Int, now: Long = System.currentTimeMillis()): ExamTimerState {
         val current = tick(now)
-        if (!current.running || current.startedAt == null) return current
-        val elapsed = ((now - current.startedAt) / 1000).toInt().coerceAtLeast(0)
+        if (!current.active || current.startedAt == null) return current
+        val elapsed = (current.elapsedMillis(now) / 1000).toInt()
         val updated = if (current.phase == ExamTimerPhase.READING) {
             current.preset.copy(readingSeconds = (current.preset.readingSeconds.toLong() + seconds)
                 .coerceIn(elapsed.toLong(), Int.MAX_VALUE.toLong() - current.preset.writingSeconds).toInt())
@@ -543,7 +549,17 @@ data class ExamTimerState(
         return current.adjust(-current.remaining, now)
     }
 
-    fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null)
+    fun pause(now: Long = System.currentTimeMillis()): ExamTimerState {
+        val current = tick(now)
+        return if (current.running) current.copy(pausedAt = now) else current
+    }
+
+    fun unpause(now: Long = System.currentTimeMillis()): ExamTimerState {
+        val pausedSince = pausedAt ?: return this
+        return copy(pausedAt = null, pausedMillis = pausedMillis + (now - pausedSince).coerceAtLeast(0L)).tick(now)
+    }
+
+    fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null, pausedAt = null, pausedMillis = 0L)
     /** "1:28:03" style, used by the countdown chip and the timer panel. */
     fun clockText(): String {
         val total = remaining.coerceAtLeast(0)
@@ -566,10 +582,14 @@ data class ExamTimerState(
          * nothing sane to restore: no preset, a missing or future start moment, or a record older
          * than [MAX_RESUME_AGE_MS].
          */
-        fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis()): ExamTimerState? {
+        fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis(),
+                   pausedAt: Long? = null, pausedMillis: Long = 0L): ExamTimerState? {
             if (preset == null || startedAt == null || startedAt <= 0 || startedAt > now) return null
-            if (now - startedAt > MAX_RESUME_AGE_MS) return null
-            return ExamTimerState().start(preset, now = startedAt).tick(now)
+            if (pausedAt != null && (pausedAt < startedAt || pausedAt > now)) return null
+            val elapsed = (pausedAt ?: now) - startedAt - pausedMillis
+            if (pausedMillis < 0L || elapsed < 0L || elapsed > MAX_RESUME_AGE_MS) return null
+            return ExamTimerState().start(preset, now = startedAt)
+                .copy(pausedAt = pausedAt, pausedMillis = pausedMillis).tick(now)
         }
     }
 }

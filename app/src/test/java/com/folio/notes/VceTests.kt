@@ -306,6 +306,56 @@ class NotebookTemplateTests {
 }
 
 class ExamTimerTests {
+    @Test fun pausesFreezeBothPhasesAndPreserveFractionalSeconds() {
+        val short = ExamTimerPreset("Test", 60, 10)
+        val reading = ExamTimerState().start(short, 1000L).pause(2500L)
+        assertTrue(reading.paused)
+        assertFalse(reading.running)
+        assertEquals(9, reading.remaining)
+        assertEquals(reading, reading.tick(100000L))
+        val resumed = reading.unpause(12500L)
+        assertEquals(8, resumed.tick(13000L).remaining)
+        val writing = resumed.pause(23000L)
+        assertEquals(ExamTimerPhase.WRITING, writing.phase)
+        assertEquals(2, writing.elapsedWriting(500000L))
+        val resumedAgain = writing.unpause(33000L).tick(35000L)
+        assertEquals(4, resumedAgain.elapsedWriting(35000L))
+        assertEquals(56, resumedAgain.remaining)
+    }
+
+    @Test fun pausedSittingSurvivesRestartAndTimeAdjustments() {
+        val paused = ExamTimerState().start(ExamTimerPreset("Test", 60, 10), 1000L).pause(6000L)
+        val restored = ExamTimerState.resume(paused.preset, paused.startedAt, now = 300000000L,
+            pausedAt = paused.pausedAt, pausedMillis = paused.pausedMillis)!!
+        assertEquals(paused, restored)
+        val extended = restored.adjust(60, 300000000L)
+        assertTrue(extended.paused)
+        assertEquals(65, extended.remaining)
+        val writing = extended.skip(300000000L)
+        assertTrue(writing.paused)
+        assertEquals(ExamTimerPhase.WRITING, writing.phase)
+        assertEquals(60, writing.remaining)
+        val resumed = writing.unpause(300000000L)
+        val restarted = ExamTimerState.resume(resumed.preset, resumed.startedAt, now = 300001000L,
+            pausedMillis = resumed.pausedMillis)!!
+        assertEquals(59, restarted.remaining)
+        assertEquals(1, restarted.elapsedWriting(300001000L))
+    }
+
+    @Test fun repeatedPauseAndInactiveControlsAreHarmless() {
+        val idle = ExamTimerState()
+        assertEquals(idle, idle.pause(1000L))
+        assertEquals(idle, idle.unpause(1000L))
+        val paused = idle.start(ExamTimerPreset("Test", 60, 0), 1000L).pause(11000L)
+        assertEquals(paused, paused.pause(21000L))
+        assertEquals(10, paused.elapsedWriting(90000L))
+        assertEquals(idle.copy(preset = paused.preset), paused.stop())
+        val done = paused.skip(90000L)
+        assertEquals(ExamTimerPhase.DONE, done.phase)
+        assertFalse(done.paused)
+        assertEquals(done, done.pause(100000L))
+    }
+
     private val preset = ExamTimerPreset("Test", 60 * 60, 15 * 60)
 
     @Test fun startingGoesStraightIntoReadingTime() {

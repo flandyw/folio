@@ -731,7 +731,7 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
 
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
 @Composable
-fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit) {
+fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit, onPauseResume: () -> Unit) {
     var customMinutes by rememberSaveable { mutableStateOf("90") }
     var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
     LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
@@ -801,10 +801,15 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                if (active) "The clock is running" else "No pens yet — read the paper",
+                                if (timer.paused) "Paused — resume when ready" else if (active) "The clock is running" else "No pens yet — read the paper",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
+                    }
+                    Button(onPauseResume, Modifier.fillMaxWidth()) {
+                        Icon(if (timer.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (timer.paused) "Resume timer" else "Pause timer")
                     }
                     Text("Adjust ${if (active) "writing" else "reading"} time", style = MaterialTheme.typography.titleSmall)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

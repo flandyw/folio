@@ -603,7 +603,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         onStart = { model.startTimer(it) },
         onStop = { model.stopTimer() },
         onAdjust = model::adjustTimer,
-        onSkip = model::skipTimerPhase
+        onSkip = model::skipTimerPhase,
+        onPauseResume = model::toggleTimerPause
     )
     if (examPanel) ExamDetailsPanel(
         note = note,
@@ -758,7 +759,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             modifier = Modifier.padding(horizontal = 4.dp, vertical = (height - 36.dp) / 2)
         ) {
             Text(
-                if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
+                if (timer.paused) "Paused · ${timer.clockText()}"
+                else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
                 else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
                 else "Pens down",
                 Modifier.padding(horizontal = 8.dp, vertical = 5.dp),

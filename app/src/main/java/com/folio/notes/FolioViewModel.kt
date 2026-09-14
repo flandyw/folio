@@ -93,7 +93,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         loadLibrary()
         // A sitting that was running when the process died resumes where the clock says it should.
-        val resumed = ExamTimerState.resume(storedSitting(), prefs.getLong(TIMER_START_KEY, 0L))
+        val resumed = ExamTimerState.resume(storedSitting(), prefs.getLong(TIMER_START_KEY, 0L),
+            pausedAt = prefs.getLong(TIMER_PAUSED_AT_KEY, 0L).takeIf { it > 0L },
+            pausedMillis = prefs.getLong(TIMER_PAUSED_MILLIS_KEY, 0L))
         if (resumed != null) {
             // The visit log is restored as-is: like the timer itself, the sitting is wall-clock, so
             // time away stays attributed to the page that was open when the app died.
@@ -577,6 +579,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun saveSitting(timer: ExamTimerState) {
         prefs.edit()
             .putLong(TIMER_START_KEY, timer.startedAt ?: 0L)
+            .putLong(TIMER_PAUSED_AT_KEY, timer.pausedAt ?: 0L)
+            .putLong(TIMER_PAUSED_MILLIS_KEY, timer.pausedMillis)
             .putInt(TIMER_WRITING_KEY, timer.preset.writingSeconds)
             .putInt(TIMER_READING_KEY, timer.preset.readingSeconds)
             .putString(TIMER_LABEL_KEY, timer.preset.label)
@@ -585,6 +589,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     private fun clearSitting() {
         prefs.edit().remove(TIMER_START_KEY).remove(TIMER_WRITING_KEY)
+            .remove(TIMER_PAUSED_AT_KEY).remove(TIMER_PAUSED_MILLIS_KEY)
             .remove(TIMER_READING_KEY).remove(TIMER_LABEL_KEY).apply()
     }
 
@@ -641,6 +646,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val adjusted = _state.value.timer.adjust(seconds)
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
+    }
+    fun toggleTimerPause() {
+        val current = _state.value.timer
+        val now = System.currentTimeMillis()
+        val updated = if (current.paused) current.unpause(now) else current.pause(now)
+        if (updated == current) return
+        if (updated.paused) sittingVisits = closeVisits(sittingVisits, now).toMutableList()
+        else if (updated.running) _state.value.page?.let {
+            sittingVisits = recordVisit(sittingVisits, it.id, now).toMutableList()
+        }
+        saveSitting(updated)
+        saveVisits()
+        _state.update { it.copy(timer = updated) }
     }
     fun skipTimerPhase() {
         val skipped = _state.value.timer.skip()
@@ -766,6 +784,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         const val TIMER_WRITING_KEY = "examTimer.writingSeconds"
         const val TIMER_READING_KEY = "examTimer.readingSeconds"
         const val TIMER_LABEL_KEY = "examTimer.label"
+        const val TIMER_PAUSED_AT_KEY = "examTimer.pausedAt"
+        const val TIMER_PAUSED_MILLIS_KEY = "examTimer.pausedMillis"
         const val TIMER_VISITS_KEY = "examTimer.visits"
     }
 }
