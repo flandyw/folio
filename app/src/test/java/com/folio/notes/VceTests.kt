@@ -207,7 +207,7 @@ class SubjectProgressTests {
 
     @Test fun theRecentAverageTakesEachPapersLatestMark() {
         val paper = Notebook(
-            title = "2022", exam = ExamTags(subject = VceSubject.FURTHER_MATHS),
+            title = "2022", exam = ExamTags(subject = VceSubject.GENERAL_MATHS),
             attempts = listOf(ExamAttempt(id = "early", score = 10, total = 40, date = 1), ExamAttempt(id = "redo", score = 30, total = 40, date = 2))
         )
         val row = subjectProgress(listOf(paper)).single()

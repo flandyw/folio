@@ -16,12 +16,13 @@ enum class VceSubject(
     /** Colour band shown on covers and filter chips, as 0xFFRRGGBB. */
     val color: Long
 ) {
-    FURTHER_MATHS("Further Maths", Paper.MATH_GRID, 0xFF2F6F4E),
+    GENERAL_MATHS("General Maths", Paper.MATH_GRID, 0xFF2F6F4E),
     MATHS_METHODS("Maths Methods", Paper.MATH_GRID, 0xFF33638C),
     SPECIALIST_MATHS("Specialist Maths", Paper.MATH_GRID, 0xFF6A4C93),
     PHYSICS("Physics", Paper.GRAPH, 0xFF8C5A2B),
     CHEMISTRY("Chemistry", Paper.GRID, 0xFF2B7A78),
     BIOLOGY("Biology", Paper.DOTS, 0xFF5A7D2A),
+    PHYSICAL_EDUCATION("Physical Education", Paper.DOTS, 0xFF5A7D2A),
     PSYCHOLOGY("Psychology", Paper.DOTS, 0xFF8C3A5B),
     ENGLISH("English", Paper.RULED, 0xFF8A5A44),
     LITERATURE("Literature", Paper.RULED, 0xFF7A4E62),
