@@ -126,10 +126,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
-    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null, infinite: Boolean = false) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null, infinite: Boolean = false, pageCover: Boolean = true) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
-        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId)
+        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId, pageCover = pageCover)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false) }
         enqueue { repository.saveAll(note) }
     }
@@ -154,6 +154,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun rename(note: Notebook, title: String) { if (title.isNotBlank()) updateNote(note.copy(title = title.trim())) }
     fun star(note: Notebook) = updateNote(note.copy(starred = !note.starred))
     fun move(note: Notebook, folderId: String?) = updateNote(note.copy(folderId = folderId))
+    /** Switches one notebook between its first page and the decorative default cover. */
+    fun setPageCover(note: Notebook, pageCover: Boolean) {
+        if (note.pageCover == pageCover) return
+        updateNote(note.copy(pageCover = pageCover))
+    }
 
     // ---- Exam metadata --------------------------------------------------------------------
 
@@ -235,12 +240,53 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.value.notes.filter { it.id in ids && it.starred != starred }
             .forEach { updateNote(it.copy(starred = starred)) }
     }
+    /** Shows the same cover on every selected notebook: first page or the default cover. */
+    fun setPageCoverBatch(ids: Set<String>, pageCover: Boolean) {
+        _state.value.notes.filter { it.id in ids && it.pageCover != pageCover }
+            .forEach { updateNote(it.copy(pageCover = pageCover)) }
+    }
+    /**
+     * Rewrites the exam tags of every selected notebook through [transform], keeping each
+     * notebook's other fields untouched. A notebook whose tags come back unchanged is left alone,
+     * so batch-assigning the year does not rewrite notebooks that already carry it.
+     */
+    fun updateExamTagsBatch(ids: Set<String>, transform: (ExamTags) -> ExamTags) {
+        if (ids.isEmpty()) return
+        _state.value.notes.filter { it.id in ids }.forEach { note ->
+            val updated = transform(note.exam)
+            if (updated != note.exam) updateNote(note.copy(exam = updated))
+        }
+    }
     fun delete(note: Notebook) {
         _state.update { it.copy(notes = it.notes.filterNot { n -> n.id == note.id }, activeId = if (it.activeId == note.id) null else it.activeId) }
         thumbnails.clear(note.id)
         enqueue {
             try { repository.delete(note.id) }
             catch (e: Exception) { _state.update { it.copy(notes = it.notes + note) }; throw e }
+        }
+    }
+    /** Deletes every selected notebook in one step; the open notebook closes when it is removed. */
+    fun deleteNotebooks(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val removed = _state.value.notes.filter { it.id in ids }
+        if (removed.isEmpty()) return
+        _state.update { state ->
+            state.copy(
+                notes = state.notes.filterNot { it.id in ids },
+                activeId = state.activeId?.takeIf { it !in ids }
+            )
+        }
+        removed.forEach { thumbnails.clear(it.id) }
+        enqueue {
+            val failed = mutableListOf<Notebook>()
+            removed.forEach {
+                try { repository.delete(it.id) }
+                catch (_: Exception) { failed += it }
+            }
+            if (failed.isNotEmpty()) {
+                _state.update { state -> state.copy(notes = state.notes + failed) }
+                throw IllegalStateException("Couldn't delete ${failed.size} notebook${if (failed.size == 1) "" else "s"}")
+            }
         }
     }
     fun selectPage(index: Int) {

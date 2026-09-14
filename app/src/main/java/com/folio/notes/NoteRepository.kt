@@ -83,6 +83,11 @@ class NoteRepository(private val context: Context) {
         val raw = AtomicFile(File(dir, "note.json")).openRead().bufferedReader().use { it.readText() }
         when {
             NoteMetaCodec.isCurrent(raw) -> return NoteMetaCodec.decode(raw)
+            NoteMetaCodec.isVersion3(raw) -> {
+                val note = NoteMetaCodec.decodeVersion3(raw)
+                atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
+                return note
+            }
             NoteMetaCodec.isSplitIndex(raw) -> {
                 val note = NoteMetaCodec.decodeSplit(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))

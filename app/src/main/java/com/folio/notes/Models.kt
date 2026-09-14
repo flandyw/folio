@@ -67,7 +67,13 @@ data class Notebook(
     /** A [ExamSet] this notebook belongs to, e.g. Exam 1 within "VCAA 2022 Methods". */
     val setId: String? = null,
     /** Marked attempts with scores and time taken, newest last. */
-    val attempts: List<ExamAttempt> = emptyList()
+    val attempts: List<ExamAttempt> = emptyList(),
+    /**
+     * True shows the first page itself as the shelf cover, with no book decoration; false keeps
+     * the decorative default cover. A fresh notebook has no drawn preview yet, so it shows the
+     * default cover either way until its first page has been rendered.
+     */
+    val pageCover: Boolean = true
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -143,6 +149,7 @@ object NoteCodec {
         put("exam", ExamTagsCodec.encode(note.exam))
         put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
+        if (!note.pageCover) put("pageCover", false)
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height); put("paper", p.paper.name)
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
@@ -166,7 +173,9 @@ object NoteCodec {
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             if (o.isNull("set")) null else o.optString("set"),
-            ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")))
+            ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
+            // Older backups have no cover choice and default to the first-page cover.
+            pageCover = o.optBoolean("pageCover", true))
     }
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }

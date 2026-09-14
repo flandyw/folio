@@ -191,7 +191,7 @@ import java.io.File
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
             PdfImportDialog(state, model::cancelPdfImport, model::importPdfs)
         }
-        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite -> model.create(title, cover, paper, exam, pageCount, infinite = infinite); newNote = false })
+        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize()) {
@@ -287,13 +287,14 @@ import java.io.File
     }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank()) { Text(action) } })
 }
 
-@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean) -> Unit) {
+@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
     var cover by rememberSaveable { mutableIntStateOf(0) }
     var paper by rememberSaveable { mutableStateOf(Paper.MATH_GRID) }
     var template by rememberSaveable { mutableStateOf<String?>(null) }
     var pageCount by rememberSaveable { mutableIntStateOf(1) }
     var infinite by rememberSaveable { mutableStateOf(false) }
+    var pageCover by rememberSaveable { mutableStateOf(true) }
     fun chooseTemplate(item: NotebookTemplate) {
         infinite = false
         template = item.id
@@ -328,6 +329,16 @@ import java.io.File
                     }
                 }
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("First page as cover", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (pageCover) "The shelf shows the first page itself" else "The shelf shows the default cover",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(pageCover, { pageCover = it })
+            }
             Text("Paper style — pick for maths", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Maths papers first so an exam student sees them without scrolling.
@@ -345,7 +356,7 @@ import java.io.File
     }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } }, confirmButton = {
         val chosen = NotebookTemplate.byId(template)
         Button(
-            { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite) },
+            { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
             shapes = ButtonDefaults.shapes(),
             enabled = title.isNotBlank()
         ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }

@@ -461,3 +461,53 @@ class ExamTimerAdjustmentTests {
         assertEquals(60, skipped.elapsedWriting(start + 180_000))
     }
 }
+
+class ExamTagsBatchTests {
+    private val base = ExamTags(subject = VceSubject.PHYSICS, year = 2021, company = "NEAP", type = ExamType.SAC, status = ExamStatus.IN_PROGRESS)
+
+    @Test fun anEmptyPatchLeavesEverythingAlone() {
+        assertEquals(base, ExamTagsBatch().applyTo(base))
+        assertTrue(ExamTagsBatch().isEmpty)
+    }
+
+    @Test fun assigningSubjectYearAndCompanyKeepsTheRest() {
+        val patch = ExamTagsBatch(
+            changeSubject = true, subject = VceSubject.MATHS_METHODS,
+            changeYear = true, year = 2022,
+            changeCompany = true, company = "VCAA"
+        )
+        val updated = patch.applyTo(base)
+        assertEquals(VceSubject.MATHS_METHODS, updated.subject)
+        assertEquals("", updated.subjectText)
+        assertEquals(2022, updated.year)
+        assertEquals("VCAA", updated.company)
+        // Unticked sections are untouched.
+        assertEquals(base.type, updated.type)
+        assertEquals(base.status, updated.status)
+    }
+
+    @Test fun anEmptyValueClearsTheField() {
+        val cleared = ExamTagsBatch(changeYear = true, year = null, changeCompany = true, company = "  ").applyTo(base)
+        assertNull(cleared.year)
+        assertEquals("", cleared.company)
+        assertEquals(base.subject, cleared.subject)
+    }
+
+    @Test fun clearingTheSubjectFallsBackToCustomText() {
+        val custom = ExamTagsBatch(changeSubject = true, subject = null, subjectText = "Indonesian").applyTo(base)
+        assertNull(custom.subject)
+        assertEquals("Indonesian", custom.subjectText)
+        val cleared = ExamTagsBatch(changeSubject = true, subject = null, subjectText = "  ").applyTo(base)
+        assertNull(cleared.subject)
+        assertEquals("", cleared.subjectText)
+    }
+
+    @Test fun typeAndStatusAssignIndependently() {
+        val updated = ExamTagsBatch(changeType = true, type = ExamType.EXAM_1, changeStatus = true, status = ExamStatus.MARKED).applyTo(base)
+        assertEquals(ExamType.EXAM_1, updated.type)
+        assertEquals(ExamStatus.MARKED, updated.status)
+        assertEquals(base.year, updated.year)
+        val clearedType = ExamTagsBatch(changeType = true, type = null).applyTo(base)
+        assertNull(clearedType.type)
+    }
+}

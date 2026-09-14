@@ -1,8 +1,10 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +53,9 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var bulkMove by remember { mutableStateOf(false) }
+    var bulkDelete by remember { mutableStateOf(false) }
+    var bulkTags by remember { mutableStateOf(false) }
+    var bulkCover by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf<Notebook?>(null) }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
@@ -69,6 +74,11 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     LaunchedEffect(visibleIds) { selectedIds = selectedIds.filter { it in visibleIds } }
     fun toggleSelection(id: String) {
         selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
+    }
+    /** Holding a notebook drops straight into selection with that notebook ticked. */
+    fun enterSelecting(id: String) {
+        selecting = true
+        if (id !in selectedIds) selectedIds = selectedIds + id
     }
     val filtersActive = kind != LibraryKind.ALL || unfiled || examFilter.isActive
     val folderName = state.folders.find { it.id == state.folderId }?.name
@@ -202,13 +212,26 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                                 }
                             }
                         }
-                        if (selecting) Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selecting) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
+                                Spacer(Modifier.weight(1f))
                                 TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                                TextButton({ selecting = false; selectedIds = emptyList() }) { Text("Done") }
+                            }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton({ bulkMove = true }, enabled = selection.isNotEmpty()) { Text("Move") }
                                 TextButton({ assignPanel = true }, enabled = selection.isNotEmpty()) { Text("Exam set") }
+                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty()) { Text("Exam details") }
+                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty()) { Text("Cover") }
                                 val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
                                 TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
+                                TextButton(
+                                    { bulkDelete = true },
+                                    enabled = selection.isNotEmpty(),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) { Text("Delete") }
+                            }
                         }
                         if (state.saveFailed) FilledTonalButton(model::retrySave) { Text("Changes need saving · Retry save") }
                     }
@@ -242,14 +265,17 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                 }
                 items(notes, key = { it.id }) { note ->
                     val open = { if (selecting) toggleSelection(note.id) else model.open(note.id) }
+                    val longPress = { enterSelecting(note.id) }
                     val folder = state.folders.find { it.id == note.folderId }?.name
-                    Column {
-                        if (selecting) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(note.id in selection, { toggleSelection(note.id) }, Modifier.semanticsLabel("Select ${note.title}"))
-                            Text("Select notebook", style = MaterialTheme.typography.labelSmall)
-                        }
-                        if (listView) Surface(onClick = open, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    if (listView) Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.combinedClickable(onClick = open, onLongClick = longPress)
+                    ) {
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (selecting) {
+                                    Checkbox(note.id in selection, { toggleSelection(note.id) }, Modifier.semanticsLabel(if (note.id in selection) "Deselect ${note.title}" else "Select ${note.title}"))
+                                }
                                 NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
@@ -257,11 +283,16 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                                 }
                                 if (!selecting) {
                                     IconButton({ model.star(note) }) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
-                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note })
+                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) })
                                 }
                             }
-                        } else                        NotebookCard(note, model.thumbnails, folder, open, { model.star(note) }, { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note }, selecting, note.pages.count { it.redoFlag })
-                    }
+                        } else NotebookCard(
+                            note, model.thumbnails, folder, open, { model.star(note) },
+                            { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { setAssign = note },
+                            selecting, note.pages.count { it.redoFlag },
+                            selected = note.id in selection, onLongPress = longPress,
+                            pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) }
+                        )
                 }
 
             }
@@ -309,6 +340,46 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             if (state.folders.isEmpty()) Text("Create a folder using New folder, then move notebooks here.")
         }
     }, confirmButton = { TextButton({ bulkMove = false }) { Text("Cancel") } })
+    if (bulkDelete) AlertDialog(
+        onDismissRequest = { bulkDelete = false },
+        title = { Text("Delete ${selection.size} notebook${if (selection.size == 1) "" else "s"}?") },
+        text = { Text("This removes the selected notebooks and their pages from this device. Export a copy first if you want to keep them.") },
+        dismissButton = { TextButton({ bulkDelete = false }) { Text("Keep") } },
+        confirmButton = {
+            TextButton(
+                { model.deleteNotebooks(selection); bulkDelete = false; selectedIds = emptyList() },
+                enabled = selection.isNotEmpty(),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) { Text("Delete") }
+        }
+    )
+    if (bulkTags) BatchExamTagsPanel(
+        count = selection.size,
+        onDismiss = { bulkTags = false },
+        onApply = { transform ->
+            model.updateExamTagsBatch(selection, transform)
+            bulkTags = false
+            selectedIds = emptyList()
+        }
+    )
+    if (bulkCover) AlertDialog(
+        onDismissRequest = { bulkCover = false },
+        title = { Text("Cover for ${selection.size} notebook${if (selection.size == 1) "" else "s"}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Show the first page itself, or keep the decorative default cover.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(
+                    { model.setPageCoverBatch(selection, true); bulkCover = false; selectedIds = emptyList() },
+                    enabled = selection.isNotEmpty()
+                ) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(12.dp)); Text("First page as cover") }
+                TextButton(
+                    { model.setPageCoverBatch(selection, false); bulkCover = false; selectedIds = emptyList() },
+                    enabled = selection.isNotEmpty()
+                ) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(12.dp)); Text("Default cover") }
+            }
+        },
+        confirmButton = { TextButton({ bulkCover = false }) { Text("Cancel") } }
+    )
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
     renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { model.renameFolder(folder, it); renameFolder = null } }
     deleteFolder?.let { folder -> AlertDialog(onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }) { Text("Remove folder") } }) }
@@ -336,24 +407,39 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     }
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
     Column {
         Box {
-            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().aspectRatio(1.1f).clickable(onClickLabel = "Open ${note.title}", onClick = open))
-            if (!selecting) IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", tint = Color(0xFF343931), modifier = Modifier.size(21.dp)) }
+            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = "Open ${note.title}", onClick = open, onLongClick = onLongPress))
+            if (selecting) {
+                val checked = selected
+                Surface(
+                    onClick = open,
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .92f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(30.dp).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            } else {
+                IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", tint = Color(0xFF343931), modifier = Modifier.size(21.dp)) }
+            }
         }
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clickable(onClick = open)) {
+            Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, assignSet)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, assignSet, pageCover, onCoverToggle)
         }
         ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, assignSet: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
@@ -361,6 +447,11 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Exam set") }, { menu = false; assignSet() }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null) })
+            DropdownMenuItem(
+                { Text(if (pageCover) "Use default cover" else "Use first page as cover") },
+                { menu = false; onCoverToggle() },
+                leadingIcon = { Icon(if (pageCover) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.Image, null) }
+            )
             DropdownMenuItem({ Text("Move to folder") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
         }
@@ -368,21 +459,32 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 }
 
 /**
- * A notebook's face on the shelf: its first page as it really is, drawn from the same preview cache
- * the page browser uses and resting on the notebook's own cover colour. Until that page has been
- * drawn there is nothing to show, so a fresh notebook keeps its decorative cover and its title.
+ * A notebook's face on the shelf: either the first page itself with no book decoration, or the
+ * decorative default cover. The first-page cover is drawn from the same preview cache the page
+ * browser uses; until that page has been drawn there is nothing to show, so a fresh notebook
+ * keeps its decorative cover and its title either way.
  */
 @Composable fun NotebookFace(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
-    val cover = CoverColors[note.cover.mod(CoverColors.size)]
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 260.dp.roundToPx() })
-    Box(modifier) {
-        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp, 20.dp, 20.dp, 8.dp)).background(cover)) {
-            if (preview == null) NotebookCover(note, Modifier.fillMaxSize(), compact = true)
-            // The page keeps its whole height and sits inside the cover colour, so nothing is cropped.
-            else Box(Modifier.fillMaxSize().padding(start = 6.dp, top = 4.dp, end = 4.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-                Image(preview.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-            }
+    val first = note.pages.firstOrNull()
+    val bitmap = preview
+    if (note.pageCover && bitmap != null) {
+        val aspect = first?.let { page ->
+            val ratio = if (page.height > 0) page.width / page.height else 0.7f
+            ratio.coerceIn(0.4f, 1.5f)
+        } ?: 0.71f
+        Box(
+            modifier
+                .aspectRatio(aspect)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
+    } else {
+        NotebookCover(note, modifier.aspectRatio(1.1f), compact = true)
     }
 }
 

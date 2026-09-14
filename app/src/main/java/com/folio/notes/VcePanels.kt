@@ -261,6 +261,151 @@ fun ExamDetailsPanel(
     }
 }
 
+/**
+ * Assigns exam tags to many notebooks at once. Each section is opt-in: only ticked sections are
+ * written, so subject can be assigned without touching the year, and the year without the company.
+ * An empty value inside a ticked section clears that field, which is how a batch removes tags.
+ */
+@Composable
+fun BatchExamTagsPanel(
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: ((ExamTags) -> ExamTags) -> Unit
+) {
+    var changeSubject by rememberSaveable { mutableStateOf(false) }
+    var newSubject by remember { mutableStateOf<VceSubject?>(null) }
+    var customSubject by rememberSaveable { mutableStateOf("") }
+    var changeYear by rememberSaveable { mutableStateOf(false) }
+    var newYear by rememberSaveable { mutableStateOf("") }
+    var changeCompany by rememberSaveable { mutableStateOf(false) }
+    var newCompany by rememberSaveable { mutableStateOf("") }
+    var changeType by rememberSaveable { mutableStateOf(false) }
+    var newType by remember { mutableStateOf<ExamType?>(null) }
+    var changeStatus by rememberSaveable { mutableStateOf(false) }
+    var newStatus by remember { mutableStateOf(ExamStatus.TO_DO) }
+    val canApply = changeSubject || changeYear || changeCompany || changeType || changeStatus
+
+    fun buildTransform(): (ExamTags) -> ExamTags {
+        val patch = ExamTagsBatch(
+            changeSubject = changeSubject, subject = newSubject, subjectText = customSubject,
+            changeYear = changeYear, year = newYear.toIntOrNull(),
+            changeCompany = changeCompany, company = newCompany,
+            changeType = changeType, type = newType,
+            changeStatus = changeStatus, status = newStatus
+        )
+        return patch::applyTo
+    }
+
+    FolioPanel(title = "Assign exam details", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                "Apply to $count notebook${if (count == 1) "" else "s"}. Only ticked sections change; the rest stay as they are.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            BatchSection(
+                checked = changeSubject,
+                onChecked = { changeSubject = it },
+                title = "Subject",
+                summary = if (!changeSubject) "Unchanged" else newSubject?.label ?: customSubject.trim().ifBlank { "Cleared" }
+            ) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SubjectChip(null, selected = newSubject == null, onClick = { newSubject = null })
+                    VceSubject.entries.forEach { option ->
+                        SubjectChip(option, selected = newSubject == option, onClick = { newSubject = option })
+                    }
+                }
+                if (newSubject == null) {
+                    OutlinedTextField(
+                        customSubject, { customSubject = it.take(60) },
+                        Modifier.fillMaxWidth(), label = { Text("Other subject (empty clears)") },
+                        placeholder = { Text("e.g. Indonesian") }, singleLine = true
+                    )
+                }
+            }
+            BatchSection(
+                checked = changeYear,
+                onChecked = { changeYear = it },
+                title = "Year",
+                summary = if (!changeYear) "Unchanged" else newYear.ifBlank { "Cleared" }
+            ) {
+                OutlinedTextField(
+                    newYear, { newYear = it.filter(Char::isDigit).take(4) },
+                    Modifier.fillMaxWidth(), label = { Text("Year (empty clears)") },
+                    placeholder = { Text("2022") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+            BatchSection(
+                checked = changeCompany,
+                onChecked = { changeCompany = it },
+                title = "Company / source",
+                summary = if (!changeCompany) "Unchanged" else newCompany.trim().ifBlank { "Cleared" }
+            ) {
+                OutlinedTextField(
+                    newCompany, { newCompany = it.take(40) },
+                    Modifier.fillMaxWidth(), label = { Text("Company (empty clears)") },
+                    placeholder = { Text("VCAA, NEAP, TSSM, Insight…") }, singleLine = true
+                )
+            }
+            BatchSection(
+                checked = changeType,
+                onChecked = { changeType = it },
+                title = "Type",
+                summary = if (!changeType) "Unchanged" else newType?.label ?: "Cleared"
+            ) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(newType == null, { newType = null }, { Text("None") })
+                    ExamType.entries.forEach { option ->
+                        FilterChip(newType == option, { newType = if (newType == option) null else option }, { Text(option.label) })
+                    }
+                }
+            }
+            BatchSection(
+                checked = changeStatus,
+                onChecked = { changeStatus = it },
+                title = "Status",
+                summary = if (!changeStatus) "Unchanged" else newStatus.label
+            ) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ExamStatus.entries.forEach { option ->
+                        FilterChip(newStatus == option, { newStatus = option }, { Text(option.label) })
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onDismiss) { Text("Cancel") }
+                Button({ onApply(buildTransform()) }, enabled = canApply) { Text("Apply to $count") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatchSection(
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+    title: String,
+    summary: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked, onChecked)
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (checked) content()
+        }
+    }
+}
+
 /** One mark entry: score out of a total, optional time taken and a timed flag. */
 @Composable
 fun ScoreDialog(total: Int?, defaultSeconds: Int?, onDismiss: () -> Unit, onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit) {

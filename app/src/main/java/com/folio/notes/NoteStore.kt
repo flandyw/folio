@@ -56,15 +56,19 @@ object InkCodec {
  * Version 1 kept every page inline in `note.json`, which is also the portable shape a `.folio`
  * archive carries, so [NoteCodec] still reads and writes that. Version 2 was the split index
  * before exam metadata existed; version 3 adds exam tags, attempts, the exam-set link and the
- * per-page redo flag. An older file is migrated the first time it is opened.
+ * per-page redo flag. Version 4 adds the first-page-versus-default cover choice.
+ * An older file is migrated the first time it is opened.
  */
 object NoteMetaCodec {
-    const val VERSION = 3
+    const val VERSION = 4
 
     fun isCurrent(value: String): Boolean = try { JSONObject(value).optInt("version") == VERSION } catch (_: Exception) { false }
 
     /** True when [value] is the version-2 split index, which carries no ink but no exam tags either. */
     fun isSplitIndex(value: String): Boolean = try { JSONObject(value).optInt("version") == 2 } catch (_: Exception) { false }
+
+    /** True for a version-3 index, which is current except for the cover choice (defaults to page cover). */
+    fun isVersion3(value: String): Boolean = try { JSONObject(value).optInt("version") == 3 } catch (_: Exception) { false }
 
     fun encode(note: Notebook): String = JSONObject().apply {
         put("version", VERSION); put("id", note.id); put("title", note.title)
@@ -73,6 +77,7 @@ object NoteMetaCodec {
         put("exam", ExamTagsCodec.encode(note.exam))
         put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
+        put("pageCover", note.pageCover)
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height)
             put("paper", p.paper.name); put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
@@ -87,6 +92,9 @@ object NoteMetaCodec {
     /** Reads the version-2 split index during migration; exam fields simply default. */
     fun decodeSplit(value: String): Notebook = decodeIndex(value, 2)
 
+    /** Reads a version-3 index during migration; the cover choice defaults to the first page. */
+    fun decodeVersion3(value: String): Notebook = decodeIndex(value, 3)
+
     private fun decodeIndex(value: String, version: Int): Notebook {
         val o = JSONObject(value)
         require(o.getInt("version") == version) { "Unsupported notebook index version" }
@@ -99,7 +107,8 @@ object NoteMetaCodec {
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             setId = if (o.isNull("set")) null else o.optString("set"),
-            attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")))
+            attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
+            pageCover = o.optBoolean("pageCover", true))
     }
 
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }

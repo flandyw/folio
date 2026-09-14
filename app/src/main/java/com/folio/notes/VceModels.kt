@@ -353,6 +353,42 @@ fun organizeExams(
         (query.isBlank() || matchesQuery(note, query))
 }
 
+// ---- Batch editing ---------------------------------------------------------------------------------
+
+/**
+ * One batch assignment of exam tags: each section is opt-in, so untouched sections keep their
+ * values. An empty value inside a ticked section clears that field.
+ */
+data class ExamTagsBatch(
+    val changeSubject: Boolean = false,
+    val subject: VceSubject? = null,
+    val subjectText: String = "",
+    val changeYear: Boolean = false,
+    val year: Int? = null,
+    val changeCompany: Boolean = false,
+    val company: String = "",
+    val changeType: Boolean = false,
+    val type: ExamType? = null,
+    val changeStatus: Boolean = false,
+    val status: ExamStatus = ExamStatus.TO_DO
+) {
+    val isEmpty: Boolean get() = !changeSubject && !changeYear && !changeCompany && !changeType && !changeStatus
+
+    /** The same assignment as a tag transform, for [FolioViewModel.updateExamTagsBatch]. */
+    fun applyTo(tags: ExamTags): ExamTags {
+        var out = tags
+        if (changeSubject) {
+            out = if (subject != null) out.copy(subject = subject, subjectText = "")
+            else out.copy(subject = null, subjectText = subjectText.trim())
+        }
+        if (changeYear) out = out.copy(year = year)
+        if (changeCompany) out = out.copy(company = company.trim())
+        if (changeType) out = out.copy(type = type)
+        if (changeStatus) out = out.copy(status = status)
+        return out
+    }
+}
+
 /** Case-insensitive match over the title and every exam field, including attempts' history. */
 fun matchesQuery(note: Notebook, rawQuery: String): Boolean {
     val query = rawQuery.trim().lowercase()

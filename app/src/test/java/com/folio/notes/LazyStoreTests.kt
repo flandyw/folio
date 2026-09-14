@@ -75,9 +75,10 @@ class LazyStoreTests {
     }
 
     @Test fun anUnknownIndexVersionIsRejectedRatherThanHalfRead() {
-        val future = NoteMetaCodec.encode(note).replace("\"version\":3", "\"version\":4")
+        val future = NoteMetaCodec.encode(note).replace("\"version\":4", "\"version\":99")
         assertFalse(NoteMetaCodec.isCurrent(future))
         assertFalse(NoteMetaCodec.isSplitIndex(future))
+        assertFalse(NoteMetaCodec.isVersion3(future))
         assertThrows(IllegalArgumentException::class.java) { NoteMetaCodec.decode(future) }
         assertThrows(IllegalArgumentException::class.java) { NotePageCodec.decode("{\"version\":99}", marked.asSummary()) }
     }
@@ -103,11 +104,11 @@ class LazyStoreTests {
 
     @Test fun aVersion2SplitIndexMigratesWithDefaultExamFields() {
         val v2 = NoteMetaCodec.encode(note)
-            .replace("\"version\":3", "\"version\":2")
+            .replace("\"version\":4", "\"version\":2")
             .let { json ->
                 // Strip the exam block, set link and attempts a v2 writer never emitted.
                 val obj = JSONObject(json)
-                obj.remove("exam"); obj.remove("set"); obj.remove("attempts")
+                obj.remove("exam"); obj.remove("set"); obj.remove("attempts"); obj.remove("pageCover")
                 obj.toString()
             }
         assertTrue(NoteMetaCodec.isSplitIndex(v2))
@@ -119,6 +120,32 @@ class LazyStoreTests {
         assertTrue(migrated.attempts.isEmpty())
         assertEquals(2, migrated.pages.size)
         assertTrue(migrated.pages.none { it.loaded })
+        // A v2 file never chose a cover, so it opens on the first page like a new notebook.
+        assertTrue(migrated.pageCover)
+    }
+
+    @Test fun aVersion3IndexMigratesWithFirstPageCover() {
+        val v3 = NoteMetaCodec.encode(note.copy(pageCover = false))
+            .replace("\"version\":4", "\"version\":3")
+            .let { json ->
+                val obj = JSONObject(json)
+                obj.remove("pageCover")
+                obj.toString()
+            }
+        assertTrue(NoteMetaCodec.isVersion3(v3))
+        assertFalse(NoteMetaCodec.isCurrent(v3))
+        assertTrue(NoteMetaCodec.decodeVersion3(v3).pageCover)
+        // An explicit choice survives the round trip on the current version.
+        assertFalse(NoteMetaCodec.decode(NoteMetaCodec.encode(note.copy(pageCover = false))).pageCover)
+        assertTrue(NoteMetaCodec.decode(NoteMetaCodec.encode(note.copy(pageCover = true))).pageCover)
+    }
+
+    @Test fun thePortableCodecKeepsTheCoverChoice() {
+        assertFalse(NoteCodec.decode(NoteCodec.encode(note.copy(pageCover = false))).pageCover)
+        assertTrue(NoteCodec.decode(NoteCodec.encode(note.copy(pageCover = true))).pageCover)
+        // Backups written before the cover choice open on the first page.
+        val legacy = JSONObject(NoteCodec.encode(note)).apply { remove("pageCover") }.toString()
+        assertTrue(NoteCodec.decode(legacy).pageCover)
     }
 
     @Test fun thePortableCodecStillKeepsEveryPageAndItsRevision() {
