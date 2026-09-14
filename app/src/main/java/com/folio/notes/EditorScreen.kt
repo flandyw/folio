@@ -85,11 +85,60 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun changeOptions(value: ToolOptions) { options = value; value.save(prefs, tool) }
     var snapEnabled by rememberSaveable { mutableStateOf(appPrefs.getBoolean("mathSnap", true)) }
     fun setSnap(v: Boolean) { snapEnabled = v; appPrefs.edit().putBoolean("mathSnap", v).apply() }
+    // Eraser single-stroke + pressure + scribble-to-erase + whole-stroke + measurements + multitouch undo
+    var eraserSingleStroke by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
+    fun setEraserSingleStroke(v: Boolean) {
+        eraserSingleStroke = v
+        appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, v).apply()
+    }
+    var eraserPressure by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
+    fun setEraserPressure(v: Boolean) { eraserPressure = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, v).apply() }
+    var scribbleToErase by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
+    fun setScribbleToErase(v: Boolean) { scribbleToErase = v; appPrefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, v).apply() }
+    var eraserWholeStroke by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
+    fun setEraserWholeStroke(v: Boolean) { eraserWholeStroke = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, v).apply() }
+    var shapeMeasurements by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
+    fun setShapeMeasurements(v: Boolean) { shapeMeasurements = v; appPrefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, v).apply() }
+    var multiTouchUndo by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, true)) }
+    fun setMultiTouchUndo(v: Boolean) { multiTouchUndo = v; appPrefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, v).apply() }
+    // Observe external pref changes (e.g. from ToolOptionsPanel): re-read when screen re-enters foreground
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                EditorQuickPrefs.ERASER_SINGLE_STROKE -> { eraserSingleStroke = appPrefs.getBoolean(key, false) }
+                EditorQuickPrefs.ERASER_PRESSURE -> eraserPressure = appPrefs.getBoolean(key, true)
+                EditorQuickPrefs.SCRIBBLE_TO_ERASE -> scribbleToErase = appPrefs.getBoolean(key, true)
+                EditorQuickPrefs.ERASER_WHOLE_STROKE -> eraserWholeStroke = appPrefs.getBoolean(key, false)
+                EditorQuickPrefs.SHAPE_MEASUREMENTS -> shapeMeasurements = appPrefs.getBoolean(key, true)
+                EditorQuickPrefs.MULTI_TOUCH_UNDO -> multiTouchUndo = appPrefs.getBoolean(key, true)
+            }
+        }
+        appPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     val penHaptics = remember(context) { (context.applicationContext as? FolioApplication)?.penHaptics }
+    // For single-stroke eraser: remembers the tool before eraser was entered
+    var eraserReturnTool by remember { mutableStateOf<Tool?>(null) }
     fun selectTool(value: Tool): Boolean {
         if (value == tool) return false
+        if (value == Tool.ERASER && eraserSingleStroke) {
+            // Only remember a real return target; entering eraser repeatedly should not overwrite it
+            if (tool != Tool.ERASER) eraserReturnTool = tool
+        } else if (tool == Tool.ERASER && value != Tool.ERASER) {
+            eraserReturnTool = null
+        }
         tool = value
+        // Keep options in sync with the new tool's stored values immediately (remember(tool) updates next compose, but options var lags one frame)
+        options = ToolOptions.load(prefs, value)
         return true
+    }
+    // Called by InkView after exactly one eraser stroke when single-stroke is on
+    fun finishSingleStrokeEraser() {
+        if (!eraserSingleStroke) return
+        val ret = eraserReturnTool ?: Tool.PEN
+        eraserReturnTool = null
+        tool = ret
+        options = ToolOptions.load(prefs, ret)
     }
     DisposableEffect(penHaptics, haptics) {
         if (haptics) penHaptics?.start() else penHaptics?.stop()
@@ -304,6 +353,16 @@ private fun paperLabel(p: Paper): String = when (p) {
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
+            var activeInkView by remember { mutableStateOf<InkView?>(null) }
+            fun selectAllInk() {
+                val view = activeInkView
+                if (view != null) view.selectAll()
+                else if (page.strokes.isNotEmpty()) {
+                    // Fallback when view not yet bound (e.g. immediate toolbar tap after page switch)
+                    tool = Tool.LASSO
+                    selection = page.id to page.strokes.toList()
+                }
+            }
             if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
@@ -313,7 +372,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onCanvasZoom = { documentZoom = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
-                    pdfLinks = pdfLinks, onPdfLink = ::openPdfLink)
+                    pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
+                    eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
+                    eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                    onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
+                    onSelectAllView = { activeInkView = it })
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -416,7 +479,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onImageSelected = { image ->
                                 selectedImage = image?.let { item.id to it }
                             },
-                            pdfLinks = pdfLinks, onPdfLink = ::openPdfLink)
+                            pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
+                            eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
+                            eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                            onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
+                            onSelectAllView = { if (item.id == page.id) activeInkView = it })
                     }
                     item { OutlinedButton({ addPage() }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
@@ -458,7 +525,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                             snapEnabled = snapEnabled,
                             onSnap = ::setSnap,
                             onAxes = model::insertAxes,
-                            onPalette = { palette = it }
+                            onPalette = { palette = it },
+                            eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
+                            scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
+                            eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
+                            eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
+                            shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
+                            multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
+                            onSelectAll = ::selectAllInk
                         )
                     }
                     EditorChromeChip(Modifier.height(chromeHeight)) {
@@ -506,8 +580,15 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             if (!toolbarUpTop || stackedToolbar) FloatingInkToolbar(
                 Modifier.align(toolbarAlignment).padding(start = 12.dp, end = 12.dp, top = if (stackedToolbar) 68.dp else 76.dp, bottom = 12.dp),
-                tool, { selectTool(it) }, options, ::changeOptions, quick, state.canUndo, state.canRedo, model::undo, model::redo, palette, snapEnabled, ::setSnap, model::insertAxes
-            ) { palette = it }
+                tool, { selectTool(it) }, options, ::changeOptions, quick, state.canUndo, state.canRedo, model::undo, model::redo, palette, snapEnabled, ::setSnap, model::insertAxes, { palette = it },
+                eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
+                scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
+                eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
+                eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
+                shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
+                multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
+                onSelectAll = ::selectAllInk
+            )
         }
         EditorBottomBar(
             state = state, zoomPercent = (documentZoom * 100).roundToInt(), selectedCount = selected.size,
@@ -818,7 +899,7 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
     }
 }
 
-@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}) {
+@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (List<Stroke>) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
@@ -851,6 +932,9 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
             view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
+            view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
+            view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
+            if (onSelectAllView != null) view.tag = onSelectAllView else if (view.tag is Function1<*, *>) view.tag = null
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition
             view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
@@ -873,7 +957,17 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
     }
 }
 
-@Composable private fun FloatingInkToolbar(modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState, canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onAxes: () -> Unit, onPalette: (Boolean) -> Unit) {
+@Composable private fun FloatingInkToolbar(
+    modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState,
+    canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onAxes: () -> Unit, onPalette: (Boolean) -> Unit,
+    eraserSingleStroke: Boolean = false, onEraserSingleStroke: ((Boolean) -> Unit)? = null,
+    scribbleToErase: Boolean = true, onScribbleToErase: ((Boolean) -> Unit)? = null,
+    eraserPressureEnabled: Boolean = true, onEraserPressure: ((Boolean) -> Unit)? = null,
+    eraserWholeStroke: Boolean = false, onEraserWholeStroke: ((Boolean) -> Unit)? = null,
+    shapeMeasurements: Boolean = true, onShapeMeasurements: ((Boolean) -> Unit)? = null,
+    multiTouchUndo: Boolean = true, onMultiTouchUndo: ((Boolean) -> Unit)? = null,
+    onSelectAll: (() -> Unit)? = null
+) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
     var showWidth by remember { mutableStateOf(false) }
@@ -954,6 +1048,17 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
         IconButton(redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         ToolbarDivider()
         ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen") { if (it == tool) onPalette(true) else onTool(it) }
+        // One-tap eraser return sits next to the pen for discoverability as a quick setting
+        if (onEraserSingleStroke != null) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "One-stroke eraser: on — returns after one stroke" else "One-stroke eraser: off") } }, state = rememberTooltipState()) {
+                FilterChip(
+                    selected = eraserSingleStroke,
+                    onClick = { onEraserSingleStroke(!eraserSingleStroke) },
+                    label = { Text("1×", style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null, Modifier.size(14.dp)) }
+                )
+            }
+        }
         Box {
             val shapeIcon = when (tool) {
                 Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
@@ -978,8 +1083,24 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
         Box {
             IconButton({ shapes = true }) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }) {
+                if (onSelectAll != null) {
+                    DropdownMenuItem({ Text("Select all ink") }, { onSelectAll(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    HorizontalDivider()
+                }
                 if (!isDrawing && tool != Tool.ERASER) {
                     DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
+                    if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
+                    HorizontalDivider()
+                }
+                if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
+                    if (onEraserSingleStroke != null) DropdownMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
+                    if (onEraserPressure != null) DropdownMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
+                    if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
+                    if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
+                    HorizontalDivider()
+                }
+                if (onMultiTouchUndo != null) {
+                    DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                     HorizontalDivider()
                 }
                 DropdownMenuItem({ Text("Insert graph axes") }, { onAxes(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
@@ -995,10 +1116,35 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
         }
         if (isDrawing || tool == Tool.ERASER) {
             Box(Modifier.width(20.dp).height(6.dp).background(MaterialTheme.colorScheme.outlineVariant))
-            Surface(Modifier.widthIn(max = 480.dp).height(48.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Surface(Modifier.widthIn(max = 520.dp).height(48.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (tool != Tool.ERASER) QuickColors()
                     WidthControl()
+                    if (tool == Tool.ERASER && onEraserPressure != null) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
+                            FilterChip(selected = eraserPressureEnabled, onClick = { onEraserPressure(!eraserPressureEnabled) }, label = { Text("Pressure", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
+                    if (tool == Tool.ERASER && onEraserWholeStroke != null) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
+                            FilterChip(selected = eraserWholeStroke, onClick = { onEraserWholeStroke(!eraserWholeStroke) }, label = { Text("Whole", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
+                    if ((tool == Tool.PEN || tool == Tool.HIGHLIGHTER) && onScribbleToErase != null) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
+                            FilterChip(selected = scribbleToErase, onClick = { onScribbleToErase(!scribbleToErase) }, label = { Text("Scribble", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
+                    if (tool == Tool.ERASER && onEraserSingleStroke != null) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
+                            FilterChip(selected = eraserSingleStroke, onClick = { onEraserSingleStroke(!eraserSingleStroke) }, label = { Text("Single", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
+                    if (isShape && onShapeMeasurements != null) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
+                            FilterChip(selected = shapeMeasurements, onClick = { onShapeMeasurements(!shapeMeasurements) }, label = { Text("Measure", style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
                     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
                         IconButton({ onSnap(!snapEnabled) }) {
                             Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)

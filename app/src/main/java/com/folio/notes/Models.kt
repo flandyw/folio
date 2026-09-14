@@ -456,6 +456,134 @@ object InkGeometry {
         }
     }
 
+    // ---- Scribble-to-erase + eraser pressure -------------------------------------------------
+
+    /**
+     * Slight pressure response for the eraser, so a stylus still changes the size but never by much.
+     * At rest (p=1) the radius is exactly the chosen width; at the softest press it is ~12% smaller
+     * and at the hardest ~12% larger. Disabled pressure returns 1 so the radius is unchanged.
+     */
+    fun eraserScale(pressure: Float): Float {
+        val p = pressure.coerceIn(0.25f, 1.8f)
+        return (0.85f + 0.15f * p).coerceIn(0.85f, 1.15f)
+    }
+
+    /**
+     * Whether [points] look like a scribble intended to rub something out, rather than handwriting.
+     *
+     * A deliberate scribble is longer than it is wide, densely self-crossing and full of direction
+     * changes. Short strokes, straight lines and smooth curves are not treated as scribbles so
+     * normal writing and shape tidy-up are never misread as an erase gesture.
+     */
+    fun isScribble(points: List<InkPoint>): Boolean {
+        if (points.size < 12) return false
+        var total = 0f
+        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y
+        }
+        for (i in 1..points.lastIndex) total += distance(points[i - 1], points[i])
+        if (total < 80f) return false
+        val span = hypot(maxX - minX, maxY - minY)
+        if (span < 14f) return false
+        if (total / span < 2.2f) return false
+        var turns = 0
+        var reversals = 0
+        for (i in 1 until points.lastIndex) {
+            val ax = points[i].x - points[i - 1].x; val ay = points[i].y - points[i - 1].y
+            val bx = points[i + 1].x - points[i].x; val by = points[i + 1].y - points[i].y
+            val al = hypot(ax, ay); val bl = hypot(bx, by)
+            if (al < 0.9f || bl < 0.9f) continue
+            val dot = ((ax * bx + ay * by) / (al * bl)).coerceIn(-1f, 1f)
+            val angle = Math.toDegrees(kotlin.math.acos(dot.toDouble())).toFloat()
+            if (angle > 42f) turns++
+            if (dot < -0.28f) reversals++
+        }
+        // Require either many turns or a few clear back-and-forth reversals.
+        return turns >= 6 || reversals >= 3
+    }
+
+    /** True when the scribble polyline passes close enough to [target] to be considered a hit. */
+    fun scribbleHits(scribble: Stroke, target: Stroke, radius: Float): Boolean {
+        val scribblePoints = scribble.points
+        if (scribblePoints.isEmpty()) return false
+        return scribblePoints.any { hits(target, it, radius) }
+    }
+
+    /** Strokes that remain once a scribble stroke has scrubbed away every stroke it touches. */
+    fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float): List<Stroke> {
+        if (strokes.isEmpty()) return strokes
+        return strokes.filterNot { scribbleHits(scribble, it, radius) }
+    }
+
+    /** Variant of [erase] where each centre has its own radius (for pressure-varying eraser). */
+    fun erase(stroke: Stroke, centers: List<InkPoint>, radii: List<Float>): List<Stroke> {
+        if (centers.isEmpty() || radii.isEmpty()) return listOf(stroke)
+        val count = minOf(centers.size, radii.size)
+        val c = centers.take(count); val r = radii.take(count)
+        if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) {
+            return if (c.indices.any { i -> hits(stroke, c[i], r[i]) }) emptyList() else listOf(stroke)
+        }
+        val points = stroke.points
+        if (points.isEmpty()) return listOf(stroke)
+        if (points.size == 1) {
+            return if (c.indices.any { i -> distance(points[0], c[i]) <= r[i] + stroke.width / 2f }) emptyList() else listOf(stroke)
+        }
+        if (!reachesVariable(points, c, r, stroke.width)) return listOf(stroke)
+        return cutVariable(points, c, r, stroke.width)?.map { stroke.copy(points = it) } ?: listOf(stroke)
+    }
+
+    private fun reachesVariable(points: List<InkPoint>, centers: List<InkPoint>, radii: List<Float>, strokeWidth: Float): Boolean {
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        points.forEach { if (it.x < minX) minX = it.x; if (it.x > maxX) maxX = it.x; if (it.y < minY) minY = it.y; if (it.y > maxY) maxY = it.y }
+        return centers.indices.any { i ->
+            val reach = radii[i] + strokeWidth / 2f
+            centers[i].x >= minX - reach && centers[i].x <= maxX + reach && centers[i].y >= minY - reach && centers[i].y <= maxY + reach
+        }
+    }
+
+    private fun cutVariable(points: List<InkPoint>, centers: List<InkPoint>, radii: List<Float>, strokeWidth: Float): List<List<InkPoint>>? {
+        val fragments = mutableListOf<List<InkPoint>>()
+        val cuts = ArrayList<Pair<Float, Float>>(centers.size)
+        val ranges = ArrayList<Pair<Float, Float>>(centers.size + 1)
+        var current: MutableList<InkPoint>? = null
+        var removed = false
+        for (i in 0 until points.size - 1) {
+            val a = points[i]; val b = points[i + 1]
+            cuts.clear()
+            for (idx in centers.indices) {
+                val reach = radii[idx] + strokeWidth / 2f
+                span(a, b, centers[idx], reach)?.let { cuts.add(it) }
+            }
+            if (cuts.isEmpty()) {
+                val open = current
+                if (open != null) open.add(b) else current = mutableListOf(a, b)
+                continue
+            }
+            removed = true
+            cuts.sortBy { it.first }
+            ranges.clear()
+            var cursor = 0f
+            for (bite in cuts) {
+                if (bite.first > cursor) ranges.add(cursor to bite.first)
+                if (bite.second > cursor) cursor = bite.second
+            }
+            if (cursor < 1f) ranges.add(cursor to 1f)
+            if (ranges.isEmpty()) { current?.let { fragments.add(it) }; current = null; continue }
+            for (range in ranges) {
+                val start = lerp(a, b, range.first); val end = lerp(a, b, range.second)
+                val open = current
+                if (open != null && distance(open.last(), start) <= MIN_SAMPLE) open.add(end)
+                else { open?.let { fragments.add(it) }; current = mutableListOf(start, end) }
+            }
+        }
+        current?.let { fragments.add(it) }
+        return if (removed) fragments else null
+    }
+
     /**
      * Removes the ink of a freehand stroke within [radius] of any of [centers] and returns the
      * surviving fragments in draw order, or [stroke] itself when none of them reaches it. Shapes

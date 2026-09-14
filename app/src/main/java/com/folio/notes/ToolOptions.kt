@@ -46,8 +46,19 @@ data class ToolOptions(
     }
 }
 
+/** Quick switches shown in the editor as a row over the page. */
+object EditorQuickPrefs {
+    const val ERASER_SINGLE_STROKE = "eraserSingleStroke"
+    const val ERASER_PRESSURE = "eraserPressure"
+    const val SCRIBBLE_TO_ERASE = "scribbleToErase"
+    const val ERASER_WHOLE_STROKE = "eraserWholeStroke"
+    const val SHAPE_MEASUREMENTS = "shapeMeasurements"
+    const val MULTI_TOUCH_UNDO = "multiTouchUndo"
+}
+
 @Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState) {
     val label = tool.name.lowercase().replaceFirstChar(Char::uppercase)
+    val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("$label settings", style = MaterialTheme.typography.headlineSmall)
         if (tool == Tool.HAND) {
@@ -69,7 +80,18 @@ data class ToolOptions(
                 Box(Modifier.fillMaxWidth().height(72.dp).background(MaterialTheme.colorScheme.surfaceContainerLow), contentAlignment = Alignment.Center) {
                     Box(Modifier.fillMaxWidth(0.8f).height(options.width.dp).background(Color(options.color).copy(alpha = options.opacity), CircleShape))
                 }
-            } else Text("Cuts the ink it touches out of a stroke and leaves the rest behind. Lines, rectangles and ellipses are removed whole.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text("Cuts the ink it touches out of a stroke and leaves the rest behind. Lines, rectangles and ellipses are removed whole.", style = MaterialTheme.typography.bodySmall)
+                var eraserPressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pressure-sensitive size", Modifier.weight(1f))
+                    Switch(eraserPressure, {
+                        eraserPressure = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, it).apply()
+                    })
+                }
+                Text("Slightly grows with stronger pressure (about ±12%).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (tool == Tool.PEN) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Pressure-sensitive width", Modifier.weight(1f))
@@ -102,6 +124,71 @@ data class ToolOptions(
                     AssistChip({ onChange(options.copy(width = 3.5f)) }, { Text("Heavy") })
                 }
                 Text("Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle snap in the editor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            // For pen/highlighter the scribble switch already appeared above; repeating would duplicate.
+            if (tool != Tool.PEN && tool != Tool.HIGHLIGHTER && tool != Tool.ERASER) {
+                var scribble by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Scribble to erase", Modifier.weight(1f))
+                    Switch(scribble, {
+                        scribble = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it).apply()
+                    })
+                }
+                Text("Scribble over ink to delete strokes. Closest experience when scribbling with the pen/highlighter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
+                var scribble by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Scribble to erase", Modifier.weight(1f))
+                    Switch(scribble, {
+                        scribble = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it).apply()
+                    })
+                }
+                Text("Scribble over ink with the pen/highlighter to delete entire strokes it touches. A compact one-tap erase without switching tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (tool == Tool.ERASER) {
+                var single by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Single-stroke eraser", Modifier.weight(1f))
+                    Switch(single, {
+                        single = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, it).apply()
+                    })
+                }
+                Text("When on, one eraser stroke then returns to the previous tool.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                var whole by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Whole-stroke eraser", Modifier.weight(1f))
+                    Switch(whole, {
+                        whole = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, it).apply()
+                    })
+                }
+                Text("When on, touching any part of a stroke removes the entire stroke instead of cutting it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+                var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Live measurements", Modifier.weight(1f))
+                    Switch(measurements, {
+                        measurements = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply()
+                    })
+                }
+                Text("Shows length/angle or width×height while drawing the shape.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (tool == Tool.LASSO) {
+                var tapUndo by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Two-finger tap undo", Modifier.weight(1f))
+                    Switch(tapUndo, {
+                        tapUndo = it
+                        prefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, it).apply()
+                    })
+                }
+                Text("Two fingers: undo, three fingers: redo — on the page canvas (not the toolbar).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton({ onChange(ToolOptions.defaults(tool)) }) { Text("Reset $label settings") }
         }
