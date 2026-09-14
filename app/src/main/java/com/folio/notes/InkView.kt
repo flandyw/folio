@@ -378,7 +378,7 @@ class InkView(context: Context) : View(context) {
         invalidate(); return true
     }
     private fun finishGesture() {
-        val drawn = draft
+        val drawn = draft?.copy(createdAt = System.currentTimeMillis())
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
         val strokes = (tidied ?: drawn?.let { listOf(it) })?.let { page.strokes + it } ?: erasing

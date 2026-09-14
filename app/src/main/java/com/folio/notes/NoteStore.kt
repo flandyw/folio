@@ -11,6 +11,7 @@ object InkCodec {
     fun encodeStrokes(strokes: List<Stroke>): JSONArray = JSONArray().apply {
         strokes.forEach { s -> put(JSONObject().apply {
             put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
+            if (s.createdAt > 0L) put("createdAt", s.createdAt)
             put("points", JSONArray().apply { s.points.forEach { put(JSONArray(listOf(it.x, it.y, it.pressure))) } })
         }) }
     }
@@ -23,7 +24,8 @@ object InkCodec {
             Stroke(Tool.valueOf(s.getString("tool")), s.getInt("color"), s.getDouble("width").toFloat(),
                 (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
                     InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
-                s.optDouble("opacity", if (s.getString("tool") == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat())
+                s.optDouble("opacity", if (s.getString("tool") == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
+                if (s.has("createdAt") && !s.isNull("createdAt")) s.optLong("createdAt") else 0L)
         }
     }
 
@@ -72,11 +74,13 @@ object InkCodec {
  * Version 1 kept every page inline in `note.json`, which is also the portable shape a `.folio`
  * archive carries, so [NoteCodec] still reads and writes that. Version 2 was the split index
  * before exam metadata existed; version 3 adds exam tags, attempts, the exam-set link and the
- * per-page redo flag. Version 4 adds the first-page-versus-default cover choice.
+ * per-page redo flag. Version 4 adds the first-page-versus-default cover choice. Version 5 adds
+ * exam timing telemetry onto attempts; stroke timestamps ride inside the page files, which need
+ * no version of their own because older files simply decode them as unknown.
  * An older file is migrated the first time it is opened.
  */
 object NoteMetaCodec {
-    const val VERSION = 4
+    const val VERSION = 5
 
     fun isCurrent(value: String): Boolean = try { JSONObject(value).optInt("version") == VERSION } catch (_: Exception) { false }
 
@@ -85,6 +89,9 @@ object NoteMetaCodec {
 
     /** True for a version-3 index, which is current except for the cover choice (defaults to page cover). */
     fun isVersion3(value: String): Boolean = try { JSONObject(value).optInt("version") == 3 } catch (_: Exception) { false }
+
+    /** True for a version-4 index, which is current except for attempt telemetry (defaults to none). */
+    fun isVersion4(value: String): Boolean = try { JSONObject(value).optInt("version") == 4 } catch (_: Exception) { false }
 
     fun encode(note: Notebook): String = JSONObject().apply {
         put("version", VERSION); put("id", note.id); put("title", note.title)
@@ -110,6 +117,9 @@ object NoteMetaCodec {
 
     /** Reads a version-3 index during migration; the cover choice defaults to the first page. */
     fun decodeVersion3(value: String): Notebook = decodeIndex(value, 3)
+
+    /** Reads a version-4 index during migration; attempts simply carry no telemetry. */
+    fun decodeVersion4(value: String): Notebook = decodeIndex(value, 4)
 
     private fun decodeIndex(value: String, version: Int): Notebook {
         val o = JSONObject(value)

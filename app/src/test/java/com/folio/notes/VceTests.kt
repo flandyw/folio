@@ -286,9 +286,22 @@ class NotebookTemplateTests {
 
     @Test fun templatesLookUpByIdAndIgnoreUnknownNames() {
         assertEquals("mc-sheet", NotebookTemplate.byId("mc-sheet")?.id)
+        assertEquals("hanzi-tian", NotebookTemplate.byId("hanzi-tian")?.id)
+        assertEquals("hanzi-mi", NotebookTemplate.byId("hanzi-mi")?.id)
         assertNull(NotebookTemplate.byId("nope"))
         assertNull(NotebookTemplate.byId(null))
-        assertEquals(NotebookTemplate.ALL.size, 4)
+        assertEquals(NotebookTemplate.ALL.size, 6)
+    }
+
+    @Test fun hanziTemplatesUseCharacterGridPaper() {
+        val tian = NotebookTemplate.byId("hanzi-tian")!!
+        assertEquals(Paper.TIAN_GRID, tian.paper)
+        assertTrue(tian.pages > 1)
+        assertEquals(ExamType.NOTES, tian.tags(null, "").type)
+        val mi = NotebookTemplate.byId("hanzi-mi")!!
+        assertEquals(Paper.MI_GRID, mi.paper)
+        assertTrue(mi.pages > 1)
+        assertEquals(ExamType.NOTES, mi.tags(null, "").type)
     }
 }
 
@@ -416,6 +429,27 @@ class MultipleChoicePaperTests {
         assertEquals(20f, Paper.MC_SHEET.gridSpacing)
     }
 }
+
+class HanziPaperTests {
+    @Test fun hanziPapersAreRecognisedAndSurviveTheCodecs() {
+        assertEquals(Paper.TIAN_GRID, Paper.safeValueOf("TIAN_GRID"))
+        assertEquals(Paper.MI_GRID, Paper.safeValueOf("MI_GRID"))
+        listOf(Paper.TIAN_GRID, Paper.MI_GRID).forEach { paper ->
+            val page = NotePage(paper = paper)
+            assertEquals(page, NoteCodec.decode(NoteCodec.encode(Notebook(title = "Hanzi", pages = listOf(page)))).pages.single())
+        }
+    }
+
+    @Test fun hanziPapersTileLargeCellsWithoutGridSnap() {
+        assertTrue(Paper.TIAN_GRID.isHanzi)
+        assertTrue(Paper.MI_GRID.isHanzi)
+        assertFalse(Paper.TIAN_GRID.isGrid)
+        assertFalse(Paper.MI_GRID.isGrid)
+        assertEquals(Paper.HANZI_CELL, Paper.TIAN_GRID.gridSpacing)
+        assertEquals(Paper.HANZI_CELL, Paper.MI_GRID.gridSpacing)
+        // 84 pt cells divide the 840 pt page width evenly, so no half-cell clings to an edge.
+        assertEquals(0f, 840f % Paper.HANZI_CELL, 0.001f)
+    }
 
 class ExamTimerAdjustmentTests {
     private val start = 1_000L

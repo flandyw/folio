@@ -67,6 +67,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MATH_GRID -> "Maths grid"
     Paper.GRAPH -> "Graph (with axes)"
     Paper.MC_SHEET -> "Multiple choice"
+    Paper.TIAN_GRID -> "Tian grid (田字格)"
+    Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
 @Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, toolbarPosition: ToolbarPosition, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit) {
@@ -566,13 +568,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     })
     if (paperMenu) AlertDialog(onDismissRequest = { paperMenu = false }, title = { Text("Change paper") }, text = {
         Column {
-            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET).forEach { p ->
+            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
                 Row(Modifier.fillMaxWidth().clickable { model.setPaper(p); paperMenu = false }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(page.paper == p, { model.setPaper(p); paperMenu = false })
                     Column(Modifier.padding(start = 8.dp)) {
                         Text(paperLabel(p)); if (p == Paper.MATH_GRID) Text("Fine 20 px grid, bold every 5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (p == Paper.GRAPH) Text("Same grid + centred axes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (p == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet, 25 questions A–E", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (p == Paper.TIAN_GRID) Text("田字格 — one character per square, dashed cross", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (p == Paper.MI_GRID) Text("米字格 — cross plus diagonals per square", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -593,7 +597,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSave = { tags -> model.updateExamTags(note.id, tags); examPanel = false },
         onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
-        suggestedSeconds = state.lastTimedSeconds
+        suggestedSeconds = state.lastTimedSeconds,
+        suggestedTelemetry = state.lastTelemetry
     )
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(

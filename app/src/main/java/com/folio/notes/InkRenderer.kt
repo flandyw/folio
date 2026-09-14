@@ -105,6 +105,8 @@ object InkRenderer {
                 Paper.GRAPH -> drawGraph(canvas, page)
                 Paper.DOTS -> drawDots(canvas, page)
                 Paper.MC_SHEET -> drawMultipleChoice(canvas, page)
+                Paper.TIAN_GRID -> drawHanzi(canvas, page, mi = false)
+                Paper.MI_GRID -> drawHanzi(canvas, page, mi = true)
                 Paper.PLAIN -> Unit
             }
         }
@@ -126,6 +128,10 @@ object InkRenderer {
     /** Only the visible lattice is drawn, even when the camera is far from the origin. */
     private fun infinitePaper(canvas: Canvas, page: NotePage) {
         if (page.paper == Paper.PLAIN) return
+        if (page.paper.isHanzi) {
+            infiniteHanzi(canvas, page.paper == Paper.MI_GRID)
+            return
+        }
         val bounds = canvas.clipBounds
         val baseSpacing = if (page.paper.isGrid) page.paper.gridSpacing else 28f
         // Thin the pattern at extreme export scales instead of iterating over an enormous world.
@@ -331,6 +337,84 @@ object InkRenderer {
             canvas.drawLine(cx - 4f, ty, cx + 4f, ty, tick)
             canvas.drawLine(cx - 4f, cy - (ty - cy), cx + 4f, cy - (ty - cy), tick)
             ty += spacing
+        }
+    }
+
+    /**
+     * Hanzi practice paper: large squares with printed guides, like a Chinese exercise book.
+     * Tian (田) draws a dashed cross in each square; mi (米) adds the two diagonals.
+     * The block is centred so a partial cell never clings to one edge, and guides are paper —
+     * never ink — so writing, undo and clear-page leave them alone.
+     */
+    private fun drawHanzi(canvas: Canvas, page: NotePage, mi: Boolean) {
+        val cell = Paper.HANZI_CELL
+        val cols = (page.width / cell).toInt().coerceAtLeast(1)
+        val rows = (page.height / cell).toInt().coerceAtLeast(1)
+        val left = (page.width - cols * cell) / 2f
+        val top = (page.height - rows * cell) / 2f
+        val right = left + cols * cell
+        val bottom = top + rows * cell
+        val outer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f }
+        val guide = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(221, 170, 170); strokeWidth = .7f
+            pathEffect = DashPathEffect(floatArrayOf(6f, 5f), 0f)
+        }
+        for (i in 0..cols) {
+            val x = left + i * cell
+            canvas.drawLine(x, top, x, bottom, outer)
+        }
+        for (j in 0..rows) {
+            val y = top + j * cell
+            canvas.drawLine(left, y, right, y, outer)
+        }
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                val x = left + col * cell
+                val y = top + row * cell
+                canvas.drawLine(x + cell / 2f, y, x + cell / 2f, y + cell, guide)
+                canvas.drawLine(x, y + cell / 2f, x + cell, y + cell / 2f, guide)
+                if (mi) {
+                    canvas.drawLine(x, y, x + cell, y + cell, guide)
+                    canvas.drawLine(x + cell, y, x, y + cell, guide)
+                }
+            }
+        }
+    }
+
+    /** A tiled copy of [drawHanzi] for the infinite canvas, aligned to the page origin. */
+    private fun infiniteHanzi(canvas: Canvas, mi: Boolean) {
+        val bounds = canvas.clipBounds
+        val base = Paper.HANZI_CELL
+        val stride = ceil(max(bounds.width(), bounds.height()) / (base * 180f)).coerceAtLeast(1f)
+        val cell = base * stride
+        val outer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f }
+        val guide = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(221, 170, 170); strokeWidth = .7f
+            pathEffect = DashPathEffect(floatArrayOf(6f, 5f), 0f)
+        }
+        val firstCol = floor(bounds.left / cell).toInt()
+        val lastCol = ceil(bounds.right / cell).toInt()
+        val firstRow = floor(bounds.top / cell).toInt()
+        val lastRow = ceil(bounds.bottom / cell).toInt()
+        for (col in firstCol..lastCol) {
+            val x = col * cell
+            canvas.drawLine(x, bounds.top.toFloat(), x, bounds.bottom.toFloat(), outer)
+        }
+        for (row in firstRow..lastRow) {
+            val y = row * cell
+            canvas.drawLine(bounds.left.toFloat(), y, bounds.right.toFloat(), y, outer)
+        }
+        for (row in firstRow until lastRow) {
+            for (col in firstCol until lastCol) {
+                val x = col * cell
+                val y = row * cell
+                canvas.drawLine(x + cell / 2f, y, x + cell / 2f, y + cell, guide)
+                canvas.drawLine(x, y + cell / 2f, x + cell, y + cell / 2f, guide)
+                if (mi) {
+                    canvas.drawLine(x, y, x + cell, y + cell, guide)
+                    canvas.drawLine(x + cell, y, x, y + cell, guide)
+                }
+            }
         }
     }
 

@@ -342,9 +342,10 @@ import java.io.File
             Text("Paper style — pick for maths", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Maths papers first so an exam student sees them without scrolling.
-                listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET).filter { !infinite || it != Paper.MC_SHEET }.forEach { item ->
+                listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).filter { !infinite || it != Paper.MC_SHEET }.forEach { item ->
                     FilterChip(item == paper, { paper = item }, label = { Text(when (item) {
                         Paper.MATH_GRID -> "Maths grid"; Paper.GRAPH -> "Graph"; Paper.MC_SHEET -> "MC sheet"
+                        Paper.TIAN_GRID -> "Tian (田字格)"; Paper.MI_GRID -> "Mi (米字格)"
                         else -> item.name.lowercase().replaceFirstChar(Char::uppercase)
                     }) })
                 }
@@ -352,6 +353,8 @@ import java.io.File
             if (paper == Paper.MATH_GRID) Text("Fine 20 px grid — ideal for workings & fractions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (paper == Paper.GRAPH) Text("Same grid with centred X/Y axes printed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (paper == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet — shade A–E with the pen", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.TIAN_GRID) Text("田字格 — one character per square with a dashed cross", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.MI_GRID) Text("米字格 — cross plus diagonals in each square", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } }, confirmButton = {
         val chosen = NotebookTemplate.byId(template)
