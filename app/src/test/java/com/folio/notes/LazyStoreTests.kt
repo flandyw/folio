@@ -75,10 +75,11 @@ class LazyStoreTests {
     }
 
     @Test fun anUnknownIndexVersionIsRejectedRatherThanHalfRead() {
-        val future = NoteMetaCodec.encode(note).replace("\"version\":4", "\"version\":99")
+        val future = JSONObject(NoteMetaCodec.encode(note)).apply { put("version", 99) }.toString()
         assertFalse(NoteMetaCodec.isCurrent(future))
         assertFalse(NoteMetaCodec.isSplitIndex(future))
         assertFalse(NoteMetaCodec.isVersion3(future))
+        assertFalse(NoteMetaCodec.isVersion4(future))
         assertThrows(IllegalArgumentException::class.java) { NoteMetaCodec.decode(future) }
         assertThrows(IllegalArgumentException::class.java) { NotePageCodec.decode("{\"version\":99}", marked.asSummary()) }
     }
@@ -103,14 +104,11 @@ class LazyStoreTests {
     }
 
     @Test fun aVersion2SplitIndexMigratesWithDefaultExamFields() {
-        val v2 = NoteMetaCodec.encode(note)
-            .replace("\"version\":4", "\"version\":2")
-            .let { json ->
-                // Strip the exam block, set link and attempts a v2 writer never emitted.
-                val obj = JSONObject(json)
-                obj.remove("exam"); obj.remove("set"); obj.remove("attempts"); obj.remove("pageCover")
-                obj.toString()
-            }
+        val v2 = JSONObject(NoteMetaCodec.encode(note)).apply {
+            put("version", 2)
+            // Strip the exam block, set link and attempts a v2 writer never emitted.
+            remove("exam"); remove("set"); remove("attempts"); remove("pageCover")
+        }.toString()
         assertTrue(NoteMetaCodec.isSplitIndex(v2))
         assertFalse(NoteMetaCodec.isCurrent(v2))
         val migrated = NoteMetaCodec.decodeSplit(v2)
@@ -125,13 +123,10 @@ class LazyStoreTests {
     }
 
     @Test fun aVersion3IndexMigratesWithFirstPageCover() {
-        val v3 = NoteMetaCodec.encode(note.copy(pageCover = false))
-            .replace("\"version\":4", "\"version\":3")
-            .let { json ->
-                val obj = JSONObject(json)
-                obj.remove("pageCover")
-                obj.toString()
-            }
+        val v3 = JSONObject(NoteMetaCodec.encode(note.copy(pageCover = false))).apply {
+            put("version", 3)
+            remove("pageCover")
+        }.toString()
         assertTrue(NoteMetaCodec.isVersion3(v3))
         assertFalse(NoteMetaCodec.isCurrent(v3))
         assertTrue(NoteMetaCodec.decodeVersion3(v3).pageCover)

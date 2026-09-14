@@ -10,6 +10,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.util.AtomicFile
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionGoTo
 import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionURI
@@ -215,7 +216,21 @@ class NoteRepository(private val context: Context) {
                     NotePage(width = 840f, height = 840f * it.height / it.width, paper = Paper.PLAIN, pdfIndex = index)
                 } }
             }
-            note.copy(pages = pages).also { saveAll(it) }
+            val detection = pdfLock.withLock {
+                detectImportedExam(title) {
+                    ensurePdfBox()
+                    PDDocument.load(pdf, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                        .setTempDir(context.cacheDir)).use { doc ->
+                        ExamDocumentEvidence(
+                            pages = extractPdfPageTexts(doc, ExamEvidenceCollector.MAX_PAGES,
+                                ExamEvidenceCollector.MAX_PAGE_CHARACTERS),
+                            metadata = listOfNotNull(doc.documentInformation.title,
+                                doc.documentInformation.subject, doc.documentInformation.author)
+                        )
+                    }
+                }
+            }
+            note.copy(pages = pages, exam = detection.toExamTags()).also { saveAll(it) }
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
     }
 
@@ -301,17 +316,23 @@ class NoteRepository(private val context: Context) {
             val texts = try {
                 ensurePdfBox()
                 PDDocument.load(file).use { doc ->
-                    val stripper = PDFTextStripper()
-                    (1..doc.numberOfPages).map { page ->
-                        stripper.startPage = page
-                        stripper.endPage = page
-                        PdfPageText(page - 1, stripper.getText(doc))
-                    }
+                    extractPdfPageTexts(doc)
                 }
             } catch (_: Exception) { emptyList() }
             evictPdfCache(pdfTextCache, noteId)
             pdfTextCache[noteId] = texts
             texts
+        }
+    }
+
+    /** Shared embedded-text path; import only visits the front matter and does not fill search's cache. */
+    private fun extractPdfPageTexts(doc: PDDocument, maxPages: Int = doc.numberOfPages,
+        maxCharacters: Int = Int.MAX_VALUE): List<PdfPageText> {
+        val stripper = PDFTextStripper()
+        return (1..minOf(doc.numberOfPages, maxPages)).map { page ->
+            stripper.startPage = page
+            stripper.endPage = page
+            PdfPageText(page - 1, stripper.getText(doc).take(maxCharacters))
         }
     }
 

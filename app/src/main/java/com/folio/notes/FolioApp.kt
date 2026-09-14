@@ -376,6 +376,8 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 Text("Each PDF becomes a separate notebook. Choose where to put them.")
+                Spacer(Modifier.height(8.dp))
+                Text("Exam details are detected automatically where possible. Review and edit them in Exam details after import; uncertain fields stay blank.")
                 Spacer(Modifier.height(16.dp))
                 (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
                     Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = 4.dp),

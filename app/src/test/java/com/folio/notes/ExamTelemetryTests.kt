@@ -77,11 +77,14 @@ class TelemetryCodecTests {
 
     @Test fun version4IndexesMigrateWithoutTelemetry() {
         val note = Notebook(title = "Old", attempts = listOf(ExamAttempt(id = "a", score = 10, total = 20, timed = true)))
-        val v4 = NoteMetaCodec.encode(note).replace("\"version\":${NoteMetaCodec.VERSION}", "\"version\":4")
+        val v4 = org.json.JSONObject(NoteMetaCodec.encode(note)).apply { put("version", 4) }.toString()
         assertTrue(NoteMetaCodec.isVersion4(v4))
         assertFalse(NoteMetaCodec.isCurrent(v4))
-        assertEquals(note, NoteMetaCodec.decodeVersion4(v4))
-        assertTrue(NoteMetaCodec.isCurrent(NoteMetaCodec.encode(note)))
+        val migrated = NoteMetaCodec.decodeVersion4(v4)
+        // An index restores page metadata; page contents are loaded separately on demand.
+        assertEquals(note.copy(pages = note.pages.map { it.copy(loaded = false) }), migrated)
+        assertNull(migrated.attempts.single().telemetry)
+        assertTrue(NoteMetaCodec.isCurrent(NoteMetaCodec.encode(migrated)))
     }
 }
 
@@ -95,7 +98,10 @@ class VisitRecordingTests {
     @Test fun movingPagesClosesTheOldVisitAndOpensANewOne() {
         val visits = recordVisit(recordVisit(emptyList(), "p1", 1_000L), "p2", 5_000L)
         assertEquals(listOf(PageVisit("p1", 1_000L, 5_000L), PageVisit("p2", 5_000L)), visits)
-        assertEquals(visits, closeVisits(visits, 9_000L).dropLast(1) + PageVisit("p2", 5_000L, 9_000L))
+        assertEquals(listOf(PageVisit("p1", 1_000L, 5_000L), PageVisit("p2", 5_000L, 9_000L)),
+            closeVisits(visits, 9_000L))
+        // Closing produces a new list without changing the original open visit.
+        assertNull(visits.last().exitedAt)
     }
 
     @Test fun closingWithNothingOpenChangesNothing() {

@@ -47,8 +47,17 @@ class PageImageTests {
         val resized = InkGeometry.resizeImage(picture, 400f)
         assertEquals(400f, resized.width, .001f)
         assertEquals(200f, resized.height, .001f)
-        assertEquals(PageImage.MIN_SIZE, InkGeometry.resizeImage(picture, 1f).width, .001f)
-        assertEquals(PageImage.MAX_SIZE, InkGeometry.resizeImage(picture, 99_999f).width, .001f)
+        // The landscape picture reaches its minimum height before its minimum width.
+        val smallest = InkGeometry.resizeImage(picture, 1f)
+        assertEquals(PageImage.MIN_SIZE * 2f, smallest.width, .001f)
+        assertEquals(PageImage.MIN_SIZE, smallest.height, .001f)
+        val largest = InkGeometry.resizeImage(picture, 99_999f)
+        assertEquals(PageImage.MAX_SIZE, largest.width, .001f)
+        assertEquals(PageImage.MAX_SIZE / 2f, largest.height, .001f)
+        // A portrait picture reaches its maximum height first, so its width must follow.
+        val portrait = InkGeometry.resizeImage(picture.copy(width = 100f, height = 200f), 99_999f)
+        assertEquals(PageImage.MAX_SIZE / 2f, portrait.width, .001f)
+        assertEquals(PageImage.MAX_SIZE, portrait.height, .001f)
         // A square stays square.
         val square = InkGeometry.resizeImage(PageImage(id = "s", x = 0f, y = 0f, width = 100f, height = 100f), 250f)
         assertEquals(250f, square.width, .001f)

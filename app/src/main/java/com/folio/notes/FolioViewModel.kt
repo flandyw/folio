@@ -730,6 +730,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 }
                 reportError(buildString {
                     append("Imported ${imported.size} of ${uris.size} PDFs.")
+                    if (imported.any { it.exam.isTagged })
+                        append("\nDetected exam metadata has been filled in. Review it in Exam details.")
                     if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
                 })
             } finally { _state.update { it.copy(busy = false, importProgress = null) } }

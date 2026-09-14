@@ -450,6 +450,7 @@ class HanziPaperTests {
         // 84 pt cells divide the 840 pt page width evenly, so no half-cell clings to an edge.
         assertEquals(0f, 840f % Paper.HANZI_CELL, 0.001f)
     }
+}
 
 class ExamTimerAdjustmentTests {
     private val start = 1_000L
