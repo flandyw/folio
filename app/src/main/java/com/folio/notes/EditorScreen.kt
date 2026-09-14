@@ -713,7 +713,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = 16.dp), contentPadding = PaddingValues(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(outline) { _, entry ->
                     Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + entry.depth * 16.dp, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + 16.dp * entry.depth, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

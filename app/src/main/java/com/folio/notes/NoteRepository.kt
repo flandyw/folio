@@ -29,6 +29,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.util.UUID
+import kotlin.math.max
 
 /**
  * On-device storage, one directory per notebook:
@@ -424,18 +425,19 @@ class NoteRepository(private val context: Context) {
     private fun walkOutline(doc: PDDocument, node: PDOutlineNode, depth: Int, out: MutableList<PdfOutlineEntry>) {
         var child: PDOutlineItem? = try { node.firstChild } catch (_: Exception) { null } ?: return
         while (out.size < PdfOutline.MAX_ENTRIES) {
-            val title = try { child.title } catch (_: Exception) { null }.orEmpty()
-            val dest = try { child.destination } catch (_: Exception) { null }
-                ?: (try { child.action } catch (_: Exception) { null } as? PDActionGoTo)?.let { action ->
+            val current = child ?: break
+            val title = try { current.title } catch (_: Exception) { null }.orEmpty()
+            val dest = try { current.destination } catch (_: Exception) { null }
+                ?: (try { current.action } catch (_: Exception) { null } as? PDActionGoTo)?.let { action ->
                     try { action.destination } catch (_: Exception) { null }
                 }
             val page = destinationPage(doc, dest)
             if (page >= 0) out += PdfOutlineEntry(title, page, depth)
             // Children deeper than the cap stay listed one level up instead of nesting further.
             if (depth < PdfOutline.MAX_DEPTH) {
-                try { walkOutline(doc, child, depth + 1, out) } catch (_: Exception) { }
+                try { walkOutline(doc, current, depth + 1, out) } catch (_: Exception) { }
             }
-            child = try { child.nextSibling } catch (_: Exception) { null } ?: break
+            child = try { current.nextSibling } catch (_: Exception) { null }
         }
     }
 
