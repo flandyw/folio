@@ -812,6 +812,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
             view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
+            view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition
             view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd

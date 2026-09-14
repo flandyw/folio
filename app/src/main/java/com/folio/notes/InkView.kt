@@ -36,6 +36,8 @@ class InkView(context: Context) : View(context) {
     var fingerDrawing = true
     var inkOpacity = 1f
     var pressureEnabled = true
+    var pressureSensitivity = 1f
+    var pressureVariation = 1f
     /** When true, shape endpoints snap to the page's grid and lines snap to 15° steps. */
     var snapEnabled = true
     var onActive: () -> Unit = {}
@@ -577,7 +579,10 @@ class InkView(context: Context) : View(context) {
     private fun point(e: MotionEvent, i: Int, history: Int? = null): InkPoint {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)
-        val pressure = if (!stylus || !pressureEnabled) 1f else (if (history == null) e.getPressure(i) else e.getHistoricalPressure(i, history)).coerceIn(.25f, 1.8f)
+        val rawPressure = if (history == null) e.getPressure(i) else e.getHistoricalPressure(i, history)
+        val pressure = if (tool == Tool.PEN) {
+            PenPressure.sample(rawPressure, stylus && pressureEnabled, pressureSensitivity, pressureVariation)
+        } else if (!stylus || !pressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
         return InkPoint((x - originX) / scale, (y - originY) / scale, pressure)
     }
     /** Page coordinates, so a sample reported just off the page still lands on the boundary. */

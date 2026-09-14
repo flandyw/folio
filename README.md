@@ -38,6 +38,8 @@ A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3
 
 ## Editor improvements
 
+- Tap the active pen to customise pressure sensitivity and width variation. Higher sensitivity makes thicker ink easier with a light touch; zero variation keeps pressure width constant. Settings are saved, apply only to new pen strokes, and can be restored with Reset pen pressure.
+
 - The bottom bar separates notebook identity and page navigation into two rows on phones. Tap the title to rename, use the star to favorite, or retry a failed save directly from the status area. Tap the zoom percentage to reset the view.
 - The toolbar groups line, rectangle, and ellipse in a Shapes menu. On narrow screens the top toolbar gets its own row; bottom tools have a fixed height, and side tools use a compact palette button. Tool strips scroll when space is limited.
 - Lasso selections have an explicit dismiss action that returns to the pen, alongside undoable copy, cut, duplicate, rotate, resize, restyle and deletion. The restyle sheet starts from the selection's own colour, thickness and opacity, so changing one leaves the others alone. Undo covers text edits as well as ink, so a deleted or moved text box comes back.

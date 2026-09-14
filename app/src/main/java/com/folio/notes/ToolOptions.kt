@@ -18,10 +18,15 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import kotlin.math.roundToInt
 
-data class ToolOptions(val color: Int, val width: Float, val opacity: Float, val pressure: Boolean) {
+data class ToolOptions(
+    val color: Int, val width: Float, val opacity: Float, val pressure: Boolean,
+    val pressureSensitivity: Float = 1f, val pressureVariation: Float = 1f
+) {
     fun save(prefs: SharedPreferences, tool: Tool) {
         prefs.edit().putInt("${tool.name}.color", color).putFloat("${tool.name}.width", width)
-            .putFloat("${tool.name}.opacity", opacity).putBoolean("${tool.name}.pressure", pressure).apply()
+            .putFloat("${tool.name}.opacity", opacity).putBoolean("${tool.name}.pressure", pressure)
+            .putFloat("${tool.name}.pressureSensitivity", PenPressure.sensitivity(pressureSensitivity))
+            .putFloat("${tool.name}.pressureVariation", PenPressure.variation(pressureVariation)).apply()
     }
     companion object {
         /** Finer defaults for math: thin pen, tiny ruler-straight line, compact eraser. */
@@ -34,7 +39,9 @@ data class ToolOptions(val color: Int, val width: Float, val opacity: Float, val
         fun load(prefs: SharedPreferences, tool: Tool): ToolOptions {
             val d = defaults(tool)
             return ToolOptions(prefs.getInt("${tool.name}.color", d.color), prefs.getFloat("${tool.name}.width", d.width),
-                prefs.getFloat("${tool.name}.opacity", d.opacity), prefs.getBoolean("${tool.name}.pressure", d.pressure))
+                prefs.getFloat("${tool.name}.opacity", d.opacity), prefs.getBoolean("${tool.name}.pressure", d.pressure),
+                PenPressure.sensitivity(prefs.getFloat("${tool.name}.pressureSensitivity", 1f)),
+                PenPressure.variation(prefs.getFloat("${tool.name}.pressureVariation", 1f)))
         }
     }
 }
@@ -68,10 +75,23 @@ data class ToolOptions(val color: Int, val width: Float, val opacity: Float, val
                     Text("Pressure-sensitive width", Modifier.weight(1f))
                     Switch(options.pressure, { onChange(options.copy(pressure = it)) })
                 }
+                Text("Sensitivity: ${String.format(Locale.ROOT, "%.2f", options.pressureSensitivity)}×")
+                Slider(PenPressure.sensitivity(options.pressureSensitivity), { onChange(options.copy(pressureSensitivity = it)) },
+                    enabled = options.pressure, valueRange = PenPressure.sensitivityRange,
+                    modifier = Modifier.semanticsLabel("Pen pressure sensitivity"))
+                Text("Higher sensitivity needs less pressure for thicker ink.", style = MaterialTheme.typography.bodySmall)
+                Text("Width variation: ${(options.pressureVariation * 100).roundToInt()}%")
+                Slider(PenPressure.variation(options.pressureVariation), { onChange(options.copy(pressureVariation = it)) },
+                    enabled = options.pressure, valueRange = PenPressure.variationRange,
+                    modifier = Modifier.semanticsLabel("Pen pressure width variation"))
+                Text("0% keeps pressure width constant; 100% is the original response. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall)
+                TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }) {
+                    Text("Reset pen pressure")
+                }
                 // Thin “exam” preset — one tap to get a crisp 1.4 pt pen used for workings.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     AssistChip({ onChange(options.copy(width = 1.4f, pressure = false)) }, { Text("Exam fine (1.4)") })
-                    AssistChip({ onChange(options.copy(width = 2.2f, pressure = true)) }, { Text("Default (2.2)") })
+                    AssistChip({ onChange(options.copy(width = 2.2f, pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, { Text("Default (2.2)") })
                     AssistChip({ onChange(options.copy(width = 4f, pressure = false)) }, { Text("Bold (4.0)") })
                 }
             }
