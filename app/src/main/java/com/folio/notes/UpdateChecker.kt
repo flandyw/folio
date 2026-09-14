@@ -89,7 +89,7 @@ class FolioUpdateChecker(private val context: Context) {
         val lines = getText(update.checksumUrl).lineSequence()
         val line = lines.firstOrNull { it.trim().endsWith("  ${update.apkName}") || it.trim().endsWith(" *${update.apkName}") }
             ?: throw IOException("The release checksum does not name its APK")
-        return line.trim().substringBefore(Regex("\\s+")).takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
+        return line.trim().split(Regex("\\s+")).firstOrNull()?.takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
             ?: throw IOException("The release checksum is invalid")
     }
 
