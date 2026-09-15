@@ -67,6 +67,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var setsPanel by remember { mutableStateOf(false) }
     var progressPanel by remember { mutableStateOf(false) }
     var redoPanel by remember { mutableStateOf(false) }
+    var bookmarksPanel by remember { mutableStateOf(false) }
     var assignPanel by remember { mutableStateOf(false) }
     val examFilter = state.examFilter
     // Filtering + sorting runs once per input change, not on every recomposition (selection
@@ -141,7 +142,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             state.folders.forEach { folder -> FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) }) }
                             AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                         }
-                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a notebook…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(8.dp))
@@ -171,6 +172,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             TextButton({ setsPanel = true }) { Text("Exam sets") }
                             TextButton({ progressPanel = true }) { Text("Progress") }
                             TextButton({ redoPanel = true }) { Text("Redo") }
+                            TextButton({ bookmarksPanel = true }) { Text("Bookmarks") }
                         }
                         if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -341,6 +343,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         openNote = { setsPanel = false; model.open(it.id) }
     )
     if (progressPanel) ExamProgressPanel(state.notes) { progressPanel = false }
+    if (bookmarksPanel) BookmarkPanel(state.notes, { bookmarksPanel = false }, { id, index -> bookmarksPanel = false; model.openAt(id, index) })
     if (redoPanel) RedoReviewPanel(state.notes, { redoPanel = false }, { id, index -> redoPanel = false; model.openAt(id, index) })
     if (bulkMove) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {

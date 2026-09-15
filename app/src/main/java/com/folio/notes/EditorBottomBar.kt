@@ -1,7 +1,6 @@
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -11,6 +10,10 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,10 +62,9 @@ import androidx.compose.ui.unit.dp
                 val compact = maxWidth < 600.dp
                 @Composable fun Identity(modifier: Modifier) {
                     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClickLabel = "Rename notebook", onClick = onRename).padding(vertical = 6.dp)) {
+                        Column(Modifier.weight(1f).heightIn(min = 48.dp).padding(vertical = 6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(note.title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.Rounded.Edit, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                 val statusColor = if (state.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
@@ -76,6 +78,16 @@ import androidx.compose.ui.unit.dp
                                     state.pendingSaves > 0 -> "Saving…"
                                     else -> "Saved on device"
                                 }, style = MaterialTheme.typography.labelSmall, color = statusColor, maxLines = 1)
+                            }
+                        }
+                        var notebookMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton({ notebookMenu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
+                            DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem(text = { Text("Rename notebook") }, onClick = {
+                                    notebookMenu = false
+                                    onRename()
+                                }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
                             }
                         }
                         if (state.saveFailed) TextButton(onRetry) { Text("Retry") }

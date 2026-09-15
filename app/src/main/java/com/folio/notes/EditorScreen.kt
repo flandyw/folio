@@ -36,6 +36,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -237,6 +239,13 @@ private fun paperLabel(p: Paper): String = when (p) {
     var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(1f) }
     var documentPan by rememberSaveable(note.id) { mutableFloatStateOf(0f) }
     var pageBrowser by remember { mutableStateOf(false) }
+    var pageQuery by rememberSaveable(note.id) { mutableStateOf("") }
+    var pageFilter by rememberSaveable(note.id) { mutableStateOf(PageFilter.ALL) }
+    var namedPage by remember { mutableStateOf<NotePage?>(null) }
+    var pageTitle by remember { mutableStateOf("") }
+    var movingPage by remember { mutableStateOf<String?>(null) }
+    var destinationPage by remember { mutableStateOf("") }
+    var deletingPage by remember { mutableStateOf<String?>(null) }
     var pageNumber by remember { mutableStateOf("") }
     var rename by remember { mutableStateOf(false) }
     var renameTitle by remember { mutableStateOf(note.title) }
@@ -621,7 +630,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                 onContents = { pdfContentsOpen = true; loadOutline() },
                                 onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                onInsertElement = { stampPicker = true })
+                                onInsertElement = { stampPicker = true },
+                                onOrganize = { pageBrowser = true },
+                                onBookmark = { model.togglePageBookmark(page.id) },
+                                onNamePage = { namedPage = page; pageTitle = page.title })
                         }
                     }
                 }
@@ -649,7 +661,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                 onContents = { pdfContentsOpen = true; loadOutline() },
                                 onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                onInsertElement = { stampPicker = true })
+                                onInsertElement = { stampPicker = true },
+                                onOrganize = { pageBrowser = true },
+                                onBookmark = { model.togglePageBookmark(page.id) },
+                                onNamePage = { namedPage = page; pageTitle = page.title })
                         }
                     }
                 }
@@ -701,6 +716,17 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
 
+        val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
+        val canDrag = pageQuery.isBlank() && pageFilter == PageFilter.ALL
+        OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+            label = { Text("Find a page by name or number") }, singleLine = true,
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }) { Icon(Icons.Rounded.Close, "Clear page search") } })
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PageFilter.entries.forEach { option ->
+                FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
@@ -709,7 +735,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Long-press a page and drag to reorder it.", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton({
                 model.duplicatePage()?.let { pages.requestScrollToItem(it) }
                 pageBrowser = false
@@ -720,14 +746,15 @@ private fun paperLabel(p: Paper): String = when (p) {
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            itemsIndexed(note.pages, key = { _, p -> p.id }) { index, item ->
+            if (visiblePages.isEmpty()) item { Text("No pages match. Try another name or filter.", Modifier.padding(16.dp)) }
+            items(visiblePages, key = { it.value.id }) { (index, item) ->
                 val dragging = dragFrom == index
                 PageRow(item, index, state.pageIndex == index, dragging,
                     Modifier.height(rowHeight)
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
-                        .pointerInput(item.id, index) {
-                            detectDragGesturesAfterLongPress(
+                        .pointerInput(item.id, index, canDrag, note.pages.size) {
+                            if (canDrag) detectDragGesturesAfterLongPress(
                                 onDragStart = { dragFrom = index; dragDelta = 0f },
                                 onDrag = { change, amount -> change.consume(); dragDelta += amount.y },
                                 onDragEnd = {
@@ -744,12 +771,45 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onOpen = { jumpTo(index); pageBrowser = false },
                     onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
                     onDuplicate = { model.duplicatePage(index) }, onInsert = { model.insertPage(index + 1) },
-                    onDelete = { model.deletePage(index) },
+                    onDelete = { deletingPage = item.id },
+                    onName = { namedPage = item; pageTitle = item.title },
+                    onBookmark = { model.togglePageBookmark(item.id) },
+                    onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
             item { TextButton({ addPage(); pageBrowser = false }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add a blank page — ${paperLabel(page.paper)}") } }
         }
+    }
+    namedPage?.let { target ->
+        AlertDialog(onDismissRequest = { namedPage = null }, modifier = Modifier.guardUiTouches(),
+            title = { Text("Name page") }, text = {
+                OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
+                    supportingText = { Text("Leave blank to use the page number.") }, singleLine = true)
+            }, dismissButton = { TextButton({ namedPage = null }) { Text("Cancel") } },
+            confirmButton = { TextButton({ model.renamePage(target.id, pageTitle); namedPage = null }) { Text("Save") } })
+    }
+    movingPage?.let { pageId ->
+        val destination = destinationPage.toIntOrNull()
+        AlertDialog(onDismissRequest = { movingPage = null }, modifier = Modifier.guardUiTouches(),
+            title = { Text("Move page") }, text = {
+                OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
+                    label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            }, dismissButton = { TextButton({ movingPage = null }) { Text("Cancel") } },
+            confirmButton = { TextButton({
+                val from = note.pages.indexOfFirst { it.id == pageId }
+                if (from >= 0 && destination != null) model.movePage(from, destination - 1)
+                movingPage = null
+            }, enabled = destination != null && destination in 1..note.pages.size) { Text("Move") } })
+    }
+    deletingPage?.let { pageId ->
+        val index = note.pages.indexOfFirst { it.id == pageId }
+        AlertDialog(onDismissRequest = { deletingPage = null }, modifier = Modifier.guardUiTouches(),
+            title = { Text("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?") },
+            text = { Text("This removes the page and its content. This cannot be undone.") },
+            dismissButton = { TextButton({ deletingPage = null }) { Text("Cancel") } },
+            confirmButton = { TextButton({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null }) { Text("Delete") } })
     }
     if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false }, title = { Text("Rename notebook") }, text = {
         OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true)
@@ -1404,9 +1464,14 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     canPaste: Boolean, onResetZoom: () -> Unit, onAxes: () -> Unit, onPaper: () -> Unit,
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
-    onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {}
+    onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
 ) {
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
+        DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
+        DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+        DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
+        HorizontalDivider()
         DropdownMenuItem(
             { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
             { onDismiss(); onRedo() },
@@ -1435,6 +1500,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     page: NotePage, index: Int, current: Boolean, dragging: Boolean, modifier: Modifier = Modifier,
     onOpen: () -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit,
     onDuplicate: () -> Unit, onInsert: () -> Unit, onDelete: () -> Unit,
+    onName: () -> Unit, onBookmark: () -> Unit, onMoveTo: () -> Unit,
     canMoveUp: Boolean, canMoveDown: Boolean, canDelete: Boolean,
     noteId: String, thumbnails: PageThumbnailCache
 ) {
@@ -1445,17 +1511,21 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PageThumbnail(noteId, page, thumbnails, Modifier.width(56.dp).aspectRatio(page.width / page.height).clip(RoundedCornerShape(4.dp)))
             Column(Modifier.weight(1f)) {
-                Text("Page ${index + 1}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(page.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // A page that has not been read yet cannot say how much ink it holds.
-                val detail = if (page.pdfIndex != null) "Imported PDF" else paperLabel(page.paper)
+                val detail = "Page ${index + 1} · " + (if (page.pdfIndex != null) "Imported PDF" else paperLabel(page.paper))
                 Text(
                     if (page.loaded) "$detail · ${page.strokes.size} marks" else detail,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            IconButton(onBookmark) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                if (page.bookmarked) "Remove bookmark" else "Bookmark page", tint = MaterialTheme.colorScheme.primary) }
             if (current) Icon(Icons.Rounded.Check, "Current page", tint = MaterialTheme.colorScheme.primary)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
                 DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+                    DropdownMenuItem({ Text("Name page") }, { menu = false; onName() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                    DropdownMenuItem({ Text("Move to position…") }, { menu = false; onMoveTo() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
                     DropdownMenuItem({ Text("Move up") }, { menu = false; onMoveUp() }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) })
                     DropdownMenuItem({ Text("Move down") }, { menu = false; onMoveDown() }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
                     DropdownMenuItem({ Text("Duplicate page") }, { menu = false; onDuplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
@@ -1546,6 +1616,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     box: TextBox, isNew: Boolean, colors: List<Int>,
     onDismiss: () -> Unit, onCreate: (TextBox) -> Unit, onUpdate: (TextBox) -> Unit, onDelete: () -> Unit
 ) {
+    val textFocus = remember(box.id) { FocusRequester() }
     var text by remember(box.id) { mutableStateOf(box.text) }
     var size by remember(box.id) { mutableFloatStateOf(box.size) }
     var color by remember(box.id) { mutableIntStateOf(box.color) }
@@ -1561,8 +1632,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         title = { Text(if (isNew) "Add text" else "Edit text") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 120.dp).focusRequester(textFocus),
                     label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") })
+                LaunchedEffect(box.id) { textFocus.requestFocus() }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f))

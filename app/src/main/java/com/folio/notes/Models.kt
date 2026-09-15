@@ -126,7 +126,9 @@ data class NotePage(
     val loaded: Boolean = true,
     /** Queued for the redo list — a question worth another attempt before the exam. */
     val redoFlag: Boolean = false,
-    val infinite: Boolean = false
+    val infinite: Boolean = false,
+    val title: String = "",
+    val bookmarked: Boolean = false
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
@@ -225,6 +227,7 @@ object NoteCodec {
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
+            put("title", p.title); put("bookmarked", p.bookmarked)
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
             put("images", InkCodec.encodeImages(p.images))
@@ -241,7 +244,8 @@ object NoteCodec {
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
                     InkCodec.decodeImages(p.optJSONArray("images")),
-                    p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false))
+                    p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             if (o.isNull("set")) null else o.optString("set"),
@@ -622,48 +626,52 @@ object InkGeometry {
         return (0.85f + 0.15f * p).coerceIn(0.85f, 1.15f)
     }
 
-    /**
-     * Whether [points] look like a scribble intended to rub something out, rather than handwriting.
-     *
-     * A deliberate scribble is longer than it is wide, densely self-crossing and full of direction
-     * changes. Short strokes, straight lines and smooth curves are not treated as scribbles so
-     * normal writing and shape tidy-up are never misread as an erase gesture.
-     */
+    /** Recognize repeated scrubbing reversals independent of the device's sample density. */
     fun isScribble(points: List<InkPoint>): Boolean {
-        if (points.size < 12) return false
-        var total = 0f
-        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
-        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        for (p in points) {
-            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
-            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y
-        }
-        for (i in 1..points.lastIndex) total += distance(points[i - 1], points[i])
-        if (total < 80f) return false
-        val span = hypot(maxX - minX, maxY - minY)
+        if (points.size < 5) return false
+        val span = hypot(points.maxOf { it.x } - points.minOf { it.x },
+            points.maxOf { it.y } - points.minOf { it.y })
         if (span < 14f) return false
-        if (total / span < 2.2f) return false
-        var turns = 0
+        // Remove tiny wiggles and rounded turnaround samples before measuring direction changes.
+        val corners = simplify(points, max(2f, span * .025f))
+        val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
+        if (total < 80f || total / span < 2.2f) return false
         var reversals = 0
-        for (i in 1 until points.lastIndex) {
-            val ax = points[i].x - points[i - 1].x; val ay = points[i].y - points[i - 1].y
-            val bx = points[i + 1].x - points[i].x; val by = points[i + 1].y - points[i].y
+        for (i in 1 until corners.lastIndex) {
+            val ax = corners[i].x - corners[i - 1].x; val ay = corners[i].y - corners[i - 1].y
+            val bx = corners[i + 1].x - corners[i].x; val by = corners[i + 1].y - corners[i].y
             val al = hypot(ax, ay); val bl = hypot(bx, by)
-            if (al < 0.9f || bl < 0.9f) continue
-            val dot = ((ax * bx + ay * by) / (al * bl)).coerceIn(-1f, 1f)
-            val angle = Math.toDegrees(kotlin.math.acos(dot.toDouble())).toFloat()
-            if (angle > 42f) turns++
-            if (dot < -0.28f) reversals++
+            if (al < 2f || bl < 2f) continue
+            if ((ax * bx + ay * by) / (al * bl) < -0.28f) reversals++
         }
-        // Require either many turns or a few clear back-and-forth reversals.
-        return turns >= 6 || reversals >= 3
+        return reversals >= 3
     }
 
-    /** True when the scribble polyline passes close enough to [target] to be considered a hit. */
+    /** Test the entire sweep, including crossings between widely spaced input samples. */
     fun scribbleHits(scribble: Stroke, target: Stroke, radius: Float): Boolean {
-        val scribblePoints = scribble.points
-        if (scribblePoints.isEmpty()) return false
-        return scribblePoints.any { hits(target, it, radius) }
+        val sweep = scribble.points
+        val path = pathPoints(target)
+        if (sweep.isEmpty() || path.isEmpty()) return false
+        val reach = radius + target.width / 2f
+        if (sweep.size == 1) return hits(target, sweep.first(), radius)
+        return sweep.zipWithNext().any { (a, b) ->
+            if (path.size == 1) segmentDistance(path.first(), a, b) <= reach
+            else path.zipWithNext().any { (c, d) ->
+                segmentsCross(a, b, c, d) ||
+                    minOf(segmentDistance(a, c, d), segmentDistance(b, c, d),
+                        segmentDistance(c, a, b), segmentDistance(d, a, b)) <= reach
+            }
+        }
+    }
+
+    private fun segmentsCross(a: InkPoint, b: InkPoint, c: InkPoint, d: InkPoint): Boolean {
+        fun side(p: InkPoint, q: InkPoint, r: InkPoint) =
+            (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+        val cSide = side(a, b, c); val dSide = side(a, b, d)
+        val aSide = side(c, d, a); val bSide = side(c, d, b)
+        // Collinear and endpoint contacts are covered by the distance checks.
+        return ((cSide < 0f && dSide > 0f) || (cSide > 0f && dSide < 0f)) &&
+            ((aSide < 0f && bSide > 0f) || (aSide > 0f && bSide < 0f))
     }
 
     /** Strokes that remain once a scribble stroke has scrubbed away every stroke it touches. */

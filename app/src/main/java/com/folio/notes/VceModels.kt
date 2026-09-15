@@ -399,6 +399,7 @@ fun matchesQuery(note: Notebook, rawQuery: String): Boolean {
     if (query.isEmpty()) return true
     val haystack = buildString {
         append(note.title.lowercase())
+        note.pages.forEach { append(' '); append(it.title.lowercase()) }
         append(' '); append(note.exam.subjectLabel.lowercase())
         append(' '); append(note.exam.company.lowercase())
         note.exam.year?.let { append(' '); append(it) }

@@ -400,8 +400,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 _state.update { state ->
                     val current = state.active
                     val target = current?.pages?.find { it.id == pageId }
-                    if (current == null || target == null || target.loaded) state
-                    else state.copy(notes = state.notes.map { if (it.id == current.id) current.withPage(loaded) else it })
+                    if (current == null || current.id != note.id || target == null || target.loaded) state
+                    else state.copy(notes = state.notes.map { if (it.id == current.id) current.withPage(target.withLoadedContent(loaded)) else it })
                 }
             } catch (e: Exception) {
                 reportError("Couldn't open this page: ${e.message.orEmpty()}")
@@ -429,8 +429,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 val loaded = repository.loadPage(note.id, source)
                 val current = _state.value.active ?: return@launch
                 val at = current.pages.indexOfFirst { it.id == source.id }
-                if (at < 0) return@launch
-                val duplicated = current.withPage(loaded).withDuplicatedPage(at).copy(updated = System.currentTimeMillis())
+                if (current.id != note.id || at < 0) return@launch
+                val duplicated = current.withPage(if (current.pages[at].loaded) current.pages[at] else current.pages[at].withLoadedContent(loaded)).withDuplicatedPage(at).copy(updated = System.currentTimeMillis())
                 _state.update { s -> s.copy(notes = s.notes.map { if (it.id == current.id) duplicated else it }, pageIndex = at + 1) }
                 enqueue { repository.savePage(duplicated, duplicated.pages[at + 1]) }
             } catch (e: Exception) { reportError("Couldn't duplicate this page: ${e.message.orEmpty()}") }
@@ -479,6 +479,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(pageIndex = movedPageIndex(state.pageIndex, from, to.coerceIn(0, note.pages.lastIndex))) }
         historyState()
     }
+    /** Organisation lives in the index, so even an unloaded page can be named or bookmarked. */
+    fun renamePage(pageId: String, title: String) {
+        val note = _state.value.active ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        updateNote(note.withPage(page.copy(title = title.trim().take(120))))
+    }
+
+    fun togglePageBookmark(pageId: String) {
+        val note = _state.value.active ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        updateNote(note.withPage(page.copy(bookmarked = !page.bookmarked)))
+    }
+
     fun setPaper(paper: Paper) { val p = _state.value.page ?: return; replacePage(p.copy(paper = paper)) }
     /** Inserts centred graph axes as editable LINE strokes so students can annotate immediately. */
     fun insertAxes() {

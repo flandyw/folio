@@ -98,10 +98,7 @@ class InkView(context: Context) : View(context) {
     private var lastStylusAt = -PALM_REJECT_MS
     private var lastX = 0f; private var lastY = 0f
     private var navigating = false
-    private var multiTapMax = 1
-    private var multiTapDownAt = 0L
-    private var multiTapMoved = false
-    private var multiTapActive = false
+    private val touchChord = TouchChord(ViewConfiguration.get(context).scaledTouchSlop * 1.2f)
     /** Set once a stroke runs past the page edge, so the rest of the gesture cannot smear along it. */
     private var offPage = false
     /** Where the eraser outline sits, in page units, or null when it should not be shown. */
@@ -110,6 +107,7 @@ class InkView(context: Context) : View(context) {
     private var movingText: TextBox? = null
     private var pendingTextBox: InkPoint? = null
     private var textDx = 0f; private var textDy = 0f
+    private var textDragged = false
     private var textFromX = 0f; private var textFromY = 0f
     // Picture gestures with the hand tool: the picture under the finger, or null while panning.
     private var movingImage: PageImage? = null
@@ -309,6 +307,22 @@ class InkView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         var dirtyInvalidated = false
+        val hasStylus = (0 until event.pointerCount).any { isStylus(event, it) }
+        if (!multiTouchUndo || hasStylus || isPalm(event, 0)) touchChord.reset()
+        else {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                touchChord.down(event.getPointerId(0), event.getX(0), event.getY(0), event.eventTime)
+            } else if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                val i = event.actionIndex
+                touchChord.join(event.getPointerId(i), event.getX(i), event.getY(i), event.eventTime)
+            }
+            for (i in 0 until event.pointerCount) {
+                for (h in 0 until event.historySize) {
+                    touchChord.move(event.getPointerId(i), event.getHistoricalX(i, h), event.getHistoricalY(i, h))
+                }
+                touchChord.move(event.getPointerId(i), event.getX(i), event.getY(i))
+            }
+        }
         if (page.infinite && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
             zoomDetector.onTouchEvent(event)
         }
@@ -316,7 +330,6 @@ class InkView(context: Context) : View(context) {
         if ((0 until event.pointerCount).any { isStylus(event, it) }) lastStylusAt = SystemClock.uptimeMillis()
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (handleMultiTapDown(event)) return true
                 requestFocus()
                 // Ask the system to hand each stylus sample over as it arrives rather than batching
                 // samples into the next frame, so the ink keeps up with the tip instead of trailing.
@@ -342,7 +355,6 @@ class InkView(context: Context) : View(context) {
                 else if (!navigating && !ignored) beginStroke(event, 0)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (updateMultiTapOnSecondFinger(event)) return true
                 if (isStylus(event, event.actionIndex)) {
                     // The stylus landed over an in-progress palm stroke: drop it and follow the stylus.
                     pointerId = event.getPointerId(event.actionIndex)
@@ -363,7 +375,6 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                if (multiTapActive) { trackMultiTapMove(event); return true }
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
                 if (pendingLink != null) {
@@ -398,8 +409,9 @@ class InkView(context: Context) : View(context) {
                     imageFromX = at.x; imageFromY = at.y
                 } else if (tool == Tool.TEXT && movingText != null) {
                     val moved = clampToPage(point(event, index))
-                    textDx += moved.x - textFromX; textDy += moved.y - textFromY
-                    textFromX = moved.x; textFromY = moved.y
+                    val dx = moved.x - textFromX; val dy = moved.y - textFromY
+                    if (hypot(dx, dy) * scale > ViewConfiguration.get(context).scaledTouchSlop) textDragged = true
+                    if (textDragged) { textDx = dx; textDy = dy }
                 } else if (lassoActive()) {
                     if (movingSelection) {
                         val moved = clampToPage(point(event, index))
@@ -463,7 +475,6 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                if (multiTapActive) { if (handleMultiTapPointerUp(event)) return true }
                 if (event.getPointerId(event.actionIndex) == pointerId && stylus) finishGesture()
                 else if (!stylus && !ignored) {
                     if (event.getPointerId(event.actionIndex) == pointerId) {
@@ -475,7 +486,13 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (multiTapActive) { handleMultiTapUp(); return true }
+                val chord = touchChord.finish(event.eventTime)
+                if (chord != 0) {
+                    cancelGesture()
+                    if (chord == 2) onUndoRequest?.invoke() else onRedoRequest?.invoke()
+                    invalidate()
+                    return true
+                }
                 val hadImage = movingImage != null
                 val hadLink = pendingLink != null
                 if (hadImage) {
@@ -508,7 +525,7 @@ class InkView(context: Context) : View(context) {
                 }
                 performClick()
             }
-            MotionEvent.ACTION_CANCEL -> { multiTapActive = false; multiTapMax = 1; cancelGesture() }
+            MotionEvent.ACTION_CANCEL -> { touchChord.reset(); cancelGesture() }
         }
         if (!dirtyInvalidated) invalidate()
         return true
@@ -546,7 +563,7 @@ class InkView(context: Context) : View(context) {
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         val at = clampToPage(raw)
         val hit = boxAt(at)
-        if (hit != null) { movingText = hit; textDx = 0f; textDy = 0f; textFromX = at.x; textFromY = at.y }
+        if (hit != null) { movingText = hit; textDragged = false; textDx = 0f; textDy = 0f; textFromX = at.x; textFromY = at.y }
         else pendingTextBox = at
     }
     /** A drag commits the box's new place; a tap edits the box, or creates one on empty page. */
@@ -554,7 +571,7 @@ class InkView(context: Context) : View(context) {
         val box = movingText
         movingText = null
         if (box != null) {
-            if (textDx != 0f || textDy != 0f) {
+            if (textDragged) {
                 val texts = page.texts.map { if (it.id == box.id) it.moved(textDx, textDy) else it }
                 page = page.copy(texts = texts)
                 onTextsChanged(texts)
@@ -741,63 +758,6 @@ class InkView(context: Context) : View(context) {
         canvas.drawRoundRect(bg, rr, rr, measurementBorderPaint)
         canvas.drawRoundRect(bg, rr, rr, measurementBgPaint)
         canvas.drawText(label, mx - tw / 2f, my, measurementTextPaint)
-    }
-
-    private fun handleMultiTapDown(event: MotionEvent): Boolean {
-        if (!multiTouchUndo) return false
-        if (event.pointerCount != 1) return false
-        val isStylus = isStylus(event, 0)
-        if (isStylus) return false
-        multiTapMax = 1
-        multiTapDownAt = SystemClock.uptimeMillis()
-        multiTapMoved = false
-        multiTapActive = true
-        return false
-    }
-
-    private fun updateMultiTapOnSecondFinger(event: MotionEvent): Boolean {
-        if (!multiTapActive || multiTapMoved) return false
-        val elapsed = SystemClock.uptimeMillis() - multiTapDownAt
-        if (elapsed > ViewConfiguration.getTapTimeout() + 180) return false
-        val count = event.pointerCount
-        if (count in 2..3) {
-            multiTapMax = maxOf(multiTapMax, count)
-            // Keep the first finger as the tracked pointer so ink bookkeeping stays valid.
-            stylus = false; ignored = true; navigating = true
-            lastX = centroidX(event); lastY = centroidY(event)
-            panVelocity.resetTracking()
-            panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
-        }
-        return false
-    }
-
-    private fun trackMultiTapMove(event: MotionEvent) {
-        val slop = ViewConfiguration.get(context).scaledTouchSlop * 1.2f
-        val x = centroidX(event); val y = centroidY(event)
-        if (hypot(x - lastX, y - lastY) > slop) multiTapMoved = true
-        multiTapMax = maxOf(multiTapMax, event.pointerCount.coerceIn(1, 3))
-    }
-
-    private fun handleMultiTapPointerUp(event: MotionEvent): Boolean {
-        // If a finger lifts but one remains, keep waiting for the final up to decide.
-        return event.pointerCount > 1
-    }
-
-    private fun handleMultiTapUp() {
-        val active = multiTapActive; val moved = multiTapMoved; val fingers = multiTapMax
-        multiTapActive = false; multiTapMax = 1
-        if (!active || !multiTouchUndo) return
-        if (moved) return
-        val elapsed = SystemClock.uptimeMillis() - multiTapDownAt
-        if (elapsed > 420) return
-        if (elapsed < 40) return
-        // Require that the tap finished cleanly (single tap window) and did not become a pan/zoom.
-        when (fingers) {
-            2 -> onUndoRequest?.invoke()
-            3 -> onRedoRequest?.invoke()
-        }
-        // Consume the tap so it does not also start a stroke or place text.
-        draft = null; erasing = null; eraserMark = null
     }
 
     /** A ring under the tip, so the eraser's size is visible while it hovers and while it cuts. */
