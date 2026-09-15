@@ -84,6 +84,62 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private val loadingPages = mutableSetOf<String>()
     /** Page visits of the running timed sitting; closed into [FolioState.lastTelemetry] on stop. */
     private var sittingVisits = mutableListOf<PageVisit>()
+    private var timerNotebookId: String? = _state.value.activeId
+    private val notebookSittings = NotebookSittings()
+
+    private fun timerKey(key: String): String = "$key.notebook.${requireNotNull(timerNotebookId)}"
+
+    /** The old global sitting can be assigned only when its page log identifies one notebook. */
+    private fun migrateLegacyTimer(notes: List<Notebook>) {
+        if (!prefs.contains(TIMER_START_KEY)) return
+        val visits = try {
+            ExamTelemetryCodec.decodeVisits(org.json.JSONArray(prefs.getString(TIMER_VISITS_KEY, "[]")))
+        } catch (_: Exception) { emptyList() }
+        val pageIds = visits.map { it.pageId }.toSet()
+        val owner = notes.filter { note -> note.pages.any { it.id in pageIds } }.singleOrNull() ?: return
+        val keys = listOf(TIMER_START_KEY, TIMER_PAUSED_AT_KEY, TIMER_PAUSED_MILLIS_KEY,
+            TIMER_WRITING_KEY, TIMER_READING_KEY, TIMER_LABEL_KEY, TIMER_VISITS_KEY)
+        val editor = prefs.edit()
+        if (!prefs.contains("$TIMER_START_KEY.notebook.${owner.id}")) {
+            keys.forEach { key ->
+                val destination = "$key.notebook.${owner.id}"
+                when (val value = prefs.all[key]) {
+                    is Long -> editor.putLong(destination, value)
+                    is Int -> editor.putInt(destination, value)
+                    is String -> editor.putString(destination, value)
+                }
+            }
+        }
+        keys.forEach { editor.remove(it) }
+        editor.apply()
+        if (timerNotebookId == owner.id) restoreNotebookTimer()
+    }
+
+    private fun restoreNotebookTimer() {
+        val id = timerNotebookId
+        val cached = notebookSittings.restore(id)
+        val timer = if (id == null) ExamTimerState() else cached?.timer
+            ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L),
+                pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
+                pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L))
+            ?: ExamTimerState()
+        sittingVisits = if (id != null && timer.startedAt != null) loadVisits().toMutableList() else mutableListOf()
+        _state.update { it.copy(timer = timer, lastTimedSeconds = cached?.seconds, lastTelemetry = cached?.telemetry) }
+    }
+
+    /** Switching notebooks leaves their clocks running, but closes page dwell in the old one. */
+    private fun selectNotebookTimer(id: String?) {
+        if (id == timerNotebookId) return
+        timerNotebookId?.let { previous ->
+            sittingVisits = closeVisits(sittingVisits, System.currentTimeMillis()).toMutableList()
+            saveVisits()
+            val state = _state.value
+            notebookSittings.save(previous, state.timer, state.lastTimedSeconds, state.lastTelemetry)
+        }
+        timerNotebookId = id
+        restoreNotebookTimer()
+    }
+
     var pendingExport: Pair<Notebook, Int>? = null
     init {
         (application as FolioApplication).storageScope.launch {
@@ -93,27 +149,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             }
         }
         loadLibrary()
-        // A sitting that was running when the process died resumes where the clock says it should.
-        val resumed = ExamTimerState.resume(storedSitting(), prefs.getLong(TIMER_START_KEY, 0L),
-            pausedAt = prefs.getLong(TIMER_PAUSED_AT_KEY, 0L).takeIf { it > 0L },
-            pausedMillis = prefs.getLong(TIMER_PAUSED_MILLIS_KEY, 0L))
-        if (resumed != null) {
-            // The visit log is restored as-is: like the timer itself, the sitting is wall-clock, so
-            // time away stays attributed to the page that was open when the app died.
-            sittingVisits = loadVisits().toMutableList()
-            _state.update { it.copy(timer = resumed) }
-        } else {
-            // No sitting to resume, so no visit log to keep — a stale backup never leaks into the next one.
-            sittingVisits = mutableListOf()
-            clearVisits()
-        }
+        restoreNotebookTimer()
         viewModelScope.launch { state.collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId } }
     }
     fun loadLibrary() {
         if (ready.isCompleted) ready = CompletableDeferred()
         _state.update { it.copy(loading = true, loadFailed = false) }
         viewModelScope.launch {
-            try { val (notes, folders, sets) = repository.load(); _state.update { it.copy(notes = notes, folders = folders, sets = sets, loading = false) }; ready.complete(Unit) }
+            try { val (notes, folders, sets) = repository.load(); migrateLegacyTimer(notes); _state.update { it.copy(notes = notes, folders = folders, sets = sets, loading = false) }; ready.complete(Unit) }
             catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message}") }; ready.completeExceptionally(e) }
         }
     }
@@ -155,10 +198,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
         val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId, pageCover = pageCover)
+        selectNotebookTimer(note.id)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
         enqueue { repository.saveAll(note) }
     }
     fun open(id: String) {
+        if (_state.value.notes.none { it.id == id }) return
+        selectNotebookTimer(id)
         _state.update { it.copy(activeId = id, pageIndex = 0, pdfSearch = PdfSearchState()) }
         historyState()
         _state.value.page?.let { loadPage(it.id) }
@@ -168,18 +214,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Opens a notebook straight onto one of its pages, so a flagged question is one tap away. */
     fun openAt(id: String, index: Int) {
         val target = _state.value.notes.find { it.id == id } ?: return
+        selectNotebookTimer(id)
         _state.update { it.copy(activeId = id, pageIndex = index.coerceIn(0, target.pages.lastIndex), pdfSearch = PdfSearchState()) }
         historyState()
         _state.value.page?.let { loadPage(it.id) }
         _state.value.page?.let { noteVisit(it.id) }
     }
     fun close() {
-        // Leaving the editor closes the open visit without ending the sitting, so time away is
-        // unattributed rather than inflating the last page's dwell.
-        if (_state.value.timer.running && sittingVisits.isNotEmpty()) {
-            sittingVisits = closeVisits(sittingVisits, System.currentTimeMillis()).toMutableList()
-            saveVisits()
-        }
+        selectNotebookTimer(null)
         _state.update { it.copy(activeId = null, pdfSearch = PdfSearchState()) }
         // The notebook's PDF renderer is no longer needed once the editor is put away.
         viewModelScope.launch { repository.closePdf() }
@@ -256,7 +298,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val exam = if (note.exam.status == ExamStatus.TO_DO) note.exam.copy(status = ExamStatus.MARKED) else note.exam
         updateNote(note.withAttempt(attempt).copy(exam = exam))
         // A timed sitting is spent on the mark it belongs to, not offered to the next one.
-        if (attempt.timed) _state.update { it.copy(lastTimedSeconds = null, lastTelemetry = null) }
+        if (attempt.timed) {
+            notebookSittings.consumeResult(noteId)
+            if (_state.value.activeId == noteId) _state.update { it.copy(lastTimedSeconds = null, lastTelemetry = null) }
+        }
     }
 
     /** Removes one recorded sitting from a notebook's history. */
@@ -291,6 +336,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     fun delete(note: Notebook) {
+        if (_state.value.activeId == note.id) selectNotebookTimer(null)
         _state.update {
             val closing = it.activeId == note.id
             it.copy(
@@ -310,6 +356,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (ids.isEmpty()) return
         val removed = _state.value.notes.filter { it.id in ids }
         if (removed.isEmpty()) return
+        if (_state.value.activeId in ids) selectNotebookTimer(null)
         _state.update { state ->
             val closing = state.activeId in ids
             state.copy(
@@ -681,28 +728,28 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     private fun saveSitting(timer: ExamTimerState) {
         prefs.edit()
-            .putLong(TIMER_START_KEY, timer.startedAt ?: 0L)
-            .putLong(TIMER_PAUSED_AT_KEY, timer.pausedAt ?: 0L)
-            .putLong(TIMER_PAUSED_MILLIS_KEY, timer.pausedMillis)
-            .putInt(TIMER_WRITING_KEY, timer.preset.writingSeconds)
-            .putInt(TIMER_READING_KEY, timer.preset.readingSeconds)
-            .putString(TIMER_LABEL_KEY, timer.preset.label)
+            .putLong(timerKey(TIMER_START_KEY), timer.startedAt ?: 0L)
+            .putLong(timerKey(TIMER_PAUSED_AT_KEY), timer.pausedAt ?: 0L)
+            .putLong(timerKey(TIMER_PAUSED_MILLIS_KEY), timer.pausedMillis)
+            .putInt(timerKey(TIMER_WRITING_KEY), timer.preset.writingSeconds)
+            .putInt(timerKey(TIMER_READING_KEY), timer.preset.readingSeconds)
+            .putString(timerKey(TIMER_LABEL_KEY), timer.preset.label)
             .apply()
     }
 
     private fun clearSitting() {
-        prefs.edit().remove(TIMER_START_KEY).remove(TIMER_WRITING_KEY)
-            .remove(TIMER_PAUSED_AT_KEY).remove(TIMER_PAUSED_MILLIS_KEY)
-            .remove(TIMER_READING_KEY).remove(TIMER_LABEL_KEY).apply()
+        prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
+            .remove(timerKey(TIMER_PAUSED_AT_KEY)).remove(timerKey(TIMER_PAUSED_MILLIS_KEY))
+            .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY)).apply()
     }
 
     /** The preset of a saved sitting, or null when none was running when the app last stopped. */
     private fun storedSitting(): ExamTimerPreset? {
-        if (prefs.getLong(TIMER_START_KEY, 0L) <= 0L) return null
+        if (prefs.getLong(timerKey(TIMER_START_KEY), 0L) <= 0L) return null
         return ExamTimerPreset(
-            prefs.getString(TIMER_LABEL_KEY, "Exam") ?: "Exam",
-            prefs.getInt(TIMER_WRITING_KEY, 90 * 60),
-            prefs.getInt(TIMER_READING_KEY, 15 * 60)
+            prefs.getString(timerKey(TIMER_LABEL_KEY), "Exam") ?: "Exam",
+            prefs.getInt(timerKey(TIMER_WRITING_KEY), 90 * 60),
+            prefs.getInt(timerKey(TIMER_READING_KEY), 15 * 60)
         )
     }
 
@@ -720,18 +767,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     /** The visit log is saved with the sitting so it survives the app being swiped away. */
     private fun saveVisits() {
-        prefs.edit().putString(TIMER_VISITS_KEY, ExamTelemetryCodec.encodeVisits(sittingVisits).toString()).apply()
+        prefs.edit().putString(timerKey(TIMER_VISITS_KEY), ExamTelemetryCodec.encodeVisits(sittingVisits).toString()).apply()
     }
 
     private fun loadVisits(): List<PageVisit> {
-        val raw = prefs.getString(TIMER_VISITS_KEY, null) ?: return emptyList()
+        val raw = prefs.getString(timerKey(TIMER_VISITS_KEY), null) ?: return emptyList()
         return try {
             ExamTelemetryCodec.decodeVisits(org.json.JSONArray(raw))
         } catch (_: Exception) { emptyList() }
     }
 
     private fun clearVisits() {
-        prefs.edit().remove(TIMER_VISITS_KEY).apply()
+        prefs.edit().remove(timerKey(TIMER_VISITS_KEY)).apply()
     }
 
     /**
@@ -745,6 +792,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (next != current) _state.update { it.copy(timer = next) }
     }
     fun startTimer(preset: ExamTimerPreset) {
+        if (_state.value.active == null) return
         val started = ExamTimerState().start(preset)
         saveSitting(started)
         // A fresh sitting gets a fresh visit log, opening on the page already on screen.
@@ -754,11 +802,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(timer = started) }
     }
     fun adjustTimer(seconds: Int) {
+        if (_state.value.active == null) return
         val adjusted = _state.value.timer.adjust(seconds)
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
     }
     fun toggleTimerPause() {
+        if (_state.value.active == null) return
         val current = _state.value.timer
         val now = System.currentTimeMillis()
         val updated = if (current.paused) current.unpause(now) else current.pause(now)
@@ -772,12 +822,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(timer = updated) }
     }
     fun skipTimerPhase() {
+        if (_state.value.active == null) return
         val skipped = _state.value.timer.skip()
         saveSitting(skipped)
         _state.update { it.copy(timer = skipped) }
     }
     /** Stops the timer, keeping how long the writing phase ran for the attempt record. */
     fun stopTimer() {
+        if (_state.value.active == null) return
         val current = _state.value.timer
         val now = System.currentTimeMillis()
         val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
@@ -853,6 +905,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                         _state.update { it.copy(importProgress = "Importing PDF $current of $total…") }
                     })
                 if (imported.isNotEmpty()) {
+                    selectNotebookTimer(if (uris.size == 1) imported.single().id else null)
                     _state.update { it.copy(activeId = if (uris.size == 1) imported.single().id else null,
                         folderId = folderId, pageIndex = 0, canUndo = false, canRedo = false,
                         examFilter = ExamFilter(), pdfSearch = PdfSearchState()) }
@@ -874,6 +927,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             try {
                 ready.await()
                 val note = repository.importArchive(uri, _state.value.folderId)
+                selectNotebookTimer(note.id)
                 _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
             } catch (e: Exception) { reportError("Couldn't open this backup. It may be damaged. ${e.message.orEmpty()}") }
             finally { _state.update { it.copy(busy = false) } }

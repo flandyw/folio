@@ -313,6 +313,8 @@ object EditorQuickPrefs {
     }
 
     if (naming) AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = { naming = false },
         title = { Text("Save quick colours") },
         text = {
@@ -354,6 +356,8 @@ object EditorQuickPrefs {
         Text("Apply a preset from the toolbar's More menu.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (naming) AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = { naming = false },
         title = { Text("Save tool preset") },
         text = {

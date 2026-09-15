@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
     canRestyle: Boolean = true
 ) {
     val note = state.active ?: return
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
+    Surface(modifier = Modifier.guardUiTouches(), color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (selectedCount > 0) {

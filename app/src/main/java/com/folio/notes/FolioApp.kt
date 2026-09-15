@@ -193,8 +193,8 @@ import java.io.File
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
-        if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Surface(Modifier.fillMaxSize()) {
+        if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxSize().guardUiTouches()) {
                 SettingsScreen(dynamic, { dynamic = it; prefs.edit().putBoolean("dynamic", it).apply() },
                     finger, { finger = it; prefs.edit().putBoolean("finger", it).apply() },
                     toolbarPosition, { toolbarPosition = it; prefs.edit().putString("toolbarPosition", it.name).apply() },
@@ -240,6 +240,8 @@ import java.io.File
             }
         }
         if (updateDialog) AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
             onDismissRequest = { if (!updateChecking && !updateDownloading) updateDialog = false },
             title = { Text(if (updateInfo != null) "Folio update available" else "App updates") },
             text = {
@@ -282,7 +284,7 @@ import java.io.File
 
 @Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, submit: (String) -> Unit) {
     var text by rememberSaveable { mutableStateOf(initial) }
-    AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = {
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { Text(subtitle); OutlinedTextField(text, { text = it.take(120) }, singleLine = true, label = { Text("Name") }) }
     }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank()) { Text(action) } })
 }
@@ -301,7 +303,7 @@ import java.io.File
         paper = item.paper
         pageCount = item.pages
     }
-    AlertDialog(onDismissRequest = onDismiss, icon = { Icon(Icons.Rounded.AutoStories, null) }, title = { Text("A fresh start") }, text = {
+    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = onDismiss, icon = { Icon(Icons.Rounded.AutoStories, null) }, title = { Text("A fresh start") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
@@ -371,6 +373,8 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
     var destination by rememberSaveable { mutableStateOf(state.folderId) }
     val validDestination = destination?.takeIf { id -> state.folders.any { it.id == id } }
     AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = onDismiss,
         title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
         text = {

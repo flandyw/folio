@@ -91,7 +91,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     }
     val filtersActive = kind != LibraryKind.ALL || unfiled || examFilter.isActive
     val folderName = state.folders.find { it.id == state.folderId }?.name
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
         val wide = maxWidth >= 840.dp
         Row(Modifier.fillMaxSize()) {
             if (wide) Surface(Modifier.width(200.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -128,7 +128,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             Box {
                                 var importMenu by remember { mutableStateOf(false) }
                                 IconButton({ importMenu = true }) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
-                                DropdownMenu(importMenu, { importMenu = false }) {
+                                DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                                     DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
                                 }
@@ -148,7 +148,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
                             Box {
                                 IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
-                                DropdownMenu(sortMenu, { sortMenu = false }) {
+                                DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     LibrarySort.entries.forEach { option ->
                                         DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
                                     }
@@ -157,7 +157,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                             IconButton({ listView = !listView }) { Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Show covers" else "Show compact list") }
                             state.folders.find { it.id == state.folderId }?.let { folder -> Box {
                                 IconButton({ folderMenu = true }) { Icon(Icons.Rounded.MoreVert, "Folder options") }
-                                DropdownMenu(folderMenu, { folderMenu = false }) {
+                                DropdownMenu(folderMenu, { folderMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("Rename folder") }, { folderMenu = false; renameFolder = folder })
                                     DropdownMenuItem({ Text("Remove folder") }, { folderMenu = false; deleteFolder = folder })
                                 }
@@ -306,7 +306,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             }
         }
     }
-    if (assignPanel) AlertDialog(onDismissRequest = { assignPanel = false }, title = { Text("Add ${selection.size} to an exam set") }, text = {
+    if (assignPanel) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { assignPanel = false }, title = { Text("Add ${selection.size} to an exam set") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             TextButton({ model.assignToExamSet(selection, null); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Remove from set") }
             state.sets.forEach { set -> TextButton({ model.assignToExamSet(selection, set.id); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text(set.autoName()) } }
@@ -325,7 +325,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         )
     }
     setAssign?.let { note ->
-        AlertDialog(onDismissRequest = { setAssign = null }, title = { Text("${note.title} — exam set") }, text = {
+        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { setAssign = null }, title = { Text("${note.title} — exam set") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 TextButton({ model.assignToExamSet(setOf(note.id), null); setAssign = null }) { Text("No set") }
                 state.sets.forEach { set -> TextButton({ model.assignToExamSet(setOf(note.id), set.id); setAssign = null }) { Text(set.autoName()) } }
@@ -342,7 +342,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     )
     if (progressPanel) ExamProgressPanel(state.notes) { progressPanel = false }
     if (redoPanel) RedoReviewPanel(state.notes, { redoPanel = false }, { id, index -> redoPanel = false; model.openAt(id, index) })
-    if (bulkMove) AlertDialog(onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
+    if (bulkMove) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             TextButton({ model.moveNotebooks(selection, null); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Unfiled") }
             state.folders.forEach { folder -> TextButton({ model.moveNotebooks(selection, folder.id); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text(folder.name) } }
@@ -350,6 +350,8 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         }
     }, confirmButton = { TextButton({ bulkMove = false }) { Text("Cancel") } })
     if (bulkDelete) AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = { bulkDelete = false },
         title = { Text("Delete ${selection.size} notebook${if (selection.size == 1) "" else "s"}?") },
         text = { Text("This removes the selected notebooks and their pages from this device. Export a copy first if you want to keep them.") },
@@ -372,6 +374,8 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         }
     )
     if (bulkCover) AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = { bulkCover = false },
         title = { Text("Cover for ${selection.size} notebook${if (selection.size == 1) "" else "s"}") },
         text = {
@@ -391,14 +395,14 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     )
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
     renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { model.renameFolder(folder, it); renameFolder = null } }
-    deleteFolder?.let { folder -> AlertDialog(onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }) { Text("Remove folder") } }) }
-    move?.let { note -> AlertDialog(onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
+    deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }) { Text("Remove folder") } }) }
+    move?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             TextButton({ model.move(note, null); move = null }) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(12.dp)); Text("No folder") }
             state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(12.dp)); Text(folder.name) } }
         }
     }, confirmButton = { TextButton({ move = null }) { Text("Cancel") } }) }
-    delete?.let { note -> AlertDialog(onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }) }
+    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }) }
 }
 
 @Composable private fun Brand() {
@@ -459,7 +463,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
-        DropdownMenu(menu, { menu = false }) {
+        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Exam set") }, { menu = false; assignSet() }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null) })

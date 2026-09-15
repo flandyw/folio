@@ -2,6 +2,7 @@ package com.folio.notes
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.MotionEvent
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
+    private val stylusActivity = StylusActivity()
     private val model: FolioViewModel by viewModels()
     private var shortcutRequest by mutableIntStateOf(0)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,7 +22,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         hideSystemBars()
         if (savedInstanceState == null) handleIntent(intent)
-        setContent { FolioApp(model, shortcutRequest) }
+        setContent {
+            CompositionLocalProvider(LocalStylusActivity provides stylusActivity) {
+                FolioApp(model, shortcutRequest)
+            }
+        }
+    }
+    private fun observeStylus(event: MotionEvent) {
+        if ((0 until event.pointerCount).any {
+                event.getToolType(it) == MotionEvent.TOOL_TYPE_STYLUS ||
+                    event.getToolType(it) == MotionEvent.TOOL_TYPE_ERASER
+            }) stylusActivity.record(event.eventTime)
+    }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        observeStylus(event)
+        return super.dispatchTouchEvent(event)
+    }
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        observeStylus(event)
+        return super.dispatchGenericMotionEvent(event)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }
     override fun onWindowFocusChanged(hasFocus: Boolean) {

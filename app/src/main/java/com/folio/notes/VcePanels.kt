@@ -432,6 +432,8 @@ fun ScoreDialog(
     val parsedScore = score.toIntOrNull()
     val parsedTotal = totalText.toIntOrNull()
     AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) },
         title = { Text("Record a mark") },
@@ -609,6 +611,8 @@ fun ExamSetsPanel(
     }
     confirmDelete?.let { set ->
         AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
             onDismissRequest = { confirmDelete = null },
             title = { Text("Delete \"${set.autoName()}\"?") },
             text = { Text("The notebooks in this set stay in your library; only the grouping is removed.") },

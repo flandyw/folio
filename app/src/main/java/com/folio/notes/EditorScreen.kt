@@ -530,7 +530,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                             onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style)
                     }
-                    item { OutlinedButton({ addPage() }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
+                    item { OutlinedButton({ addPage() }, modifier = Modifier.guardUiTouches()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
             }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
@@ -727,12 +727,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             item { TextButton({ addPage(); pageBrowser = false }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add a blank page — ${paperLabel(page.paper)}") } }
         }
     }
-    if (rename) AlertDialog(onDismissRequest = { rename = false }, title = { Text("Rename notebook") }, text = {
+    if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false }, title = { Text("Rename notebook") }, text = {
         OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true)
     }, dismissButton = { TextButton({ rename = false }) { Text("Cancel") } }, confirmButton = {
         TextButton({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank()) { Text("Save") }
     })
-    if (paperMenu) AlertDialog(onDismissRequest = { paperMenu = false }, title = { Text("Change paper") }, text = {
+    if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false }, title = { Text("Change paper") }, text = {
         Column {
             listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
                 Row(Modifier.fillMaxWidth().clickable { model.setPaper(p); paperMenu = false }, verticalAlignment = Alignment.CenterVertically) {
@@ -748,7 +748,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         }
     }, confirmButton = { TextButton({ paperMenu = false }) { Text("Done") } })
-    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
+    if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
     if (timerPanel) ExamTimerPanel(
         timer = state.timer,
         onDismiss = { timerPanel = false },
@@ -1027,7 +1027,7 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 
 /** A floating piece of editor chrome: a rounded surface holding one row of controls over the page. */
 @Composable private fun EditorChromeChip(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
-    Surface(modifier, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(modifier.guardUiTouches(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
@@ -1187,7 +1187,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     modifier = Modifier.height(32.dp)
                 )
             }
-            DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }) {
+            DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
                 Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Stroke width", style = MaterialTheme.typography.titleSmall)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1249,7 +1249,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Choose shape") } }, state = rememberTooltipState()) {
                 IconButton({ shapePicker = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.ArrowDropDown, "Choose shape", Modifier.size(20.dp)) }
             }
-            DropdownMenu(shapePicker, { shapePicker = false }) {
+            DropdownMenu(shapePicker, { shapePicker = false }, modifier = Modifier.guardUiTouches()) {
                 listOf(
                     Triple(Tool.LINE, "Straight line", Icons.AutoMirrored.Rounded.ShowChart),
                     Triple(Tool.RECTANGLE, "Rectangle", Icons.Rounded.CropSquare),
@@ -1269,7 +1269,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
             IconButton({ shapes = true }) { Icon(Icons.Rounded.MoreHoriz, "More options") }
-            DropdownMenu(shapes, { shapes = false }) {
+            DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
                 if (presets.isNotEmpty() && onApplyPreset != null) {
                     presets.forEach { preset ->
                         DropdownMenuItem(
@@ -1307,7 +1307,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     // The bar hugs its content: capped width fits narrow phones without clipping, and the
     // quick row only takes space when the active tool has quick settings. Each row scrolls.
-    Column(modifier.widthIn(max = 560.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.guardUiTouches().widthIn(max = 560.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
@@ -1382,7 +1382,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {}
 ) {
-    DropdownMenu(expanded, onDismiss) {
+    DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
         DropdownMenuItem(
             { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
             { onDismiss(); onRedo() },
@@ -1431,7 +1431,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             if (current) Icon(Icons.Rounded.Check, "Current page", tint = MaterialTheme.colorScheme.primary)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
-                DropdownMenu(menu, { menu = false }) {
+                DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
                     DropdownMenuItem({ Text("Move up") }, { menu = false; onMoveUp() }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) })
                     DropdownMenuItem({ Text("Move down") }, { menu = false; onMoveDown() }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
                     DropdownMenuItem({ Text("Duplicate page") }, { menu = false; onDuplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
@@ -1530,6 +1530,8 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     var align by remember(box.id) { mutableStateOf(box.align) }
     var underline by remember(box.id) { mutableStateOf(box.underline) }
     AlertDialog(
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+        modifier = Modifier.guardUiTouches(),
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.TextFields, null) },
         title = { Text(if (isNew) "Add text" else "Edit text") },

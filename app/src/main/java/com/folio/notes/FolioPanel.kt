@@ -1,7 +1,5 @@
 package com.folio.notes
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,7 +23,7 @@ import androidx.core.view.WindowInsetsControllerCompat
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    Dialog(onDismissRequest, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -37,14 +35,9 @@ import androidx.core.view.WindowInsetsControllerCompat
             }
             onDispose { }
         }
-        Box(Modifier.fillMaxSize().clickable(
-            interactionSource = remember { MutableInteractionSource() }, indication = null,
-            onClick = onDismissRequest
-        ).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(16.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().guardUiTouches().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(16.dp), contentAlignment = Alignment.Center) {
             Surface(
-                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().clickable(
-                    interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}
-                ),
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column {
