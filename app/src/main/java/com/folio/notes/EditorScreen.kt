@@ -464,12 +464,28 @@ private fun paperLabel(p: Paper): String = when (p) {
                             scrubbing = false
                         }
                     } else {
+                        // Let ink and controls claim their down first. Unclaimed touches belong
+                        // to the surrounding workspace, including page gaps and outer margins.
+                        val backgroundPan = !awaitPointerEvent(PointerEventPass.Main)
+                            .changes.first { it.id == down.id }.isConsumed
                         var transforming = false
                         val velocity = VelocityTracker()
                         var travel = Offset.Zero
+                        velocity.addPosition(down.uptimeMillis, travel)
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.any { it.pressed && (it.type == PointerType.Stylus || it.type == PointerType.Eraser) }) {
+                                transforming = false
+                                motion.reset()
+                                break
+                            }
                             val fingers = event.changes.count { it.pressed }
+                            if (backgroundPan && !transforming && fingers == 1) {
+                                val change = event.changes.first { it.pressed }
+                                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                    transforming = true
+                                }
+                            }
                             if (fingers >= 2) {
                                 if (!transforming) velocity.addPosition(event.changes.first().previousUptimeMillis, travel)
                                 transforming = true
