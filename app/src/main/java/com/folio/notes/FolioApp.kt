@@ -38,6 +38,16 @@ import java.io.File
 
 @Composable fun FolioApp(model: FolioViewModel, shortcutRequest: Int) {
     val state by model.state.collectAsStateWithLifecycle()
+    val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    var showMistakes by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, mistakes) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) mistakes.requestSync()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("preferences", 0) }
     var dynamic by rememberSaveable { mutableStateOf(prefs.getBoolean("dynamic", false)) }
@@ -167,7 +177,7 @@ import java.io.File
     }
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
-    BackHandler(state.active != null && !exportBusy) { model.close() }
+    BackHandler(state.active != null && !exportBusy && !showMistakes) { model.close() }
     FolioTheme(dynamic) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }, contentWindowInsets = WindowInsets.safeDrawing) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -179,8 +189,10 @@ import java.io.File
                         Text("Your stored files have been kept. Retry to open them.")
                         Button(model::loadLibrary) { Text("Retry") }
                     }
+                    showMistakes -> com.folio.notes.mistakes.MistakesScreen(mistakes, model, state, finger, haptics, shapeRecognition,
+                        onBack = { showMistakes = false }, onSettings = { settings = true }, onExport = { exportMenu = true })
                     state.active != null -> WorkspaceScreen(state, model, finger, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
-                    else -> LibraryScreen(state, model, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
+                    else -> LibraryScreen(state.copy(notes = state.notes.filterNot { it.mistakePractice }), model, onMistakes = { showMistakes = true }, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
                         Surface(shape = RoundedCornerShape(28.dp)) {
@@ -208,7 +220,8 @@ import java.io.File
                     shapeRecognition, { shapeRecognition = it; prefs.edit().putBoolean("shapeRecognition", it).apply() },
                     onCheckForUpdates = { checkForUpdates(showDialog = true) },
                     updateChecking = updateChecking,
-                    onBack = { settings = false })
+                    onBack = { settings = false },
+                    onExamTrack = { settings = false; showMistakes = true })
             }
         }
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {

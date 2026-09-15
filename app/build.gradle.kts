@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,6 +16,23 @@ android {
         targetSdk = 35
         versionCode = providers.environmentVariable("VERSION_CODE").orElse("1").get().toInt()
         versionName = providers.environmentVariable("VERSION_NAME").orElse("0.2.0").get()
+        fun examTrackConfig(name: String, fallback: String): String {
+            val local = Properties().apply {
+                rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+            }
+            val value = providers.environmentVariable(name).orNull
+                ?: providers.gradleProperty(name).orNull ?: local.getProperty(name) ?: fallback
+            if (name.endsWith("KEY")) {
+                val anonJwt = runCatching {
+                    val claims = String(Base64.getUrlDecoder().decode(value.split('.')[1]))
+                    Regex("\"role\"\\s*:\\s*\"anon\"").containsMatchIn(claims)
+                }.getOrDefault(false)
+                require(value.startsWith("sb_publishable_") || anonJwt) { "ExamTrack requires a publishable or anon client key" }
+            } else require(value.startsWith("https://")) { "ExamTrack requires HTTPS" }
+            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }
+        buildConfigField("String", "EXAMTRACK_SUPABASE_URL", examTrackConfig("EXAMTRACK_SUPABASE_URL", "https://tqlmkctgmcuwtasbipxi.supabase.co"))
+        buildConfigField("String", "EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", examTrackConfig("EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_H1Y4cEBBRSipKMvwRXg9pw_RNawrUE6"))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -34,7 +54,7 @@ android {
             isShrinkResources = false
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,6 +63,14 @@ android {
 }
 
 dependencies {
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.0.3"))
+    implementation("io.github.jan-tennert.supabase:auth-kt")
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:storage-kt")
+    implementation("io.ktor:ktor-client-okhttp:3.0.3")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-gif:2.7.0")
+
     implementation(platform("androidx.compose:compose-bom:2025.06.01"))
     implementation("androidx.activity:activity-compose:1.9.3")
     // Pin Expressive APIs to the release compatible with Compose 1.8 and SDK 35.
@@ -63,5 +91,6 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.ktor:ktor-client-mock:3.0.3")
     testImplementation("org.json:json:20240303")
 }

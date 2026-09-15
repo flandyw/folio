@@ -88,7 +88,7 @@ object InkCodec {
  * An older file is migrated the first time it is opened.
  */
 object NoteMetaCodec {
-    const val VERSION = 5
+    const val VERSION = 6
 
     /** Single-parse version probe; prefer [versionOf] over the legacy per-version checks. */
     fun versionOf(value: String): Int = try { JSONObject(value).optInt("version", -1) } catch (_: Exception) { -1 }
@@ -112,6 +112,8 @@ object NoteMetaCodec {
         put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pageCover", note.pageCover)
+        put("mistakePractice", note.mistakePractice)
+        put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height)
             put("paper", p.paper.name); put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
@@ -131,6 +133,9 @@ object NoteMetaCodec {
     /** Reads a version-3 index during migration; the cover choice defaults to the first page. */
     fun decodeVersion3(value: String): Notebook = decodeIndex(value, 3)
 
+    /** Version 5 has no mistake practice metadata; it defaults to an ordinary notebook. */
+    fun decodeVersion5(value: String): Notebook = decodeIndex(value, 5)
+
     /** Reads a version-4 index during migration; attempts simply carry no telemetry. */
     fun decodeVersion4(value: String): Notebook = decodeIndex(value, 4)
 
@@ -148,7 +153,8 @@ object NoteMetaCodec {
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             setId = if (o.isNull("set")) null else o.optString("set"),
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
-            pageCover = o.optBoolean("pageCover", true))
+            pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
+            mistakeReviews = decodeMistakeReviews(o))
     }
 
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }

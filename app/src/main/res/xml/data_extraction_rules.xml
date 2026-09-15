@@ -1,4 +1,4 @@
 <data-extraction-rules>
-    <cloud-backup><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /></cloud-backup>
-    <device-transfer><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /></device-transfer>
+    <cloud-backup><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /><include domain="file" path="examtrack/" /></cloud-backup>
+    <device-transfer><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /><include domain="file" path="examtrack/" /></device-transfer>
 </data-extraction-rules>

@@ -290,6 +290,25 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         captureTab()
         enqueue { repository.saveAll(note) }
     }
+    /** Saves the new page before opening the normal editor; no ink is kept in the cloud cache. */
+    suspend fun createMistakePractice(user: String, mistake: com.folio.notes.mistakes.ExamTrackMistake): com.folio.notes.mistakes.LocalMistakeReviewAttempt {
+        ready.await()
+        val page = NotePage(paper = Paper.MATH_GRID, infinite = true, title = mistake.question)
+        val noteId = UUID.randomUUID().toString()
+        val attempt = com.folio.notes.mistakes.LocalMistakeReviewAttempt(user, mistake.id, UUID.randomUUID().toString(), noteId, page.id)
+        val note = Notebook(id = noteId, title = "${mistake.question} · Mistake practice", pages = listOf(page),
+            mistakePractice = true, mistakeReviews = listOf(attempt))
+        repository.saveAll(note)
+        _state.update { it.copy(notes = it.notes + note) }
+        open(note.id)
+        return attempt
+    }
+
+    fun completeMistakePractice(attempt: com.folio.notes.mistakes.LocalMistakeReviewAttempt) {
+        val note = _state.value.notes.find { it.id == attempt.practiceNotebookId } ?: return
+        updateNote(note.copy(mistakeReviews = note.mistakeReviews.filterNot { it.reviewId == attempt.reviewId } + attempt))
+    }
+
     private fun captureTab() {
         val snapshot = _state.value
         val note = snapshot.active ?: return
