@@ -13,7 +13,7 @@ jobs:
     outputs:
       commits: ${{ steps.commits.outputs.commits }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: commits
@@ -42,7 +42,7 @@ jobs:
       group: release-${{ matrix.commit }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.commit }}
           fetch-depth: 0
@@ -51,12 +51,12 @@ jobs:
           count=$(git rev-list --count HEAD)
           echo "VERSION_CODE=$count" >> "$GITHUB_ENV"
           echo "VERSION_NAME=0.1.$count" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Check app
         run: bash ./gradlew :app:testDebugUnitTest :app:lintDebug
       - name: Build signed release
