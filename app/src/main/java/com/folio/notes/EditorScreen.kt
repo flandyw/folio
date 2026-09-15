@@ -471,37 +471,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                 { images, center -> InkGeometry.scaleImages(images, center, factor) }
             ) },
             onRestyleSelection = { restyleSelection = selected.strokes },
-            onDeleteSelection = { model.deleteSelection(selected); selection = null },
-            toolbar = {
-                FloatingInkToolbar(
-                    modifier = Modifier,
-                    tool = tool,
-                    onTool = { selectTool(it) },
-                    options = options,
-                    onOptions = ::changeOptions,
-                    quick = quick,
-                    canUndo = state.canUndo,
-                    canRedo = state.canRedo,
-                    undo = model::undo,
-                    redo = model::redo,
-                    palette = palette,
-                    snapEnabled = snapEnabled,
-                    onSnap = ::setSnap,
-                    onAxes = model::insertAxes,
-                    onPalette = { palette = it },
-                    eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
-                    scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
-                    eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
-                    eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
-                    shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
-                    multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
-                    onSelectAll = ::selectAllInk,
-                    textColor = textColor, onTextColor = ::setTextColor,
-                    presets = toolPresets.presets, onApplyPreset = ::applyPreset,
-                    toolPresetsState = toolPresets
-                )
-            }
+            onDeleteSelection = { model.deleteSelection(selected); selection = null }
         )
+        // The ink toolbar floats over the page, not inside the top bar, so no
+        // top-bar background ever stretches behind the pills.
+        val showQuickBar = tool == Tool.PEN || tool == Tool.LINE || tool == Tool.RECTANGLE ||
+            tool == Tool.ELLIPSE || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER || tool == Tool.TEXT
+        val floatingToolbarTop = if (showQuickBar) 122.dp else 68.dp
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -509,7 +485,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val baseWidthPx = with(density) { baseWidth.toPx() }
             val stripWidth = 26.dp
             val stripInset = 2.dp
-            val trackTop = 16.dp
+            val trackTop = floatingToolbarTop + 8.dp
             val trackBottom = 20.dp
             val stripWidthPx = with(density) { stripWidth.toPx() }
             val stripInsetPx = with(density) { stripInset.toPx() }
@@ -645,7 +621,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch },
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(top = floatingToolbarTop + 16.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp * documentZoom), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
@@ -737,6 +713,40 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onFit = { activeInkView?.fitCanvas(it) }, onHome = ::resetZoom,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp,
                         bottom = 12.dp))
+            }
+            // Floating ink tools: centred over the page with nothing behind them
+            // but the page itself, so the top bar never shows through.
+            Box(
+                Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 12.dp, end = 12.dp).zIndex(11f),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                FloatingInkToolbar(
+                    modifier = Modifier,
+                    tool = tool,
+                    onTool = { selectTool(it) },
+                    options = options,
+                    onOptions = ::changeOptions,
+                    quick = quick,
+                    canUndo = state.canUndo,
+                    canRedo = state.canRedo,
+                    undo = model::undo,
+                    redo = model::redo,
+                    palette = palette,
+                    snapEnabled = snapEnabled,
+                    onSnap = ::setSnap,
+                    onAxes = model::insertAxes,
+                    onPalette = { palette = it },
+                    eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
+                    scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
+                    eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
+                    eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
+                    shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
+                    multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
+                    onSelectAll = ::selectAllInk,
+                    textColor = textColor, onTextColor = ::setTextColor,
+                    presets = toolPresets.presets, onApplyPreset = ::applyPreset,
+                    toolPresetsState = toolPresets
+                )
             }
         }
     }

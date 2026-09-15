@@ -22,12 +22,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * The editor's single top bar: identity, navigation and tools merged together.
+ * The editor's top chrome: identity, navigation and selection only.
  *
- * Replaces the old split of floating top chrome + bottom bar. The ink toolbar and
- * the page-actions (settings/export/more) are supplied as slots so this bar stays
- * generic, but everything is always rendered as part of the same top container —
- * never as a separate bottom bar.
+ * The ink toolbar floats over the page below this bar, so it is deliberately
+ * not part of this container — keeping it here would stretch this bar's
+ * background behind the floating pills.
  */
 @Composable internal fun EditorTopBar(
     title: String,
@@ -57,8 +56,7 @@ import androidx.compose.ui.unit.dp
     onRotateSelection: (Float) -> Unit,
     onResizeSelection: (Float) -> Unit,
     onRestyleSelection: () -> Unit,
-    onDeleteSelection: () -> Unit,
-    toolbar: @Composable () -> Unit
+    onDeleteSelection: () -> Unit
 ) {
     Surface(modifier = Modifier.guardUiTouches(), color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
         Column {
@@ -143,10 +141,6 @@ import androidx.compose.ui.unit.dp
                         Spacer(Modifier.width(6.dp)); Text("Delete")
                     }
                 }
-            }
-            // Ink tools live in the same top bar, centred below the app controls.
-            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
-                toolbar()
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
