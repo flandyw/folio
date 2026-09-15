@@ -263,6 +263,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     val motionDensity = LocalDensity.current.density
     val motion = remember(pages, note.id, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
     DisposableEffect(motion) { onDispose { motion.reset() } }
+    var canvasViewport by remember(page.id) { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var canvasReset by remember { mutableIntStateOf(0) }
     fun resetZoom() {
         canvasReset++
@@ -414,7 +415,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
                     onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
-                    onCanvasZoom = { documentZoom = it },
+                    onCanvasZoom = { documentZoom = it }, onCanvasViewport = { canvasViewport = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
@@ -551,6 +552,13 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
+            }
+            if (page.infinite && page.loaded) {
+                CanvasNavigator(page, canvasViewport,
+                    onNavigate = { x, y -> activeInkView?.navigateCanvas(x, y) },
+                    onFit = { activeInkView?.fitCanvas(it) }, onHome = ::resetZoom,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp,
+                        bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 152.dp else 12.dp))
             }
             val toolbarAlignment = when (toolbarPosition) {
                 ToolbarPosition.TOP -> Alignment.TopCenter
@@ -1058,7 +1066,7 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
 private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.HIGHLIGHTER)
 
-@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID) {
+@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
@@ -1114,7 +1122,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         // of a blank stand-in and replace the content that is still on disk.
         if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
-            view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
+            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
             view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished

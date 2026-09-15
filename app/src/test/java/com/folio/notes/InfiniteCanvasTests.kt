@@ -5,6 +5,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InfiniteCanvasTests {
+    @Test fun navigatorCentersNegativeCoordinatesWithoutChangingZoom() {
+        val camera = InfiniteViewport()
+        camera.scaleBy(2f, 0f, 0f)
+        camera.centerOn(-3000f, 4500f, 1000f, 600f)
+        assertEquals(2f, camera.zoom, 0f)
+        assertEquals(-3000f, (500f - camera.x) / camera.zoom, .001f)
+        assertEquals(4500f, (300f - camera.y) / camera.zoom, .001f)
+    }
+
+    @Test fun navigatorFitsContentWithMarginAndCentersIt() {
+        val camera = InfiniteViewport()
+        camera.fit(-2000f, -1000f, 2000f, 1000f, 1000f, 600f)
+        assertEquals(.2f, camera.zoom, .001f)
+        assertEquals(100f, -2000f * camera.zoom + camera.x, .001f)
+        assertEquals(900f, 2000f * camera.zoom + camera.x, .001f)
+        assertEquals(300f, camera.y, .001f)
+        camera.fit(0f, 0f, 0f, 0f, 1000f, 600f)
+        assertEquals(.2f, camera.zoom, .001f)
+    }
+
+    @Test fun navigatorFitRespectsZoomLimits() {
+        val camera = InfiniteViewport()
+        camera.fit(0f, 0f, 1f, 1f, 1000f, 600f)
+        assertEquals(8f, camera.zoom, 0f)
+        camera.fit(-100000f, -100000f, 100000f, 100000f, 1000f, 600f)
+        assertEquals(.1f, camera.zoom, 0f)
+    }
+
     @Test fun panHasNoPageBoundary() {
         val camera = InfiniteViewport()
         camera.pan(-10000f, 25000f)

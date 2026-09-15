@@ -141,19 +141,43 @@ class InkView(context: Context) : View(context) {
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
     private val camera = InfiniteViewport()
+    var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
+    private fun reportCanvasViewport() {
+        if (page.infinite && width > 0 && height > 0) {
+            onCanvasZoom(camera.zoom)
+            onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
+                (width - camera.x) / camera.zoom, (height - camera.y) / camera.zoom))
+        }
+    }
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        reportCanvasViewport()
+    }
+    fun navigateCanvas(x: Float, y: Float) {
+        if (!page.infinite) return
+        cancelGesture()
+        camera.centerOn(x, y, width.toFloat(), height.toFloat())
+        reportCanvasViewport(); invalidate()
+    }
+    fun fitCanvas(bounds: androidx.compose.ui.geometry.Rect) {
+        if (!page.infinite) return
+        cancelGesture()
+        camera.fit(bounds.left, bounds.top, bounds.right, bounds.bottom, width.toFloat(), height.toFloat())
+        reportCanvasViewport(); invalidate()
+    }
     var onCanvasZoom: (Float) -> Unit = {}
     private var resetToken = -1
     fun resetCanvas(token: Int) {
         if (resetToken == token) return
         resetToken = token
-        camera.reset(); invalidate()
-        if (page.infinite) onCanvasZoom(camera.zoom)
+        cancelGesture(); camera.reset(); invalidate()
+        reportCanvasViewport()
     }
     private val zoomDetector = android.view.ScaleGestureDetector(context,
         object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
                 camera.scaleBy(detector.scaleFactor, detector.focusX, detector.focusY)
-                onCanvasZoom(camera.zoom); invalidate(); return true
+                reportCanvasViewport(); invalidate(); return true
             }
         }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
     private val scale get() = if (page.infinite) camera.zoom else pageScale
@@ -385,7 +409,7 @@ class InkView(context: Context) : View(context) {
                 } else if (navigating) {
                     val x = centroidX(event); val y = centroidY(event)
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
-                    if (page.infinite) camera.pan(x - lastX, y - lastY) else onDocumentPan(x - lastX, y - lastY)
+                    if (page.infinite) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
                     lastX = x; lastY = y
                 } else {
                     val points = (0 until event.historySize).map { point(event, index, it) } + point(event, index)

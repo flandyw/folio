@@ -6,6 +6,19 @@ class InfiniteViewport {
     var y = 0f; private set
     var zoom = 1f; private set
 
+    fun centerOn(worldX: Float, worldY: Float, width: Float, height: Float) {
+        if (!worldX.isFinite() || !worldY.isFinite() || width <= 0f || height <= 0f) return
+        x = width / 2f - worldX * zoom
+        y = height / 2f - worldY * zoom
+    }
+
+    fun fit(left: Float, top: Float, right: Float, bottom: Float, width: Float, height: Float) {
+        if (listOf(left, top, right, bottom, width, height).any { !it.isFinite() } ||
+            right <= left || bottom <= top || width <= 0f || height <= 0f) return
+        zoom = minOf(width * .8f / (right - left), height * .8f / (bottom - top)).coerceIn(.1f, 8f)
+        centerOn((left + right) / 2f, (top + bottom) / 2f, width, height)
+    }
+
     fun reset() { x = 0f; y = 0f; zoom = 1f }
     fun pan(dx: Float, dy: Float) {
         if (dx.isFinite() && dy.isFinite()) { x += dx; y += dy }
