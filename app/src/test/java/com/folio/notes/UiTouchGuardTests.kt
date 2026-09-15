@@ -1,9 +1,27 @@
 package com.folio.notes
 
+import androidx.compose.ui.input.pointer.PointerType
 import org.junit.Assert.*
 import org.junit.Test
 
 class UiTouchGuardTests {
+    @Test fun aPenNoPageHasTakenIsHeldBackFromThePageColumn() {
+        // Both pen tips are pens; nothing else is.
+        assertTrue(isPen(PointerType.Stylus))
+        assertTrue(isPen(PointerType.Eraser))
+        assertFalse(isPen(PointerType.Touch))
+        // A page without an ink surface yet, a gap between pages or the margin beside them must not
+        // drag the document.
+        assertTrue(holdsPenFromScrolling(PointerType.Stylus, false))
+        assertTrue(holdsPenFromScrolling(PointerType.Eraser, false))
+        // A page, button or slider that took the pen keeps it, so writing is never interrupted.
+        assertFalse(holdsPenFromScrolling(PointerType.Stylus, true))
+        assertFalse(holdsPenFromScrolling(PointerType.Eraser, true))
+        // Fingers and mice are how the workspace is navigated, so they are always let through.
+        assertFalse(holdsPenFromScrolling(PointerType.Touch, false))
+        assertFalse(holdsPenFromScrolling(PointerType.Mouse, false))
+    }
+
     @Test fun ordinaryFingerInputWorksBeforeAnyPenActivity() {
         val gesture = UiTouchGesture(StylusActivity())
         assertFalse(gesture.reject(1, true, true, 1000))

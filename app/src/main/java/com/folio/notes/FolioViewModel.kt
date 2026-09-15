@@ -79,6 +79,7 @@ private typealias PageContent = Triple<List<Stroke>, List<TextBox>, List<PageIma
 
 class FolioViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("preferences", 0)
+    private val positionPrefs = application.getSharedPreferences("notebook_positions", 0)
     val repository = (application as FolioApplication).repository
     val thumbnails = (application as FolioApplication).thumbnails
     private val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"])
@@ -187,6 +188,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             try {
                 val (notes, folders, sets) = repository.load()
                 migrateLegacyTimer(notes)
+                prunePositions(notes)
                 _state.update { state -> state.copy(notes = notes, folders = folders, sets = sets, loading = false,
                     activeId = state.activeId?.takeIf { id -> notes.any { it.id == id } },
                     tabs = state.tabs.filter { tab -> notes.any { it.id == tab.notebookId } },
@@ -289,27 +291,70 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         enqueue { repository.saveAll(note) }
     }
     private fun captureTab() {
-        val state = _state.value
-        val note = state.active ?: return
-        val page = state.page ?: return
-        _state.update { current ->
-            val old = current.tabs.find { it.notebookId == note.id }
-                ?: EditorTab(note.id, note.id, page.id, note.title)
-            val tab = old.copy(currentPageId = page.id, title = note.title, search = state.pdfSearch)
-            current.copy(tabs = current.tabs.withTab(tab))
-        }
+        val snapshot = _state.value
+        val note = snapshot.active ?: return
+        if (snapshot.page == null) return
+        _state.update { state -> captureTabInto(state) }
+        persistPosition(note.id)
+    }
+
+    /**
+     * [next] with the open notebook's tab pointing at the page and search [next] already carries.
+     * Pure, so a caller mid-update can fold the capture into the same state pass as the change that
+     * caused it. A state whose tab did not move compares equal and is never emitted.
+     */
+    private fun captureTabInto(next: FolioState): FolioState {
+        val note = next.active ?: return next
+        val page = next.page ?: return next
+        val old = next.tabs.find { it.notebookId == note.id }
+            ?: EditorTab(note.id, note.id, page.id, note.title)
+        val tab = old.copy(currentPageId = page.id, title = note.title, search = next.pdfSearch)
+        return next.copy(tabs = next.tabs.withTab(tab))
+    }
+
+    /**
+     * Writes one notebook's reading position — page, viewport, tool and PDF query — so
+     * reopening it later lands where the user left off, even after its tab is gone.
+     * The live page and query win for the open notebook; closed tabs persist as stored.
+     */
+    private fun persistPosition(notebookId: String) {
+        val snapshot = _state.value
+        val tab = snapshot.tabs.find { it.notebookId == notebookId } ?: return
+        val livePageId = if (notebookId == snapshot.activeId) snapshot.page?.id ?: tab.currentPageId else tab.currentPageId
+        val liveQuery = if (notebookId == snapshot.activeId) snapshot.pdfSearch.query else tab.search.query
+        val position = NotebookPosition(livePageId, tab.viewport, tab.tool, liveQuery)
+        positionPrefs.edit().putString(notebookId, NotebookPositionCodec.encode(position)).apply()
+    }
+
+    /** The last saved position for [note], or null when it was never opened or is stale. */
+    private fun rememberedTab(note: Notebook): EditorTab? {
+        val position = NotebookPositionCodec.decode(positionPrefs.getString(note.id, null))
+            ?: return null
+        val pageId = position.pageId.takeIf { id -> note.pages.any { it.id == id } }
+            ?: note.pages.firstOrNull()?.id ?: return null
+        return position.copy(pageId = pageId).toTab(note.id, note.title)
+    }
+
+    /** Drops saved positions for notebooks that no longer exist, so the store never grows stale. */
+    private fun prunePositions(notes: List<Notebook>) {
+        val alive = notes.map { it.id }.toSet()
+        val stale = positionPrefs.all.keys.filter { it !in alive }
+        if (stale.isEmpty()) return
+        positionPrefs.edit().apply { stale.forEach { remove(it) } }.apply()
     }
 
     fun updateTabViewport(id: String, viewport: WorkspaceViewport, tool: Tool) {
         _state.update { state -> state.copy(tabs = state.tabs.map {
             if (it.id == id) it.copy(viewport = viewport, tool = tool) else it
         }) }
+        _state.value.tabs.find { it.id == id }?.let { persistPosition(it.notebookId) }
     }
 
     fun open(id: String) {
         val target = _state.value.notes.find { it.id == id } ?: return
         captureTab()
         val tab = _state.value.tabs.find { it.notebookId == id }
+            ?: rememberedTab(target)
             ?: EditorTab(id, id, target.pages.first().id, target.title)
         selectNotebookTimer(id)
         _state.update { it.copy(activeId = id,
@@ -328,6 +373,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             selectPage(index)
             captureTab()
             _state.update { state -> state.copy(tabs = state.tabs.map { if (it.notebookId == id) it.copy(viewport = it.viewport.copy(scrollOffset = 0)) else it }) }
+            persistPosition(id)
             _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
         }
     }
@@ -366,6 +412,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         captureTab()
         val note = _state.value.notes.find { it.id == id } ?: return
         val source = _state.value.tabs.find { it.notebookId == id }
+            ?: rememberedTab(note)
             ?: EditorTab(id, id, note.pages.first().id, note.title)
         _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, editorOnRight = false,
             tabs = if (mode == CompanionMode.SPLIT) it.tabs.withTab(source) else it.tabs) }
@@ -535,6 +582,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 pdfSearch = if (closing) PdfSearchState() else it.pdfSearch
             )
         }
+        positionPrefs.edit().remove(note.id).apply()
         thumbnails.clear(note.id)
         enqueue {
             try { repository.delete(note.id) }
@@ -558,6 +606,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             )
         }
         removed.forEach { thumbnails.clear(it.id) }
+        positionPrefs.edit().apply { removed.forEach { remove(it.id) } }.apply()
         enqueue {
             val failed = mutableListOf<Notebook>()
             removed.forEach {
@@ -572,7 +621,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun selectPage(index: Int) {
         val note = _state.value.active ?: return
-        _state.update { it.copy(pageIndex = index.coerceIn(0, note.pages.lastIndex)) }
+        val target = index.coerceIn(0, note.pages.lastIndex)
+        // The page turn and the tab capture that follows it share one state pass. As two updates
+        // they recomposed the whole editor twice per page, and a fling pays that on every page it
+        // crosses. An unchanged state is not emitted at all, so a repeat selection costs nothing.
+        _state.update { state -> captureTabInto(state.copy(pageIndex = target)) }
+        persistPosition(note.id)
         historyState()
         _state.value.page?.let { loadPage(it.id) }
         _state.value.page?.let { noteVisit(it.id) }
@@ -624,6 +678,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 if (current.id != note.id || at < 0) return@launch
                 val duplicated = current.withPage(if (current.pages[at].loaded) current.pages[at] else current.pages[at].withLoadedContent(loaded)).withDuplicatedPage(at).copy(updated = System.currentTimeMillis())
                 _state.update { s -> s.copy(notes = s.notes.map { if (it.id == current.id) duplicated else it }, pageIndex = at + 1) }
+                captureTab()
                 enqueue { repository.savePage(duplicated, duplicated.pages[at + 1]) }
             } catch (e: Exception) { reportError("Couldn't duplicate this page: ${e.message.orEmpty()}") }
         }
@@ -633,6 +688,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val at = index + 1
         val duplicated = note.withDuplicatedPage(index).copy(updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == duplicated.id) duplicated else it }, pageIndex = at) }
+        captureTab()
         // The copy is a page of its own, so its content has to reach disk along with the index.
         enqueue { repository.savePage(duplicated, duplicated.pages[at]) }
         return at
@@ -646,6 +702,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val updated = note.withInsertedPage(at, NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))
         updateNote(updated)
         _state.update { it.copy(pageIndex = at) }
+        captureTab()
         return at
     }
     /** Removes a page, keeping the open page in view and leaving at least one page behind. */
@@ -659,6 +716,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         enqueue { repository.deletePage(note.id, removed.id) }
         val current = if (index < state.pageIndex) state.pageIndex - 1 else state.pageIndex
         _state.update { it.copy(pageIndex = current.coerceIn(0, updated.pages.lastIndex)) }
+        captureTab()
         historyState()
     }
     /** Reorders a page, keeping the page you were reading on screen. */
@@ -669,6 +727,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (updated == note) return
         updateNote(updated)
         _state.update { it.copy(pageIndex = movedPageIndex(state.pageIndex, from, to.coerceIn(0, note.pages.lastIndex))) }
+        captureTab()
         historyState()
     }
     /** Organisation lives in the index, so even an unloaded page can be named or bookmarked. */
@@ -1082,9 +1141,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Searches the open notebook's imported PDF text; a blank query clears the results. */
     fun searchPdf(query: String) {
         val note = _state.value.active ?: return
-        if (query.isBlank()) { _state.update { it.copy(pdfSearch = PdfSearchState()) }; return }
+        if (query.isBlank()) { _state.update { it.copy(pdfSearch = PdfSearchState()) }; captureTab(); return }
         val noteId = note.id
         _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searching = true, searched = true)) }
+        captureTab()
         viewModelScope.launch {
             val pages = try { repository.pdfPageTexts(noteId) } catch (_: Exception) { emptyList() }
             // Matching is CPU-bound; keep it off the main thread.
@@ -1092,9 +1152,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             // A search finishing after its notebook closed belongs nowhere.
             if (_state.value.activeId != noteId || _state.value.pdfSearch.query != query) return@launch
             _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searched = true, results = hits)) }
+            captureTab()
         }
     }
-    fun clearPdfSearch() { _state.update { it.copy(pdfSearch = PdfSearchState()) } }
+    fun clearPdfSearch() { _state.update { it.copy(pdfSearch = PdfSearchState()) }; captureTab() }
     fun preparePdfImport(uris: List<Uri>) {
         if (uris.isEmpty()) return
         _state.update { it.copy(pendingPdfImports = (it.pendingPdfImports + uris).distinct()) }

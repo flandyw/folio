@@ -1,5 +1,7 @@
 package com.folio.notes
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.composed
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -26,6 +28,42 @@ internal class UiTouchGesture(private val stylus: StylusActivity) {
 }
 
 internal val LocalStylusActivity = staticCompositionLocalOf { StylusActivity() }
+
+/** A pen tip: the stylus and the stylus eraser, the contacts that leave ink rather than navigate. */
+internal fun isPen(type: PointerType): Boolean =
+    type == PointerType.Stylus || type == PointerType.Eraser
+
+/** True for a pen contact nothing has claimed, so the workspace must not read it as a drag. */
+internal fun holdsPenFromScrolling(type: PointerType, consumed: Boolean): Boolean =
+    isPen(type) && !consumed
+
+/**
+ * Keeps a pen that no page has taken from dragging the page column. Without it a pen that lands on
+ * a page before that page's ink surface is mounted — its ink still being read, or a PDF page still
+ * rendering — scrolls the document instead of writing, so the stroke is lost and the page slides
+ * under the hand. It also stops a pen drag in the gaps between pages or the margin beside them from
+ * scrolling, since a pen is never how this workspace is navigated.
+ *
+ * The claim is read at the Final pass of the touch-down: by then every page, button, slider and
+ * scroller has had its turn, so anything still unclaimed truly belongs to nobody. A pen a page did
+ * take is left completely alone — the whole gesture is ignored — so ink is never at risk, and
+ * finger scrolling over the column keeps working because only pen contacts are held.
+ */
+internal fun Modifier.holdPenFromScrolling(): Modifier = composed {
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (!isPen(down.type)) return@awaitEachGesture
+            val claimed = awaitPointerEvent(PointerEventPass.Final)
+                .changes.firstOrNull { it.id == down.id }?.isConsumed == true
+            if (claimed) return@awaitEachGesture
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { if (holdsPenFromScrolling(it.type, it.isConsumed)) it.consume() }
+            } while (event.changes.any { it.pressed })
+        }
+    }
+}
 
 /** Consume palm contacts before buttons, text fields and sliders see them; pen/mouse still work. */
 internal fun Modifier.guardUiTouches(): Modifier = composed {

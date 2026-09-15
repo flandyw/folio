@@ -89,6 +89,9 @@ class InkView(context: Context) : View(context) {
     private var selectedTexts: List<TextBox> = emptyList()
     private var selectedImages: List<PageImage> = emptyList()
     private var selectionDx = 0f; private var selectionDy = 0f
+    /** Cached identity set of the lasso selection, rebuilt only when the selection itself changes. */
+    private var selectionIdsKey: List<Stroke>? = null
+    private var selectionIds: MutableSet<Stroke>? = null
     private var movingSelection = false
     private var lastMoveX = 0f; private var lastMoveY = 0f
     private var pointerId = -1
@@ -98,9 +101,20 @@ class InkView(context: Context) : View(context) {
     private var lastStylusAt = -PALM_REJECT_MS
     private var lastX = 0f; private var lastY = 0f
     private var navigating = false
+    /**
+     * A resting hand wanders further than a fingertip's drag slop, so a finger-driven pan waits for
+     * twice it before it may move the document.
+     */
+    private val panGate = PanGate(ViewConfiguration.get(context).scaledTouchSlop * 2f)
     private val touchChord = TouchChord(ViewConfiguration.get(context).scaledTouchSlop * 1.2f)
     /** Set once a stroke runs past the page edge, so the rest of the gesture cannot smear along it. */
     private var offPage = false
+    /**
+     * Geometry of the pen stroke in progress, carried between frames so only newly arrived samples
+     * are re-smoothed. Keyed by the stroke's own sample list, so a new stroke re-arms it.
+     */
+    private var draftPenStroke: InkRenderer.IncrementalPenStroke? = null
+    private var draftPenPoints: List<InkPoint>? = null
     /** Where the eraser outline sits, in page units, or null when it should not be shown. */
     private var eraserMark: InkPoint? = null
     // Text gestures: a box being dragged, or a tap waiting to become a new box.
@@ -337,7 +351,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null }
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
         else if (page.strokes !== value.strokes) {
             // Same page, new revision: drop geometry for strokes that are gone so the
             // caches track the live ink instead of every undone fragment.
@@ -375,6 +389,24 @@ class InkView(context: Context) : View(context) {
     private var recordedBackground: Bitmap? = null
     private var recordedImages: Map<String, Bitmap>? = null
 
+    private fun selectionIdentities(): MutableSet<Stroke> {
+        val key = selection
+        val cached = selectionIds
+        if (selectionIdsKey !== key || cached == null) {
+            selectionIdsKey = key
+            val built = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
+            built.addAll(key)
+            selectionIds = built
+            return built
+        }
+        return cached
+    }
+    private fun resetDraftGeometry() { draftPenStroke = null; draftPenPoints = null }
+    private fun draftGeometry(stroke: Stroke): InkRenderer.RenderedStroke {
+        val points = stroke.points
+        if (draftPenPoints !== points) { draftPenPoints = points; draftPenStroke = InkRenderer.IncrementalPenStroke() }
+        return draftPenStroke!!.update(points)
+    }
     /**
      * Smoothed ink geometry by stroke identity. Strokes are immutable and untouched strokes
      * keep their instance through erasing and page copies, so each stroke pays the spline
@@ -435,6 +467,7 @@ class InkView(context: Context) : View(context) {
         if (android.os.Build.VERSION.SDK_INT >= 29) committedLayer?.discardDisplayList()
         recordedPage = null; recordedBackground = null; recordedImages = null
         renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
+        resetDraftGeometry()
         super.onDetachedFromWindow()
     }
 
@@ -453,9 +486,9 @@ class InkView(context: Context) : View(context) {
         val placed = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
         // Selected content draws last, at its drag offset, so a move reads clearly.
         val hasSelection = selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()
-        // Identity set avoids O(S_sel × S_page × pts) deep-equals per frame while dragging.
-        val selectedIds = if (!hasSelection || selection.isEmpty()) null else
-            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
+        // Identity set avoids O(S_sel × S_page × pts) deep-equals per frame while dragging, and is
+        // reused while the selection list itself is unchanged so a drag allocates nothing here.
+        val selectedIds = if (!hasSelection || selection.isEmpty()) null else selectionIdentities()
         // Reuse the same base object while the page and the selection membership are stable:
         // a drag only changes the offset (drawn below via a canvas translate), so the
         // retained committed layer keeps hitting instead of re-recording the page per frame.
@@ -513,15 +546,26 @@ class InkView(context: Context) : View(context) {
             }
             canvas.restore()
         }
-        draft?.let { InkRenderer.stroke(canvas, it) }
-        draft?.let { if (shapeMeasurements && it.tool in MEASURE_TOOLS) drawMeasurement(canvas, it) }
+        val draftStroke = draft
+        // A pen stroke in progress draws from incremental geometry: only the section the tip is
+        // still extending is re-smoothed, so a long line costs the same per frame as a short one
+        // instead of re-resampling the whole stroke 144 times a second.
+        if (draftStroke == null) resetDraftGeometry()
+        else {
+            val live = if (draftStroke.tool == Tool.PEN) draftGeometry(draftStroke) else null
+            if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
+            else InkRenderer.stroke(canvas, draftStroke)
+            if (shapeMeasurements && draftStroke.tool in MEASURE_TOOLS) drawMeasurement(canvas, draftStroke)
+        }
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
         eraserMark?.let { drawEraser(canvas, it) }
         dragging?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
         // The selected picture keeps its outline while another picture is dragged, unless it is
         // part of the lasso selection, which already draws its own outline at the drag offset.
-        val outlined = (liveImage?.takeIf { it.id == selectedImageId } ?: placed.images.find { it.id == selectedImageId })
-            ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
+        val outlined = selectedImageId?.let { id ->
+            (liveImage?.takeIf { it.id == id } ?: placed.images.find { it.id == id })
+                ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
+        }
         outlined?.let { drawImageSelection(canvas, it) }
         canvas.restore()
     }
@@ -616,6 +660,9 @@ class InkView(context: Context) : View(context) {
                 } else if (lassoActive()) beginLasso(event, 0)
                 else if (tool == Tool.TEXT && !ignored) beginText(event, 0)
                 else if (!navigating && !ignored) beginStroke(event, 0)
+                // Pen-only mode is where a finger means "navigate", so a hand that has not travelled
+                // yet is left where it is. The pen takes the gesture over the moment its tip lands.
+                panGate.arm(navigating && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (isStylus(event, event.actionIndex)) {
@@ -624,6 +671,7 @@ class InkView(context: Context) : View(context) {
                     stylus = true
                     ignored = false
                     navigating = tool == Tool.HAND
+                    panGate.release()
                     draft = null; erasing = null; lasso = null; movingSelection = false; offPage = false; eraserMark = null
                     movingText = null; pendingTextBox = null
                     movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null
@@ -633,6 +681,8 @@ class InkView(context: Context) : View(context) {
                 } else if (!stylus && !ignored) {
                     suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
+                    // Two fingers are a deliberate pinch or pan, never a resting hand.
+                    panGate.release()
                     lastX = centroidX(event); lastY = centroidY(event)
                     panVelocity.resetTracking()
                     panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
@@ -689,19 +739,22 @@ class InkView(context: Context) : View(context) {
                         lastMoveX = moved.x; lastMoveY = moved.y
                     } else {
                         // Reuse the backing list: rebuilding the whole loop per MOVE is O(N²).
-                        val incoming = ((0 until event.historySize).map { point(event, index, it) } + point(event, index)).map { clampToPage(it) }
                         val backing = (lasso as? ArrayList<InkPoint>) ?: ArrayList(lasso ?: emptyList())
-                        backing.addAll(incoming)
+                        for (history in 0 until event.historySize) backing += clampToPage(point(event, index, history))
+                        backing += clampToPage(point(event, index))
                         lasso = backing
                     }
                 } else if (navigating) {
                     suspendWritingFollow()
                     val x = centroidX(event); val y = centroidY(event)
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
-                    if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
+                    // Held back until the contact reads as a drag, so a settling hand moves nothing.
+                    if (panGate.moved(x, y)) {
+                        if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
+                    }
                     lastX = x; lastY = y
                 } else {
-                    val points = (0 until event.historySize).map { point(event, index, it) } + point(event, index)
+                    val points = samples(event, index)
                     // The eraser cuts out the samples it touches and leaves the rest of the stroke behind.
                     // One pass applies all of this frame's samples: re-walking every stroke once per
                     // sample is what made a drag feel heavy once a page had ink on it.
@@ -826,7 +879,8 @@ class InkView(context: Context) : View(context) {
                     link?.let(onPdfLink)
                 } else if (navigating && !ignored) {
                     panVelocity.addPosition(event.eventTime, Offset(event.rawX, event.rawY))
-                    onDocumentPanEnd(panVelocity.calculateVelocity().y)
+                    // A hand that never panned must not fling the document when it lifts either.
+                    onDocumentPanEnd(if (panGate.waitingForSlop) 0f else panVelocity.calculateVelocity().y)
                 }
                 if (!hadImage && !hadLink) {
                 if (tool == Tool.TEXT) finishText()
@@ -997,7 +1051,7 @@ class InkView(context: Context) : View(context) {
         linkFromX = at.x; linkFromY = at.y
         return true
     }
-    private fun cancelGesture() { followProgressAt = 0L; draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { followProgressAt = 0L; panGate.release(); draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, or picks up the current selection when the drag begins inside it. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -1180,8 +1234,27 @@ class InkView(context: Context) : View(context) {
         return accepted
     }
     // Screen coordinates stay stable as the containing document scrolls beneath this view.
-    private fun centroidX(e: MotionEvent, skip: Int = -1) = (0 until e.pointerCount).filter { it != skip }.map { e.getX(it) }.average().toFloat() + e.rawX - e.x
-    private fun centroidY(e: MotionEvent, skip: Int = -1) = (0 until e.pointerCount).filter { it != skip }.map { e.getY(it) }.average().toFloat() + e.rawY - e.y
+    // Summed directly: the filter/map/average chain allocated two lists and a boxed Float per
+    // pointer on every MOVE, which is the busiest path in the whole view.
+    private fun centroidX(e: MotionEvent, skip: Int = -1): Float {
+        var sum = 0f; var count = 0
+        for (i in 0 until e.pointerCount) if (i != skip) { sum += e.getX(i); count++ }
+        val average = if (count == 0) Float.NaN else sum / count
+        return average + e.rawX - e.x
+    }
+    private fun centroidY(e: MotionEvent, skip: Int = -1): Float {
+        var sum = 0f; var count = 0
+        for (i in 0 until e.pointerCount) if (i != skip) { sum += e.getY(i); count++ }
+        val average = if (count == 0) Float.NaN else sum / count
+        return average + e.rawY - e.y
+    }
+    /** This event's samples for [index] in one list, history first, instead of two plus a concat. */
+    private fun samples(event: MotionEvent, index: Int): ArrayList<InkPoint> {
+        val points = ArrayList<InkPoint>(event.historySize + 1)
+        for (history in 0 until event.historySize) points += point(event, index, history)
+        points += point(event, index)
+        return points
+    }
     override fun performClick(): Boolean { super.performClick(); return true }
     private companion object {
         /** Freehand tools grow sample-by-sample; shapes re-derive from two corners. */

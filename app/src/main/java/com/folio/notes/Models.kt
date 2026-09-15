@@ -647,16 +647,29 @@ object InkGeometry {
      * long line trails off naturally at both ends.
      */
     fun taperScales(points: List<InkPoint>): List<Float> {
-        if (points.size < 2) return List(points.size) { 1f }
-        val travelled = FloatArray(points.size)
-        for (i in 1..points.lastIndex) travelled[i] = travelled[i - 1] + distance(points[i - 1], points[i])
-        val total = travelled.last()
-        if (total <= 0f) return List(points.size) { 1f }
+        val scales = taperScalesArray(points)
+        return List(scales.size) { scales[it] }
+    }
+
+    /**
+     * [taperScales] without the boxed list. The renderer reads one multiplier per centreline point on
+     * every frame of a stroke in progress, so handing it primitives keeps that pass allocation-free
+     * instead of churning a boxed Float per point per frame.
+     */
+    fun taperScalesArray(points: List<InkPoint>): FloatArray {
+        val count = points.size
+        val scales = FloatArray(count) { 1f }
+        if (count < 2) return scales
+        val travelled = FloatArray(count)
+        for (i in 1 until count) travelled[i] = travelled[i - 1] + distance(points[i - 1], points[i])
+        val total = travelled[count - 1]
+        if (total <= 0f) return scales
         val ramp = min(TAPER_RAMP, total * TAPER_SHARE)
-        return points.indices.map { i ->
+        for (i in 0 until count) {
             val edge = min(travelled[i], total - travelled[i])
-            TAPER_FLOOR + (1f - TAPER_FLOOR) * (edge / ramp).coerceAtMost(1f)
+            scales[i] = TAPER_FLOOR + (1f - TAPER_FLOOR) * (edge / ramp).coerceAtMost(1f)
         }
+        return scales
     }
 
     // ---- Scribble-to-erase + eraser pressure -------------------------------------------------

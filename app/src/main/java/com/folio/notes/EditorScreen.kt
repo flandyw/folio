@@ -620,7 +620,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }, contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
                     state = pages,
-                    modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch },
+                    modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
                     contentPadding = PaddingValues(top = floatingToolbarTop + 16.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp * documentZoom), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -1432,7 +1432,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
         if (showQuickBar) {
-            Box(Modifier.width(20.dp).height(6.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Spacer(Modifier.height(4.dp))
             Surface(Modifier.widthIn(max = 560.dp).height(48.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (tool == Tool.TEXT && onTextColor != null) {

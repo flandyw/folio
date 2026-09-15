@@ -1,12 +1,18 @@
 package com.folio.notes
 
-import kotlin.math.max
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Document-space math, shared by pinch zoom and horizontal navigation. */
 object DocumentViewport {
+    /**
+     * Keeps the page reachable without letting it leave the screen. Zoomed in, panning stops
+     * when a page edge meets the viewport edge; zoomed out, the page may slide all the way to
+     * either edge, so it can be pushed aside instead of being pinned to the centre. That is the
+     * behaviour other note apps have: a pan is never swallowed, it just stops at the edge.
+     */
     fun clampPan(pan: Float, documentWidth: Float, viewportWidth: Float): Float {
-        val limit = max(0f, (documentWidth - viewportWidth) / 2)
+        val limit = abs(documentWidth - viewportWidth) / 2
         return pan.coerceIn(-limit, limit)
     }
     fun zoomPan(pan: Float, focusX: Float, viewportWidth: Float, newWidth: Float, ratio: Float): Float =

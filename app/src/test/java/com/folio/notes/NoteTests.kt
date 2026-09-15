@@ -34,9 +34,15 @@ class NoteTests {
         assertEquals(-100f, DocumentViewport.zoomPan(0f, 600f, 1000f, 1800f, 2f), .001f)
     }
     @Test fun documentPanCannotLoseThePagesOutsideTheViewport() {
-        assertEquals(0f, DocumentViewport.clampPan(500f, 800f, 1000f), .001f)
+        // Zoomed in, a pan stops with a page edge on a viewport edge.
         assertEquals(400f, DocumentViewport.clampPan(900f, 1800f, 1000f), .001f)
         assertEquals(-400f, DocumentViewport.clampPan(-900f, 1800f, 1000f), .001f)
+        // Zoomed out, the page still pans: it may be pushed aside, but never off screen.
+        assertEquals(100f, DocumentViewport.clampPan(500f, 800f, 1000f), .001f)
+        assertEquals(-100f, DocumentViewport.clampPan(-500f, 800f, 1000f), .001f)
+        assertEquals(0f, DocumentViewport.clampPan(0f, 800f, 1000f), .001f)
+        // A page exactly as wide as the viewport has nowhere to go.
+        assertEquals(0f, DocumentViewport.clampPan(80f, 1000f, 1000f), .001f)
     }
     @Test fun fastScrollTracksWhereTheViewportSitsInTheDocument() {
         assertEquals(0f, DocumentViewport.scrollProgress(0, 0, 400, 8), .001f)

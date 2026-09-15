@@ -51,4 +51,41 @@ class EditorWorkspaceTests {
         camera.restore(Float.NaN, 0f, 1f)
         assertEquals(-1234f, camera.x, 0f)
     }
+
+    @Test fun notebookPositionsRoundTripPageViewportToolAndQuery() {
+        val position = NotebookPosition("page-7",
+            WorkspaceViewport(2f, -90f, 345, -1200f, 460f, .4f),
+            Tool.HIGHLIGHTER, "momentum")
+        val restored = NotebookPositionCodec.decode(NotebookPositionCodec.encode(position))
+        assertEquals(position, restored)
+    }
+
+    @Test fun notebookPositionsRejectBlankPageAndBrokenPayloads() {
+        assertNull(NotebookPositionCodec.decode(null))
+        assertNull(NotebookPositionCodec.decode(""))
+        assertNull(NotebookPositionCodec.decode("broken"))
+        assertNull(NotebookPositionCodec.decode("""{"tool":"PEN"}"""))
+    }
+
+    @Test fun notebookPositionsSanitizeNonFiniteNumbersAndUnknownTools() {
+        val restored = NotebookPositionCodec.decode(
+            """{"page":"p","tool":"NOPE","query":"q","zoom":null,"pan":null,"scroll":-3,"x":null,"y":null,"scale":99}""")
+        assertNotNull(restored)
+        assertEquals("p", restored!!.pageId)
+        assertEquals(Tool.PEN, restored.tool)
+        assertEquals(WorkspaceViewport(canvasZoom = 8f), restored.viewport)
+        assertEquals("q", restored.query)
+    }
+
+    @Test fun notebookPositionsMapToTabsWithoutLosingViewport() {
+        val position = NotebookPosition("page-2", WorkspaceViewport(1.5f, 10f, 40, 5f, -6f, 2f), Tool.HAND, "flux")
+        val tab = position.toTab("note-1", "Physics")
+        assertEquals("note-1", tab.notebookId)
+        assertEquals("page-2", tab.currentPageId)
+        assertEquals("Physics", tab.title)
+        assertEquals(position.viewport, tab.viewport)
+        assertEquals(Tool.HAND, tab.tool)
+        assertEquals("flux", tab.search.query)
+        assertEquals(position, tab.toPosition())
+    }
 }

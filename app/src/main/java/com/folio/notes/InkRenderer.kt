@@ -125,6 +125,130 @@ object InkRenderer {
     }
 
     /**
+     * Prefix-stable geometry for the pen stroke currently being drawn.
+     *
+     * [handwritingCentreline] cuts a stroke into spline sections at tight turns and sparse gaps and
+     * rejoins them through the exact shared sample. Every one of those cuts looks at one sample
+     * either side of a candidate, so once a candidate's successor exists the section ending there is
+     * settled: appending a sample can only extend the section still being built. This produces the
+     * same geometry as the batch pass while paying for the live section alone instead of
+     * re-smoothing and re-resampling the whole stroke on every frame — which is what made a long
+     * stroke heavier to write the longer it got.
+     *
+     * Owned by one drawing surface and valid only for its stroke in progress: [update] hands back its
+     * own mutable centreline, so draw what it returns before the next call.
+     */
+    internal class IncrementalPenStroke {
+        private val clean = ArrayList<InkPoint>()
+        private val committed = ArrayList<InkPoint>()
+        private val centre = ArrayList<InkPoint>()
+        private var foldedRaw = 0
+        private var sectionStart = 0
+        private var nextCandidate = 1
+        private var microStroke = false
+        private var rawMinX = Float.MAX_VALUE; private var rawMinY = Float.MAX_VALUE
+        private var rawMaxX = -Float.MAX_VALUE; private var rawMaxY = -Float.MAX_VALUE
+        private var cleanMinX = Float.MAX_VALUE; private var cleanMinY = Float.MAX_VALUE
+        private var cleanMaxX = -Float.MAX_VALUE; private var cleanMaxY = -Float.MAX_VALUE
+        private var cached: RenderedStroke? = null
+
+        /**
+         * Geometry for the raw [points] so far. Only samples that arrived since the previous call
+         * are folded in; a list shorter than last time re-arms the pass, so a reused list is never
+         * trusted to still be the same prefix.
+         */
+        fun update(points: List<InkPoint>): RenderedStroke {
+            if (points.size < foldedRaw) restart()
+            var folded = false
+            while (foldedRaw < points.size) {
+                val point = points[foldedRaw++]
+                folded = true
+                if (point.x < rawMinX) rawMinX = point.x
+                if (point.x > rawMaxX) rawMaxX = point.x
+                if (point.y < rawMinY) rawMinY = point.y
+                if (point.y > rawMaxY) rawMaxY = point.y
+                val last = if (clean.isEmpty()) null else clean[clean.size - 1]
+                if (last == null || hypot(point.x - last.x, point.y - last.y) > DUPLICATE_EPSILON) {
+                    clean += point
+                    if (point.x < cleanMinX) cleanMinX = point.x
+                    if (point.x > cleanMaxX) cleanMaxX = point.x
+                    if (point.y < cleanMinY) cleanMinY = point.y
+                    if (point.y > cleanMaxY) cleanMaxY = point.y
+                }
+            }
+            if (!folded) cached?.let { return it }
+            // A stroke that reads as small keeps its tight turns; crossing that span changes the
+            // threshold, so every earlier split has to be taken again. Bounds only grow with the
+            // prefix, so this flips at most once per stroke.
+            val micro = hypot(cleanMaxX - cleanMinX, cleanMaxY - cleanMinY) <= MICRO_STROKE_SPAN
+            if (micro != microStroke) { microStroke = micro; retakeSplits() }
+            val centreline =
+                if (points.size < 3) points
+                else if (clean.size < 3) clean
+                else smoothed()
+            val taper = if (centreline.size >= 2) InkGeometry.taperScalesArray(centreline) else null
+            // Bounds stay on the stored samples, exactly as `rendered` measures them.
+            val rendered = if (points.isEmpty()) RenderedStroke(centreline, taper, 0f, 0f, 0f, 0f)
+            else RenderedStroke(centreline, taper, rawMinX, rawMinY, rawMaxX, rawMaxY)
+            cached = rendered
+            return rendered
+        }
+
+        /** Settles every candidate whose successor has arrived, then rebuilds only the live tail. */
+        private fun smoothed(): List<InkPoint> {
+            val turnThreshold = if (microStroke) MICRO_TURN_COS else NORMAL_TURN_COS
+            val lastDecidable = clean.size - 2
+            while (nextCandidate <= lastDecidable) {
+                if (shouldPreserve(nextCandidate, turnThreshold)) appendSection(nextCandidate)
+                nextCandidate++
+            }
+            // The final section is never committed: its endpoint still moves as the tip does.
+            val section = clean.subList(sectionStart, clean.size)
+            val tail = if (section.size <= 2) section else InkGeometry.smooth(section, preserveEndpoints = true)
+            centre.clear()
+            centre.addAll(committed)
+            if (centre.isEmpty()) centre.addAll(tail) else for (i in 1 until tail.size) centre.add(tail[i])
+            return centre
+        }
+
+        private fun appendSection(endInclusive: Int) {
+            if (endInclusive <= sectionStart) return
+            val section = clean.subList(sectionStart, endInclusive + 1)
+            val smoothed = if (section.size <= 2) section else InkGeometry.smooth(section, preserveEndpoints = true)
+            if (committed.isEmpty()) committed.addAll(smoothed)
+            else for (i in 1 until smoothed.size) committed.add(smoothed[i])
+            sectionStart = endInclusive
+        }
+
+        private fun shouldPreserve(index: Int, turnThreshold: Float): Boolean {
+            val previous = clean[index - 1]
+            val point = clean[index]
+            val next = clean[index + 1]
+            val inX = point.x - previous.x; val inY = point.y - previous.y
+            val outX = next.x - point.x; val outY = next.y - point.y
+            val inLength = hypot(inX, inY); val outLength = hypot(outX, outY)
+            if (inLength <= DUPLICATE_EPSILON || outLength <= DUPLICATE_EPSILON) return true
+            if (max(inLength, outLength) >= FAST_SAMPLE_GAP) return true
+            val turnCos = ((inX * outX + inY * outY) / (inLength * outLength)).coerceIn(-1f, 1f)
+            return turnCos < turnThreshold
+        }
+
+        private fun retakeSplits() {
+            committed.clear(); centre.clear(); sectionStart = 0; nextCandidate = 1; cached = null
+        }
+
+        private fun restart() {
+            clean.clear(); retakeSplits()
+            foldedRaw = 0
+            microStroke = false
+            rawMinX = Float.MAX_VALUE; rawMinY = Float.MAX_VALUE
+            rawMaxX = -Float.MAX_VALUE; rawMaxY = -Float.MAX_VALUE
+            cleanMinX = Float.MAX_VALUE; cleanMinY = Float.MAX_VALUE
+            cleanMaxX = -Float.MAX_VALUE; cleanMaxY = -Float.MAX_VALUE
+        }
+    }
+
+    /**
      * Raw stylus pressure is deliberately compressed around the selected pen width. Fast light
      * strokes stay visible instead of collapsing to a hairline, while hard presses still thicken a
      * little. p=1 remains exactly the chosen width.
@@ -148,7 +272,7 @@ object InkRenderer {
     data class RenderedStroke(
         val centre: List<InkPoint>,
         /** Per-point width multipliers for [Tool.PEN], or null for paths drawn at uniform width. */
-        val taper: List<Float>?,
+        val taper: FloatArray?,
         val minX: Float, val minY: Float, val maxX: Float, val maxY: Float
     )
 
@@ -160,7 +284,7 @@ object InkRenderer {
             stroke.tool == Tool.PEN -> handwritingCentreline(points)
             else -> InkGeometry.smooth(points)
         }
-        val taper = if (stroke.tool == Tool.PEN && centre.size >= 2) InkGeometry.taperScales(centre) else null
+        val taper = if (stroke.tool == Tool.PEN && centre.size >= 2) InkGeometry.taperScalesArray(centre) else null
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         // Raw points already bound the rendered geometry (shapes re-derive from two corners),
@@ -228,21 +352,38 @@ object InkRenderer {
             return
         }
         if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
-            val path = strokePathPool.get()!!.apply {
-                reset(); moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) }
-            }
-            canvas.drawPath(path, paint)
+            canvas.drawPath(polylinePath(centre), paint)
             return
         }
         paint.pathEffect = null
-        val taper = rendered.taper ?: InkGeometry.taperScales(centre)
-        centre.zipWithNext().forEachIndexed { index, (a, b) ->
+        drawTaperedLines(canvas, paint, centre, rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width)
+        paint.pathEffect = null
+    }
+
+    /** The cached [stroke] path, rebuilt in a pooled [Path] without allocating a sublist per frame. */
+    private fun polylinePath(centre: List<InkPoint>): Path {
+        val path = strokePathPool.get()!!
+        path.reset()
+        path.moveTo(centre[0].x, centre[0].y)
+        for (i in 1 until centre.size) path.lineTo(centre[i].x, centre[i].y)
+        return path
+    }
+
+    /**
+     * Pressure- and taper-varying ink: one line per spline segment at its own width. Written as an
+     * indexed loop because the obvious `zipWithNext().forEachIndexed` allocated a pair and an
+     * indexed wrapper for every segment of every stroke, on every frame of a stroke in progress.
+     */
+    private fun drawTaperedLines(canvas: Canvas, paint: Paint, centre: List<InkPoint>, taper: FloatArray, width: Float) {
+        val segments = minOf(centre.size, taper.size) - 1
+        for (index in 0 until segments) {
+            val a = centre[index]
+            val b = centre[index + 1]
             val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
             val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
-            paint.strokeWidth = stroke.width * pressure * taperScale
+            paint.strokeWidth = width * pressure * taperScale
             canvas.drawLine(a.x, a.y, b.x, b.y, paint)
         }
-        paint.pathEffect = null
     }
 
     /**
@@ -267,20 +408,11 @@ object InkRenderer {
             return
         }
         if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
-            val path = strokePathPool.get()!!.apply {
-                reset(); moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) }
-            }
-            canvas.drawPath(path, paint)
+            canvas.drawPath(polylinePath(centre), paint)
             return
         }
         paint.pathEffect = null
-        val taper = rendered.taper ?: InkGeometry.taperScales(centre)
-        centre.zipWithNext().forEachIndexed { index, (a, b) ->
-            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
-            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
-            paint.strokeWidth = (stroke.width + 14f) * pressure * taperScale
-            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
-        }
+        drawTaperedLines(canvas, paint, centre, rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width + 14f)
         paint.pathEffect = null
     }
 

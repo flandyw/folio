@@ -21,6 +21,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         hideSystemBars()
+        // Ask for the fastest mode as early as possible: the first frames are the ones the user
+        // waits on, and a display that only ramps up on the first focus change starts the notebook
+        // and the library scroll at the panel's idle rate.
+        requestHighRefreshRate()
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             CompositionLocalProvider(LocalStylusActivity provides stylusActivity) {
@@ -41,6 +45,12 @@ class MainActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         observeStylus(event)
         return super.dispatchGenericMotionEvent(event)
+    }
+    override fun onResume() {
+        super.onResume()
+        // A mode can change while the app is in the background (another app, a power profile), so the
+        // request is re-checked on every return rather than assumed to have stuck.
+        requestHighRefreshRate()
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
