@@ -36,11 +36,35 @@ class WritingFollow {
     fun horizontalVelocity(xFraction: Float, zoom: Float, hand: WritingHand, progressing: Boolean, now: Long): Float {
         if (zoom < 1.4f || !progressing || now < state.suspendedUntil || state.baselineY == null) return 0f
         val edge = if (hand == WritingHand.RIGHT) xFraction else 1f - xFraction
-        val strength = ((edge - .73f) / .27f).coerceIn(0f, 1f)
-        return -hand.direction * 70f * strength * strength
+        val strength = ((edge - .65f) / .35f).coerceIn(0f, 1f)
+        return -hand.direction * 180f * strength * strength
     }
     fun verticalVelocity(baselineFraction: Float, zoom: Float, now: Long): Float {
         if (zoom < 1.4f || now < state.suspendedUntil) return 0f
-        return when { baselineFraction > .78f -> -90f; baselineFraction < .38f -> 90f; else -> 0f }
+        return when { baselineFraction > .75f -> -160f; baselineFraction < .35f -> 160f; else -> 0f }
+    }
+    /** Median stroke height of the current lane, in page units; drives line spacing. */
+    fun laneHeight(): Float {
+        val heights = state.recent.map { it.bottom - it.top }.sorted()
+        return heights.getOrNull(heights.size / 2)?.coerceAtLeast(12f) ?: 24f
+    }
+    /** Distance to drop the page for one handwritten line, in page units. */
+    fun estimateSpacing(): Float = maxOf(48f, laneHeight() * 2.5f)
+    /**
+     * True when the pen lifted near the trailing edge of a zoomed-in line, so the view
+     * should carriage-return to the next line's start instead of sitting at the margin.
+     */
+    fun shouldAdvance(tipFraction: Float, zoom: Float, hand: WritingHand, now: Long): Boolean {
+        if (zoom < 1.4f || now < state.suspendedUntil || state.baselineY == null) return false
+        val edge = if (hand == WritingHand.RIGHT) tipFraction else 1f - tipFraction
+        return edge > .78f
+    }
+    /** Leftmost (or rightmost for left-hand) x of the current line, in page units. */
+    fun lineStart(hand: WritingHand): Float? {
+        val baseline = state.baselineY ?: return null
+        val threshold = maxOf(28f, laneHeight() * 1.5f)
+        val sameLine = state.recent.filter { abs(it.bottom - baseline) <= threshold }
+        if (sameLine.isEmpty()) return null
+        return if (hand == WritingHand.RIGHT) sameLine.minOf { it.left } else sameLine.maxOf { it.right }
     }
 }

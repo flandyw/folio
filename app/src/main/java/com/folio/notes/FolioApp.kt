@@ -42,7 +42,6 @@ import java.io.File
     val prefs = remember { context.getSharedPreferences("preferences", 0) }
     var dynamic by rememberSaveable { mutableStateOf(prefs.getBoolean("dynamic", false)) }
     var finger by rememberSaveable { mutableStateOf(prefs.getBoolean("finger", true)) }
-    var toolbarPosition by rememberSaveable { mutableStateOf(ToolbarPosition.entries.find { it.name == prefs.getString("toolbarPosition", "TOP") } ?: ToolbarPosition.TOP) }
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
     var shapeRecognition by rememberSaveable { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
@@ -161,7 +160,11 @@ import java.io.File
             }
         }
     }
-    LaunchedEffect(Unit) { checkForUpdates(showDialog = false) }
+    // Deferred past first paint + library load so cold start never competes with a network fetch.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(3000)
+        checkForUpdates(showDialog = false)
+    }
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
     BackHandler(state.active != null && !exportBusy) { model.close() }
@@ -176,7 +179,7 @@ import java.io.File
                         Text("Your stored files have been kept. Retry to open them.")
                         Button(model::loadLibrary) { Text("Retry") }
                     }
-                    state.active != null -> WorkspaceScreen(state, model, finger, toolbarPosition, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
+                    state.active != null -> WorkspaceScreen(state, model, finger, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
                     else -> LibraryScreen(state, model, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
@@ -197,7 +200,6 @@ import java.io.File
             Surface(Modifier.fillMaxSize().guardUiTouches()) {
                 SettingsScreen(dynamic, { dynamic = it; prefs.edit().putBoolean("dynamic", it).apply() },
                     finger, { finger = it; prefs.edit().putBoolean("finger", it).apply() },
-                    toolbarPosition, { toolbarPosition = it; prefs.edit().putString("toolbarPosition", it.name).apply() },
                     stylusShortcut, { stylusShortcut = it; prefs.edit().putString(StylusShortcut.PREF_KEY, it.name).apply() },
                     haptics, { wanted ->
                         if (!wanted) { haptics = false; prefs.edit().putBoolean("penHaptics", false).apply() }

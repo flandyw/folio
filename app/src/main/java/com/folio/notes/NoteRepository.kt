@@ -22,6 +22,9 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOut
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -80,9 +83,12 @@ class NoteRepository(private val context: Context) {
     // ---- Reading -------------------------------------------------------------------------
 
     suspend fun load(): Triple<List<Notebook>, List<Folder>, List<ExamSet>> = withContext(Dispatchers.IO) {
-        val notes = root.listFiles().orEmpty()
+        val dirs = root.listFiles().orEmpty()
             .filter { it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
-            .map { readIndex(it) }
+        // Decode indexes concurrently; each notebook lives in its own directory.
+        val notes = coroutineScope {
+            dirs.map { async(Dispatchers.IO) { readIndex(it) } }.awaitAll()
+        }
         val library = File(context.filesDir, "library.json")
         val folders = if (!library.exists() && !File(context.filesDir, "library.json.bak").exists()) emptyList() else {
             val array = JSONArray(AtomicFile(library).openRead().bufferedReader().use { it.readText() })
@@ -105,19 +111,20 @@ class NoteRepository(private val context: Context) {
      */
     private fun readIndex(dir: File): Notebook {
         val raw = AtomicFile(File(dir, "note.json")).openRead().bufferedReader().use { it.readText() }
-        when {
-            NoteMetaCodec.isCurrent(raw) -> return NoteMetaCodec.decode(raw)
-            NoteMetaCodec.isVersion4(raw) -> {
+        val version = NoteMetaCodec.versionOf(raw)
+        when (version) {
+            NoteMetaCodec.VERSION -> return NoteMetaCodec.decode(raw)
+            4 -> {
                 val note = NoteMetaCodec.decodeVersion4(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
                 return note
             }
-            NoteMetaCodec.isVersion3(raw) -> {
+            3 -> {
                 val note = NoteMetaCodec.decodeVersion3(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
                 return note
             }
-            NoteMetaCodec.isSplitIndex(raw) -> {
+            2 -> {
                 val note = NoteMetaCodec.decodeSplit(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
                 return note
@@ -143,7 +150,13 @@ class NoteRepository(private val context: Context) {
 
     /** Fetches every page still on disk; exports and backups need the whole notebook at once. */
     suspend fun loadPages(note: Notebook): Notebook = withContext(Dispatchers.IO) {
-        note.copy(pages = note.pages.map { if (it.loaded) it else loadPage(note.id, it) })
+        // Parallel page reads; each page is an independent file.
+        val loaded = coroutineScope {
+            note.pages.map { page ->
+                async { if (page.loaded) page else loadPage(note.id, page) }
+            }.awaitAll()
+        }
+        note.copy(pages = loaded)
     }
 
     // ---- Writing -------------------------------------------------------------------------
@@ -257,7 +270,7 @@ class NoteRepository(private val context: Context) {
         try {
             archived.pdf?.let { File(dir, "source.pdf").writeBytes(it) }
             archived.images.forEach { (id, bytes) ->
-                if (id.matches(idPattern)) imageFile(note.id, id).writeBytes(bytes)
+                if (idPattern.matches(id)) imageFile(note.id, id).writeBytes(bytes)
             }
             saveAll(note)
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
@@ -296,9 +309,12 @@ class NoteRepository(private val context: Context) {
 
     /** Every picture on [page] decoded for drawing; missing files are simply skipped. */
     suspend fun loadImages(noteId: String, page: NotePage): Map<String, Bitmap> = withContext(Dispatchers.IO) {
-        page.images.mapNotNull { image ->
-            loadImage(noteId, image.id)?.let { image.id to it }
-        }.toMap()
+        if (page.images.isEmpty()) return@withContext emptyMap()
+        coroutineScope {
+            page.images.map { image ->
+                async { loadImage(noteId, image.id)?.let { image.id to it } }
+            }.awaitAll().filterNotNull().toMap()
+        }
     }
 
     // ---- Imported PDF text -----------------------------------------------------------------
@@ -315,7 +331,8 @@ class NoteRepository(private val context: Context) {
             if (!file.exists()) return@withLock emptyList()
             val texts = try {
                 ensurePdfBox()
-                PDDocument.load(file).use { doc ->
+                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                    .setTempDir(context.cacheDir)).use { doc ->
                     extractPdfPageTexts(doc)
                 }
             } catch (_: Exception) { emptyList() }
@@ -366,7 +383,8 @@ class NoteRepository(private val context: Context) {
             val dims = pages.filter { it.pdfIndex != null }.associate { it.pdfIndex!! to (it.width to it.height) }
             val links = try {
                 ensurePdfBox()
-                PDDocument.load(file).use { doc ->
+                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                    .setTempDir(context.cacheDir)).use { doc ->
                     (0 until doc.numberOfPages).flatMap { index ->
                         val (pageW, pageH) = dims[index] ?: return@flatMap emptyList()
                         try { pageLinks(doc, index, pageW, pageH) } catch (_: Exception) { emptyList() }
@@ -430,7 +448,8 @@ class NoteRepository(private val context: Context) {
             if (!file.exists()) return@withLock emptyList()
             val entries = try {
                 ensurePdfBox()
-                PDDocument.load(file).use { doc ->
+                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                    .setTempDir(context.cacheDir)).use { doc ->
                     val out = mutableListOf<PdfOutlineEntry>()
                     doc.documentCatalog.documentOutline?.let { walkOutline(doc, it, 0, out) }
                     PdfOutline.sanitize(out, doc.numberOfPages)
@@ -541,7 +560,11 @@ class NoteRepository(private val context: Context) {
 
     private fun atomicWrite(file: File, value: String) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
-        try { stream.write(value.toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+        try {
+            // Stream characters directly instead of materialising a second huge ByteArray.
+            stream.bufferedWriter(Charsets.UTF_8).use { it.write(value) }
+            atomic.finishWrite(stream)
+        }
         catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
 

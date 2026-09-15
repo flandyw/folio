@@ -24,17 +24,26 @@ object NotebookArchive {
     /** The same bound for a single placed image; phone photos are far smaller than this. */
     const val MAX_IMAGE_BYTES = 48L * 1024 * 1024
 
+    private val imageIdPattern = Regex("[a-zA-Z0-9-]+")
+
     fun write(note: Notebook, pdf: ByteArray?, output: OutputStream) =
         write(note, pdf, emptyMap(), output)
 
     fun write(note: Notebook, pdf: ByteArray?, images: Map<String, ByteArray>, output: OutputStream) {
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry(ENTRY_NOTE))
-            zip.write(NoteCodec.encode(note).toByteArray(Charsets.UTF_8))
+            val jsonBytes = NoteCodec.encode(note).toByteArray(Charsets.UTF_8)
+            zip.write(jsonBytes)
             zip.closeEntry()
             if (pdf != null) {
                 zip.putNextEntry(ZipEntry(ENTRY_PDF))
-                zip.write(pdf)
+                // Chunked writes avoid one giant native call for large PDFs.
+                var offset = 0
+                while (offset < pdf.size) {
+                    val chunk = minOf(64 * 1024, pdf.size - offset)
+                    zip.write(pdf, offset, chunk)
+                    offset += chunk
+                }
                 zip.closeEntry()
             }
             images.forEach { (id, bytes) ->
@@ -66,7 +75,8 @@ object NotebookArchive {
                     }
                     entry.name.startsWith(ENTRY_IMAGE_PREFIX) && entry.name.length > ENTRY_IMAGE_PREFIX.length -> {
                         val id = entry.name.removePrefix(ENTRY_IMAGE_PREFIX).take(64)
-                        if (id.matches(Regex("[a-zA-Z0-9-]+"))) {
+                        if (imageIdPattern.matches(id)) {
+                            if (entry.size > MAX_IMAGE_BYTES) error("This backup's image is too large to import")
                             val bytes = zip.readBytes()
                             require(bytes.size.toLong() <= MAX_IMAGE_BYTES) { "This backup's image is too large to import" }
                             images[id] = bytes

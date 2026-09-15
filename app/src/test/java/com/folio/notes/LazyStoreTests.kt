@@ -189,13 +189,15 @@ class PageShapeTests {
 
 class ThumbnailKeyTests {
     @Test fun aPreviewIsNamedAfterItsSizeAndTheRevisionThatProducedIt() {
-        assertEquals("page-1-420-4.png", ThumbnailKeys.name("page-1", 4, 420))
+        assertEquals("page-1-420-4.jpg", ThumbnailKeys.name("page-1", 4, 420))
+        assertTrue(ThumbnailKeys.isStale("page-1-420-3.jpg", "page-1", 4, 420))
+        // Legacy PNG previews are stale once the cache moves to JPEG.
         assertTrue(ThumbnailKeys.isStale("page-1-420-3.png", "page-1", 4, 420))
-        assertFalse(ThumbnailKeys.isStale("page-1-420-4.png", "page-1", 4, 420))
+        assertFalse(ThumbnailKeys.isStale("page-1-420-4.jpg", "page-1", 4, 420))
         // The library card's large preview and the page browser's small one never prune each other.
-        assertFalse(ThumbnailKeys.isStale("page-1-80-4.png", "page-1", 4, 420))
-        assertFalse(ThumbnailKeys.isStale("page-1-420-4.png", "page-1", 4, 80))
+        assertFalse(ThumbnailKeys.isStale("page-1-80-4.jpg", "page-1", 4, 420))
+        assertFalse(ThumbnailKeys.isStale("page-1-420-4.jpg", "page-1", 4, 80))
         // A different page's preview is not this page's stale one, even with a shared prefix.
-        assertFalse(ThumbnailKeys.isStale("page-10-420-1.png", "page-1", 4, 420))
+        assertFalse(ThumbnailKeys.isStale("page-10-420-1.jpg", "page-1", 4, 420))
     }
 }

@@ -41,6 +41,42 @@ class ScribbleEraseTests {
         assertFalse(InkGeometry.isScribble(zigzag.take(4)))
     }
 
+    @Test fun rejectsCursiveWriting() {
+        // Forward-marching sine: long and bendy like a cursive word, but always moving on.
+        val wave = (0..400).map { i ->
+            val t = i / 400.0
+            InkPoint((t * 150).toFloat(), (10 * sin(t * 30 * PI) + 5 * sin(t * 61 * PI)).toFloat())
+        }
+        assertFalse(InkGeometry.isScribble(wave))
+        // Sharp cursive teeth (a big W): hairpin turns with long legs, yet each tooth only
+        // touches the last at a point instead of re-tracing it, and the stroke marches on.
+        val teethBase = listOf(0f to 0f, 15f to 40f, 30f to 0f, 45f to 40f, 60f to 0f,
+            75f to 40f, 90f to 0f, 105f to 40f, 120f to 0f)
+        val teeth = teethBase.zipWithNext().flatMap { (a, b) ->
+            (0 until 20).map { i ->
+                InkPoint(a.first + (b.first - a.first) * i / 20, a.second + (b.second - a.second) * i / 20)
+            }
+        } + InkPoint(120f, 0f)
+        assertFalse(InkGeometry.isScribble(teeth))
+        // Loopy cursive: advancing loops that overlap locally but keep moving forward.
+        val loops = (0 until 5).flatMap { k ->
+            (0 until 30).map { j ->
+                val a = j / 30.0 * 2 * PI
+                InkPoint((k * 25 + 8 * cos(a) + j / 30.0 * 8).toFloat(), (8 * sin(a)).toFloat())
+            }
+        }
+        assertFalse(InkGeometry.isScribble(loops))
+    }
+
+    @Test fun keepsDriftingAndVerticalScrubs() {
+        // Crossing out a word drifts forward while scrubbing with a steady amplitude.
+        val drift = (0..9).map { i -> InkPoint(i * 6f + (if (i % 2 == 0) 0f else 30f), if (i % 2 == 0) 0f else 12f) }
+        assertTrue(InkGeometry.isScribble(drift))
+        // A vertical scrub is the same motion turned sideways.
+        val vertical = (0..5).map { InkPoint(it * 3f, if (it % 2 == 0) 0f else 60f) }
+        assertTrue(InkGeometry.isScribble(vertical))
+    }
+
     @Test fun erasesCrossingsBetweenSamplesAndPreservesDistantInk() {
         val target = stroke(listOf(InkPoint(30f, -20f), InkPoint(30f, 40f)))
         val distant = stroke(listOf(InkPoint(100f, 0f), InkPoint(100f, 40f)))

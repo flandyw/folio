@@ -50,7 +50,7 @@ jobs:
         run: |
           count=$(git rev-list --count HEAD)
           echo "VERSION_CODE=$count" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=0.1.$count" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=0.2.$count" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

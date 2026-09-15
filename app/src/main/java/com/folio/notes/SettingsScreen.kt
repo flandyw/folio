@@ -17,12 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
-enum class ToolbarPosition(val label: String, val description: String) {
-    TOP("Top", "Keep your tools above the page"),
-    BOTTOM("Bottom", "Keep your tools close to hand")
-}
-
-@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, position: ToolbarPosition, onPosition: (ToolbarPosition) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit) {
+@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -49,18 +44,6 @@ enum class ToolbarPosition(val label: String, val description: String) {
             }
             PreferenceSwitch("Pen haptics", if (hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Changing tools by hand stays silent. The one-shot pulse is confirmed on the OnePlus Pencil Pro; it needs Bluetooth, and it is not the pen's soft writing feedback." else "Needs Android 12 or newer and a Bluetooth LE pencil.", haptics, onHaptics, hapticsSupported)
             HorizontalDivider()
-            Text("Floating toolbar", style = MaterialTheme.typography.titleMedium)
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup().padding(8.dp)) {
-                    ToolbarPosition.entries.forEach { option ->
-                        Row(Modifier.fillMaxWidth().selectable(position == option, role = Role.RadioButton, onClick = { onPosition(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(position == option, onClick = null)
-                            Spacer(Modifier.width(12.dp))
-                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                    }
-                }
-            }
             Text("Writing & appearance", style = MaterialTheme.typography.titleMedium)
             PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
             PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)

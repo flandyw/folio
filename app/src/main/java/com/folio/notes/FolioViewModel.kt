@@ -9,6 +9,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import java.util.UUID
 
@@ -57,10 +58,13 @@ data class FolioState(
     val page get() = active?.pages?.getOrNull(pageIndex)
     /** Days until the nearest upcoming exam date across the library, or null when none is set. */
     val daysToExam: Int?
-        get() = notes.mapNotNull { it.exam.examDate }
-            .filter { it >= startOfDay() }
-            .minOrNull()
-            ?.let { date -> ((date - startOfDay()) / 86_400_000L).toInt() }
+        get() {
+            val start = startOfDay()
+            return notes.asSequence().mapNotNull { it.exam.examDate }
+                .filter { it >= start }
+                .minOrNull()
+                ?.let { date -> ((date - start) / 86_400_000L).toInt() }
+        }
 
     private fun startOfDay(): Long {
         val calendar = java.util.Calendar.getInstance()
@@ -160,7 +164,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         loadLibrary()
         restoreNotebookTimer()
-        viewModelScope.launch { state.collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId
+        viewModelScope.launch {
+            state
+                .distinctUntilChanged { a, b ->
+                    a.activeId == b.activeId && a.pageIndex == b.pageIndex && a.folderId == b.folderId &&
+                        a.tabs == b.tabs && a.companion == b.companion && a.companionMode == b.companionMode &&
+                        a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
+                }
+                .collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId
             savedState["workspaceTabs"] = WorkspaceSessionCodec.encode(it.tabs.map { tab ->
                 if (tab.notebookId == it.activeId) tab.copy(currentPageId = it.page?.id ?: tab.currentPageId, search = it.pdfSearch) else tab
             })
@@ -195,6 +206,50 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
         enqueue { repository.saveMeta(updated) }
     }
+
+    /**
+     * Rewrites many notebooks in one state pass plus one save batch, so bulk actions stay O(N)
+     * instead of O(N²) with one write per item.
+     */
+    private fun updateNotes(ids: Set<String>, transform: (Notebook) -> Notebook) {
+        if (ids.isEmpty()) return
+        val now = System.currentTimeMillis()
+        var changed: List<Notebook> = emptyList()
+        _state.update { state ->
+            val updated = state.notes.map { note ->
+                if (note.id !in ids) note
+                else {
+                    val next = transform(note).copy(updated = now)
+                    if (next == note) note else next
+                }
+            }
+            changed = updated.filter { it.id in ids && state.notes.find { n -> n.id == it.id } != it }
+            state.copy(notes = updated)
+        }
+        if (changed.isEmpty()) return
+        enqueue {
+            changed.forEach { repository.saveMeta(it) }
+        }
+    }
+
+    /** Fast page lookup: the active notebook first (the hot path), then the rest of the library. */
+    private fun findPage(pageId: String): Notebook? {
+        val current = _state.value
+        current.active?.let { active ->
+            if (active.pages.any { it.id == pageId }) return active
+        }
+        return current.notes.firstOrNull { note -> note.pages.any { it.id == pageId } }
+    }
+
+    private fun findPageContent(pageId: String): NotePage? {
+        val current = _state.value
+        current.active?.pages?.find { it.id == pageId }?.let { return it }
+        return current.notes.firstNotNullOfOrNull { note -> note.pages.find { it.id == pageId } }
+    }
+
+    /** Identity-based stroke membership: avoids deep equals over every InkPoint per frame. */
+    private fun identitySet(strokes: List<Stroke>): Set<Stroke> =
+        java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(strokes) }
     fun clearError() { _state.update { it.copy(error = null) } }
     fun reportError(message: String) { _state.update { it.copy(error = message) } }
     fun export(block: suspend () -> Unit) {
@@ -218,7 +273,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(folders = folders) }; enqueue { repository.saveFolders(folders) }
     }
     fun deleteFolder(folder: Folder) {
-        _state.value.notes.filter { it.folderId == folder.id }.forEach { updateNote(it.copy(folderId = null)) }
+        val affected = _state.value.notes.filter { it.folderId == folder.id }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(folderId = null) }
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
@@ -390,7 +446,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     /** Removes a set and unlinks its notebooks, which stay in the library untouched. */
     fun deleteExamSet(set: ExamSet) {
-        _state.value.notes.filter { it.setId == set.id }.forEach { updateNote(it.copy(setId = null)) }
+        val affected = _state.value.notes.filter { it.setId == set.id }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(setId = null) }
         val sets = _state.value.sets.filterNot { it.id == set.id }
         _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
     }
@@ -398,8 +455,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Adds or removes notebooks from an exam set in one step; null unfiles them from any set. */
     fun assignToExamSet(ids: Set<String>, setId: String?) {
         if (setId != null && _state.value.sets.none { it.id == setId }) return
-        _state.value.notes.filter { it.id in ids && it.setId != setId }
-            .forEach { updateNote(it.copy(setId = setId)) }
+        val affected = _state.value.notes.filter { it.id in ids && it.setId != setId }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(setId = setId) }
     }
 
     /** Flips the open page's redo flag — a question worth another attempt before the exam. */
@@ -428,17 +485,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun moveNotebooks(ids: Set<String>, folderId: String?) {
         if (folderId != null && _state.value.folders.none { it.id == folderId }) return
-        _state.value.notes.filter { it.id in ids && it.folderId != folderId }
-            .forEach { updateNote(it.copy(folderId = folderId)) }
+        val affected = _state.value.notes.filter { it.id in ids && it.folderId != folderId }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(folderId = folderId) }
     }
     fun favoriteNotebooks(ids: Set<String>, starred: Boolean) {
-        _state.value.notes.filter { it.id in ids && it.starred != starred }
-            .forEach { updateNote(it.copy(starred = starred)) }
+        val affected = _state.value.notes.filter { it.id in ids && it.starred != starred }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(starred = starred) }
     }
     /** Shows the same cover on every selected notebook: first page or the default cover. */
     fun setPageCoverBatch(ids: Set<String>, pageCover: Boolean) {
-        _state.value.notes.filter { it.id in ids && it.pageCover != pageCover }
-            .forEach { updateNote(it.copy(pageCover = pageCover)) }
+        val affected = _state.value.notes.filter { it.id in ids && it.pageCover != pageCover }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(pageCover = pageCover) }
     }
     /**
      * Rewrites the exam tags of every selected notebook through [transform], keeping each
@@ -447,10 +504,24 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     fun updateExamTagsBatch(ids: Set<String>, transform: (ExamTags) -> ExamTags) {
         if (ids.isEmpty()) return
-        _state.value.notes.filter { it.id in ids }.forEach { note ->
-            val updated = transform(note.exam)
-            if (updated != note.exam) updateNote(note.copy(exam = updated))
+        // Single state pass; only notebooks whose tags actually change are rewritten + saved.
+        val now = System.currentTimeMillis()
+        var changed: List<Notebook> = emptyList()
+        _state.update { state ->
+            val updated = state.notes.map { note ->
+                if (note.id !in ids) note
+                else {
+                    val tags = transform(note.exam)
+                    if (tags == note.exam) note else note.copy(exam = tags, updated = now)
+                }
+            }
+            changed = updated.filter { next ->
+                next.id in ids && state.notes.find { it.id == next.id } != next
+            }
+            state.copy(notes = updated)
         }
+        if (changed.isEmpty()) return
+        enqueue { changed.forEach { repository.saveMeta(it) } }
     }
     fun delete(note: Notebook) {
         if (_state.value.activeId == note.id) selectNotebookTimer(null)
@@ -643,9 +714,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         strokes(page.id, strokes)
     }
     fun strokes(pageId: String, strokes: List<Stroke>) {
-        val page = _state.value.notes.firstNotNullOfOrNull { note -> note.pages.find { it.id == pageId } } ?: return
+        val page = findPageContent(pageId) ?: return
         // Ink cannot be changed on a page whose own ink has not been read yet.
-        if (!page.loaded || page.strokes == strokes) return
+        // Reference check first avoids a deep walk over every InkPoint for identical lists.
+        if (!page.loaded || page.strokes === strokes || page.strokes == strokes) return
         record(page); replacePage(page.copy(strokes = strokes)); historyState()
     }
     fun texts(texts: List<TextBox>) {
@@ -653,8 +725,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         texts(page.id, texts)
     }
     fun texts(pageId: String, texts: List<TextBox>) {
-        val page = _state.value.notes.firstNotNullOfOrNull { note -> note.pages.find { it.id == pageId } } ?: return
-        if (!page.loaded || page.texts == texts) return
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded || page.texts === texts || page.texts == texts) return
         record(page); replacePage(page.copy(texts = texts)); historyState()
     }
     fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box) }
@@ -670,9 +742,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     // ---- Placed images ------------------------------------------------------------------
 
     fun images(pageId: String, images: List<PageImage>) {
-        val page = _state.value.notes.firstNotNullOfOrNull { note -> note.pages.find { it.id == pageId } } ?: return
+        val page = findPageContent(pageId) ?: return
         // Pictures cannot be changed on a page whose own content has not been read yet.
-        if (!page.loaded || page.images == images) return
+        if (!page.loaded || page.images === images || page.images == images) return
         record(page); replacePage(page.copy(images = images)); historyState()
     }
 
@@ -727,8 +799,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * text and pictures undoes in one step.
      */
     fun updateContent(pageId: String, strokes: List<Stroke>, texts: List<TextBox>, images: List<PageImage>) {
-        val page = _state.value.notes.firstNotNullOfOrNull { note -> note.pages.find { it.id == pageId } } ?: return
+        val page = findPageContent(pageId) ?: return
         if (!page.loaded) return
+        if (page.strokes === strokes && page.texts === texts && page.images === images) return
         if (page.strokes == strokes && page.texts == texts && page.images == images) return
         record(page); replacePage(page.copy(strokes = strokes, texts = texts, images = images)); historyState()
     }
@@ -743,9 +816,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (selection.isEmpty()) return
         copyToClipboard(selection)
         val page = _state.value.page ?: return
+        val doomed = identitySet(selection.strokes)
         updateContent(
             page.id,
-            page.strokes.filterNot { it in selection.strokes },
+            page.strokes.filterNot { it in doomed || it in selection.strokes },
             page.texts.filterNot { box -> selection.texts.any { it.id == box.id } },
             page.images.filterNot { image -> selection.images.any { it.id == image.id } }
         )
@@ -754,9 +828,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun deleteSelection(selection: CanvasSelection) {
         if (selection.isEmpty()) return
         val page = _state.value.page ?: return
+        val doomed = identitySet(selection.strokes)
+        // Fast path: reference check first, structural fallback for reloaded pages.
+        val remaining = page.strokes.filterNot { it in doomed || it in selection.strokes }
         updateContent(
             page.id,
-            page.strokes.filterNot { it in selection.strokes },
+            remaining,
             page.texts.filterNot { box -> selection.texts.any { it.id == box.id } },
             page.images.filterNot { image -> selection.images.any { it.id == image.id } }
         )
@@ -835,7 +912,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = _state.value.page ?: return
         val restyled = InkGeometry.restyle(strokes, color, widthScale, opacity, style)
         if (restyled == strokes) return
-        this.strokes(page.id, page.strokes.filterNot { it in strokes } + restyled)
+        val doomed = identitySet(strokes)
+        this.strokes(page.id, page.strokes.filterNot { it in doomed || it in strokes } + restyled)
     }
 
     /**
@@ -1009,7 +1087,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searching = true, searched = true)) }
         viewModelScope.launch {
             val pages = try { repository.pdfPageTexts(noteId) } catch (_: Exception) { emptyList() }
-            val hits = PdfSearch.search(pages, query)
+            // Matching is CPU-bound; keep it off the main thread.
+            val hits = withContext(Dispatchers.Default) { PdfSearch.search(pages, query) }
             // A search finishing after its notebook closed belongs nowhere.
             if (_state.value.activeId != noteId || _state.value.pdfSearch.query != query) return@launch
             _state.update { it.copy(pdfSearch = PdfSearchState(query = query, searched = true, results = hits)) }

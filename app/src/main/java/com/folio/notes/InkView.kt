@@ -152,9 +152,16 @@ class InkView(context: Context) : View(context) {
     private var followTipX = 0f
     private var followFrameAt = 0L
     private val followVisible = android.graphics.Rect()
+    /** One-shot carriage return: remaining screen-pixel pan, eased out in [followFrame]. */
+    private var advanceTotalX = 0f
+    private var advanceTotalY = 0f
+    private var advanceDoneX = 0f
+    private var advanceDoneY = 0f
+    private var advanceStartAt = 0L
     fun suspendWritingFollow() {
         writingFollow.suspend(SystemClock.uptimeMillis())
         followProgressAt = 0L
+        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
         removeCallbacks(followFrame)
     }
     fun currentPeekAnchor(): PeekAnchor? {
@@ -184,17 +191,40 @@ class InkView(context: Context) : View(context) {
             val now = SystemClock.uptimeMillis()
             val dt = ((now - followFrameAt).coerceIn(0, 32)) / 1000f
             followFrameAt = now
-            if (!followEnabled || inputBlocked || readOnly || tool != Tool.PEN || !getLocalVisibleRect(followVisible)) return
+            if (!followEnabled || inputBlocked || readOnly || tool != Tool.PEN || !getLocalVisibleRect(followVisible)) {
+                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+                return
+            }
             val zoom = if (page.infinite) camera.zoom else documentFollowZoom
             val down = draft?.tool == Tool.PEN
+            // A fresh stroke or manual pan cancels a pending carriage return.
+            if (down || now < writingFollow.state.suspendedUntil) {
+                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+            }
+            var ax = 0f; var ay = 0f
+            if (!down && (advanceTotalX != 0f || advanceTotalY != 0f)) {
+                val t = ((now - advanceStartAt).toFloat() / LINE_ADVANCE_MS).coerceIn(0f, 1f)
+                val eased = 1f - (1f - t) * (1f - t) * (1f - t)
+                val targetX = advanceTotalX * eased
+                val targetY = advanceTotalY * eased
+                ax = targetX - advanceDoneX
+                ay = targetY - advanceDoneY
+                advanceDoneX = targetX; advanceDoneY = targetY
+                if (t >= 1f) { advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f }
+            }
             val vx = writingFollow.horizontalVelocity((followTipX - followVisible.left) / followVisible.width().coerceAtLeast(1),
                 zoom, writingHand, down && now - followProgressAt < 80, now)
             val baseline = writingFollow.state.baselineY
             val vy = if (!down && baseline != null) writingFollow.verticalVelocity(
                 (originY + baseline * scale - followVisible.top) / followVisible.height().coerceAtLeast(1), zoom, now) else 0f
-            if (vx == 0f && vy == 0f) return
-            if (page.infinite) { camera.pan(vx * dt, vy * dt); reportCanvasViewport(); invalidate() }
-            else onFollowPan(vx * dt, vy * dt)
+            val dx = ax + vx * dt
+            val dy = ay + vy * dt
+            if (dx == 0f && dy == 0f) {
+                if (advanceTotalX != 0f || advanceTotalY != 0f) postOnAnimation(this)
+                return
+            }
+            if (page.infinite) { camera.pan(dx, dy); reportCanvasViewport(); invalidate() }
+            else onFollowPan(dx, dy)
             postOnAnimation(this)
         }
     }
@@ -202,6 +232,30 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(followFrame)
         followFrameAt = SystemClock.uptimeMillis()
         postOnAnimation(followFrame)
+    }
+    /**
+     * Carriage return + line feed: after the pen lifts near the trailing edge, swing the
+     * line start back into view and drop one line, so the next stroke begins on screen.
+     */
+    private fun startLineAdvance(lineStartPageX: Float) {
+        if (!getLocalVisibleRect(followVisible)) return
+        val w = followVisible.width().coerceAtLeast(1).toFloat()
+        val margin = w * 0.18f
+        val desired = if (writingHand == WritingHand.RIGHT) followVisible.left + margin
+        else followVisible.left + w - margin
+        val current = originX + lineStartPageX * scale
+        var dx = desired - current
+        // Never jump backwards past the writing direction: clamp to a return.
+        if (writingHand == WritingHand.RIGHT) dx = dx.coerceAtLeast(0f) else dx = dx.coerceAtMost(0f)
+        // A tiny nudge is just jitter; a huge one is a manual pan, not a line wrap.
+        if (abs(dx) < 8f) dx = 0f
+        val maxJump = w * 1.5f
+        dx = dx.coerceIn(-maxJump, maxJump)
+        val dy = -writingFollow.estimateSpacing() * scale
+        if (dx == 0f && dy == 0f) return
+        advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
+        advanceStartAt = SystemClock.uptimeMillis()
+        scheduleFollow()
     }
     var readOnly = false
     var onWorkspaceCamera: (WorkspaceViewport) -> Unit = {}
@@ -283,11 +337,15 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection.
-        val keptStrokes = selection.filter { it in value.strokes }
+        // Identity fast-path first (same objects from the ViewModel), structural fallback for
+        // pages reloaded from disk where instances differ but values match.
+        val valueStrokeIds = if (selection.isEmpty()) emptySet() else
+            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(value.strokes) }
+        val keptStrokes = if (selection.isEmpty()) selection else selection.filter { it in valueStrokeIds || it in value.strokes }
         val keptTexts = selectedTexts.filter { kept -> value.texts.any { it.id == kept.id } }
         val keptImages = selectedImages.filter { kept -> value.images.any { it.id == kept.id } }
         if (keptStrokes.size != selection.size || keptTexts.size != selectedTexts.size || keptImages.size != selectedImages.size) {
@@ -348,15 +406,21 @@ class InkView(context: Context) : View(context) {
         val placed = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
         // Selected content draws last, at its drag offset, so a move reads clearly.
         val hasSelection = selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()
+        // Identity set avoids O(S_sel × S_page × pts) deep-equals per frame while dragging.
+        val selectedIds = if (!hasSelection || selection.isEmpty()) null else
+            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
         val rest = if (!hasSelection) placed else placed.copy(
-            strokes = placed.strokes.filterNot { it in selection },
+            strokes = if (selection.isEmpty()) placed.strokes else placed.strokes.filterNot { it in selectedIds!! || it in selection },
             texts = placed.texts.filterNot { box -> selectedTexts.any { it.id == box.id } },
             images = placed.images.filterNot { image -> selectedImages.any { it.id == image.id } }
         )
         drawCommittedPage(canvas, rest)
         if (selection.isNotEmpty()) {
             val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
-            moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
+            // Skip the double-draw halo for huge selections; the drag offset already reads clearly.
+            if (moved.size <= SELECTION_HALO_LIMIT) {
+                moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
+            }
             moved.forEach { InkRenderer.stroke(canvas, it) }
         }
         if (selectedTexts.isNotEmpty()) {
@@ -399,9 +463,9 @@ class InkView(context: Context) : View(context) {
             if (p.y < minY) minY = p.y
             if (p.y > maxY) maxY = p.y
         }
-        // Smoothing reshapes the tail slightly behind the newest sample; the margin covers the
-        // stroke width, the spline overshoot and the eraser ring.
-        val margin = inkWidth * scale + 64f * scale.coerceAtMost(2f) + 24f
+        // Tight margin: stroke width + small spline overshoot + eraser ring. The old
+        // 64px×scale margin dirtied half the screen per tip move.
+        val margin = inkWidth * scale + 16f * scale.coerceAtMost(2f) + 12f
         val l = (originX + minX * scale - margin).toInt()
         val t = (originY + minY * scale - margin).toInt()
         val r = (originX + maxX * scale + margin).toInt()
@@ -409,6 +473,17 @@ class InkView(context: Context) : View(context) {
         @Suppress("DEPRECATION")
         invalidate(l, t, r, b)
         return true
+    }
+
+    /** Tight dirty rect for a shape drag re-derived from its two corners. */
+    private fun invalidateForShape(start: InkPoint, end: InkPoint) {
+        val margin = max(inkWidth, 14f) * scale + 16f
+        val l = (originX + min(start.x, end.x) * scale - margin).toInt()
+        val t = (originY + min(start.y, end.y) * scale - margin).toInt()
+        val r = (originX + max(start.x, end.x) * scale + margin).toInt()
+        val b = (originY + max(start.y, end.y) * scale + margin).toInt()
+        @Suppress("DEPRECATION")
+        invalidate(l, t, r, b)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -536,7 +611,13 @@ class InkView(context: Context) : View(context) {
                         val moved = clampToPage(point(event, index))
                         selectionDx += moved.x - lastMoveX; selectionDy += moved.y - lastMoveY
                         lastMoveX = moved.x; lastMoveY = moved.y
-                    } else lasso = (lasso ?: emptyList()) + ((0 until event.historySize).map { point(event, index, it) } + point(event, index)).map { clampToPage(it) }
+                    } else {
+                        // Reuse the backing list: rebuilding the whole loop per MOVE is O(N²).
+                        val incoming = ((0 until event.historySize).map { point(event, index, it) } + point(event, index)).map { clampToPage(it) }
+                        val backing = (lasso as? ArrayList<InkPoint>) ?: ArrayList(lasso ?: emptyList())
+                        backing.addAll(incoming)
+                        lasso = backing
+                    }
                 } else if (navigating) {
                     suspendWritingFollow()
                     val x = centroidX(event); val y = centroidY(event)
@@ -568,7 +649,13 @@ class InkView(context: Context) : View(context) {
                         val accepted = pagePoints(points)
                         draft = when {
                             accepted.isEmpty() -> current
-                            current.tool in FREEHAND_TOOLS -> current.copy(points = current.points + accepted)
+                            current.tool in FREEHAND_TOOLS -> {
+                                // Reuse the backing list after the first batch: copying the whole
+                                // point list per MOVE is O(N²) for a long stroke.
+                                val backing = (current.points as? ArrayList<InkPoint>) ?: ArrayList(current.points)
+                                backing.addAll(accepted)
+                                current.copy(points = backing)
+                            }
                             else -> {
                                 var end = accepted.last()
                                 var start = current.points.first()
@@ -584,9 +671,16 @@ class InkView(context: Context) : View(context) {
                             }
                         }
                         // Freehand grows incrementally, so only its tip needs redrawing; shapes
-                        // re-derive from their start corner and fall through to a full invalidate.
+                        // invalidate their own tight bounds instead of the whole view.
                         if (draft?.tool in FREEHAND_TOOLS || erasing != null) {
                             dirtyInvalidated = invalidateForSamples(accepted.ifEmpty { points })
+                        } else {
+                            draft?.let { shape ->
+                                if (shape.points.size >= 2) {
+                                    invalidateForShape(shape.points.first(), shape.points.last())
+                                    dirtyInvalidated = true
+                                }
+                            }
                         }
                     }
                     if (erasing != null && draft == null) {
@@ -662,7 +756,25 @@ class InkView(context: Context) : View(context) {
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { listOf(it) })?.let { page.strokes + it } ?: erasing
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
-            writingFollow.completed(drawn.points, SystemClock.uptimeMillis())
+            val now = SystemClock.uptimeMillis()
+            writingFollow.completed(drawn.points, now)
+            val zoom = if (page.infinite) camera.zoom else documentFollowZoom
+            val box = WritingLane(drawn.points.minOf { it.x }, drawn.points.minOf { it.y },
+                drawn.points.maxOf { it.x }, drawn.points.maxOf { it.y })
+            val baseline = writingFollow.state.baselineY
+            val onLine = baseline != null && abs(box.bottom - baseline) <= maxOf(28f, writingFollow.laneHeight() * 1.5f)
+            if (onLine && getLocalVisibleRect(followVisible)) {
+                val tipPageX = if (writingHand == WritingHand.RIGHT) box.right else box.left
+                val tipFraction = (originX + tipPageX * scale - followVisible.left) / followVisible.width().coerceAtLeast(1)
+                if (writingFollow.shouldAdvance(tipFraction, zoom, writingHand, now)) {
+                    val lineStart = if (page.infinite) {
+                        writingFollow.lineStart(writingHand) ?: box.left
+                    } else {
+                        if (writingHand == WritingHand.RIGHT) 0f else page.width
+                    }
+                    startLineAdvance(lineStart)
+                }
+            }
             scheduleFollow()
         }
         val changed = strokes != null && strokes != page.strokes
@@ -808,7 +920,8 @@ class InkView(context: Context) : View(context) {
             val movedStrokes = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
             val movedTexts = selectedTexts.map { it.moved(selectionDx, selectionDy) }
             val movedImages = selectedImages.map { it.moved(selectionDx, selectionDy) }
-            val strokes = page.strokes.filterNot { it in selection } + movedStrokes
+            val doomed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
+            val strokes = page.strokes.filterNot { it in doomed || it in selection } + movedStrokes
             val texts = page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + movedTexts
             val images = page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + movedImages
             page = page.copy(strokes = strokes, texts = texts, images = images)
@@ -961,6 +1074,10 @@ class InkView(context: Context) : View(context) {
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */
         const val LINK_SLOP = 12f
         const val SCRIBBLE_RADIUS = 14f
+        /** How long a guided-writing carriage return takes, easing the next line into view. */
+        const val LINE_ADVANCE_MS = 280f
+        /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
+        const val SELECTION_HALO_LIMIT = 40
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()
     }
 }

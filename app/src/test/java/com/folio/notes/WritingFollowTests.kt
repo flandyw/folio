@@ -25,7 +25,8 @@ class WritingFollowTests {
         follow.completed(stroke(10f, 100f), 0)
         fun v(x: Float, hand: WritingHand = WritingHand.RIGHT, zoom: Float = 2f, moving: Boolean = true) =
             follow.horizontalVelocity(x, zoom, hand, moving, 0)
-        assertEquals(0f, v(.7f), 0f)
+        assertEquals(0f, v(.6f), 0f)
+        assertTrue(v(.7f) < 0f)
         assertEquals(-v(.9f), v(.1f, WritingHand.LEFT), .001f)
         assertTrue(v(.99f) < v(.85f))
         assertEquals(0f, v(.99f, zoom = 1.39f), 0f)
@@ -47,5 +48,24 @@ class WritingFollowTests {
         assertTrue(follow.verticalVelocity(.9f, 2f, 0) < 0)
         assertTrue(follow.verticalVelocity(.2f, 2f, 0) > 0)
         assertEquals(0f, follow.verticalVelocity(.9f, 1f, 0), 0f)
+    }
+    @Test fun liftNearTrailingEdgeRequestsLineAdvance() {
+        val follow = WritingFollow()
+        follow.completed(stroke(10f, 100f), 0)
+        assertTrue(follow.shouldAdvance(.9f, 2f, WritingHand.RIGHT, 0))
+        assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.RIGHT, 0))
+        assertTrue(follow.shouldAdvance(.1f, 2f, WritingHand.LEFT, 0))
+        assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.LEFT, 0))
+        assertFalse(follow.shouldAdvance(.9f, 1.2f, WritingHand.RIGHT, 0))
+        follow.suspend(0)
+        assertFalse(follow.shouldAdvance(.9f, 2f, WritingHand.RIGHT, 0))
+    }
+    @Test fun lineStartTracksCurrentLaneAndSpacingIsSane() {
+        val follow = WritingFollow()
+        assertNull(follow.lineStart(WritingHand.RIGHT))
+        follow.completed(stroke(50f, 100f), 0)
+        follow.completed(stroke(120f, 102f), 0)
+        assertEquals(50f, follow.lineStart(WritingHand.RIGHT)!!, 0f)
+        assertTrue(follow.estimateSpacing() >= 48f)
     }
 }

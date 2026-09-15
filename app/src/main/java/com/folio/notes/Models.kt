@@ -290,10 +290,41 @@ object InkGeometry {
         }
         return inside
     }
+
+    private fun polygonBounds(polygon: List<InkPoint>): FloatArray {
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (p in polygon) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        return floatArrayOf(minX, minY, maxX, maxY)
+    }
+
+    private fun strokeBoundsOf(points: List<InkPoint>): FloatArray {
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        return floatArrayOf(minX, minY, maxX, maxY)
+    }
+
     /** A stroke is selected only when every sample is enclosed, so a half-crossed stroke stays put. */
     fun lassoSelects(polygon: List<InkPoint>, stroke: Stroke): Boolean {
+        if (polygon.size < 3) return false
         val points = pathPoints(stroke)
-        return points.isNotEmpty() && points.all { lassoContains(polygon, it) }
+        if (points.isEmpty()) return false
+        // Cheap box reject: a stroke fully outside the loop's bounds needs no ray casts.
+        val loop = polygonBounds(polygon)
+        val box = strokeBoundsOf(points)
+        if (box[2] < loop[0] || box[0] > loop[2] || box[3] < loop[1] || box[1] > loop[3]) return false
+        return points.all { lassoContains(polygon, it) }
     }
     /**
      * True when the whole axis-aligned rectangle is inside the loop. Text boxes and pictures use
@@ -334,8 +365,12 @@ object InkGeometry {
             if (right > maxX) maxX = right
             if (bottom > maxY) maxY = bottom
         }
-        strokes.forEach { stroke -> pathPoints(stroke).forEach { include(it.x, it.y, it.x, it.y) } }
-        texts.forEach { box -> include(box.x, box.y, box.x + box.width, box.y + textHeight(box)) }
+        for (stroke in strokes) {
+            val pts = if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) stroke.points else pathPoints(stroke)
+            for (p in pts) include(p.x, p.y, p.x, p.y)
+        }
+        // Cache text heights: the same box height is needed once per bounds call, not per point.
+        for (box in texts) include(box.x, box.y, box.x + box.width, box.y + textHeight(box))
         images.forEach { image -> include(image.x, image.y, image.x + image.width, image.y + image.height) }
         if (!any) return null
         return floatArrayOf(minX - margin, minY - margin, maxX + margin, maxY + margin)
@@ -414,13 +449,18 @@ object InkGeometry {
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         var any = false
-        strokes.forEach { stroke -> pathPoints(stroke).forEach {
-            any = true
-            if (it.x < minX) minX = it.x
-            if (it.x > maxX) maxX = it.x
-            if (it.y < minY) minY = it.y
-            if (it.y > maxY) maxY = it.y
-        } }
+        for (stroke in strokes) {
+            // Shapes re-derive from two corners; their raw points already bound the geometry
+            // without expanding an ellipse into 65 samples.
+            val pts = if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) stroke.points else pathPoints(stroke)
+            for (p in pts) {
+                any = true
+                if (p.x < minX) minX = p.x
+                if (p.x > maxX) maxX = p.x
+                if (p.y < minY) minY = p.y
+                if (p.y > maxY) maxY = p.y
+            }
+        }
         if (!any) return null
         return floatArrayOf(minX - margin, minY - margin, maxX + margin, maxY + margin)
     }
@@ -631,25 +671,65 @@ object InkGeometry {
         return (0.85f + 0.15f * p).coerceIn(0.85f, 1.15f)
     }
 
-    /** Recognize repeated scrubbing reversals independent of the device's sample density. */
+    /**
+     * Recognize repeated scrubbing reversals independent of the device's sample density.
+     *
+     * Cursive writing also bends back on itself, so a bare direction-change count erases words.
+     * A real scrub re-traces the same ground: each hairpin needs long legs that overlap the
+     * previous leg along the stroke's dominant axis (back-and-forth over the same ink, not a
+     * forward-moving `W` whose teeth only touch at a point), and the stroke as a whole must
+     * end near where it travelled — low net progress along that axis for the distance covered.
+     */
     fun isScribble(points: List<InkPoint>): Boolean {
         if (points.size < 5) return false
-        val span = hypot(points.maxOf { it.x } - points.minOf { it.x },
-            points.maxOf { it.y } - points.minOf { it.y })
+        val minX = points.minOf { it.x }; val maxX = points.maxOf { it.x }
+        val minY = points.minOf { it.y }; val maxY = points.maxOf { it.y }
+        val width = maxX - minX; val height = maxY - minY
+        val span = hypot(width, height)
         if (span < 14f) return false
         // Remove tiny wiggles and rounded turnaround samples before measuring direction changes.
         val corners = simplify(points, max(2f, span * .025f))
         val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
         if (total < 80f || total / span < 2.2f) return false
+        // Letter cusps are short: a scrub leg must span a real share of the whole stroke.
+        val minLeg = max(8f, span * 0.18f)
+        val horizontal = width >= height
         var reversals = 0
         for (i in 1 until corners.lastIndex) {
             val ax = corners[i].x - corners[i - 1].x; val ay = corners[i].y - corners[i - 1].y
             val bx = corners[i + 1].x - corners[i].x; val by = corners[i + 1].y - corners[i].y
             val al = hypot(ax, ay); val bl = hypot(bx, by)
-            if (al < 2f || bl < 2f) continue
-            if ((ax * bx + ay * by) / (al * bl) < -0.28f) reversals++
+            if (al < minLeg || bl < minLeg) continue
+            // Hairpin only: ~117° or sharper, so rounded loop turns do not count.
+            if ((ax * bx + ay * by) / (al * bl) >= -0.45f) continue
+            // Successive legs must re-cover each other along the scrub axis. A forward-moving
+            // cursive `W`/`M` only meets at a point (no overlap); a scrub fully re-traces it.
+            val overlap = if (horizontal) segmentOverlap(
+                corners[i - 1].x, corners[i].x, corners[i].x, corners[i + 1].x
+            ) else segmentOverlap(
+                corners[i - 1].y, corners[i].y, corners[i].y, corners[i + 1].y
+            )
+            if (overlap > 0.4f) reversals++
         }
-        return reversals >= 3
+        if (reversals < 3) return false
+        // Cursive marches forward while a scrub stays put: net progress along the dominant
+        // axis must be small next to the distance travelled along it.
+        val travel = corners.zipWithNext().sumOf { (a, b) ->
+            if (horizontal) abs(b.x - a.x).toDouble() else abs(b.y - a.y).toDouble()
+        }.toFloat()
+        if (travel <= 0f) return false
+        val net = if (horizontal) abs(corners.last().x - corners.first().x)
+        else abs(corners.last().y - corners.first().y)
+        return net / travel <= 0.6f
+    }
+
+    /** Share of the shorter 1-D segment covered by the overlap, 0 when they only touch. */
+    private fun segmentOverlap(a1: Float, a2: Float, b1: Float, b2: Float): Float {
+        val lo1 = min(a1, a2); val hi1 = max(a1, a2)
+        val lo2 = min(b1, b2); val hi2 = max(b1, b2)
+        val shorter = min(hi1 - lo1, hi2 - lo2)
+        if (shorter <= 0f) return 0f
+        return (min(hi1, hi2) - max(lo1, lo2)).coerceAtLeast(0f) / shorter
     }
 
     /** Test the entire sweep, including crossings between widely spaced input samples. */
@@ -659,6 +739,11 @@ object InkGeometry {
         if (sweep.isEmpty() || path.isEmpty()) return false
         val reach = radius + target.width / 2f
         if (sweep.size == 1) return hits(target, sweep.first(), radius)
+        // Cheap box reject before the O(sweep × path) narrow phase.
+        val sweepBox = strokeBoundsOf(sweep)
+        val pathBox = strokeBoundsOf(path)
+        if (pathBox[2] < sweepBox[0] - reach || pathBox[0] > sweepBox[2] + reach ||
+            pathBox[3] < sweepBox[1] - reach || pathBox[1] > sweepBox[3] + reach) return false
         return sweep.zipWithNext().any { (a, b) ->
             if (path.size == 1) segmentDistance(path.first(), a, b) <= reach
             else path.zipWithNext().any { (c, d) ->
@@ -872,6 +957,11 @@ object InkGeometry {
      */
     fun tidy(stroke: Stroke): List<Stroke>? {
         if (stroke.tool != Tool.PEN) return null
+        if (stroke.points.size < 5) return null
+        // Cheap span check before smoothing: tiny ticks never tidy.
+        val rawBox = bounds(listOf(stroke)) ?: return null
+        val rawSpan = hypot(rawBox[2] - rawBox[0], rawBox[3] - rawBox[1])
+        if (rawSpan < 26f) return null
         val points = smooth(stroke.points)
         if (points.size < 5) return null
         val box = bounds(listOf(stroke)) ?: return null
@@ -952,11 +1042,20 @@ object InkGeometry {
         val halfWidth = (box[2] - box[0]) / 2f; val halfHeight = (box[3] - box[1]) / 2f
         if (halfWidth < 1f || halfHeight < 1f) return false
         val cx = (box[0] + box[2]) / 2f; val cy = (box[1] + box[3]) / 2f
-        val radii = points.map { hypot((it.x - cx) / halfWidth, (it.y - cy) / halfHeight) }
-        val mean = radii.average().toFloat()
-        if (mean <= 0f) return false
-        val deviation = sqrt(radii.sumOf { ((it - mean) * (it - mean)).toDouble() }.toFloat() / radii.size)
-        return deviation / mean < .13f
+        // Single pass mean + M2 (Welford) instead of map + average + sumOf (3 passes).
+        var mean = 0.0
+        var m2 = 0.0
+        var n = 0
+        for (p in points) {
+            val r = hypot((p.x - cx) / halfWidth, (p.y - cy) / halfHeight).toDouble()
+            n++
+            val delta = r - mean
+            mean += delta / n
+            m2 += delta * (r - mean)
+        }
+        if (n == 0 || mean <= 0.0) return false
+        val deviation = sqrt(m2 / n).toFloat()
+        return deviation / mean.toFloat() < .13f
     }
 
     /** Douglas–Peucker: keeps only the samples that carry the drawing's corners. */

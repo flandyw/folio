@@ -215,7 +215,7 @@ fun analyzeSitting(
             )
         }
 
-    val minutes = ((end - start + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+    val minutes = ((end - start + 59_999L) / 60_000L).toInt().coerceIn(1, MAX_ANALYSIS_MINUTES)
     val perMinute = IntArray(minutes)
     strokes.forEach { stroke ->
         val bucket = ((stroke.atMs - start) / 60_000L).toInt().coerceIn(0, minutes - 1)
@@ -235,6 +235,9 @@ fun analyzeSitting(
 }
 
 private const val MAX_VISITS = 2000
+
+/** Upper bound for the per-minute activity chart; guards against clock-skewed windows. */
+private const val MAX_ANALYSIS_MINUTES = 1440
 
 /** A gap longer than this with no writing counts as an idle period. */
 const val IDLE_THRESHOLD_MS = 60_000L

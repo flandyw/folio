@@ -51,5 +51,9 @@ class NoteExporter(private val repository: NoteRepository) {
     private suspend fun content(note: Notebook, page: NotePage): NotePage =
         if (page.loaded) page else repository.loadPage(note.id, page)
 
-    fun filename(note: Notebook): String = note.title.replace(Regex("[^\\p{L}\\p{N} ._-]"), "_").take(80).ifBlank { "Notebook" }
+    fun filename(note: Notebook): String = note.title.replace(filenameUnsafe, "_").take(80).ifBlank { "Notebook" }
+
+    private companion object {
+        val filenameUnsafe = Regex("[^\\p{L}\\p{N} ._-]")
+    }
 }

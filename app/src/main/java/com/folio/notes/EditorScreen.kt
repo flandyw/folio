@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes
 
 import android.graphics.Bitmap
@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,7 +77,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, toolbarPosition: ToolbarPosition, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit) {
+@Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -278,7 +279,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(note.id, pages) {
         snapshotFlow { WorkspaceViewport(documentZoom, documentPan, pages.firstVisibleItemScrollOffset,
             savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom) to tool }
-            .distinctUntilChanged().collect { (viewport, selectedTool) -> model.updateTabViewport(note.id, viewport, selectedTool) }
+            .distinctUntilChanged()
+            .debounce(250)
+            .collect { (viewport, selectedTool) ->
+                model.updateTabViewport(note.id, viewport, selectedTool)
+            }
     }
     val scope = rememberCoroutineScope()
     val motionDensity = LocalDensity.current.density
@@ -322,6 +327,15 @@ private fun paperLabel(p: Paper): String = when (p) {
             snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it > index + 1 }
             pages.scrollToItem(index)
             model.selectPage(index)
+        }
+    }
+    fun selectAllInk() {
+        val view = activeInkView
+        if (view != null) view.selectAll()
+        else if (page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) {
+            // Fallback when view not yet bound (e.g. immediate toolbar tap after page switch)
+            tool = Tool.LASSO
+            selection = page.id to CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList())
         }
     }
     /** Decodes a picked picture, stores it beside the notebook and places it centred on the page. */
@@ -398,6 +412,96 @@ private fun paperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
+        EditorTopBar(
+            title = note.title,
+            saveFailed = state.saveFailed,
+            pendingSaves = state.pendingSaves,
+            starred = note.starred,
+            onStar = { model.star(note) },
+            onRename = { renameTitle = note.title; rename = true },
+            onRetrySave = model::retrySave,
+            onClose = model::close,
+            timer = { ExamTimerChip(state.timer, 48.dp) { timerPanel = true } },
+            pageIndex = state.pageIndex,
+            pageCount = note.pages.size,
+            onPrevious = { jumpTo(state.pageIndex - 1) },
+            onNext = { jumpTo(state.pageIndex + 1) },
+            onPages = { pageBrowser = true },
+            zoomPercent = (documentZoom * 100).roundToInt(),
+            onFit = ::resetZoom,
+            onAdd = ::addPage,
+            actions = {
+                IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Editor settings") }
+                IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Export or share") }
+                Box {
+                    IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
+                    PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
+                        onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
+                        onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
+                        onClear = { clear = true }, onRetry = model::retrySave,
+                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
+                        onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                        onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                        onContents = { pdfContentsOpen = true; loadOutline() },
+                        onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
+                        onInsertElement = { stampPicker = true },
+                        onOrganize = { pageBrowser = true },
+                        onBookmark = { model.togglePageBookmark(page.id) },
+                        onNamePage = { namedPage = page; pageTitle = page.title })
+                }
+            },
+            selectedCount = selected.size,
+            canRestyle = selected.strokes.isNotEmpty(),
+            onDeselect = { activeInkView?.clearSelection(); selection = null; selectTool(Tool.PEN) },
+            onCopySelection = { model.copyToClipboard(selected) },
+            onCutSelection = { model.cutSelection(selected); selection = null },
+            onDuplicateSelection = {
+                model.duplicateSelection(selected)
+                activeInkView?.clearSelection()
+                selection = null
+            },
+            onRotateSelection = { degrees -> transformSelection(
+                { strokes, center -> InkGeometry.rotate(strokes, center, degrees) },
+                { texts, center -> InkGeometry.rotateTexts(texts, center, degrees) },
+                { images, center -> InkGeometry.rotateImages(images, center, degrees) }
+            ) },
+            onResizeSelection = { factor -> transformSelection(
+                { strokes, center -> InkGeometry.scale(strokes, center, factor) },
+                { texts, center -> InkGeometry.scaleTexts(texts, center, factor) },
+                { images, center -> InkGeometry.scaleImages(images, center, factor) }
+            ) },
+            onRestyleSelection = { restyleSelection = selected.strokes },
+            onDeleteSelection = { model.deleteSelection(selected); selection = null },
+            toolbar = {
+                FloatingInkToolbar(
+                    modifier = Modifier,
+                    tool = tool,
+                    onTool = { selectTool(it) },
+                    options = options,
+                    onOptions = ::changeOptions,
+                    quick = quick,
+                    canUndo = state.canUndo,
+                    canRedo = state.canRedo,
+                    undo = model::undo,
+                    redo = model::redo,
+                    palette = palette,
+                    snapEnabled = snapEnabled,
+                    onSnap = ::setSnap,
+                    onAxes = model::insertAxes,
+                    onPalette = { palette = it },
+                    eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
+                    scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
+                    eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
+                    eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
+                    shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
+                    multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
+                    onSelectAll = ::selectAllInk,
+                    textColor = textColor, onTextColor = ::setTextColor,
+                    presets = toolPresets.presets, onApplyPreset = ::applyPreset,
+                    toolPresetsState = toolPresets
+                )
+            }
+        )
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -405,9 +509,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val baseWidthPx = with(density) { baseWidth.toPx() }
             val stripWidth = 26.dp
             val stripInset = 2.dp
-            val stackedToolbar = toolbarPosition == ToolbarPosition.TOP && maxWidth < 840.dp
-            val toolbarTopInset = if (stackedToolbar) 190.dp else 130.dp
-            val trackTop = if (toolbarPosition == ToolbarPosition.TOP) toolbarTopInset else 76.dp
+            val trackTop = 16.dp
             val trackBottom = 20.dp
             val stripWidthPx = with(density) { stripWidth.toPx() }
             val stripInsetPx = with(density) { stripInset.toPx() }
@@ -421,15 +523,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                 activeInkView?.suspendWritingFollow()
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
-            }
-            fun selectAllInk() {
-                val view = activeInkView
-                if (view != null) view.selectAll()
-                else if (page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) {
-                    // Fallback when view not yet bound (e.g. immediate toolbar tap after page switch)
-                    tool = Tool.LASSO
-                    selection = page.id to CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList())
-                }
             }
             if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
@@ -552,7 +645,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch },
-                    contentPadding = PaddingValues(top = if (toolbarPosition == ToolbarPosition.TOP) toolbarTopInset else 64.dp, bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 142.dp else 24.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp * documentZoom), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
@@ -591,7 +684,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         inputBlocked = true, peekRegion = peekAnchor)
                 }
             }
-            Row(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 150.dp else 16.dp)
+            Row(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 16.dp)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -643,152 +736,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onNavigate = { x, y -> activeInkView?.navigateCanvas(x, y) },
                     onFit = { activeInkView?.fitCanvas(it) }, onHome = ::resetZoom,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp,
-                        bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 152.dp else 12.dp))
+                        bottom = 12.dp))
             }
-            val toolbarAlignment = when (toolbarPosition) {
-                ToolbarPosition.TOP -> Alignment.TopCenter
-                ToolbarPosition.BOTTOM -> Alignment.BottomCenter
-            }
-            val toolbarUpTop = toolbarPosition == ToolbarPosition.TOP
-            val chromeHeight = 52.dp
-            if (toolbarUpTop && !stackedToolbar) {
-                Row(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    EditorChromeChip(Modifier.height(chromeHeight)) {
-                        IconButton(model::close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
-                        ExamTimerChip(state.timer, chromeHeight) { timerPanel = true }
-                    }
-                    Box(
-                        Modifier.weight(1f).padding(horizontal = 8.dp),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        FloatingInkToolbar(
-                            modifier = Modifier,
-                            tool = tool,
-                            onTool = { selectTool(it) },
-                            options = options,
-                            onOptions = ::changeOptions,
-                            quick = quick,
-                            canUndo = state.canUndo,
-                            canRedo = state.canRedo,
-                            undo = model::undo,
-                            redo = model::redo,
-                            palette = palette,
-                            snapEnabled = snapEnabled,
-                            onSnap = ::setSnap,
-                            onAxes = model::insertAxes,
-                            onPalette = { palette = it },
-                            eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
-                            scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
-                            eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
-                            eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
-                            shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
-                            multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
-                            onSelectAll = ::selectAllInk,
-                            textColor = textColor, onTextColor = ::setTextColor,
-                            presets = toolPresets.presets, onApplyPreset = ::applyPreset,
-                            toolPresetsState = toolPresets
-                        )
-                    }
-                    EditorChromeChip(Modifier.height(chromeHeight)) {
-                        IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Editor settings") }
-                        IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Export or share") }
-                        Box {
-                            IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
-                            PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                                onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
-                                onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                                onClear = { clear = true }, onRetry = model::retrySave,
-                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
-                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
-                                onContents = { pdfContentsOpen = true; loadOutline() },
-                                onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                onInsertElement = { stampPicker = true },
-                                onOrganize = { pageBrowser = true },
-                                onBookmark = { model.togglePageBookmark(page.id) },
-                                onNamePage = { namedPage = page; pageTitle = page.title })
-                        }
-                    }
-                }
-            } else {
-                Row(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp).height(chromeHeight),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    EditorChromeChip(Modifier.height(chromeHeight)) {
-                        IconButton(model::close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
-                        ExamTimerChip(state.timer, chromeHeight) { timerPanel = true }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    EditorChromeChip(Modifier.height(chromeHeight)) {
-                        IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Editor settings") }
-                        IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Export or share") }
-                        Box {
-                            IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
-                            PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                                onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
-                                onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                                onClear = { clear = true }, onRetry = model::retrySave,
-                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
-                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
-                                onContents = { pdfContentsOpen = true; loadOutline() },
-                                onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                onInsertElement = { stampPicker = true },
-                                onOrganize = { pageBrowser = true },
-                                onBookmark = { model.togglePageBookmark(page.id) },
-                                onNamePage = { namedPage = page; pageTitle = page.title })
-                        }
-                    }
-                }
-            }
-            if (!toolbarUpTop || stackedToolbar) FloatingInkToolbar(
-                Modifier.align(toolbarAlignment).padding(start = 12.dp, end = 12.dp, top = if (stackedToolbar) 68.dp else 76.dp, bottom = 12.dp),
-                tool, { selectTool(it) }, options, ::changeOptions, quick, state.canUndo, state.canRedo, model::undo, model::redo, palette, snapEnabled, ::setSnap, model::insertAxes, { palette = it },
-                eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
-                scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
-                eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
-                eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
-                shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
-                multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
-                onSelectAll = ::selectAllInk,
-                textColor = textColor, onTextColor = ::setTextColor,
-                presets = toolPresets.presets, onApplyPreset = ::applyPreset,
-                toolPresetsState = toolPresets
-            )
         }
-        EditorBottomBar(
-            state = state, zoomPercent = (documentZoom * 100).roundToInt(), selectedCount = selected.size,
-            canRestyle = selected.strokes.isNotEmpty(),
-            onRename = { renameTitle = note.title; rename = true }, onStar = { model.star(note) }, onRetry = model::retrySave,
-            onPages = { pageBrowser = true }, onPrevious = { jumpTo(state.pageIndex - 1) },
-            onNext = { jumpTo(state.pageIndex + 1) }, onAdd = ::addPage, onFit = ::resetZoom,
-            onDeselect = { activeInkView?.clearSelection(); selection = null; selectTool(Tool.PEN) },
-            onCopySelection = { model.copyToClipboard(selected) },
-            onCutSelection = { model.cutSelection(selected); selection = null },
-            onDuplicateSelection = {
-                model.duplicateSelection(selected)
-                // The originals stay on the page, so the canvas keeps its own copy of the
-                // selection after the edited page arrives; drop both copies explicitly.
-                activeInkView?.clearSelection()
-                selection = null
-            },
-            onRotateSelection = { degrees -> transformSelection(
-                { strokes, center -> InkGeometry.rotate(strokes, center, degrees) },
-                { texts, center -> InkGeometry.rotateTexts(texts, center, degrees) },
-                { images, center -> InkGeometry.rotateImages(images, center, degrees) }
-            ) },
-            onResizeSelection = { factor -> transformSelection(
-                { strokes, center -> InkGeometry.scale(strokes, center, factor) },
-                { texts, center -> InkGeometry.scaleTexts(texts, center, factor) },
-                { images, center -> InkGeometry.scaleImages(images, center, factor) }
-            ) },
-            onRestyleSelection = { restyleSelection = selected.strokes },
-            onDeleteSelection = { model.deleteSelection(selected); selection = null }
-        )
     }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
 
@@ -971,8 +921,17 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
-        val hits = remember(noteQuery, note.pages) {
-            NotebookTextSearch.search(note.pages, noteQuery)
+        // Search runs off the main thread with a debounce so typing never janks composition.
+        var debouncedQuery by remember { mutableStateOf(noteQuery) }
+        LaunchedEffect(noteQuery) {
+            kotlinx.coroutines.delay(200)
+            debouncedQuery = noteQuery
+        }
+        var hits by remember { mutableStateOf<List<NotebookTextSearch.Hit>>(emptyList()) }
+        val pagesSnapshot = note.pages
+        LaunchedEffect(debouncedQuery, pagesSnapshot) {
+            hits = if (debouncedQuery.isBlank()) emptyList()
+            else withContext(Dispatchers.Default) { NotebookTextSearch.search(pagesSnapshot, debouncedQuery) }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
@@ -1185,13 +1144,6 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
     }
 }
 
-/** A floating piece of editor chrome: a rounded surface holding one row of controls over the page. */
-@Composable private fun EditorChromeChip(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
-    Surface(modifier.guardUiTouches(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, content = content)
-    }
-}
-
 @Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, indicatorColor: Color? = null, change: (Tool) -> Unit) {
 
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
@@ -1229,7 +1181,11 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // Pictures arrive with the page content; a missing file simply leaves no bitmap to draw.
     // Keyed by image ids only: ink edits bump the page revision but never change picture bytes,
     // so redrawing a stroke must not re-decode every photo on the page.
-    LaunchedEffect(noteId, page.id, page.loaded, page.images.map { it.id }) {
+    // Keyed by image count + content hash instead of a fresh id list allocated per composition.
+    val imageKey = remember(page.id, page.loaded, page.images.size) {
+        page.images.fold(0) { acc, img -> 31 * acc + img.id.hashCode() }
+    }
+    LaunchedEffect(noteId, page.id, page.loaded, imageKey) {
         if (!page.loaded) return@LaunchedEffect
         if (page.images.isEmpty()) {
             pictures = emptyMap()
@@ -1238,13 +1194,18 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         val decoded = model.repository.loadImages(noteId, page)
         pictures = decoded
     }
-    Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
+    // Filtered links memoized: per-page recomposition must not re-allocate the list.
+    val pageLinks = remember(pdfLinks, page.pdfIndex) {
+        val target = page.pdfIndex ?: return@remember emptyList<PdfLink>()
+        pdfLinks.filter { it.pageIndex == target }
+    }
+    Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), color = Color.White) {
         // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
         // of a blank stand-in and replace the content that is still on disk.
         if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
             if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
-            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
+            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
             view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
             view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
             view.peekRegion = peekRegion
@@ -1264,7 +1225,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
             view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
             view.onImageSelected = onImageSelected
-            view.pdfLinks = pdfLinks.filter { it.pageIndex == page.pdfIndex }
+            view.pdfLinks = pageLinks
             view.onPdfLink = onPdfLink
             if (!active) view.clearSelection()
         }) else Box(contentAlignment = Alignment.Center) {

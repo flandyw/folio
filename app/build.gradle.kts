@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.environmentVariable("VERSION_CODE").orElse("1").get().toInt()
-        versionName = providers.environmentVariable("VERSION_NAME").orElse("0.1.1").get()
+        versionName = providers.environmentVariable("VERSION_NAME").orElse("0.2.0").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -26,7 +26,13 @@ android {
         }
     }
     buildTypes {
-        getByName("release") { signingConfig = signingConfigs.getByName("release") }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            // Shrinking is off until a baseline profile + R8 keep-rules for pdfbox are validated;
+            // enabling fullMode blindly strips reflectively loaded font tables. See README build notes.
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -47,6 +53,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
+    // Delivers baseline profiles to devices so the library/editor path is AOT-compiled on install.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // PDF text extraction for in-app search (Apache 2.0). Rendering stays on the framework PdfRenderer.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

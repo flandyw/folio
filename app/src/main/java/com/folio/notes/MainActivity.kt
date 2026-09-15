@@ -48,12 +48,24 @@ class MainActivity : ComponentActivity() {
         // The bars slide back after dialogs, the keyboard and app switches, so they are re-hidden here.
         if (hasFocus) { hideSystemBars(); requestHighRefreshRate() }
     }
+    // Cached after the first lookup: supportedModes + relayout on every focus change janked
+    // dialogs, keyboard and app switches.
+    private var cachedRefreshRate: Float? = null
     private fun requestHighRefreshRate() {
+        cachedRefreshRate?.let { rate ->
+            val attributes = window.attributes
+            if (attributes.preferredRefreshRate != rate) {
+                attributes.preferredRefreshRate = rate
+                window.attributes = attributes
+            }
+            return
+        }
         val screen = window.decorView.display ?: return
         val current = screen.mode
         val fastest = screen.supportedModes.filter {
             it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
         }.maxByOrNull { it.refreshRate } ?: return
+        cachedRefreshRate = fastest.refreshRate
         val attributes = window.attributes
         if (attributes.preferredRefreshRate != fastest.refreshRate) {
             attributes.preferredRefreshRate = fastest.refreshRate

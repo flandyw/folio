@@ -40,10 +40,19 @@ import java.util.Locale
 
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
+private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
+
 @Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit) {
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var setAssign by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
+    // Debounced query drives the O(N) filter so typing never blocks the text field.
+    var debouncedQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(query) {
+        if (query == debouncedQuery) return@LaunchedEffect
+        kotlinx.coroutines.delay(150)
+        debouncedQuery = query
+    }
     var starred by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENT) }
     var kind by rememberSaveable { mutableStateOf(LibraryKind.ALL) }
@@ -72,15 +81,15 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
     val examFilter = state.examFilter
     // Filtering + sorting runs once per input change, not on every recomposition (selection
     // ticks, thumbnail arrivals), so scrolling and multi-select stay smooth on large libraries.
-    val notes = remember(state.notes, state.folderId, starred, unfiled, query, kind, sort, examFilter) {
-        organizeNotebooks(state.notes, state.folderId, starred, unfiled, query, kind, sort)
+    val notes = remember(state.notes, state.folderId, starred, unfiled, debouncedQuery, kind, sort, examFilter) {
+        organizeNotebooks(state.notes, state.folderId, starred, unfiled, debouncedQuery, kind, sort)
             .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
     }
     // Grouping is pure but not free; memoized here (a @Composable context) rather than inside
     // the grid content, where remember is not allowed.
     val groups = remember(state.sets, state.notes) { groupExamSets(state.sets, state.notes) }
-    val visibleIds = notes.map { it.id }.toSet()
-    val selection = selectedIds.filter { it in visibleIds }.toSet()
+    val visibleIds = remember(notes) { notes.map { it.id }.toSet() }
+    val selection = remember(selectedIds, visibleIds) { selectedIds.filter { it in visibleIds }.toSet() }
     LaunchedEffect(visibleIds) { selectedIds = selectedIds.filter { it in visibleIds } }
     fun toggleSelection(id: String) {
         selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
@@ -452,10 +461,10 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
             }
         }
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
-                Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+                            Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
+                                Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: libraryDateFormat.get()!!.format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
             if (!selecting) NotebookMenu(rename, move, delete, examDetails, assignSet, pageCover, onCoverToggle)
         }
         ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
@@ -497,7 +506,8 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
         ratio.coerceIn(0.4f, 1.5f)
     } ?: 0.71f
     val bitmap = preview
-    if (note.pageCover && bitmap != null) {
+    val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
+    if (note.pageCover && imageBitmap != null) {
         Box(
             modifier
                 .aspectRatio(aspect)
@@ -506,7 +516,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            Image(imageBitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
     } else {
         NotebookCover(note, modifier.aspectRatio(aspect), compact = true)
@@ -516,8 +526,9 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 /** A compact list row's small preview, falling back to a type icon before one has been drawn. */
 @Composable private fun NotebookListThumbnail(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 44.dp.roundToPx() })
+    val imageBitmap = remember(preview) { preview?.asImageBitmap() }
     Box(modifier.clip(RoundedCornerShape(5.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-        if (preview != null) Image(preview.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        if (imageBitmap != null) Image(imageBitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         else Icon(if (note.pages.any { it.pdfIndex != null }) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, null)
     }
 }
@@ -525,8 +536,10 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 /** The first page's preview, drawn once per revision and served from the cache after that. */
 @Composable private fun rememberNotebookPreview(note: Notebook, thumbnails: PageThumbnailCache, widthPx: Int): Bitmap? {
     val first = note.pages.firstOrNull()
-    var preview by remember(note.id, first?.id) { mutableStateOf<Bitmap?>(null) }
+    var preview by remember(note.id, first?.id, first?.revision, widthPx) { mutableStateOf<Bitmap?>(null) }
+    // Clear stale bitmap immediately on revision bump so covers never flash old ink.
     LaunchedEffect(note.id, first?.id, first?.revision, widthPx) {
+        preview = null
         preview = first?.let { thumbnails.thumbnail(note.id, it, widthPx) }
     }
     return preview

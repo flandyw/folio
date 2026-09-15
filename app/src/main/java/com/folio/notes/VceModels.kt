@@ -35,6 +35,12 @@ enum class VceSubject(
         fun safeValueOf(name: String?): VceSubject? =
             name?.let { value -> entries.find { it.name == value } }
 
+        // Lowercased labels/words computed once so typed-subject matching never allocates per call.
+        private val lowerLabels: Map<VceSubject, String> by lazy { entries.associateWith { it.label.lowercase() } }
+        private val lowerWords: Map<VceSubject, List<String>> by lazy {
+            entries.associateWith { lowerLabels.getValue(it).split(' ') }
+        }
+
         /**
          * Matches a typed subject to a study, so "methods" and "Maths Methods" agree and a
          * fragment like "chem" finds Chemistry. Exact name and label wins before fragments do.
@@ -42,9 +48,9 @@ enum class VceSubject(
         fun match(text: String): VceSubject? {
             val query = text.trim().lowercase()
             if (query.isEmpty()) return null
-            entries.find { it.name.equals(query, true) || it.label.lowercase() == query }?.let { return it }
+            entries.find { it.name.equals(query, true) || lowerLabels.getValue(it) == query }?.let { return it }
             return entries.find { subject ->
-                subject.label.lowercase().split(' ').any { word ->
+                lowerWords.getValue(subject).any { word ->
                     (word.length >= 4 && query.contains(word)) || (query.length >= 4 && word.contains(query))
                 }
             }
@@ -248,8 +254,10 @@ object ExamTagsCodec {
 
 /** Pairs a set with the notebooks that link to it, which is everything the set screens need. */
 data class ExamSetGroup(val set: ExamSet, val notes: List<Notebook>) {
-    fun papers(type: ExamType): List<Notebook> = notes.filter { it.exam.type == type }
-    fun bestShare(type: ExamType): Float? = papers(type).mapNotNull { it.bestScore }.maxOrNull()
+    // Computed once per group instance; papers()/bestShare() are called repeatedly per card.
+    private val byType: Map<ExamType?, List<Notebook>> by lazy { notes.groupBy { it.exam.type } }
+    fun papers(type: ExamType): List<Notebook> = byType[type].orEmpty()
+    fun bestShare(type: ExamType): Float? = papers(type).asSequence().mapNotNull { it.bestScore }.maxOrNull()
     val pairedPaperCount: Int get() = listOf(ExamType.EXAM_1, ExamType.EXAM_2).count { papers(it).isNotEmpty() }
     /** Number of distinct sitting records across the whole set. */
     val attemptCount: Int get() = notes.sumOf { it.attempts.size }
@@ -397,17 +405,33 @@ data class ExamTagsBatch(
 fun matchesQuery(note: Notebook, rawQuery: String): Boolean {
     val query = rawQuery.trim().lowercase()
     if (query.isEmpty()) return true
-    val haystack = buildString {
-        append(note.title.lowercase())
-        note.pages.forEach { append(' '); append(it.title.lowercase()) }
-        append(' '); append(note.exam.subjectLabel.lowercase())
-        append(' '); append(note.exam.company.lowercase())
-        note.exam.year?.let { append(' '); append(it) }
-        note.exam.type?.let { append(' '); append(it.label.lowercase()) }
-        note.exam.unit?.let { append(' '); append("unit "); append(it) }
-        note.exam.tags.forEach { append(' '); append(it.label.lowercase()) }
-    }
-    return query.split(' ').filter { it.isNotBlank() }.all { haystack.contains(it) }
+    val terms = query.split(' ').filter { it.isNotBlank() }
+    if (terms.isEmpty()) return true
+    if (terms.size == 1) return haystackContains(note, terms[0])
+    val haystack = buildHaystack(note)
+    return terms.all { haystack.contains(it) }
+}
+
+private fun buildHaystack(note: Notebook): String = buildString {
+    append(note.title.lowercase())
+    note.pages.forEach { append(' '); append(it.title.lowercase()) }
+    append(' '); append(note.exam.subjectLabel.lowercase())
+    append(' '); append(note.exam.company.lowercase())
+    note.exam.year?.let { append(' '); append(it) }
+    note.exam.type?.let { append(' '); append(it.label.lowercase()) }
+    note.exam.unit?.let { append(' '); append("unit "); append(it) }
+    note.exam.tags.forEach { append(' '); append(it.label.lowercase()) }
+}
+
+private fun haystackContains(note: Notebook, term: String): Boolean {
+    if (note.title.lowercase().contains(term)) return true
+    if (note.exam.subjectLabel.lowercase().contains(term)) return true
+    if (note.exam.company.lowercase().contains(term)) return true
+    note.exam.type?.let { if (it.label.lowercase().contains(term)) return true }
+    note.exam.tags.forEach { if (it.label.lowercase().contains(term)) return true }
+    note.exam.year?.let { if (it.toString().contains(term)) return true }
+    note.exam.unit?.let { if (("unit $it").contains(term)) return true }
+    return note.pages.any { it.title.lowercase().contains(term) }
 }
 
 // ---- Templates -----------------------------------------------------------------------------------

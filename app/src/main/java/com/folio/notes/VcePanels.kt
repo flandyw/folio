@@ -29,7 +29,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun compactDate(time: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(time))
+private val compactDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+private fun compactDate(time: Long): String = compactDateFormat.get()!!.format(Date(time))
 
 private fun durationLabel(seconds: Int?): String {
     if (seconds == null || seconds <= 0) return "—"
@@ -213,7 +214,8 @@ fun ExamDetailsPanel(
                 }
                 TextButton({ scoreDialog = true }) { Text("Record a mark") }
             }
-            note.attempts.sortedBy { it.date }.forEach { attempt ->
+            val sortedAttempts = remember(note.attempts) { note.attempts.sortedBy { it.date } }
+            sortedAttempts.forEach { attempt ->
                 val share = attempt.share
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -488,6 +490,12 @@ fun ScoreDialog(
 /** A subject/year/company pair with separate paper links and scores. */
 @Composable
 fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -> Unit) {
+    // Papers + best shares computed once per group instead of re-filtering per row.
+    val exam1 = remember(group) { group.papers(ExamType.EXAM_1) }
+    val exam2 = remember(group) { group.papers(ExamType.EXAM_2) }
+    val best1 = remember(group) { group.bestShare(ExamType.EXAM_1) }
+    val best2 = remember(group) { group.bestShare(ExamType.EXAM_2) }
+    val supporting = remember(group) { group.notes.filter { it.exam.type !in listOf(ExamType.EXAM_1, ExamType.EXAM_2) } }
     Surface(onClick = openSet, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -504,12 +512,12 @@ fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -
                 }
                 Text("${group.pairedPaperCount}/2 papers", style = MaterialTheme.typography.labelLarge)
             }
-            listOf(ExamType.EXAM_1, ExamType.EXAM_2).forEach { type ->
-                val papers = group.papers(type)
+            listOf(exam1 to best1, exam2 to best2).forEachIndexed { rowIndex, (papers, best) ->
+                val type = if (rowIndex == 0) ExamType.EXAM_1 else ExamType.EXAM_2
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(type.label, style = MaterialTheme.typography.labelLarge)
-                        group.bestShare(type)?.let { share ->
+                        best?.let { share ->
                             Text("Best ${(share * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
                         }
                     }
@@ -520,7 +528,6 @@ fun ExamSetCard(group: ExamSetGroup, openSet: () -> Unit, openNote: (Notebook) -
                     }
                 }
             }
-            val supporting = group.notes.filter { it.exam.type !in listOf(ExamType.EXAM_1, ExamType.EXAM_2) }
             if (supporting.isNotEmpty()) {
                 Text("Other notebooks", style = MaterialTheme.typography.labelMedium)
                 ExamSetMembers(supporting, openNote)
@@ -689,7 +696,11 @@ private fun ProgressRow(label: String, share: Float) {
 /** Every flagged page across the library, grouped by notebook, one tap from the page itself. */
 @Composable
 fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (String, Int) -> Unit) {
-    val flagged = notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
+    // O(totalPages) scan memoized: recomputing per recomposition janked the redo list.
+    val flagged = remember(notes) {
+        notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
+    }
+    val grouped = remember(flagged) { flagged.groupBy { it.first } }
     FolioPanel(title = "Redo list", onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
@@ -705,7 +716,7 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
                     )
                 }
             }
-            flagged.groupBy { it.first }.forEach { (note, pages) ->
+            grouped.forEach { (note, pages) ->
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -879,7 +890,9 @@ private fun offsetLabel(ms: Long): String {
  */
 @Composable
 fun SittingReportPanel(note: Notebook, attempt: ExamAttempt, onDismiss: () -> Unit) {
-    val analysis = remember(note, attempt) { analyzeSitting(note, attempt) }
+    // Key on revision + attempt so unrelated strokes don't re-run O(N log N) analysis.
+    val revisionKey = remember(note) { note.pages.sumOf { it.revision + it.strokes.size } }
+    val analysis = remember(revisionKey, attempt) { analyzeSitting(note, attempt) }
     FolioPanel(title = "Timing report", onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
@@ -1008,8 +1021,16 @@ private fun SittingReplay(analysis: SittingAnalysis) {
         }
     }
     val cutoff = analysis.windowStartMs + replayMs
-    val done = analysis.timeline.count { it.atMs <= cutoff }
-    val currentPage = analysis.timeline.lastOrNull { it.atMs <= cutoff }?.pageIndex?.plus(1)
+    // Binary search on the time-ordered timeline: O(log N) per slider tick, not O(N).
+    val timeline = analysis.timeline
+    var lo = 0
+    var hi = timeline.size
+    while (lo < hi) {
+        val mid = (lo + hi) ushr 1
+        if (timeline[mid].atMs <= cutoff) lo = mid + 1 else hi = mid
+    }
+    val done = lo
+    val currentPage = if (done > 0) timeline[done - 1].pageIndex + 1 else null
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         IconButton({
             playing = if (replayMs >= duration) {

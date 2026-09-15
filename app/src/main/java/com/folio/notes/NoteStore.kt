@@ -22,10 +22,12 @@ object InkCodec {
         return (0 until array.length()).map { index ->
             val s = array.getJSONObject(index)
             val points = s.getJSONArray("points")
-            Stroke(Tool.valueOf(s.getString("tool")), s.getInt("color"), s.getDouble("width").toFloat(),
+            val toolName = s.optString("tool", "PEN")
+            val tool = runCatching { Tool.valueOf(toolName) }.getOrDefault(Tool.PEN)
+            Stroke(tool, s.getInt("color"), s.getDouble("width").toFloat(),
                 (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
                     InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
-                s.optDouble("opacity", if (s.getString("tool") == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
+                s.optDouble("opacity", if (toolName == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
                 if (s.has("createdAt") && !s.isNull("createdAt")) s.optLong("createdAt") else 0L,
                 if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
         }
@@ -88,16 +90,19 @@ object InkCodec {
 object NoteMetaCodec {
     const val VERSION = 5
 
-    fun isCurrent(value: String): Boolean = try { JSONObject(value).optInt("version") == VERSION } catch (_: Exception) { false }
+    /** Single-parse version probe; prefer [versionOf] over the legacy per-version checks. */
+    fun versionOf(value: String): Int = try { JSONObject(value).optInt("version", -1) } catch (_: Exception) { -1 }
+
+    fun isCurrent(value: String): Boolean = versionOf(value) == VERSION
 
     /** True when [value] is the version-2 split index, which carries no ink but no exam tags either. */
-    fun isSplitIndex(value: String): Boolean = try { JSONObject(value).optInt("version") == 2 } catch (_: Exception) { false }
+    fun isSplitIndex(value: String): Boolean = versionOf(value) == 2
 
     /** True for a version-3 index, which is current except for the cover choice (defaults to page cover). */
-    fun isVersion3(value: String): Boolean = try { JSONObject(value).optInt("version") == 3 } catch (_: Exception) { false }
+    fun isVersion3(value: String): Boolean = versionOf(value) == 3
 
     /** True for a version-4 index, which is current except for attempt telemetry (defaults to none). */
-    fun isVersion4(value: String): Boolean = try { JSONObject(value).optInt("version") == 4 } catch (_: Exception) { false }
+    fun isVersion4(value: String): Boolean = versionOf(value) == 4
 
     fun encode(note: Notebook): String = JSONObject().apply {
         put("version", VERSION); put("id", note.id); put("title", note.title)
@@ -183,9 +188,13 @@ object NotePageCodec {
  * misses the cache, and only copies of the same page at the same size can be pruned.
  */
 object ThumbnailKeys {
-    fun name(pageId: String, revision: Int, widthPx: Int): String = "$pageId-$widthPx-$revision.png"
+    fun name(pageId: String, revision: Int, widthPx: Int): String = "$pageId-$widthPx-$revision.jpg"
 
     /** True when [fileName] is a preview of [pageId] at [widthPx] left over from an earlier revision. */
-    fun isStale(fileName: String, pageId: String, revision: Int, widthPx: Int): Boolean =
-        fileName.startsWith("$pageId-$widthPx-") && fileName != name(pageId, revision, widthPx)
+    fun isStale(fileName: String, pageId: String, revision: Int, widthPx: Int): Boolean {
+        if (!fileName.startsWith("$pageId-$widthPx-")) return false
+        if (fileName == name(pageId, revision, widthPx)) return false
+        // Legacy PNG previews from before the JPEG switch are always stale.
+        return true
+    }
 }
