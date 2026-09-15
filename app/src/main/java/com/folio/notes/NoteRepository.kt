@@ -514,6 +514,25 @@ class NoteRepository(private val context: Context) {
         }
     }
 
+    private data class PdfCacheKey(val noteId: String, val index: Int, val width: Int)
+    // Shared immutable bitmaps: eviction drops ownership, never recycles a bitmap a View may use.
+    private val pdfBitmapCache = object : android.util.LruCache<PdfCacheKey, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 8).coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt()
+    ) {
+        override fun sizeOf(key: PdfCacheKey, value: Bitmap) = value.allocationByteCount
+    }
+
+    suspend fun cachedPdfBackground(noteId: String, page: NotePage, targetWidth: Int = 1400): Bitmap? = withContext(Dispatchers.IO) {
+        val index = page.pdfIndex ?: return@withContext null
+        val key = PdfCacheKey(noteId, index, targetWidth)
+        pdfLock.withLock {
+            pdfBitmapCache.get(key) ?: sharedPdf(noteId)?.render(page, targetWidth)?.also {
+                it.prepareToDraw()
+                pdfBitmapCache.put(key, it)
+            }
+        }
+    }
+
     /** The page's white background, reusing the open renderer and serializing actual renders. */
     suspend fun pdfBackground(noteId: String, page: NotePage, targetWidth: Int = 1400): Bitmap? = withContext(Dispatchers.IO) {
         if (page.pdfIndex == null) return@withContext null

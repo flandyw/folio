@@ -176,7 +176,7 @@ import java.io.File
                         Text("Your stored files have been kept. Retry to open them.")
                         Button(model::loadLibrary) { Text("Retry") }
                     }
-                    state.active != null -> EditorScreen(state, model, finger, toolbarPosition, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
+                    state.active != null -> WorkspaceScreen(state, model, finger, toolbarPosition, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
                     else -> LibraryScreen(state, model, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {

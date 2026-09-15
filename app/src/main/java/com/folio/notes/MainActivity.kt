@@ -46,8 +46,21 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         // The bars slide back after dialogs, the keyboard and app switches, so they are re-hidden here.
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) { hideSystemBars(); requestHighRefreshRate() }
     }
+    private fun requestHighRefreshRate() {
+        val screen = window.decorView.display ?: return
+        val current = screen.mode
+        val fastest = screen.supportedModes.filter {
+            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        }.maxByOrNull { it.refreshRate } ?: return
+        val attributes = window.attributes
+        if (attributes.preferredRefreshRate != fastest.refreshRate) {
+            attributes.preferredRefreshRate = fastest.refreshRate
+            window.attributes = attributes
+        }
+    }
+
     /**
      * The app runs fullscreen: the status bar and the gesture pill stay out of the way and only slide
      * back in for a swipe from their edge. Everything draws inside the display cutout inset instead.

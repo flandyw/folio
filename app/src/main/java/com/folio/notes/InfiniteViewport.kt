@@ -19,6 +19,11 @@ class InfiniteViewport {
         centerOn((left + right) / 2f, (top + bottom) / 2f, width, height)
     }
 
+    fun restore(panX: Float, panY: Float, scale: Float) {
+        if (!panX.isFinite() || !panY.isFinite() || !scale.isFinite()) return
+        x = panX; y = panY; zoom = scale.coerceIn(.1f, 8f)
+    }
+
     fun reset() { x = 0f; y = 0f; zoom = 1f }
     fun pan(dx: Float, dy: Float) {
         if (dx.isFinite() && dy.isFinite()) { x += dx; y += dy }

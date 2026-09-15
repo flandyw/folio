@@ -80,7 +80,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
-    var tool by rememberSaveable { mutableStateOf(Tool.PEN) }
+    val session = state.tabs.find { it.notebookId == note.id }
+    var tool by rememberSaveable { mutableStateOf(session?.tool ?: Tool.PEN) }
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
     val prefs = context.getSharedPreferences("ink-tools", 0)
@@ -236,8 +237,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline)
         textEditorNew = true
     }
-    var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(1f) }
-    var documentPan by rememberSaveable(note.id) { mutableFloatStateOf(0f) }
+    var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.zoom ?: 1f) }
+    var documentPan by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.pan ?: 0f) }
     var pageBrowser by remember { mutableStateOf(false) }
     var pageQuery by rememberSaveable(note.id) { mutableStateOf("") }
     var pageFilter by rememberSaveable(note.id) { mutableStateOf(PageFilter.ALL) }
@@ -267,7 +268,13 @@ private fun paperLabel(p: Paper): String = when (p) {
             model.tickTimer()
         }
     }
-    val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex)
+    val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex, initialFirstVisibleItemScrollOffset = session?.viewport?.scrollOffset ?: 0)
+    var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
+    LaunchedEffect(note.id, pages) {
+        snapshotFlow { WorkspaceViewport(documentZoom, documentPan, pages.firstVisibleItemScrollOffset,
+            savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom) to tool }
+            .distinctUntilChanged().collect { (viewport, selectedTool) -> model.updateTabViewport(note.id, viewport, selectedTool) }
+    }
     val scope = rememberCoroutineScope()
     val motionDensity = LocalDensity.current.density
     val motion = remember(pages, note.id, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
@@ -347,7 +354,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     y = if (target.infinite) y else y.coerceAtLeast(0f),
                     width = w, height = h
                 )
-                model.addImage(image, bytes)
+                model.addImage(image, bytes, target.id)
                 selectedImage = target.id to image
                 if (tool != Tool.HAND) selectTool(Tool.HAND)
             } catch (e: Exception) {
@@ -369,8 +376,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     LaunchedEffect(note.id, page.infinite) {
         if (page.infinite) return@LaunchedEffect
-        pages.scrollToItem(state.pageIndex)
-        documentZoom = 1f
         snapshotFlow { pages.firstVisibleItemIndex }.distinctUntilChanged().collect { model.selectPage(it) }
     }
     // The pages beside the open one are read before they are scrolled to, so previous/next and
@@ -425,6 +430,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
                     onCanvasZoom = { documentZoom = it }, onCanvasViewport = { canvasViewport = it },
+                    initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
@@ -1126,7 +1132,7 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
 private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.HIGHLIGHTER)
 
-@Composable private fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID) {
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
@@ -1134,26 +1140,14 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     var pictures by remember(page.id) { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     // A page whose ink is still on disk is fetched as soon as it is about to be shown.
     LaunchedEffect(page.id, page.loaded) { if (!page.loaded) onLoad() }
-    // Rendered PDF backgrounds and decoded photos are native memory: the previous bitmap is
-    // recycled as soon as its replacement arrives, and whatever is still held is recycled when
-    // the page leaves the composition, so paging through a long PDF notebook cannot pile up
-    // full-size bitmaps until the GC happens to notice.
-    val backgroundRef = rememberUpdatedState(background)
-    val picturesRef = rememberUpdatedState(pictures)
-    DisposableEffect(noteId, page.id) {
-        onDispose {
-            runCatching { backgroundRef.value?.recycle() }
-            picturesRef.value.values.forEach { runCatching { it.recycle() } }
-        }
-    }
+    // PDF backgrounds belong to the repository's bounded cache. Let bitmap references expire
+    // naturally: a native View or retained display list may still use them after composition ends.
     LaunchedEffect(noteId, page.id, retry) {
         if (page.pdfIndex != null) {
             ready = false; error = false
             try {
-                val rendered = model.repository.pdfBackground(noteId, page)
-                val old = background
+                val rendered = model.repository.cachedPdfBackground(noteId, page)
                 background = rendered
-                if (old != null && old != rendered) runCatching { old.recycle() }
                 ready = true
             }
             catch (e: CancellationException) { throw e }
@@ -1166,23 +1160,19 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     LaunchedEffect(noteId, page.id, page.loaded, page.images.map { it.id }) {
         if (!page.loaded) return@LaunchedEffect
         if (page.images.isEmpty()) {
-            val old = pictures
             pictures = emptyMap()
-            old.values.forEach { runCatching { it.recycle() } }
             return@LaunchedEffect
         }
         val decoded = model.repository.loadImages(noteId, page)
-        val old = pictures
         pictures = decoded
-        // Only bitmaps that are no longer referenced are recycled; survivors stay alive for InkView.
-        old.forEach { (id, bitmap) -> if (decoded[id] !== bitmap) runCatching { bitmap.recycle() } }
     }
     Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp, color = Color.White) {
         // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
         // of a blank stand-in and replace the content that is still on disk.
         if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
-            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.tool = tool; view.inkColor = options.color
+            if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
             view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
@@ -1191,13 +1181,13 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition
             view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
-            view.onStrokesChanged = { model.strokes(page.id, it) }
+            view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
             view.onSelectionChanged = onSelection
-            view.onContentChanged = { strokes, texts, images -> model.updateContent(page.id, strokes, texts, images) }
+            view.onContentChanged = { strokes, texts, images -> if (!readOnly) model.updateContent(page.id, strokes, texts, images) }
             view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
-            view.onTextsChanged = { model.texts(page.id, it) }
+            view.onTextsChanged = { if (!readOnly) model.texts(page.id, it) }
             view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
-            view.onImagesChanged = { model.images(page.id, it) }
+            view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
             view.onImageSelected = onImageSelected
             view.pdfLinks = pdfLinks.filter { it.pageIndex == page.pdfIndex }
             view.onPdfLink = onPdfLink

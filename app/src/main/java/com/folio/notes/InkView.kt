@@ -138,10 +138,19 @@ class InkView(context: Context) : View(context) {
     private val measurementTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 26f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) }
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
+    var readOnly = false
+    var onWorkspaceCamera: (WorkspaceViewport) -> Unit = {}
+    private var workspaceCameraRestored = false
+    fun restoreWorkspaceCamera(viewport: WorkspaceViewport?) {
+        if (workspaceCameraRestored) return
+        workspaceCameraRestored = true
+        if (viewport != null) camera.restore(viewport.canvasX, viewport.canvasY, viewport.canvasZoom)
+    }
     private val camera = InfiniteViewport()
     var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
     private fun reportCanvasViewport() {
-        if (page.infinite && width > 0 && height > 0) {
+        if ((page.infinite || readOnly) && workspaceCameraRestored && width > 0 && height > 0) {
+            onWorkspaceCamera(WorkspaceViewport(canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom))
             onCanvasZoom(camera.zoom)
             onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
                 (width - camera.x) / camera.zoom, (height - camera.y) / camera.zoom))
@@ -178,10 +187,10 @@ class InkView(context: Context) : View(context) {
                 reportCanvasViewport(); invalidate(); return true
             }
         }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
-    private val scale get() = if (page.infinite) camera.zoom else pageScale
+    private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (readOnly) camera.zoom else 1f)
     private val pageScale get() = min(width / page.width, height / page.height).coerceAtLeast(.01f)
-    private val originX get() = if (page.infinite) camera.x else (width - page.width * scale) / 2
-    private val originY get() = if (page.infinite) camera.y else (height - page.height * scale) / 2
+    private val originX get() = if (page.infinite) camera.x else if (readOnly) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else if (readOnly) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -204,7 +213,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1 }
+        if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection.
@@ -225,6 +234,34 @@ class InkView(context: Context) : View(context) {
         if (selectedImageId != null && value.images.none { it.id == selectedImageId }) selectedImageId = null
         invalidate()
     }
+    private val committedLayer = if (android.os.Build.VERSION.SDK_INT >= 29) android.graphics.RenderNode("Committed page") else null
+    private var recordedPage: NotePage? = null
+    private var recordedBackground: Bitmap? = null
+    private var recordedImages: Map<String, Bitmap>? = null
+
+    private fun drawCommittedPage(canvas: Canvas, content: NotePage) {
+        // Infinite paper depends on the viewport clip; retain ordinary finite pages only.
+        if (android.os.Build.VERSION.SDK_INT < 29 || !canvas.isHardwareAccelerated || content.infinite) {
+            InkRenderer.page(canvas, content, background, images = imageBitmaps)
+            return
+        }
+        val node = committedLayer!!
+        if (!node.hasDisplayList() || recordedPage !== content || recordedBackground !== background || recordedImages !== imageBitmaps) {
+            node.setPosition(0, 0, ceil(content.width).toInt(), ceil(content.height).toInt())
+            val recording = node.beginRecording()
+            try { InkRenderer.page(recording, content, background, images = imageBitmaps) }
+            finally { node.endRecording() }
+            recordedPage = content; recordedBackground = background; recordedImages = imageBitmaps
+        }
+        canvas.drawRenderNode(node)
+    }
+
+    override fun onDetachedFromWindow() {
+        if (android.os.Build.VERSION.SDK_INT >= 29) committedLayer?.discardDisplayList()
+        recordedPage = null; recordedBackground = null; recordedImages = null
+        super.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(234, 232, 226))
@@ -245,7 +282,7 @@ class InkView(context: Context) : View(context) {
             texts = placed.texts.filterNot { box -> selectedTexts.any { it.id == box.id } },
             images = placed.images.filterNot { image -> selectedImages.any { it.id == image.id } }
         )
-        InkRenderer.page(canvas, rest, background, images = imageBitmaps)
+        drawCommittedPage(canvas, rest)
         if (selection.isNotEmpty()) {
             val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
             moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
@@ -278,10 +315,8 @@ class InkView(context: Context) : View(context) {
         canvas.restore()
     }
     /**
-     * Redraws only the neighbourhood of new samples while freehand ink or the eraser moves.
-     * A full invalidate on every 8 ms sample forced the whole page (paper + every stroke) to
-     * redraw at stylus rate; the dirty rect lets the hardware renderer keep the rest and, together
-     * with InkRenderer's viewport culling, only the strokes under the tip are re-walked.
+     * Supplies damage bounds on older software renderers. Hardware Views may ignore these bounds;
+     * the retained committed layer above is what avoids rebuilding the page during pen updates.
      */
     private fun invalidateForSamples(samples: List<InkPoint>): Boolean {
         if (samples.isEmpty()) return false
@@ -308,6 +343,9 @@ class InkView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         var dirtyInvalidated = false
         val hasStylus = (0 until event.pointerCount).any { isStylus(event, it) }
+        if (hasStylus && (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN)) {
+            requestUnbufferedDispatch(event)
+        }
         if (!multiTouchUndo || hasStylus || isPalm(event, 0)) touchChord.reset()
         else {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -323,7 +361,7 @@ class InkView(context: Context) : View(context) {
                 touchChord.move(event.getPointerId(i), event.getX(i), event.getY(i))
             }
         }
-        if (page.infinite && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
+        if ((page.infinite || readOnly) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
             zoomDetector.onTouchEvent(event)
         }
         // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
@@ -346,7 +384,7 @@ class InkView(context: Context) : View(context) {
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
                 panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
-                if (tool == Tool.HAND && !ignored && beginImage(event, 0)) {
+                if (!readOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
                     navigating = false
                 } else if (tool == Tool.HAND && !ignored && beginLink(event, 0)) {
                     navigating = false
@@ -421,7 +459,7 @@ class InkView(context: Context) : View(context) {
                 } else if (navigating) {
                     val x = centroidX(event); val y = centroidY(event)
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
-                    if (page.infinite) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
+                    if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
                     lastX = x; lastY = y
                 } else {
                     val points = (0 until event.historySize).map { point(event, index, it) } + point(event, index)
