@@ -68,4 +68,57 @@ class InkRendererTests {
         assertEquals(1f, normal, .0001f)
         assertTrue(hard > 1f && hard <= 1.2f)
     }
+
+    @Test fun renderedPenMatchesHandwritingCentrelineWithTaperAndRawBounds() {
+        val stroke = Stroke(Tool.PEN, 0xFF000000.toInt(), 3f, listOf(
+            InkPoint(0f, 0f), InkPoint(4f, 1f), InkPoint(8f, 0f), InkPoint(12f, 3f), InkPoint(16f, 2f)))
+
+        val rendered = InkRenderer.rendered(stroke)
+
+        assertEquals(InkRenderer.handwritingCentreline(InkGeometry.pathPoints(stroke)), rendered.centre)
+        assertEquals(rendered.centre.size, rendered.taper!!.size)
+        assertEquals(0f, rendered.minX, .0001f)
+        assertEquals(0f, rendered.minY, .0001f)
+        assertEquals(16f, rendered.maxX, .0001f)
+        assertEquals(3f, rendered.maxY, .0001f)
+    }
+
+    @Test fun renderedHighlighterMatchesSmoothWithoutTaper() {
+        val stroke = Stroke(Tool.HIGHLIGHTER, 0xFF000000.toInt(), 8f, listOf(
+            InkPoint(0f, 0f), InkPoint(5f, 2f), InkPoint(10f, 0f), InkPoint(15f, 4f)))
+
+        val rendered = InkRenderer.rendered(stroke)
+
+        assertEquals(InkGeometry.smooth(InkGeometry.pathPoints(stroke)), rendered.centre)
+        assertEquals(null, rendered.taper)
+    }
+
+    @Test fun renderedShapeKeepsPathPointsWithoutTaper() {
+        val stroke = Stroke(Tool.LINE, 0xFF000000.toInt(), 3f,
+            listOf(InkPoint(2f, 3f), InkPoint(20f, 30f)))
+
+        val rendered = InkRenderer.rendered(stroke)
+
+        assertEquals(InkGeometry.pathPoints(stroke), rendered.centre)
+        assertEquals(null, rendered.taper)
+        assertEquals(2f, rendered.minX, .0001f)
+        assertEquals(20f, rendered.maxX, .0001f)
+    }
+
+    @Test fun rawBoundsMatchStoredSamples() {
+        val stroke = Stroke(Tool.PEN, 0xFF000000.toInt(), 3f, listOf(
+            InkPoint(4f, 9f), InkPoint(-2f, 5f), InkPoint(7f, -1f)))
+
+        assertEquals(listOf(-2f, -1f, 7f, 9f), InkRenderer.rawBounds(stroke).toList())
+        assertEquals(listOf(0f, 0f, 0f, 0f),
+            InkRenderer.rawBounds(stroke.copy(points = emptyList())).toList())
+    }
+
+    @Test fun renderedEmptyStrokeStaysEmpty() {
+        val rendered = InkRenderer.rendered(
+            Stroke(Tool.PEN, 0xFF000000.toInt(), 3f, emptyList()))
+
+        assertTrue(rendered.centre.isEmpty())
+        assertEquals(null, rendered.taper)
+    }
 }

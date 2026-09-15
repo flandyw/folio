@@ -337,7 +337,15 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null }
+        else if (page.strokes !== value.strokes) {
+            // Same page, new revision: drop geometry for strokes that are gone so the
+            // caches track the live ink instead of every undone fragment.
+            val keep = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
+            keep.addAll(value.strokes); keep.addAll(selection)
+            renderCache.keys.retainAll(keep)
+            boundsCache.keys.retainAll(keep)
+        }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection.
@@ -367,17 +375,55 @@ class InkView(context: Context) : View(context) {
     private var recordedBackground: Bitmap? = null
     private var recordedImages: Map<String, Bitmap>? = null
 
+    /**
+     * Smoothed ink geometry by stroke identity. Strokes are immutable and untouched strokes
+     * keep their instance through erasing and page copies, so each stroke pays the spline
+     * math once no matter how many frames, recordings or eraser passes touch the page.
+     * UI thread only; pruned to the live page so undo generations never pin memory.
+     */
+    private val renderCache = java.util.IdentityHashMap<Stroke, InkRenderer.RenderedStroke>()
+    private val boundsCache = java.util.IdentityHashMap<Stroke, FloatArray>()
+    private fun renderedOf(stroke: Stroke): InkRenderer.RenderedStroke =
+        renderCache.getOrPut(stroke) {
+            if (renderCache.size > MAX_CACHED_STROKES) pruneStrokeCaches()
+            InkRenderer.rendered(stroke)
+        }
+    private fun boundsOf(stroke: Stroke): FloatArray =
+        boundsCache.getOrPut(stroke) {
+            if (boundsCache.size > MAX_CACHED_STROKES) pruneStrokeCaches()
+            InkRenderer.rawBounds(stroke)
+        }
+    private fun pruneStrokeCaches() {
+        val keep = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
+        keep.addAll(page.strokes); keep.addAll(selection)
+        draft?.let(keep::add)
+        erasing?.let(keep::addAll)
+        renderCache.keys.retainAll(keep)
+        boundsCache.keys.retainAll(keep)
+        if (renderCache.size > MAX_CACHED_STROKES) { renderCache.clear(); boundsCache.clear() }
+    }
+    /** Reused base page (page minus selection) so a selection drag reuses the retained layer. */
+    private var restCacheKeyPage: NotePage? = null
+    private var restCacheKeyStrokes: List<Stroke>? = null
+    private var restCacheKeyTexts: List<TextBox>? = null
+    private var restCacheKeyImages: List<PageImage>? = null
+    private var restCache: NotePage? = null
+
     private fun drawCommittedPage(canvas: Canvas, content: NotePage) {
         // Infinite paper depends on the viewport clip; retain ordinary finite pages only.
+        // Every path reuses the identity-keyed geometry cache, so a recording smooths only
+        // strokes it has never seen instead of re-walking the whole page per commit.
         if (android.os.Build.VERSION.SDK_INT < 29 || !canvas.isHardwareAccelerated || content.infinite) {
-            InkRenderer.page(canvas, content, background, images = imageBitmaps)
+            InkRenderer.pageCached(canvas, content, background, images = imageBitmaps,
+                boundsOf = ::boundsOf, renderOf = ::renderedOf)
             return
         }
         val node = committedLayer!!
         if (!node.hasDisplayList() || recordedPage !== content || recordedBackground !== background || recordedImages !== imageBitmaps) {
             node.setPosition(0, 0, ceil(content.width).toInt(), ceil(content.height).toInt())
             val recording = node.beginRecording()
-            try { InkRenderer.page(recording, content, background, images = imageBitmaps) }
+            try { InkRenderer.pageCached(recording, content, background, images = imageBitmaps,
+                boundsOf = ::boundsOf, renderOf = ::renderedOf) }
             finally { node.endRecording() }
             recordedPage = content; recordedBackground = background; recordedImages = imageBitmaps
         }
@@ -388,6 +434,7 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(followFrame)
         if (android.os.Build.VERSION.SDK_INT >= 29) committedLayer?.discardDisplayList()
         recordedPage = null; recordedBackground = null; recordedImages = null
+        renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         super.onDetachedFromWindow()
     }
 
@@ -409,33 +456,62 @@ class InkView(context: Context) : View(context) {
         // Identity set avoids O(S_sel × S_page × pts) deep-equals per frame while dragging.
         val selectedIds = if (!hasSelection || selection.isEmpty()) null else
             java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
-        val rest = if (!hasSelection) placed else placed.copy(
+        // Reuse the same base object while the page and the selection membership are stable:
+        // a drag only changes the offset (drawn below via a canvas translate), so the
+        // retained committed layer keeps hitting instead of re-recording the page per frame.
+        // A live text/picture drag does change the base, so it always rebuilds.
+        val rest = if (!hasSelection) placed
+        else if (dragging != null || liveImage != null) placed.copy(
             strokes = if (selection.isEmpty()) placed.strokes else placed.strokes.filterNot { it in selectedIds!! || it in selection },
             texts = placed.texts.filterNot { box -> selectedTexts.any { it.id == box.id } },
             images = placed.images.filterNot { image -> selectedImages.any { it.id == image.id } }
         )
-        drawCommittedPage(canvas, rest)
+        else if (placed === restCacheKeyPage && selection === restCacheKeyStrokes &&
+            selectedTexts === restCacheKeyTexts && selectedImages === restCacheKeyImages && restCache != null) restCache!!
+        else {
+            val built = placed.copy(
+                strokes = if (selection.isEmpty()) placed.strokes else placed.strokes.filterNot { it in selectedIds!! || it in selection },
+                texts = placed.texts.filterNot { box -> selectedTexts.any { it.id == box.id } },
+                images = placed.images.filterNot { image -> selectedImages.any { it.id == image.id } }
+            )
+            restCacheKeyPage = placed; restCacheKeyStrokes = selection
+            restCacheKeyTexts = selectedTexts; restCacheKeyImages = selectedImages; restCache = built
+            built
+        }
+        if (erasing != null) {
+            // The survivor set changes on every eraser MOVE, so retaining it would re-record
+            // the whole page per sample. Draw it directly instead: the dirty rect culls to the
+            // tip area and the geometry cache means only newly touched strokes pay any math.
+            InkRenderer.pageCached(canvas, placed, background, images = imageBitmaps,
+                boundsOf = ::boundsOf, renderOf = ::renderedOf)
+        } else drawCommittedPage(canvas, rest)
         if (selection.isNotEmpty()) {
-            val moved = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
+            // Draw the originals under a translate instead of allocating translated copies:
+            // the geometry cache (and the text layout cache for boxes below) keeps hitting,
+            // and no per-frame smoothing or measuring runs while the selection moves.
+            canvas.save(); canvas.translate(selectionDx, selectionDy)
             // Skip the double-draw halo for huge selections; the drag offset already reads clearly.
-            if (moved.size <= SELECTION_HALO_LIMIT) {
-                moved.forEach { InkRenderer.stroke(canvas, it.copy(color = SELECTION_COLOR, width = it.width + 14f, opacity = .35f)) }
+            if (selection.size <= SELECTION_HALO_LIMIT) {
+                selection.forEach { InkRenderer.drawHalo(canvas, it, renderedOf(it), SELECTION_COLOR) }
             }
-            moved.forEach { InkRenderer.stroke(canvas, it) }
+            selection.forEach { InkRenderer.drawRendered(canvas, it, renderedOf(it)) }
+            canvas.restore()
         }
         if (selectedTexts.isNotEmpty()) {
+            canvas.save(); canvas.translate(selectionDx, selectionDy)
             selectedTexts.forEach {
-                val moved = it.moved(selectionDx, selectionDy)
-                InkRenderer.text(canvas, moved)
-                drawTextBox(canvas, moved)
+                InkRenderer.text(canvas, it)
+                drawTextBox(canvas, it)
             }
+            canvas.restore()
         }
         if (selectedImages.isNotEmpty()) {
+            canvas.save(); canvas.translate(selectionDx, selectionDy)
             selectedImages.forEach {
-                val moved = it.moved(selectionDx, selectionDy)
-                imageBitmaps[moved.id]?.let { bitmap -> InkRenderer.image(canvas, bitmap, moved) }
-                drawImageSelection(canvas, moved, withHandle = false)
+                imageBitmaps[it.id]?.let { bitmap -> InkRenderer.image(canvas, bitmap, it) }
+                drawImageSelection(canvas, it, withHandle = false)
             }
+            canvas.restore()
         }
         draft?.let { InkRenderer.stroke(canvas, it) }
         draft?.let { if (shapeMeasurements && it.tool in MEASURE_TOOLS) drawMeasurement(canvas, it) }
@@ -632,16 +708,49 @@ class InkView(context: Context) : View(context) {
                     val cutting = erasing
                     if (cutting != null) {
                         val centers = points.map { clampToPage(it) }
+                        // Bounding-box prefilter on cached bounds: far strokes skip the segment
+                        // walk entirely, so an eraser pass costs O(nearby) exact cuts instead of
+                        // O(page) geometry per MOVE.
+                        var cMinX = Float.MAX_VALUE; var cMinY = Float.MAX_VALUE
+                        var cMaxX = -Float.MAX_VALUE; var cMaxY = -Float.MAX_VALUE
+                        for (c in centers) {
+                            if (c.x < cMinX) cMinX = c.x
+                            if (c.x > cMaxX) cMaxX = c.x
+                            if (c.y < cMinY) cMinY = c.y
+                            if (c.y > cMaxY) cMaxY = c.y
+                        }
                         erasing = if (eraserWholeStroke) {
-                            cutting.filterNot { hitStroke -> centers.any { c ->
-                                val r = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(c.pressure) else inkWidth / 2f
-                                InkGeometry.hits(hitStroke, c, r)
-                            } }
+                            val maxR = if (eraserPressureEnabled && stylus)
+                                centers.maxOf { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) } else inkWidth / 2f
+                            cutting.filterNot { hitStroke ->
+                                val b = boundsOf(hitStroke)
+                                val reach = maxR + hitStroke.width / 2f
+                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
+                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) return@filterNot false
+                                centers.any { c ->
+                                    val r = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(c.pressure) else inkWidth / 2f
+                                    InkGeometry.hits(hitStroke, c, r)
+                                }
+                            }
                         } else if (eraserPressureEnabled && stylus) {
                             val radii = centers.map { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) }
-                            cutting.flatMap { InkGeometry.erase(it, centers, radii) }
+                            val maxR = radii.max()
+                            cutting.flatMap {
+                                val b = boundsOf(it)
+                                val reach = maxR + it.width / 2f
+                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
+                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) listOf(it)
+                                else InkGeometry.erase(it, centers, radii)
+                            }
                         } else {
-                            cutting.flatMap { InkGeometry.erase(it, centers, inkWidth / 2f) }
+                            val radius = inkWidth / 2f
+                            cutting.flatMap {
+                                val b = boundsOf(it)
+                                val reach = radius + it.width / 2f
+                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
+                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) listOf(it)
+                                else InkGeometry.erase(it, centers, radius)
+                            }
                         }
                         eraserMark = centers[centers.size - 1]
                     }
@@ -1021,8 +1130,20 @@ class InkView(context: Context) : View(context) {
         if (tool == Tool.ERASER || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)) {
             val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(start.pressure) else inkWidth / 2f
             erasing = if (eraserWholeStroke) {
-                page.strokes.filterNot { InkGeometry.hits(it, start, radius) }
-            } else page.strokes.flatMap { InkGeometry.erase(it, start, radius) }
+                page.strokes.filterNot {
+                    val b = boundsOf(it)
+                    val reach = radius + it.width / 2f
+                    if (start.x < b[0] - reach || start.x > b[2] + reach ||
+                        start.y < b[1] - reach || start.y > b[3] + reach) return@filterNot false
+                    InkGeometry.hits(it, start, radius)
+                }
+            } else page.strokes.flatMap {
+                val b = boundsOf(it)
+                val reach = radius + it.width / 2f
+                if (start.x < b[0] - reach || start.x > b[2] + reach ||
+                    start.y < b[1] - reach || start.y > b[3] + reach) listOf(it)
+                else InkGeometry.erase(it, start, radius)
+            }
             eraserMark = start
         } else draft = Stroke(tool, inkColor, inkWidth, listOf(start), inkOpacity,
             style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
@@ -1078,6 +1199,8 @@ class InkView(context: Context) : View(context) {
         const val LINE_ADVANCE_MS = 280f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
+        /** Identity-keyed geometry caches stay bounded; beyond this they are pruned to the live page. */
+        const val MAX_CACHED_STROKES = 4000
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()
     }
 }

@@ -135,6 +135,170 @@ object InkRenderer {
     }
 
     fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true, images: Map<String, Bitmap?>? = null) {
+        pageCached(canvas, page, background, ink, images, ::rawBounds, ::rendered)
+    }
+
+    /**
+     * Smoothed geometry for one stroke, safe to memoize by object identity: strokes are
+     * immutable, so the centreline, taper and bounds never change while the instance lives.
+     * Untouched strokes keep their identity through erasing ([InkGeometry.erase] returns the
+     * same instance when nothing reaches it) and through page copies, so a per-view cache
+     * keyed by identity pays the spline math once per stroke instead of once per frame.
+     */
+    data class RenderedStroke(
+        val centre: List<InkPoint>,
+        /** Per-point width multipliers for [Tool.PEN], or null for paths drawn at uniform width. */
+        val taper: List<Float>?,
+        val minX: Float, val minY: Float, val maxX: Float, val maxY: Float
+    )
+
+    /** Pure geometry for [stroke]: centreline, taper and raw bounds. No Android types. */
+    fun rendered(stroke: Stroke): RenderedStroke {
+        val points = InkGeometry.pathPoints(stroke)
+        val centre = when {
+            stroke.tool in SHAPE_SET -> points
+            stroke.tool == Tool.PEN -> handwritingCentreline(points)
+            else -> InkGeometry.smooth(points)
+        }
+        val taper = if (stroke.tool == Tool.PEN && centre.size >= 2) InkGeometry.taperScales(centre) else null
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        // Raw points already bound the rendered geometry (shapes re-derive from two corners),
+        // so there is no need to expand an ellipse into 65 samples just to measure it.
+        val raw = stroke.points
+        if (raw.isEmpty()) {
+            minX = 0f; minY = 0f; maxX = 0f; maxY = 0f
+        } else for (p in raw) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        return RenderedStroke(centre, taper, minX, minY, maxX, maxY)
+    }
+
+    /** Raw bounds of [stroke] as `[minX, minY, maxX, maxY]`. No spline math: O(points). */
+    fun rawBounds(stroke: Stroke): FloatArray {
+        val pts = stroke.points
+        if (pts.isEmpty()) return floatArrayOf(0f, 0f, 0f, 0f)
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (p in pts) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        return floatArrayOf(minX, minY, maxX, maxY)
+    }
+
+    /** True when `[minX, minY, maxX, maxY]` plus the stroke-width margin hits the clip. */
+    fun boundsVisible(bounds: FloatArray, strokeWidth: Float, clip: Rect): Boolean {
+        if (bounds.size < 4) return false
+        val margin = strokeWidth * 2f + 8f
+        return bounds[2] + margin >= clip.left && bounds[0] - margin <= clip.right &&
+            bounds[3] + margin >= clip.top && bounds[1] - margin <= clip.bottom
+    }
+
+    /** True when the cached bounds (plus stroke width margin) intersect the viewport clip. */
+    fun isVisible(rendered: RenderedStroke, strokeWidth: Float, clip: Rect): Boolean {
+        if (rendered.centre.isEmpty()) return false
+        val margin = strokeWidth * 2f + 8f
+        return rendered.maxX + margin >= clip.left && rendered.minX - margin <= clip.right &&
+            rendered.maxY + margin >= clip.top && rendered.minY - margin <= clip.bottom
+    }
+
+    /**
+     * Draws [stroke] from its precomputed [rendered] geometry. Identical output to
+     * [stroke], but without repeating the spline, taper or bounds math per frame.
+     */
+    fun drawRendered(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
+        val centre = rendered.centre
+        if (centre.isEmpty()) return
+        val paint = strokePaintPool.get()!!.apply {
+            color = stroke.color; alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255); strokeWidth = stroke.width; strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
+            pathEffect = if (stroke.tool in SHAPE_SET) dashEffect(stroke.style, stroke.width) else null
+        }
+        if (centre.size < 2) {
+            paint.style = Paint.Style.FILL
+            paint.pathEffect = null
+            val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
+            canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * widthScale / 2, paint)
+            return
+        }
+        if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
+            val path = strokePathPool.get()!!.apply {
+                reset(); moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            canvas.drawPath(path, paint)
+            return
+        }
+        paint.pathEffect = null
+        val taper = rendered.taper ?: InkGeometry.taperScales(centre)
+        centre.zipWithNext().forEachIndexed { index, (a, b) ->
+            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
+            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
+            paint.strokeWidth = stroke.width * pressure * taperScale
+            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+        }
+        paint.pathEffect = null
+    }
+
+    /**
+     * Selection halo for one stroke, drawn from its cached centreline so a drag never
+     * re-smooths the selection per frame. Same geometry as drawing a translated copy via
+     * [stroke], but without allocating a new stroke or paying the spline math again.
+     */
+    fun drawHalo(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke, color: Int) {
+        val centre = rendered.centre
+        if (centre.isEmpty()) return
+        val paint = strokePaintPool.get()!!.apply {
+            this.color = color; alpha = (Color.alpha(color) * 0.35f).toInt().coerceIn(0, 255)
+            strokeWidth = stroke.width + 14f; strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
+            pathEffect = if (stroke.tool in SHAPE_SET) dashEffect(stroke.style, stroke.width + 14f) else null
+        }
+        if (centre.size < 2) {
+            paint.style = Paint.Style.FILL
+            paint.pathEffect = null
+            val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
+            canvas.drawCircle(centre[0].x, centre[0].y, (stroke.width + 14f) * widthScale / 2, paint)
+            return
+        }
+        if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
+            val path = strokePathPool.get()!!.apply {
+                reset(); moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            canvas.drawPath(path, paint)
+            return
+        }
+        paint.pathEffect = null
+        val taper = rendered.taper ?: InkGeometry.taperScales(centre)
+        centre.zipWithNext().forEachIndexed { index, (a, b) ->
+            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
+            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
+            paint.strokeWidth = (stroke.width + 14f) * pressure * taperScale
+            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+        }
+        paint.pathEffect = null
+    }
+
+    /**
+     * Same as [page], but stroke geometry comes from [renderOf] so a view holding an
+     * identity-keyed cache smooths each committed stroke once and reuses it for every
+     * frame, recording and visibility check instead of re-walking every sample.
+     * Bounds come from [boundsOf] first, so off-screen strokes never pay the spline math.
+     */
+    fun pageCached(
+        canvas: Canvas,
+        page: NotePage,
+        background: Bitmap?,
+        ink: Boolean = true,
+        images: Map<String, Bitmap?>? = null,
+        boundsOf: (Stroke) -> FloatArray = ::rawBounds,
+        renderOf: (Stroke) -> RenderedStroke = ::rendered
+    ) {
         canvas.drawColor(Color.WHITE)
         if (background != null) {
             val dst = bitmapRectPool.get()!!.apply { set(0f, 0f, page.width, page.height) }
@@ -155,16 +319,17 @@ object InkRenderer {
             }
         }
         if (ink) {
-            // Cull to the visible region: a long page only draws what is on screen, so scrolling
-            // past dense ink no longer pays for the strokes above and below the viewport.
-            // Reuses a thread-local Rect to avoid allocating clipBounds per frame.
             val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
-            // Photos sit under the ink so handwriting annotates the picture, like GoodNotes.
             page.images.forEach { box ->
                 if (!rectVisible(box.x, box.y, box.x + box.width, box.y + box.height, clip)) return@forEach
                 images?.get(box.id)?.let { image(canvas, it, box) }
             }
-            page.strokes.forEach { if (strokeVisible(it, clip)) stroke(canvas, it) }
+            page.strokes.forEach { stroke ->
+                // Bounds first: off-screen ink never pays the spline math, so a dense page
+                // only smooths what is actually on screen.
+                if (!boundsVisible(boundsOf(stroke), stroke.width, clip)) return@forEach
+                drawRendered(canvas, stroke, renderOf(stroke))
+            }
             page.texts.forEach {
                 val h = textHeight(it)
                 if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
@@ -179,29 +344,6 @@ object InkRenderer {
 
     private fun rectVisible(l: Float, t: Float, r: Float, b: Float, clip: Rect): Boolean =
         r >= clip.left && l <= clip.right && b >= clip.top && t <= clip.bottom
-
-    /**
-     * Fast bounds check on the stored samples (shapes re-derive from two corners, so their raw
-     * points already bound the rendered geometry). Smoothed centrelines never leave this box by
-     * more than the stroke width, which the margin covers.
-     */
-    private fun strokeVisible(stroke: Stroke, clip: Rect): Boolean {
-        val points = stroke.points
-        if (points.isEmpty()) return false
-        val margin = stroke.width * 2f + 8f
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        // Shapes only store their corners; iterating raw points bounds them exactly without
-        // expanding an ellipse into 65 samples just to test visibility.
-        for (p in points) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.y < minY) minY = p.y
-            if (p.y > maxY) maxY = p.y
-        }
-        return maxX + margin >= clip.left && minX - margin <= clip.right &&
-            maxY + margin >= clip.top && minY - margin <= clip.bottom
-    }
 
     /** A placed photo drawn into its box, scaled to fill while keeping the bitmap filtered. */
     fun image(canvas: Canvas, bitmap: Bitmap, box: PageImage) {
@@ -548,48 +690,9 @@ object InkRenderer {
     }
 
     fun stroke(canvas: Canvas, stroke: Stroke) {
-        val points = InkGeometry.pathPoints(stroke)
-        if (points.isEmpty()) return
-        val paint = strokePaintPool.get()!!.apply {
-            color = stroke.color; alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255); strokeWidth = stroke.width; strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
-            // Dashes only apply to shape tools drawn as one path; freehand ink stays solid so
-            // pressure-varying segments never break into uneven fragments.
-            pathEffect = if (stroke.tool in SHAPE_SET) dashEffect(stroke.style, stroke.width) else null
-        }
-        val centre = when {
-            stroke.tool in SHAPE_SET -> points
-            stroke.tool == Tool.PEN -> handwritingCentreline(points)
-            else -> InkGeometry.smooth(points)
-        }
-        if (centre.size < 2) {
-            paint.style = Paint.Style.FILL
-            paint.pathEffect = null
-            val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
-            canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * widthScale / 2, paint)
-            return
-        }
-        // Translucent ink is drawn as one Path, so overlapping segments never darken the line.
-        // Reuses a thread-local Path to avoid allocating one per stroke per frame.
-        if (stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) {
-            val path = strokePathPool.get()!!.apply {
-                reset(); moveTo(centre[0].x, centre[0].y); centre.drop(1).forEach { lineTo(it.x, it.y) }
-            }
-            canvas.drawPath(path, paint)
-            return
-        }
-        // Pen pressure is compressed around the selected width so quick light strokes stay readable.
-        // The thread-local paint is reused, so a dashed shape must not leak its effect into the
-        // next solid stroke drawn with the same Paint instance.
-        paint.pathEffect = null
-        val taper = InkGeometry.taperScales(centre)
-        centre.zipWithNext().forEachIndexed { index, (a, b) ->
-            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
-            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
-            paint.strokeWidth = stroke.width * pressure * taperScale
-            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
-        }
-        paint.pathEffect = null
+        val r = rendered(stroke)
+        if (r.centre.isEmpty()) return
+        drawRendered(canvas, stroke, r)
     }
 
     /**
