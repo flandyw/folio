@@ -146,7 +146,9 @@ data class Notebook(
      * the decorative default cover. A fresh notebook has no drawn preview yet, so it shows the
      * default cover either way until its first page has been rendered.
      */
-    val pageCover: Boolean = true
+    val pageCover: Boolean = true,
+    val mistakePractice: Boolean = false,
+    val mistakeReviews: List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> = emptyList()
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -226,6 +228,8 @@ object NoteCodec {
         put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         if (!note.pageCover) put("pageCover", false)
+        put("mistakePractice", note.mistakePractice)
+        put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height); put("paper", p.paper.name)
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
@@ -256,7 +260,9 @@ object NoteCodec {
             if (o.isNull("set")) null else o.optString("set"),
             ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             // Older backups have no cover choice and default to the first-page cover.
-            pageCover = o.optBoolean("pageCover", true))
+            pageCover = o.optBoolean("pageCover", true),
+            mistakePractice = o.optBoolean("mistakePractice", false),
+            mistakeReviews = decodeMistakeReviews(o))
     }
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }
@@ -1157,3 +1163,8 @@ object InkGeometry {
         return axis + arrows
     }
 }
+
+internal fun decodeMistakeReviews(o: JSONObject): List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> =
+    o.optJSONArray("mistakeReviews")?.let { a -> (0 until a.length()).map {
+        com.folio.notes.mistakes.LocalMistakeReviewAttempt.decode(a.getJSONObject(it))
+    } }.orEmpty()

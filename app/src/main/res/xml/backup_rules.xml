@@ -1,1 +1,1 @@
-<full-backup-content><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /></full-backup-content>
+<full-backup-content><include domain="file" path="notebooks/" /><include domain="file" path="library.json" /><include domain="file" path="examtrack/" /></full-backup-content>

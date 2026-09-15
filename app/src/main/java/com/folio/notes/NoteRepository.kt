@@ -114,6 +114,11 @@ class NoteRepository(private val context: Context) {
         val version = NoteMetaCodec.versionOf(raw)
         when (version) {
             NoteMetaCodec.VERSION -> return NoteMetaCodec.decode(raw)
+            5 -> {
+                val note = NoteMetaCodec.decodeVersion5(raw)
+                atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
+                return note
+            }
             4 -> {
                 val note = NoteMetaCodec.decodeVersion4(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
@@ -265,7 +270,9 @@ class NoteRepository(private val context: Context) {
     suspend fun importArchive(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {
         val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it) }
             ?: error("This backup could not be opened")
-        val note = archived.note.copy(id = UUID.randomUUID().toString(), folderId = folder, updated = System.currentTimeMillis())
+        val newId = UUID.randomUUID().toString()
+        val note = archived.note.copy(id = newId, folderId = folder, updated = System.currentTimeMillis(),
+            mistakeReviews = archived.note.mistakeReviews.map { it.copy(practiceNotebookId = newId) })
         val dir = directory(note.id)
         try {
             archived.pdf?.let { File(dir, "source.pdf").writeBytes(it) }
