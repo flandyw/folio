@@ -86,6 +86,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     var palette by rememberSaveable { mutableStateOf(false) }
     val prefs = context.getSharedPreferences("ink-tools", 0)
     val appPrefs = context.getSharedPreferences("preferences", 0)
+    var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
+    var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
+    var followMenu by remember { mutableStateOf(false) }
+    var peekHeld by remember(note.id, page.id) { mutableStateOf(false) }
+    val peekAnchor = page.peekAnchor?.takeIf { it.resolve(note.pages) != null }
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
     var options by remember(tool) { mutableStateOf(ToolOptions.load(prefs, tool)) }
@@ -282,13 +287,14 @@ private fun paperLabel(p: Paper): String = when (p) {
     var canvasViewport by remember(page.id) { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var canvasReset by remember { mutableIntStateOf(0) }
     fun resetZoom() {
+        activeInkView?.suspendWritingFollow()
         canvasReset++
         motion.reset()
         pages.requestScrollToItem(pages.firstVisibleItemIndex, (pages.firstVisibleItemScrollOffset / documentZoom).roundToInt())
         documentZoom = 1f
         documentPan = 0f
     }
-    fun jumpTo(index: Int) { motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
+    fun jumpTo(index: Int) { activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
     /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
     fun openPdfLink(link: PdfLink) {
         when (val target = link.target) {
@@ -412,6 +418,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentZoom, viewportWidth)
             }
             fun panBy(dx: Float, dy: Float) {
+                activeInkView?.suspendWritingFollow()
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
@@ -437,7 +444,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                    onSelectAllView = { activeInkView = it }, inkStyle = options.style)
+                    onSelectAllView = { activeInkView = it }, inkStyle = options.style,
+                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -453,6 +461,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         down.position.x in (size.width - stripInsetPx - stripWidthPx)..(size.width - stripInsetPx) &&
                         down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
                     if (onThumb) {
+                        activeInkView?.suspendWritingFollow()
                         motion.reset()
                         down.consume()
                         val travelSpan = (span - geometry.height).coerceAtLeast(1f)
@@ -503,6 +512,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 }
                             }
                             if (fingers >= 2) {
+                                activeInkView?.suspendWritingFollow()
                                 if (!transforming) velocity.addPosition(event.changes.first().previousUptimeMillis, travel)
                                 transforming = true
                                 val factor = event.calculateZoom()
@@ -560,9 +570,69 @@ private fun paperLabel(p: Paper): String = when (p) {
                             eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
                             eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                             onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                            onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style)
+                            onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style,
+                            followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
+                            inputBlocked = peekHeld, onFollowPan = { dx, dy ->
+                                documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
+                                pages.dispatchRawDelta(-dy)
+                            })
                     }
                     item { OutlinedButton({ addPage() }, modifier = Modifier.guardUiTouches()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
+                }
+            }
+            // Keep the original composition and cameras alive. Dismissing this read-only lens is
+            // an exact return, including scroll offset, tool, and transient handwriting lane.
+            if (peekHeld && peekAnchor != null) {
+                val target = peekAnchor.resolve(note.pages)
+                if (target != null) Box(Modifier.fillMaxSize().zIndex(10f).background(MaterialTheme.colorScheme.surface)) {
+                    EditorPage(note.id, target, model, Tool.HAND, options, false, false, false, false,
+                        onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
+                        onLoad = { model.loadPage(target.id) }, fullscreen = true, readOnly = true,
+                        inputBlocked = true, peekRegion = peekAnchor)
+                }
+            }
+            Row(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = if (toolbarPosition == ToolbarPosition.BOTTOM) 150.dp else 16.dp)
+                .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box {
+                            IconButton({ followMenu = true }, enabled = !peekHeld) {
+                                Icon(Icons.Rounded.SwipeRight, "Writing follow options",
+                                    tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                            }
+                            DropdownMenu(followMenu, { followMenu = false }) {
+                                DropdownMenuItem({ Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") }, {
+                                    writingFollowEnabled = !writingFollowEnabled
+                                    appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
+                                    activeInkView?.suspendWritingFollow()
+                                })
+                                DropdownMenuItem({ Text("Writing hand: " + writingHand.name.lowercase()) }, {
+                                    writingHand = if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT
+                                    appPrefs.edit().putString("writingHand", writingHand.name).apply()
+                                    activeInkView?.suspendWritingFollow()
+                                })
+                                DropdownMenuItem({ Text("Set current view as Peek Anchor") }, {
+                                    activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(page.id, it) }
+                                    followMenu = false
+                                })
+                                note.pages.filter { it.id != page.id && it.peekAnchor?.resolve(note.pages) != null }.forEach { source ->
+                                    DropdownMenuItem({ Text("Peek at " + source.displayTitle(note.pages.indexOf(source))) }, {
+                                        model.setPeekAnchor(page.id, source.peekAnchor); followMenu = false
+                                    })
+                                }
+                                if (page.peekAnchor != null) DropdownMenuItem({ Text("Remove Peek Anchor") }, {
+                                    model.setPeekAnchor(page.id, null); followMenu = false
+                                })
+                            }
+                        }
+                        if (peekAnchor != null) PeekHoldButton(peekAnchor) { held ->
+                            if (!held) peekHeld = false
+                            else if (activeInkView?.isWritingGesture == false) {
+                                motion.reset()
+                                peekHeld = true
+                            }
+                        }
+                    }
                 }
             }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
@@ -1132,7 +1202,9 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
 private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.HIGHLIGHTER)
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}) {
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
+    writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
+    onFollowPan: (Float, Float) -> Unit = { _, _ -> }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
@@ -1173,11 +1245,14 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
             if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
             view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
+            view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
+            view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
+            view.peekRegion = peekRegion
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
             view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
             view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
-            if (onSelectAllView != null) view.tag = onSelectAllView else if (view.tag is Function1<*, *>) view.tag = null
+            onSelectAllView?.invoke(view)
             view.snapEnabled = snapEnabled
             view.shapeRecognition = shapeRecognition
             view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd

@@ -113,6 +113,7 @@ object NoteMetaCodec {
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
             put("title", p.title); put("bookmarked", p.bookmarked)
+            p.peekAnchor?.let { put("peekAnchor", it.encode()) }
         }) } })
     }.toString()
 
@@ -137,7 +138,7 @@ object NoteMetaCodec {
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     revision = p.optInt("revision", 0), loaded = false, redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
-                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             setId = if (o.isNull("set")) null else o.optString("set"),

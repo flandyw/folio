@@ -607,6 +607,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(note.withPage(page.copy(title = title.trim().take(120))))
     }
 
+    fun setPeekAnchor(pageId: String, anchor: PeekAnchor?) {
+        val note = _state.value.active ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        if (anchor != null && anchor.resolve(note.pages) == null) return
+        updateNote(note.withPage(page.copy(peekAnchor = anchor)))
+    }
+
     fun togglePageBookmark(pageId: String) {
         val note = _state.value.active ?: return
         val page = note.pages.find { it.id == pageId } ?: return

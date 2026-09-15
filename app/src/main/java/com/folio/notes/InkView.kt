@@ -138,6 +138,71 @@ class InkView(context: Context) : View(context) {
     private val measurementTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 26f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) }
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
+    val writingFollow = WritingFollow()
+    var followEnabled = false
+    var writingHand = WritingHand.RIGHT
+    var documentFollowZoom = 1f
+    var onFollowPan: (Float, Float) -> Unit = { _, _ -> }
+    var inputBlocked = false
+    val isWritingGesture get() = draft != null || erasing != null || lasso != null
+    var peekRegion: PeekAnchor? = null
+        set(value) { field = value; value?.let(::fitPeekAnchor) }
+    private var followProgressAt = 0L
+    private var followRawX = 0f
+    private var followTipX = 0f
+    private var followFrameAt = 0L
+    private val followVisible = android.graphics.Rect()
+    fun suspendWritingFollow() {
+        writingFollow.suspend(SystemClock.uptimeMillis())
+        followProgressAt = 0L
+        removeCallbacks(followFrame)
+    }
+    fun currentPeekAnchor(): PeekAnchor? {
+        if (!getLocalVisibleRect(followVisible)) return null
+        return PeekAnchor(page.id, (followVisible.left - originX) / scale, (followVisible.top - originY) / scale,
+            (followVisible.right - originX) / scale, (followVisible.bottom - originY) / scale)
+    }
+    fun snapshot() = ViewportSnapshot(page.id, WorkspaceViewport(canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom))
+    fun restore(snapshot: ViewportSnapshot) {
+        if (snapshot.pageId != page.id) return
+        camera.restore(snapshot.viewport.canvasX, snapshot.viewport.canvasY, snapshot.viewport.canvasZoom)
+        reportCanvasViewport(); invalidate()
+    }
+    fun fitPeekAnchor(anchor: PeekAnchor) {
+        if (width == 0 || height == 0 || anchor.pageId != page.id) return
+        val base = if (page.infinite) 1f else pageScale
+        val z = minOf(width / (anchor.right - anchor.left), height / (anchor.bottom - anchor.top)) / base
+        val ox = if (page.infinite) 0f else (width - page.width * base) / 2
+        val oy = if (page.infinite) 0f else (height - page.height * base) / 2
+        val zoom = z.coerceIn(.1f, 8f)
+        camera.restore(width / 2f - ((anchor.left + anchor.right) / 2 * base + ox) * zoom,
+            height / 2f - ((anchor.top + anchor.bottom) / 2 * base + oy) * zoom, zoom)
+        invalidate()
+    }
+    private val followFrame = object : Runnable {
+        override fun run() {
+            val now = SystemClock.uptimeMillis()
+            val dt = ((now - followFrameAt).coerceIn(0, 32)) / 1000f
+            followFrameAt = now
+            if (!followEnabled || inputBlocked || readOnly || tool != Tool.PEN || !getLocalVisibleRect(followVisible)) return
+            val zoom = if (page.infinite) camera.zoom else documentFollowZoom
+            val down = draft?.tool == Tool.PEN
+            val vx = writingFollow.horizontalVelocity((followTipX - followVisible.left) / followVisible.width().coerceAtLeast(1),
+                zoom, writingHand, down && now - followProgressAt < 80, now)
+            val baseline = writingFollow.state.baselineY
+            val vy = if (!down && baseline != null) writingFollow.verticalVelocity(
+                (originY + baseline * scale - followVisible.top) / followVisible.height().coerceAtLeast(1), zoom, now) else 0f
+            if (vx == 0f && vy == 0f) return
+            if (page.infinite) { camera.pan(vx * dt, vy * dt); reportCanvasViewport(); invalidate() }
+            else onFollowPan(vx * dt, vy * dt)
+            postOnAnimation(this)
+        }
+    }
+    private fun scheduleFollow() {
+        removeCallbacks(followFrame)
+        followFrameAt = SystemClock.uptimeMillis()
+        postOnAnimation(followFrame)
+    }
     var readOnly = false
     var onWorkspaceCamera: (WorkspaceViewport) -> Unit = {}
     private var workspaceCameraRestored = false
@@ -158,16 +223,19 @@ class InkView(context: Context) : View(context) {
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        peekRegion?.let(::fitPeekAnchor)
         reportCanvasViewport()
     }
     fun navigateCanvas(x: Float, y: Float) {
         if (!page.infinite) return
+        suspendWritingFollow()
         cancelGesture()
         camera.centerOn(x, y, width.toFloat(), height.toFloat())
         reportCanvasViewport(); invalidate()
     }
     fun fitCanvas(bounds: androidx.compose.ui.geometry.Rect) {
         if (!page.infinite) return
+        suspendWritingFollow()
         cancelGesture()
         camera.fit(bounds.left, bounds.top, bounds.right, bounds.bottom, width.toFloat(), height.toFloat())
         reportCanvasViewport(); invalidate()
@@ -177,12 +245,14 @@ class InkView(context: Context) : View(context) {
     fun resetCanvas(token: Int) {
         if (resetToken == token) return
         resetToken = token
+        suspendWritingFollow()
         cancelGesture(); camera.reset(); invalidate()
         reportCanvasViewport()
     }
     private val zoomDetector = android.view.ScaleGestureDetector(context,
         object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                suspendWritingFollow()
                 camera.scaleBy(detector.scaleFactor, detector.focusX, detector.focusY)
                 reportCanvasViewport(); invalidate(); return true
             }
@@ -213,7 +283,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection.
@@ -257,6 +327,7 @@ class InkView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(followFrame)
         if (android.os.Build.VERSION.SDK_INT >= 29) committedLayer?.discardDisplayList()
         recordedPage = null; recordedBackground = null; recordedImages = null
         super.onDetachedFromWindow()
@@ -341,6 +412,7 @@ class InkView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (inputBlocked) return true
         var dirtyInvalidated = false
         val hasStylus = (0 until event.pointerCount).any { isStylus(event, it) }
         if (hasStylus && (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN)) {
@@ -381,6 +453,8 @@ class InkView(context: Context) : View(context) {
                 ignored = !stylus && isPalm(event, 0)
                 // Typing is a finger job even when finger drawing is off, so the text tool never pans.
                 navigating = !ignored && (tool == Tool.HAND || (tool != Tool.TEXT && !fingerDrawing && !stylus))
+                followRawX = event.rawX
+                if (navigating) suspendWritingFollow()
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
                 panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
@@ -406,6 +480,7 @@ class InkView(context: Context) : View(context) {
                     else if (tool == Tool.TEXT) beginText(event, event.actionIndex)
                     else if (!navigating) beginStroke(event, event.actionIndex)
                 } else if (!stylus && !ignored) {
+                    suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     lastX = centroidX(event); lastY = centroidY(event)
                     panVelocity.resetTracking()
@@ -415,6 +490,12 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
+                if (draft?.tool == Tool.PEN && followEnabled) {
+                    if ((event.rawX - followRawX) * writingHand.direction > .4f) followProgressAt = event.eventTime
+                    followRawX = event.rawX
+                    followTipX = event.getX(index)
+                    scheduleFollow()
+                }
                 if (pendingLink != null) {
                     val at = point(event, index)
                     if (hypot(at.x - linkFromX, at.y - linkFromY) > LINK_SLOP) {
@@ -457,6 +538,7 @@ class InkView(context: Context) : View(context) {
                         lastMoveX = moved.x; lastMoveY = moved.y
                     } else lasso = (lasso ?: emptyList()) + ((0 until event.historySize).map { point(event, index, it) } + point(event, index)).map { clampToPage(it) }
                 } else if (navigating) {
+                    suspendWritingFollow()
                     val x = centroidX(event); val y = centroidY(event)
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
                     if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
@@ -579,6 +661,10 @@ class InkView(context: Context) : View(context) {
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { listOf(it) })?.let { page.strokes + it } ?: erasing
+        if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
+            writingFollow.completed(drawn.points, SystemClock.uptimeMillis())
+            scheduleFollow()
+        }
         val changed = strokes != null && strokes != page.strokes
         if (changed) page = page.copy(strokes = strokes!!)
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
@@ -690,7 +776,7 @@ class InkView(context: Context) : View(context) {
         linkFromX = at.x; linkFromY = at.y
         return true
     }
-    private fun cancelGesture() { draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { followProgressAt = 0L; draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, or picks up the current selection when the drag begins inside it. */
     private fun beginLasso(event: MotionEvent, index: Int) {

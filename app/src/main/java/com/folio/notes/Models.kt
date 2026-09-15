@@ -128,7 +128,8 @@ data class NotePage(
     val redoFlag: Boolean = false,
     val infinite: Boolean = false,
     val title: String = "",
-    val bookmarked: Boolean = false
+    val bookmarked: Boolean = false,
+    val peekAnchor: PeekAnchor? = null
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
@@ -177,7 +178,10 @@ fun Notebook.withMovedPage(from: Int, to: Int): Notebook {
 /** Removes a page, keeping one blank page so a notebook always has somewhere to write. */
 fun Notebook.withDeletedPage(index: Int): Notebook {
     if (index !in pages.indices) return this
-    val remaining = pages.toMutableList().apply { removeAt(index) }
+    val removedId = pages[index].id
+    val remaining = pages.toMutableList().apply { removeAt(index) }.map {
+        if (it.peekAnchor?.pageId == removedId) it.copy(peekAnchor = null) else it
+    }
     return copy(pages = remaining.ifEmpty { listOf(NotePage()) })
 }
 
@@ -228,6 +232,7 @@ object NoteCodec {
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
             put("title", p.title); put("bookmarked", p.bookmarked)
+            p.peekAnchor?.let { put("peekAnchor", it.encode()) }
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
             put("images", InkCodec.encodeImages(p.images))
@@ -245,7 +250,7 @@ object NoteCodec {
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
                     InkCodec.decodeImages(p.optJSONArray("images")),
                     p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
-                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             if (o.isNull("set")) null else o.optString("set"),
