@@ -452,7 +452,7 @@ private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MM
                     }
                 }
             } else {
-                IconButton(star, Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                IconButton(star, Modifier.align(Alignment.TopEnd).padding(2.dp)) {
                     Icon(
                         if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         if (note.starred) "Remove from favorites" else "Add to favorites",

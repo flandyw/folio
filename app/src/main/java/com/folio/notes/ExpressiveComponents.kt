@@ -57,7 +57,7 @@ import androidx.compose.ui.unit.dp
 @Composable private fun ExpressiveDarkPreview() { ExpressivePreview(dark = true) }
 
 @Composable private fun ExpressivePreview(dark: Boolean) {
-    FolioTheme(dark = dark) {
+    FolioTheme(mode = if (dark) ThemeMode.DARK else ThemeMode.LIGHT) {
         Surface {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Your notebooks", style = MaterialTheme.typography.headlineMedium)

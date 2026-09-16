@@ -22,7 +22,11 @@ import com.folio.notes.*
 
 @Composable internal fun MistakeReviewScreen(m: ExamTrackMistake, context: ExamContext?, attempt: LocalMistakeReviewAttempt,
     model: MistakesViewModel, folio: FolioViewModel, state: FolioState, finger: Boolean, haptics: Boolean, shapes: Boolean,
-    busy: Boolean, onBack: () -> Unit, onSettings: () -> Unit, onExport: () -> Unit, dueLeft: Int, onRate: (ReviewRating) -> Unit) {
+    busy: Boolean, onBack: () -> Unit, onSettings: () -> Unit, onExport: () -> Unit, dueLeft: Int,
+    queuePos: Int? = null, queueSize: Int? = null,
+    shuffle: Boolean = false, onToggleShuffle: () -> Unit = {},
+    canSkip: Boolean = false, onSkip: () -> Unit = {},
+    onRate: (ReviewRating) -> Unit) {
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.saveFailed) {
@@ -38,6 +42,7 @@ import com.folio.notes.*
                             when {
                                 state.saveFailed -> "Save failed · retry before rating"
                                 state.pendingSaves > 0 -> "Saving your ink…"
+                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize"
                                 dueLeft > 1 -> "${dueLeft - 1} more due after this"
                                 else -> "Last one due — nice"
                             },
@@ -45,7 +50,18 @@ import com.folio.notes.*
                         )
                     }
                 },
-                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } }
+                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
+                actions = {
+                    IconButton(onToggleShuffle, enabled = !busy) {
+                        Icon(
+                            Icons.Rounded.Shuffle, if (shuffle) "Shuffled order · tap for due order" else "Due order · tap to shuffle",
+                            tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onSkip, enabled = canSkip && !busy) {
+                        Icon(Icons.Rounded.SkipNext, "Skip this card for now")
+                    }
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -53,10 +69,19 @@ import com.folio.notes.*
             Surface(tonalElevation = 2.dp) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (!revealed) {
-                        Button({ revealed = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                            Icon(Icons.Rounded.Visibility, null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Reveal answer")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button({ revealed = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                                Icon(Icons.Rounded.Visibility, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Reveal answer")
+                            }
+                            if (canSkip) {
+                                OutlinedButton(onSkip, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp)) {
+                                    Icon(Icons.Rounded.SkipNext, "Skip this card for now")
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Skip")
+                                }
+                            }
                         }
                         Text("Write first, then compare — honest ratings build the schedule.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     } else {

@@ -25,11 +25,11 @@ The native library is [supabase-kt 3.0.3](https://github.com/supabase-community/
 
 1. Open **Mistakes** from the library, or **Settings → Account → ExamTrack**.
 2. Sign in with the same email/password as ExamTrack's sync account. Account creation and password recovery remain in ExamTrack.
-3. Open **Review due**, read the question and saved images, and write in the normal Folio editor.
-4. Tap **Reveal answer**, compare the correction, and choose Again, Hard, Good or Easy — each shows its next interval before you commit.
+3. Open **Review**, read the question and saved images, and write in the normal Folio editor. Review follows the current list filters, so subject "Methods" + paper "Exam 1" reviews only those due cards. Toggle **Shuffle** for random order.
+4. Tap **Reveal answer**, compare the correction, and choose Again, Hard, Good or Easy — each shows its next interval before you commit. **Skip** pushes the card to the end of the session; its unfinished page stays saved.
 5. The rating and page reference are saved locally, the rating upload is queued, and the next due mistake opens.
 
-The overview searches questions, subjects and categories and filters by subject, category, due/upcoming and suspended state, with counts on every chip. A mistake's detail renders its full question, attachments, marks/category metadata, an expandable correction, and a timeline of handwritten attempts. Unfinished attempts can be resumed. **Saved handwriting on this device** exposes practice notebooks for viewing and `.folio`/PDF export, including after sign-out or a cloud deletion. This is deliberately device-owned work, separate from the signed-in account's cloud list.
+The overview searches questions, subjects, titles, papers and categories and filters by subject, paper (e.g. Exam 1 / Exam 2), category, due/upcoming and suspended state, with counts on every chip. A mistake's detail renders its full question, attachments, marks/category metadata, an expandable correction, and a timeline of handwritten attempts. Unfinished attempts can be resumed. **Saved handwriting on this device** exposes practice notebooks for viewing and `.folio`/PDF export, including after sign-out or a cloud deletion. This is deliberately device-owned work, separate from the signed-in account's cloud list.
 
 ## Text and maths rendering
 

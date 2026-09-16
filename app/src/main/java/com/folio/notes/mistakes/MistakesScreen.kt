@@ -99,8 +99,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var password by remember { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var subject by rememberSaveable { mutableStateOf("") }
+    var paper by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
+    var shuffle by rememberSaveable { mutableStateOf(false) }
+    var reviewQueue by remember { mutableStateOf(listOf<String>()) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
     var showPractice by rememberSaveable { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
@@ -117,16 +120,60 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             if (stored != null && stored != a) folio.completeMistakePractice(a)
         }
     }
-    LaunchedEffect(state.userId) { activeReview = null; detail = null; password = "" }
+    LaunchedEffect(state.userId) { activeReview = null; detail = null; password = ""; reviewQueue = emptyList() }
     LaunchedEffect(state.error) {
         state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long) }
     }
     fun showTransient(message: String) {
         scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
     }
+    BackHandler {
+        if (activeReview != null) { activeReview = null; reviewQueue = emptyList(); folio.close() }
+        else if (detail != null) detail = null else onBack()
+    }
+    val selected = remember(mistakes, detail) { mistakes.find { it.id == detail } }
+    // Keep every option visible so a selected Subject/Paper chip never disappears
+    // when the other filter changes; the list itself still enforces both filters.
+    val papers = remember(state.cache.contexts, paper) {
+        (state.cache.contexts.values.map { it.paper }.filter { it.isNotBlank() } + paper)
+            .filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val subjects = remember(state.cache.contexts, subject) {
+        (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
+            .filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val visible = remember(mistakes, due, filter, subject, paper, category, query, state.cache.contexts, schedules) {
+        val q = query.trim().lowercase()
+        mistakes.filter { m ->
+            val ctx = state.cache.contexts[m.attemptId]
+            val matchesSubject = subject.isBlank() || ctx?.subject == subject
+            val matchesPaper = paper.isBlank() || ctx?.paper == paper
+            val matchesCategory = category.isBlank() || category == m.category
+            val matchesFilter = when (filter) {
+                "Due" -> m in due
+                "Upcoming" -> !m.suspended && m !in due
+                "Suspended" -> m.suspended
+                else -> true
+            }
+            val matchesQuery = q.isBlank() || listOfNotNull(
+                m.question, m.questionText, m.category, m.explanation,
+                ctx?.subject, ctx?.title, ctx?.paper
+            ).any { it.lowercase().contains(q) }
+            matchesSubject && matchesPaper && matchesCategory && matchesFilter && matchesQuery
+        }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+    }
+    // Review respects the current list filters so "MM · Exam 1" reviews only those due cards.
+    val reviewCandidates = remember(visible, due) { visible.filter { it in due } }
+    fun leaveReview() { activeReview = null; reviewQueue = emptyList(); folio.close() }
     fun start(mistake: ExamTrackMistake) {
         val user = state.userId ?: return
         if (working) return
+        // Keep the session queue so ratings/skips advance in shuffle order.
+        if (reviewQueue.isEmpty() || mistake.id !in reviewQueue) {
+            val rest = reviewCandidates.filterNot { it.id == mistake.id }
+            val restIds = if (shuffle) rest.shuffled().map { it.id } else rest.map { it.id }
+            reviewQueue = listOf(mistake.id) + restIds
+        }
         working = true
         scope.launch {
             try {
@@ -139,38 +186,65 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
-    fun leaveReview() { activeReview = null; folio.close() }
-    BackHandler { if (activeReview != null) leaveReview() else if (detail != null) detail = null else onBack() }
-    val selected = remember(mistakes, detail) { mistakes.find { it.id == detail } }
-    val visible = remember(mistakes, due, filter, subject, category, query, state.cache.contexts, schedules) {
-        val q = query.trim().lowercase()
-        mistakes.filter { m ->
-            val ctx = state.cache.contexts[m.attemptId]
-            val matchesSubject = subject.isBlank() || ctx?.subject == subject
-            val matchesCategory = category.isBlank() || category == m.category
-            val matchesFilter = when (filter) {
-                "Due" -> m in due
-                "Upcoming" -> !m.suspended && m !in due
-                "Suspended" -> m.suspended
-                else -> true
-            }
-            val matchesQuery = q.isBlank() || listOfNotNull(
-                m.question, m.questionText, m.category, m.explanation,
-                ctx?.subject, ctx?.title, ctx?.paper
-            ).any { it.lowercase().contains(q) }
-            matchesSubject && matchesCategory && matchesFilter && matchesQuery
-        }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+    fun startSession(candidates: List<ExamTrackMistake>) {
+        if (candidates.isEmpty() || working) return
+        val ids = if (shuffle) candidates.shuffled().map { it.id } else candidates.map { it.id }
+        reviewQueue = ids
+        ids.firstOrNull()?.let { id -> candidates.find { it.id == id }?.let(::start) }
+    }
+    fun toggleShuffle() {
+        shuffle = !shuffle
+        val currentId = active?.mistakeId
+        val remaining = reviewQueue.filterNot { it == currentId }
+        val reordered = if (shuffle) remaining.shuffled() else remaining.mapNotNull { id ->
+            mistakes.find { it.id == id }
+        }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }.map { it.id }
+        reviewQueue = (currentId?.let { listOf(it) } ?: emptyList()) + reordered
+    }
+    fun skipCurrent() {
+        val current = active ?: return
+        if (working) return
+        val remaining = reviewQueue.filterNot { it == current.mistakeId }
+        if (remaining.isEmpty()) {
+            showTransient("Only one card in this session — rate it to finish.")
+            return
+        }
+        // Push the skipped card to the end; its unfinished page stays saved for later.
+        reviewQueue = remaining + current.mistakeId
+        val user = state.userId ?: return
+        working = true
+        scope.launch {
+            try {
+                val next = state.cache.mistakes[remaining.first()]
+                    ?: model.state.value.cache.mistakes[remaining.first()]
+                if (next != null) {
+                    val attempt = folio.createMistakePractice(user, next)
+                    model.addAttempt(attempt)
+                    activeReview = attempt.reviewId
+                    showTransient("Skipped for now — your page is kept and the card moves to the end.")
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { showTransient("Could not skip this card. Please try again.") }
+            finally { working = false }
+        }
     }
     if (active != null && card != null && folioState.activeId == active.practiceNotebookId) {
+        val queuePos = reviewQueue.indexOf(active.mistakeId).takeIf { it >= 0 }?.plus(1)
+        val queueSize = reviewQueue.size.takeIf { it > 0 }
         MistakeReviewScreen(card, state.cache.contexts[card.attemptId], active, model, folio, folioState,
             finger, haptics, shapes, working, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
-            dueLeft = due.size) { rating ->
+            dueLeft = queueSize ?: due.size, queuePos = queuePos, queueSize = queueSize,
+            shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
+            canSkip = (queueSize ?: 0) > 1, onSkip = ::skipCurrent) { rating ->
             working = true
             scope.launch {
                 try {
+                    val finishedId = active.mistakeId
                     val completed = model.rate(active, rating)
                     folio.completeMistakePractice(completed)
-                    leaveReview()
+                    val remainingIds = reviewQueue.filterNot { it == finishedId }
+                    // Leave first so the editor closes even when the session is done.
+                    activeReview = null; folio.close()
                     showTransient(
                         when (rating) {
                             ReviewRating.AGAIN -> "Saved · this card returns in about 10 minutes"
@@ -179,9 +253,15 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             ReviewRating.EASY -> "Saved · pushed further out"
                         }
                     )
-                    val next = MistakeScheduler.getDueMistakes(model.state.value.cache.mistakes.values.toList()).firstOrNull()
+                    val fresh = model.state.value.cache.mistakes
+                    val validNext = remainingIds.mapNotNull { fresh[it] }.filterNot { it.suspended }
                     working = false
-                    if (next != null) start(next)
+                    if (validNext.isNotEmpty()) {
+                        reviewQueue = validNext.map { it.id }
+                        start(validNext.first())
+                    } else {
+                        reviewQueue = emptyList()
+                    }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) {
                     showTransient("Could not save the review. Your page is kept — please retry.")
@@ -257,11 +337,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     item { OfflineBannerCard(state.status) }
                 }
                 item {
+                    val filtersActive = query.isNotBlank() || filter != "All" || subject.isNotBlank() ||
+                        paper.isNotBlank() || category.isNotBlank()
                     ReviewHeroCard(
                         due = due.size, total = mistakes.size,
+                        filteredDue = if (filtersActive) reviewCandidates.size else null,
                         upcoming = mistakes.count { !it.suspended && schedules[it.id]?.let { s -> runCatching { timestamp(s.dueAt) }.getOrDefault(0L) > System.currentTimeMillis() } == true },
                         working = working,
-                        onReview = { due.firstOrNull()?.let(::start) }
+                        shuffle = shuffle, onToggleShuffle = { shuffle = !shuffle },
+                        reviewEnabled = reviewCandidates.isNotEmpty(),
+                        onReview = { startSession(reviewCandidates) }
                     )
                 }
                 item {
@@ -272,10 +357,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         upcomingCount = mistakes.count { m -> !m.suspended && m !in due },
                         suspendedCount = mistakes.count { it.suspended },
                         subject = subject, onSubject = { subject = it },
-                        subjects = state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted(),
+                        subjects = subjects,
+                        paper = paper, onPaper = { paper = it },
+                        papers = papers,
                         category = category, onCategory = { category = it },
                         categories = mistakes.map { it.category }.distinct().sorted(),
-                        onClear = { query = ""; filter = "All"; subject = ""; category = "" }
+                        onClear = { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
                     )
                 }
                 if (selected != null) {
@@ -316,7 +403,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         item {
                             EmptyMistakesCard(
                                 hasCards = mistakes.isNotEmpty(),
-                                onClear = { query = ""; filter = "All"; subject = ""; category = "" }
+                                onClear = { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
                             )
                         }
                     } else {
@@ -569,34 +656,56 @@ private fun OfflineBannerCard(status: String) {
 // ---- Home ----------------------------------------------------------------------------
 
 @Composable
-private fun ReviewHeroCard(due: Int, total: Int, upcoming: Int, working: Boolean, onReview: () -> Unit) {
+private fun ReviewHeroCard(
+    due: Int, total: Int, filteredDue: Int?, upcoming: Int, working: Boolean,
+    shuffle: Boolean, onToggleShuffle: () -> Unit, reviewEnabled: Boolean, onReview: () -> Unit,
+) {
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    if (due == 0 && total > 0) "All caught up"
-                    else if (total == 0) "No mistakes yet"
-                    else "$due due",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    when {
-                        total == 0 -> "Mistakes you log in ExamTrack will appear here for review."
-                        due == 0 -> "$total cards · $upcoming upcoming — enjoy the clear desk."
-                        else -> "$total cards · $upcoming upcoming — one page at a time."
-                    },
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (due == 0 && total > 0) "All caught up"
+                        else if (total == 0) "No mistakes yet"
+                        else if (filteredDue != null && filteredDue != due) "$filteredDue due in filter"
+                        else "$due due",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        when {
+                            total == 0 -> "Mistakes you log in ExamTrack will appear here for review."
+                            due == 0 -> "$total cards · $upcoming upcoming — enjoy the clear desk."
+                            filteredDue != null && filteredDue == 0 -> "$due due total · none match the current filters."
+                            filteredDue != null -> "$filteredDue of $due due match the filters · $upcoming upcoming."
+                            else -> "$total cards · $upcoming upcoming — one page at a time."
+                        },
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Button(
+                    onReview, enabled = reviewEnabled && !working,
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    if (working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    else Icon(Icons.Rounded.PlayArrow, "Review due mistakes")
+                    Spacer(Modifier.width(6.dp))
+                    Text("Review")
+                }
             }
-            Button(
-                onReview, enabled = due > 0 && !working,
-                shapes = ButtonDefaults.shapes()
-            ) {
-                if (working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                else Icon(Icons.Rounded.PlayArrow, "Review due mistakes")
-                Spacer(Modifier.width(6.dp))
-                Text("Review")
+            if (total > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        shuffle, onToggleShuffle,
+                        { Text(if (shuffle) "Shuffled" else "In order") },
+                        leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) }
+                    )
+                    Text(
+                        if (shuffle) "Random order" else "Oldest due first",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     }
@@ -608,6 +717,7 @@ private fun FilterCard(
     filter: String, onFilter: (String) -> Unit,
     all: Int, dueCount: Int, upcomingCount: Int, suspendedCount: Int,
     subject: String, onSubject: (String) -> Unit, subjects: List<String>,
+    paper: String, onPaper: (String) -> Unit, papers: List<String>,
     category: String, onCategory: (String) -> Unit, categories: List<String>,
     onClear: () -> Unit,
 ) {
@@ -635,6 +745,13 @@ private fun FilterCard(
                     subjects.forEach { s -> FilterChip(subject == s, { onSubject(if (subject == s) "" else s) }, { Text(s) }) }
                 }
             }
+            if (papers.isNotEmpty()) {
+                Text("Paper", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(paper.isBlank(), { onPaper("") }, { Text("All papers") })
+                    papers.forEach { p -> FilterChip(paper == p, { onPaper(if (paper == p) "" else p) }, { Text(p) }) }
+                }
+            }
             if (categories.isNotEmpty()) {
                 Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -644,7 +761,7 @@ private fun FilterCard(
                     }
                 }
             }
-            if (query.isNotBlank() || filter != "All" || subject.isNotBlank() || category.isNotBlank()) {
+            if (query.isNotBlank() || filter != "All" || subject.isNotBlank() || paper.isNotBlank() || category.isNotBlank()) {
                 TextButton(onClear, Modifier.align(Alignment.End)) { Text("Clear filters") }
             }
         }
@@ -690,7 +807,10 @@ private fun MistakeCard(
                     },
                     due = due && !mistake.suspended, suspended = mistake.suspended
                 )
-                context?.subject?.takeIf { it.isNotBlank() }?.let {
+                listOfNotNull(
+                    context?.subject?.takeIf { it.isNotBlank() },
+                    context?.paper?.takeIf { it.isNotBlank() }
+                ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let {
                     Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 mistake.category.takeIf { it.isNotBlank() }?.let {

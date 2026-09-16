@@ -50,7 +50,16 @@ import java.io.File
     }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("preferences", 0) }
-    var dynamic by rememberSaveable { mutableStateOf(prefs.getBoolean("dynamic", false)) }
+    var themeMode by rememberSaveable { mutableStateOf(ThemeMode.of(prefs.getString(ThemeMode.PREF_KEY, null))) }
+    var themePalette by rememberSaveable {
+        mutableStateOf(
+            ThemePalette.migrate(
+                prefs.getString(ThemePalette.PREF_KEY, null),
+                prefs.getBoolean("dynamic", false).takeIf { prefs.contains("dynamic") }
+            )
+        )
+    }
+    var amoled by rememberSaveable { mutableStateOf(prefs.getBoolean(AppTheme.AMOLED_PREF_KEY, false)) }
     var finger by rememberSaveable { mutableStateOf(prefs.getBoolean("finger", true)) }
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
@@ -178,7 +187,7 @@ import java.io.File
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
     BackHandler(state.active != null && !exportBusy && !showMistakes) { model.close() }
-    FolioTheme(dynamic) {
+    FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }, contentWindowInsets = WindowInsets.safeDrawing) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when {
@@ -210,7 +219,10 @@ import java.io.File
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize().guardUiTouches()) {
-                SettingsScreen(dynamic, { dynamic = it; prefs.edit().putBoolean("dynamic", it).apply() },
+                SettingsScreen(
+                    themeMode, { themeMode = it; prefs.edit().putString(ThemeMode.PREF_KEY, it.name).apply() },
+                    themePalette, { themePalette = it; prefs.edit().putString(ThemePalette.PREF_KEY, it.name).apply() },
+                    amoled, { amoled = it; prefs.edit().putBoolean(AppTheme.AMOLED_PREF_KEY, it).apply() },
                     finger, { finger = it; prefs.edit().putBoolean("finger", it).apply() },
                     stylusShortcut, { stylusShortcut = it; prefs.edit().putString(StylusShortcut.PREF_KEY, it.name).apply() },
                     haptics, { wanted ->
