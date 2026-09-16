@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
 import androidx.activity.compose.BackHandler
@@ -6,23 +8,90 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.ImageDecoderDecoder
 import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.folio.notes.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+private val syncDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()) }
+private val dueDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
+
+private fun formatSyncedAt(iso: String?): String {
+    if (iso == null) return "Never synced"
+    return runCatching {
+        "Last synced ${syncDateFormat.get()!!.format(Date(timestamp(iso)))}"
+    }.getOrDefault("Last synced ${iso.replace('T', ' ').take(16)} UTC")
+}
+
+private fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis()): String {
+    val diff = runCatching { timestamp(dueAt) - now }.getOrDefault(0L)
+    if (diff <= 0) {
+        val overdueDays = TimeUnit.MILLISECONDS.toDays(-diff)
+        return if (overdueDays < 1) "Due now" else "Overdue $overdueDays d"
+    }
+    val days = TimeUnit.MILLISECONDS.toDays(diff)
+    return when {
+        diff < TimeUnit.HOURS.toMillis(20) -> "Due today"
+        diff < TimeUnit.HOURS.toMillis(44) -> "Due tomorrow"
+        days < 30 -> "Due in $days d"
+        else -> runCatching { "Due ${dueDateFormat.get()!!.format(Date(timestamp(dueAt)))}" }
+            .getOrDefault("Due ${dueAt.take(10)}")
+    }
+}
+
+private fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): String {
+    if (rating == ReviewRating.AGAIN) return "10 min"
+    val days = schedule.intervalDays.toLong()
+    return when {
+        days <= 0 -> "today"
+        days == 1L -> "1 day"
+        days < 30 -> "$days days"
+        days < 365 -> "${days / 30} mo"
+        else -> "${days / 365} yr"
+    }
+}
+
+private fun emailLooksValid(email: String): Boolean {
+    val t = email.trim()
+    if (' ' in t || '@' !in t) return false
+    val domain = t.substringAfter('@')
+    return '.' in domain && t.length >= 6
+}
 
 @Composable
 fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: FolioState,
@@ -30,18 +99,22 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     onSettings: () -> Unit, onExport: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
     var activeReview by rememberSaveable { mutableStateOf<String?>(null) }
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
-    var localError by remember { mutableStateOf<String?>(null) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var subject by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
     var showPractice by rememberSaveable { mutableStateOf(false) }
-    val mistakes = state.cache.mistakes.values.toList()
-    val due = MistakeScheduler.getDueMistakes(mistakes)
+    var confirmSignOut by remember { mutableStateOf(false) }
+    val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
+    val due = remember(mistakes) { MistakeScheduler.getDueMistakes(mistakes) }
+    val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
     LaunchedEffect(Unit) { model.requestSync() }
@@ -53,6 +126,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     LaunchedEffect(state.userId) { activeReview = null; detail = null; password = "" }
+    LaunchedEffect(state.error) {
+        state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long) }
+    }
+    fun showTransient(message: String) {
+        scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
+    }
     fun start(mistake: ExamTrackMistake) {
         val user = state.userId ?: return
         if (working) return
@@ -64,116 +143,755 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 activeReview = attempt.reviewId
                 detail = null
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { localError = "Could not start a practice page. Please try again." }
+            catch (_: Exception) { showTransient("Could not start a practice page. Please try again.") }
             finally { working = false }
         }
     }
     fun leaveReview() { activeReview = null; folio.close() }
     BackHandler { if (activeReview != null) leaveReview() else if (detail != null) detail = null else onBack() }
+    val selected = remember(mistakes, detail) { mistakes.find { it.id == detail } }
+    val visible = remember(mistakes, due, filter, subject, category, query, state.cache.contexts, schedules) {
+        val q = query.trim().lowercase()
+        mistakes.filter { m ->
+            val ctx = state.cache.contexts[m.attemptId]
+            val matchesSubject = subject.isBlank() || ctx?.subject == subject
+            val matchesCategory = category.isBlank() || category == m.category
+            val matchesFilter = when (filter) {
+                "Due" -> m in due
+                "Upcoming" -> !m.suspended && m !in due
+                "Suspended" -> m.suspended
+                else -> true
+            }
+            val matchesQuery = q.isBlank() || listOfNotNull(
+                m.question, m.questionText, m.category, m.explanation,
+                ctx?.subject, ctx?.title, ctx?.paper
+            ).any { it.lowercase().contains(q) }
+            matchesSubject && matchesCategory && matchesFilter && matchesQuery
+        }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+    }
     if (active != null && card != null && folioState.activeId == active.practiceNotebookId) {
         MistakeReviewScreen(card, state.cache.contexts[card.attemptId], active, model, folio, folioState,
-            finger, haptics, shapes, working, localError, ::leaveReview, onSettings, onExport) { rating ->
+            finger, haptics, shapes, working, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
+            dueLeft = due.size) { rating ->
             working = true
             scope.launch {
                 try {
                     val completed = model.rate(active, rating)
                     folio.completeMistakePractice(completed)
                     leaveReview()
+                    showTransient(
+                        when (rating) {
+                            ReviewRating.AGAIN -> "Saved · this card returns in about 10 minutes"
+                            ReviewRating.HARD -> "Saved · next review soon"
+                            ReviewRating.GOOD -> "Saved · nicely done"
+                            ReviewRating.EASY -> "Saved · pushed further out"
+                        }
+                    )
                     val next = MistakeScheduler.getDueMistakes(model.state.value.cache.mistakes.values.toList()).firstOrNull()
                     working = false
                     if (next != null) start(next)
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { localError = "Could not save the review. Your page is kept; please retry." }
-                finally { working = false }
+                catch (_: Exception) {
+                    showTransient("Could not save the review. Your page is kept — please retry.")
+                    working = false
+                }
             }
         }
         return
     }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onBack) { Text("Library") }
-            Text("Mistakes", style = MaterialTheme.typography.headlineMedium)
-        }
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                Text("ExamTrack", style = MaterialTheme.typography.titleLarge)
-                Text(state.email ?: "Not connected")
-                Text(state.status)
-                if (state.cache.pending.isNotEmpty()) Text("${state.cache.pending.size} mistake updates waiting to sync")
-                state.cache.lastSyncedAt?.let { Text("Last synced: ${it.replace('T', ' ').take(16)} UTC") }
-                (state.error ?: localError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (state.userId == null) {
-                    OutlinedTextField(email, { email = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    Button({ model.signIn(email, password); password = "" }, enabled = !state.busy && email.isNotBlank() && password.isNotEmpty()) { Text("Sign in") }
-                } else Row {
-                    TextButton({ model.requestSync(force = true) }) { Text("Sync now") }
-                    TextButton({ leaveReview(); model.signOut() }) { Text("Sign out") }
-                }
-            }
-            item {
-                // Folio-owned work remains deliberately accessible on this device after sign-out.
-                TextButton({ showPractice = !showPractice }) { Text("Saved handwriting on this device") }
-                if (showPractice) {
-                    Text("These Folio pages stay on this device when you sign out. Open a page to export a Folio backup.")
-                    folioState.notes.filter { it.mistakePractice }.forEach { note ->
-                        TextButton({ folio.open(note.id); onBack() }) { Text(note.title) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Mistakes", style = MaterialTheme.typography.titleLarge)
+                        if (state.userId != null) {
+                            Text(
+                                if (due.isEmpty()) "${mistakes.size} cards · all caught up"
+                                else "${due.size} due · ${mistakes.size} total",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") }
+                },
+                actions = {
+                    if (state.userId != null) {
+                        val syncing = state.status == "Syncing…"
+                        IconButton(
+                            { model.requestSync(force = true) },
+                            enabled = !syncing
+                        ) {
+                            if (syncing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Rounded.Sync, "Sync now")
+                        }
                     }
                 }
-            }
-            if (state.userId != null) {
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbar) }
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (state.userId == null) {
+                item { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
+                item { OfflineNoteCard() }
+            } else {
                 item {
-                    Text("${due.size} due · ${mistakes.size} total", style = MaterialTheme.typography.titleLarge)
-                    Button({ due.firstOrNull()?.let(::start) }, enabled = due.isNotEmpty() && !working) { Text("Review due") }
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        listOf("All", "Due", "Upcoming", "Suspended").forEach { f ->
-                            FilterChip(filter == f, { filter = f }, { Text(f) }, modifier = Modifier.padding(end = 6.dp))
-                        }
-                    }
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        (listOf("") + state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted()).forEach { s ->
-                            FilterChip(subject == s, { subject = s }, { Text(s.ifBlank { "All subjects" }) }, modifier = Modifier.padding(end = 6.dp))
-                        }
-                    }
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        (listOf("") + mistakes.map { it.category }.distinct().sorted()).forEach { c ->
-                            FilterChip(category == c, { category = c }, { Text(c.ifBlank { "All categories" }) }, modifier = Modifier.padding(end = 6.dp))
-                        }
+                    AccountCard(
+                        email = state.email, status = state.status,
+                        lastSyncedAt = state.cache.lastSyncedAt, pending = state.cache.pending.size,
+                        syncing = state.status == "Syncing…",
+                        onSync = { model.requestSync(force = true) },
+                        onSignOut = { confirmSignOut = true }
+                    )
+                }
+                if (state.cache.pending.isNotEmpty()) {
+                    item {
+                        PendingCard(
+                            count = state.cache.pending.size,
+                            offline = state.status.startsWith("Offline"),
+                            onSync = { model.requestSync(force = true) }
+                        )
                     }
                 }
-                val selected = mistakes.find { it.id == detail }
-                if (selected != null) item {
-                    TextButton({ detail = null }) { Text("All mistakes") }
-                    QuestionContent(selected, state.cache.contexts[selected.attemptId], state.userId!!, model.attachments)
-                    Button({ start(selected) }, enabled = !working && !selected.suspended) { Text("Practice") }
-                    Text("Handwritten attempts", style = MaterialTheme.typography.titleMedium)
-                    folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
-                        .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id }.forEach { (note, a) ->
-                            TextButton({
-                                if (a.completedAt != null) {
-                                    folio.openAt(note.id, note.pages.indexOfFirst { it.id == a.practicePageId }.coerceAtLeast(0)); onBack()
+                if (state.status.startsWith("Offline")) {
+                    item { OfflineBannerCard(state.status) }
+                }
+                item {
+                    ReviewHeroCard(
+                        due = due.size, total = mistakes.size,
+                        upcoming = mistakes.count { !it.suspended && schedules[it.id]?.let { s -> runCatching { timestamp(s.dueAt) }.getOrDefault(0L) > System.currentTimeMillis() } == true },
+                        working = working,
+                        onReview = { due.firstOrNull()?.let(::start) }
+                    )
+                }
+                item {
+                    FilterCard(
+                        query = query, onQuery = { query = it },
+                        filter = filter, onFilter = { filter = it },
+                        all = mistakes.size, dueCount = due.size,
+                        upcomingCount = mistakes.count { m -> !m.suspended && m !in due },
+                        suspendedCount = mistakes.count { it.suspended },
+                        subject = subject, onSubject = { subject = it },
+                        subjects = state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() }.distinct().sorted(),
+                        category = category, onCategory = { category = it },
+                        categories = mistakes.map { it.category }.distinct().sorted(),
+                        onClear = { query = ""; filter = "All"; subject = ""; category = "" }
+                    )
+                }
+                if (selected != null) {
+                    item {
+                        MistakeDetailCard(
+                            mistake = selected,
+                            context = state.cache.contexts[selected.attemptId],
+                            schedule = schedules[selected.id],
+                            due = selected in due,
+                            working = working,
+                            userId = state.userId!!,
+                            attachments = model.attachments,
+                            attempts = folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
+                                .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id },
+                            onBackToList = { detail = null },
+                            onPractice = { start(selected) },
+                            onOpenAttempt = { noteId, pageId, reviewId, completed ->
+                                if (completed) {
+                                    val idx = folioState.notes.find { it.id == noteId }
+                                        ?.pages?.indexOfFirst { it.id == pageId }?.coerceAtLeast(0) ?: 0
+                                    folio.openAt(noteId, idx); onBack()
                                 } else scope.launch {
                                     try {
-                                        model.addAttempt(a)
-                                        folio.openAt(note.id, note.pages.indexOfFirst { it.id == a.practicePageId }.coerceAtLeast(0))
-                                        activeReview = a.reviewId
+                                        val note = folioState.notes.find { it.id == noteId } ?: return@launch
+                                        val attempt = note.mistakeReviews.find { it.reviewId == reviewId } ?: return@launch
+                                        model.addAttempt(attempt)
+                                        val idx = note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0)
+                                        folio.openAt(note.id, idx)
+                                        activeReview = attempt.reviewId
                                     } catch (e: CancellationException) { throw e }
-                                    catch (_: Exception) { localError = "Could not resume this review. Your page is kept." }
+                                    catch (_: Exception) { showTransient("Could not resume this review. Your page is kept.") }
                                 }
-                            }) {
-                                Text("${a.completedAt?.take(10) ?: "Unfinished"} · ${a.rating ?: "Practice"} · ${if (a.completedAt == null) "Continue review" else "Open handwriting"}")
+                            }
+                        )
+                    }
+                } else {
+                    if (visible.isEmpty()) {
+                        item {
+                            EmptyMistakesCard(
+                                hasCards = mistakes.isNotEmpty(),
+                                onClear = { query = ""; filter = "All"; subject = ""; category = "" }
+                            )
+                        }
+                    } else {
+                        items(visible, key = { it.id }) { m ->
+                            MistakeCard(
+                                mistake = m,
+                                context = state.cache.contexts[m.attemptId],
+                                schedule = schedules[m.id],
+                                due = m in due,
+                                attachmentCount = m.attachments.size,
+                                attemptCount = folioState.notes.sumOf { n -> n.mistakeReviews.count { it.mistakeId == m.id } },
+                                onOpen = { detail = m.id },
+                                onPractice = { start(m) },
+                                working = working
+                            )
+                        }
+                    }
+                }
+                item {
+                    PracticeNotebookCard(
+                        expanded = showPractice,
+                        onToggle = { showPractice = !showPractice },
+                        titles = folioState.notes.filter { it.mistakePractice }.map { it.id to it.title },
+                        onOpen = { folio.open(it); onBack() }
+                    )
+                }
+            }
+        }
+    }
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            icon = { Icon(Icons.Rounded.Logout, null) },
+            title = { Text("Sign out of ExamTrack?") },
+            text = { Text("Your cloud list hides until the next sign-in. Handwriting on this device and the offline cache stay put.") },
+            dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
+            confirmButton = {
+                Button({
+                    confirmSignOut = false
+                    leaveReview()
+                    model.signOut()
+                }) { Text("Sign out") }
+            }
+        )
+    }
+}
+
+// ---- Login + account ---------------------------------------------------------------------------
+
+@Composable
+private fun LoginCard(
+    email: String, onEmail: (String) -> Unit,
+    password: String, onPassword: (String) -> Unit,
+    showPassword: Boolean, onShowPassword: (Boolean) -> Unit,
+    state: MistakesState, model: MistakesViewModel,
+) {
+    val focus = LocalFocusManager.current
+    var emailTouched by remember { mutableStateOf(false) }
+    val emailValid = email.isBlank() || emailLooksValid(email)
+    val canSubmit = !state.busy && emailLooksValid(email) && password.isNotEmpty()
+    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(Icons.Rounded.School, null, Modifier.padding(12.dp).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Review your mistakes", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Spaced repetition from ExamTrack, answered in your own handwriting.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (state.status == "Loading saved mistakes…") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("Restoring your saved session…", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            OutlinedTextField(
+                email, { onEmail(it); emailTouched = true },
+                Modifier.fillMaxWidth(),
+                label = { Text("Email") },
+                placeholder = { Text("you@example.com") },
+                leadingIcon = { Icon(Icons.Rounded.AlternateEmail, null) },
+                trailingIcon = { if (email.isNotEmpty()) IconButton({ onEmail("") }) { Icon(Icons.Rounded.Close, "Clear email") } },
+                singleLine = true,
+                isError = emailTouched && !emailValid,
+                supportingText = {
+                    if (emailTouched && !emailValid) Text("Enter the email you use in ExamTrack.")
+                    else Text("Use the same email and password as ExamTrack sync.")
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                enabled = !state.busy
+            )
+            OutlinedTextField(
+                password, onPassword,
+                Modifier.fillMaxWidth(),
+                label = { Text("Password") },
+                leadingIcon = { Icon(Icons.Rounded.Lock, null) },
+                trailingIcon = {
+                    IconButton({ onShowPassword(!showPassword) }) {
+                        Icon(if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (showPassword) "Hide password" else "Show password")
+                    }
+                },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (canSubmit) {
+                        val pw = password; onPassword(""); focus.clearFocus()
+                        model.signIn(email, pw)
+                    }
+                }),
+                enabled = !state.busy
+            )
+            if (state.error != null) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(state.error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
+            Button(
+                {
+                    val pw = password; onPassword(""); focus.clearFocus()
+                    model.signIn(email, pw)
+                },
+                enabled = canSubmit,
+                shapes = ButtonDefaults.shapes(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) {
+                if (state.busy) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Signing in…")
+                } else {
+                    Text("Sign in")
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                }
+            }
+            Text(
+                "No account yet, or forgot your password? Create and recover it in ExamTrack — Folio only signs in.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun OfflineNoteCard() {
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Rounded.OfflinePin, null, tint = MaterialTheme.colorScheme.secondary)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Works offline after the first sync", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Cards, images and ratings are kept on this device. Sync resumes when you are back online.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountCard(
+    email: String?, status: String, lastSyncedAt: String?, pending: Int,
+    syncing: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
+) {
+    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                    Text(
+                        (email?.trim()?.firstOrNull()?.uppercase() ?: "E"),
+                        Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(email ?: "ExamTrack", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        formatSyncedAt(lastSyncedAt),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (syncing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                else IconButton(onSync) { Icon(Icons.Rounded.Sync, "Sync now") }
+                IconButton(onSignOut) { Icon(Icons.Rounded.Logout, "Sign out") }
+            }
+            SyncStatusRow(status, pending)
+            if (syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun SyncStatusRow(status: String, pending: Int) {
+    val (icon, container, content) = when {
+        status == "Syncing…" -> Triple(Icons.Rounded.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        status.startsWith("Offline") -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        status.startsWith("Synced") && pending == 0 -> Triple(Icons.Rounded.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Surface(shape = RoundedCornerShape(14.dp), color = container, contentColor = content) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, Modifier.size(18.dp))
+            Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (pending > 0) Text("$pending queued", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun PendingCard(count: Int, offline: Boolean, onSync: () -> Unit) {
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.CloudUpload, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("$count review${if (count == 1) "" else "s"} waiting to sync", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(
+                    if (offline) "Saved safely on this device — they will upload when you reconnect."
+                    else "Saved on this device. Sync to finish uploading.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+            if (!offline) FilledTonalButton(onSync) { Text("Sync") }
+        }
+    }
+}
+
+@Composable
+private fun OfflineBannerCard(status: String) {
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("You are offline", style = MaterialTheme.typography.titleSmall)
+                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+// ---- Home ----------------------------------------------------------------------------
+
+@Composable
+private fun ReviewHeroCard(due: Int, total: Int, upcoming: Int, working: Boolean, onReview: () -> Unit) {
+    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    if (due == 0 && total > 0) "All caught up"
+                    else if (total == 0) "No mistakes yet"
+                    else "$due due",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    when {
+                        total == 0 -> "Mistakes you log in ExamTrack will appear here for review."
+                        due == 0 -> "$total cards · $upcoming upcoming — enjoy the clear desk."
+                        else -> "$total cards · $upcoming upcoming — one page at a time."
+                    },
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Button(
+                onReview, enabled = due > 0 && !working,
+                shapes = ButtonDefaults.shapes()
+            ) {
+                if (working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Icon(Icons.Rounded.PlayArrow, "Review due mistakes")
+                Spacer(Modifier.width(6.dp))
+                Text("Review")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterCard(
+    query: String, onQuery: (String) -> Unit,
+    filter: String, onFilter: (String) -> Unit,
+    all: Int, dueCount: Int, upcomingCount: Int, suspendedCount: Int,
+    subject: String, onSubject: (String) -> Unit, subjects: List<String>,
+    category: String, onCategory: (String) -> Unit, categories: List<String>,
+    onClear: () -> Unit,
+) {
+    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(
+                query, onQuery, Modifier.fillMaxWidth(),
+                placeholder = { Text("Search questions, subjects, categories…") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery("") }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                singleLine = true, shape = RoundedCornerShape(20.dp),
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+            )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChipWithCount("All", all, filter == "All", { onFilter("All") })
+                FilterChipWithCount("Due", dueCount, filter == "Due", { onFilter("Due") })
+                FilterChipWithCount("Upcoming", upcomingCount, filter == "Upcoming", { onFilter("Upcoming") })
+                FilterChipWithCount("Suspended", suspendedCount, filter == "Suspended", { onFilter("Suspended") })
+            }
+            if (subjects.isNotEmpty()) {
+                Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(subject.isBlank(), { onSubject("") }, { Text("All subjects") })
+                    subjects.forEach { s -> FilterChip(subject == s, { onSubject(if (subject == s) "" else s) }, { Text(s) }) }
+                }
+            }
+            if (categories.isNotEmpty()) {
+                Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(category.isBlank(), { onCategory("") }, { Text("All categories") })
+                    categories.forEach { c ->
+                        FilterChip(category == c, { onCategory(if (category == c) "" else c) }, { Text(c.ifBlank { "Uncategorised" }) })
+                    }
+                }
+            }
+            if (query.isNotBlank() || filter != "All" || subject.isNotBlank() || category.isNotBlank()) {
+                TextButton(onClear, Modifier.align(Alignment.End)) { Text("Clear filters") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterChipWithCount(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected, onClick, { Text("$label · $count") })
+}
+
+@Composable
+private fun StatusPill(text: String, due: Boolean, suspended: Boolean) {
+    val container = when {
+        suspended -> MaterialTheme.colorScheme.surfaceContainerHigh
+        due -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val content = when {
+        suspended -> MaterialTheme.colorScheme.onSurfaceVariant
+        due -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Surface(shape = RoundedCornerShape(8.dp), color = container, contentColor = content) {
+        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun MistakeCard(
+    mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?,
+    due: Boolean, attachmentCount: Int, attemptCount: Int,
+    onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean,
+) {
+    ElevatedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                StatusPill(
+                    when {
+                        mistake.suspended -> "Suspended"
+                        due -> if (schedule != null) dueLabel(schedule.dueAt) else "Due"
+                        else -> if (schedule != null) dueLabel(schedule.dueAt) else "Upcoming"
+                    },
+                    due = due && !mistake.suspended, suspended = mistake.suspended
+                )
+                context?.subject?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                mistake.category.takeIf { it.isNotBlank() }?.let {
+                    Text("· $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Text(mistake.question, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!mistake.questionText.isNullOrBlank()) {
+                RichText(
+                    mistake.questionText!!, style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (mistake.totalMarks != null && mistake.marksLost != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Rounded.Grade, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("−${trimMark(mistake.marksLost)} / ${trimMark(mistake.totalMarks)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (attachmentCount > 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Rounded.Image, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$attachmentCount", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (attemptCount > 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Rounded.History, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$attemptCount ${if (attemptCount == 1) "try" else "tries"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (RichTextParser.containsMath(mistake.question + " " + (mistake.questionText ?: ""))) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Rounded.Functions, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Maths", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                if (!mistake.suspended) {
+                    FilledTonalButton({ onPractice() }, enabled = !working, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
+                        Text("Practise")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun trimMark(value: Double): String = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+
+@Composable
+private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
+    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(if (hasCards) Icons.Rounded.SearchOff else Icons.Rounded.School, null, Modifier.padding(16.dp).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Text(
+                if (hasCards) "No mistakes match" else "Nothing due right now",
+                style = MaterialTheme.typography.titleLarge
+            )
+            Text(
+                if (hasCards) "Try a different search or clear the filters to see the rest."
+                else "New mistakes from ExamTrack will land here. Log one on the web and sync.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            if (hasCards) TextButton(onClear) { Text("Clear filters") }
+        }
+    }
+}
+
+@Composable
+private fun PracticeNotebookCard(
+    expanded: Boolean, onToggle: () -> Unit,
+    titles: List<Pair<String, String>>, onOpen: (String) -> Unit,
+) {
+    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Saved handwriting on this device", style = MaterialTheme.typography.titleSmall)
+                    Text("${titles.size} page${if (titles.size == 1) "" else "s"} · stays after sign-out", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onToggle) { Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Hide handwriting" else "Show handwriting") }
+            }
+            if (expanded) {
+                if (titles.isEmpty()) {
+                    Text("No practice pages yet. Review a card and your workings are kept here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("These Folio pages stay on this device when you sign out. Open one to export a backup.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    titles.take(20).forEach { (id, title) ->
+                        Surface(onClick = { onOpen(id) }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open $title", Modifier.size(16.dp))
                             }
                         }
-                } else items(mistakes.filter { m ->
-                    (subject.isBlank() || state.cache.contexts[m.attemptId]?.subject == subject) && (category.isBlank() || category == m.category) &&
-                        when (filter) { "Due" -> m in due; "Upcoming" -> !m.suspended && m !in due; "Suspended" -> m.suspended; else -> true }
-                }.sortedBy { MistakeScheduler.getMistakeSchedule(it).dueAt }, key = { it.id }) { m ->
-                    OutlinedCard(onClick = { detail = m.id }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(m.question, style = MaterialTheme.typography.titleMedium)
-                            Text(listOfNotNull(state.cache.contexts[m.attemptId]?.subject, m.category).joinToString(" · "))
-                            Text(if (m.suspended) "Suspended" else if (m in due) "Due" else "Due ${MistakeScheduler.getMistakeSchedule(m).dueAt.take(10)}")
+                    }
+                    if (titles.size > 20) Text("+ ${titles.size - 20} more", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+// ---- Detail ----------------------------------------------------------------------------
+
+@Composable
+private fun MistakeDetailCard(
+    mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?,
+    due: Boolean, working: Boolean, userId: String, attachments: MistakeAttachmentRepository,
+    attempts: List<Pair<com.folio.notes.Notebook, LocalMistakeReviewAttempt>>,
+    onBackToList: () -> Unit, onPractice: () -> Unit,
+    onOpenAttempt: (noteId: String, pageId: String, reviewId: String, completed: Boolean) -> Unit,
+) {
+    var showCorrection by rememberSaveable(mistake.id) { mutableStateOf(false) }
+    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onBackToList, contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("All mistakes")
+            }
+            context?.let {
+                Text(
+                    listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(mistake.question, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif)
+            if (!mistake.questionText.isNullOrBlank()) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    RichText(mistake.questionText!!, Modifier.fillMaxWidth().padding(14.dp), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            AttachmentGallery(mistake, userId, attachments)
+            MistakeMetaGrid(mistake, schedule, due)
+            if (mistake.suspended) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.PauseCircle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Suspended — unsuspend in ExamTrack to practise it again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Button(onPractice, enabled = !working && !mistake.suspended, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Icon(Icons.Rounded.Edit, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (mistake.suspended) "Suspended" else "Practise in handwriting")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Correction", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton({ showCorrection = !showCorrection }) { Text(if (showCorrection) "Hide" else "Show") }
+            }
+            if (showCorrection) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Correction", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        RichText(mistake.correction.ifBlank { "No correction saved." }, style = MaterialTheme.typography.bodyLarge)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("Why this was wrong", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        RichText(mistake.explanation.ifBlank { "No explanation saved." }, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            Text("Handwritten attempts (${attempts.size})", style = MaterialTheme.typography.titleMedium)
+            if (attempts.isEmpty()) {
+                Text("No attempts yet — your workings will be listed here after the first practice.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                attempts.sortedBy { it.second.completedAt ?: "" }.forEach { (note, a) ->
+                    val done = a.completedAt != null
+                    Surface(onClick = { onOpenAttempt(note.id, a.practicePageId, a.reviewId, done) }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(
+                                if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions,
+                                null, tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    (a.completedAt?.take(10) ?: "Unfinished") + " · " + (a.rating?.replaceFirstChar { it.uppercase() } ?: "Practising"),
+                                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    if (done) "Open handwriting" else "Continue review",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(16.dp))
                         }
                     }
                 }
@@ -182,53 +900,209 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
 }
 
-@Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository) {
-    context?.let { Text(listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")) }
-    Text(m.question, style = MaterialTheme.typography.titleLarge)
-    if (!m.questionText.isNullOrBlank()) Text(m.questionText)
-    val androidContext = LocalContext.current
-    val loader = remember { ImageLoader.Builder(androidContext).components {
-        if (android.os.Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
-    }.build() }
-    m.attachments.forEach { attachment ->
-        var file by remember(user, attachment.storagePath) { mutableStateOf<File?>(null) }
-        var failed by remember(user, attachment.storagePath) { mutableStateOf(false) }
-        var retry by remember { mutableIntStateOf(0) }
-        LaunchedEffect(user, attachment.storagePath, retry) {
-            try { file = attachments.get(user, attachment); failed = false }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { failed = true }
+@Composable
+private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule?, due: Boolean) {
+    val items = buildList {
+        if (mistake.totalMarks != null && mistake.marksLost != null) add("Marks lost" to "−${trimMark(mistake.marksLost)} / ${trimMark(mistake.totalMarks)}")
+        mistake.category.takeIf { it.isNotBlank() }?.let { add("Category" to it) }
+        mistake.areaOfStudy?.takeIf { it.isNotBlank() }?.let { add("Area" to it) }
+        mistake.criterion?.takeIf { it.isNotBlank() }?.let { add("Criterion" to it) }
+        schedule?.let {
+            add("Status" to if (mistake.suspended) "Suspended" else it.state.wire.replaceFirstChar(Char::uppercase) + " · " + dueLabel(it.dueAt))
+            if (it.repetitions > 0 || it.lapses > 0) add("Reviews" to "${it.repetitions} ✓ · ${it.lapses} ✗")
         }
-        if (file != null) AsyncImage(file, attachment.name, imageLoader = loader, modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp))
-        else if (failed) TextButton({ retry++ }) { Text("${attachment.name} unavailable offline · Retry") }
-        else Text("Loading ${attachment.name}…")
+        if (mistake.reviewHistory.isNotEmpty()) add("History" to "${mistake.reviewHistory.size} review${if (mistake.reviewHistory.size == 1) "" else "s"}")
+    }
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (label, value) ->
+                    Surface(Modifier.weight(1f), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
+
+// ---- Question + attachments (LaTeX aware) ----------------------------------------------------
+
+@Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        context?.let {
+            val crumb = listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")
+            if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
+        Text(m.question, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif)
+        if (!m.questionText.isNullOrBlank()) {
+            RichText(m.questionText!!, style = MaterialTheme.typography.bodyLarge)
+        }
+        AttachmentGallery(m, user, attachments)
+    }
+}
+
+@Composable
+private fun AttachmentGallery(m: ExamTrackMistake, user: String, attachments: MistakeAttachmentRepository) {
+    if (m.attachments.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        m.attachments.forEach { attachment ->
+            AttachmentImage(attachment, user, attachments)
+        }
+    }
+}
+
+@Composable
+private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachments: MistakeAttachmentRepository) {
+    val androidContext = LocalContext.current
+    val loader = remember {
+        ImageLoader.Builder(androidContext).components {
+            if (android.os.Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
+        }.build()
+    }
+    var file by remember(user, attachment.storagePath) { mutableStateOf<File?>(null) }
+    var failed by remember(user, attachment.storagePath) { mutableStateOf(false) }
+    var retry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(user, attachment.storagePath, retry) {
+        try { file = attachments.get(user, attachment); failed = false }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { failed = true }
+    }
+    Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+        when {
+            file != null -> Column {
+                AsyncImage(
+                    file, attachment.name, imageLoader = loader,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(16.dp))
+                )
+                Text(
+                    attachment.name, Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
+            failed -> Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f)) {
+                    Text(attachment.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Unavailable offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton({ retry++ }) { Text("Retry") }
+            }
+            else -> Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Loading ${attachment.name}…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+// ---- Review ------------------------------------------------------------------------------------
 
 @Composable private fun MistakeReviewScreen(m: ExamTrackMistake, context: ExamContext?, attempt: LocalMistakeReviewAttempt,
     model: MistakesViewModel, folio: FolioViewModel, state: FolioState, finger: Boolean, haptics: Boolean, shapes: Boolean,
-    busy: Boolean, error: String?, onBack: () -> Unit, onSettings: () -> Unit, onExport: () -> Unit, onRate: (ReviewRating) -> Unit) {
+    busy: Boolean, onBack: () -> Unit, onSettings: () -> Unit, onExport: () -> Unit, dueLeft: Int, onRate: (ReviewRating) -> Unit) {
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 230.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            TextButton(onBack) { Text("Back to mistakes · handwriting is saved") }
-            QuestionContent(m, context, attempt.userId, model.attachments)
-            if (revealed) {
-                Text("Correction", style = MaterialTheme.typography.titleMedium); Text(m.correction)
-                Text("Why this was wrong", style = MaterialTheme.typography.titleMedium); Text(m.explanation)
-                Text("Category: ${m.category}")
-                if (m.totalMarks != null && m.marksLost != null) Text("Marks lost: ${m.marksLost} / ${m.totalMarks}")
-            }
-        }
-        Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (!revealed) Button({ revealed = true }, Modifier.fillMaxWidth().padding(8.dp)) { Text("Reveal answer") }
-        else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            ReviewRating.entries.forEach { rating ->
-                Button({ onRate(rating) }, enabled = !busy && state.pendingSaves == 0 && !state.saveFailed, modifier = Modifier.padding(horizontal = 4.dp)) {
-                    Text(rating.wire.replaceFirstChar { it.uppercase() })
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.saveFailed) {
+        if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry from the page status before rating.", duration = SnackbarDuration.Long)
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(m.question, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            when {
+                                state.saveFailed -> "Save failed · retry before rating"
+                                state.pendingSaves > 0 -> "Saving your ink…"
+                                dueLeft > 1 -> "${dueLeft - 1} more due after this"
+                                else -> "Last one due — nice"
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } }
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            Surface(tonalElevation = 2.dp) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (!revealed) {
+                        Button({ revealed = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                            Icon(Icons.Rounded.Visibility, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Reveal answer")
+                        }
+                        Text("Write first, then compare — honest ratings build the schedule.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        val now = remember(revealed) { isoTime() }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ReviewRating.entries.forEach { rating ->
+                                val preview = remember(m.id, rating) {
+                                    runCatching { MistakeScheduler.previewMistakeReview(m, rating, now) }.getOrNull()
+                                }
+                                val label = preview?.let { intervalLabel(it, rating) } ?: ""
+                                val canRate = !busy && state.pendingSaves == 0 && !state.saveFailed
+                                val modifier = Modifier.weight(1f)
+                                val labelText = label
+                                val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
+                                @Composable fun RatingContent() {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(ratingName, style = MaterialTheme.typography.labelLarge)
+                                        if (labelText.isNotBlank()) Text(labelText, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                when (rating) {
+                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
+                                    ReviewRating.GOOD -> Button({ onRate(rating) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
+                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
+                                }
+                            }
+                        }
+                        Text(
+                            when {
+                                state.saveFailed -> "Save failed — retry from the editor status, then rate."
+                                state.pendingSaves > 0 -> "Saving your ink… ratings unlock when it says Saved."
+                                busy -> "Saving your review…"
+                                else -> "How well did you recall it? The interval previews above."
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(max = 250.dp), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuestionContent(m, context, attempt.userId, model.attachments)
+                    if (revealed) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("Correction", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        RichText(m.correction.ifBlank { "No correction saved." }, style = MaterialTheme.typography.bodyLarge)
+                        Text("Why this was wrong", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        RichText(m.explanation.ifBlank { "No explanation saved." }, style = MaterialTheme.typography.bodyMedium)
+                        if (m.category.isNotBlank()) Text("Category: ${m.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (m.totalMarks != null && m.marksLost != null) {
+                            Text("Marks lost: ${trimMark(m.marksLost)} / ${trimMark(m.totalMarks)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Text("Cover the answer in your head — reveal when your page is done.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Box(Modifier.weight(1f).padding(top = 8.dp)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
         }
     }
 }

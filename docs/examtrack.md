@@ -26,10 +26,14 @@ The native library is [supabase-kt 3.0.3](https://github.com/supabase-community/
 1. Open **Mistakes** from the library, or **Settings → Account → ExamTrack**.
 2. Sign in with the same email/password as ExamTrack's sync account. Account creation and password recovery remain in ExamTrack.
 3. Open **Review due**, read the question and saved images, and write in the normal Folio editor.
-4. Tap **Reveal answer**, compare the correction, and choose Again, Hard, Good or Easy.
+4. Tap **Reveal answer**, compare the correction, and choose Again, Hard, Good or Easy — each shows its next interval before you commit.
 5. The rating and page reference are saved locally, the rating upload is queued, and the next due mistake opens.
 
-The overview filters by subject, category, due/upcoming and suspended state. A mistake's detail lists handwritten attempts. Unfinished attempts can be resumed. **Saved handwriting on this device** exposes practice notebooks for viewing and `.folio`/PDF export, including after sign-out or a cloud deletion. This is deliberately device-owned work, separate from the signed-in account's cloud list.
+The overview searches questions, subjects and categories and filters by subject, category, due/upcoming and suspended state, with counts on every chip. A mistake's detail renders its full question, attachments, marks/category metadata, an expandable correction, and a timeline of handwritten attempts. Unfinished attempts can be resumed. **Saved handwriting on this device** exposes practice notebooks for viewing and `.folio`/PDF export, including after sign-out or a cloud deletion. This is deliberately device-owned work, separate from the signed-in account's cloud list.
+
+## Text and maths rendering
+
+Question, correction and explanation render offline as Markdown-lite with LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`). Supported Markdown: **bold**, *italic*, `code`, headings, bullets, numbered lists, quotes and dividers. Supported LaTeX: `\frac`, `\sqrt`, `^`/`_` super/subscripts, `\text`, Greek letters and common operators/functions (`\times`, `\le`, `\sin`…). Unknown commands fall back to readable text so content is never dropped; malformed input renders as plain text. See `MistakeRichText.kt` (pure parser) and `MistakeRichTextUi.kt` (Compose renderer), covered by `RichTextParserTests`.
 
 ## Authentication and isolation
 
@@ -76,7 +80,7 @@ node tools/examtrack-scheduler-fixtures.cjs ../examtrack
 
 Tests cover payload/unknown-field preservation, all scheduler states/ratings, legacy migration, due sorting, attachments, downloads, offline upload recovery, conflicts/tombstones, malformed rows, account isolation, signed-out SDK requests, pagination, conditional authenticated writes, independent attempt pages and portable backups. Device tests cover Keystore persistence and actual split-page storage.
 
-Limitations: no real-account/password or connected-device end-to-end run was performed during implementation. On-device pen interaction, Keystore behavior and live RLS/storage authorization still need the smoke test below. Question/correction text is displayed as plain text, including any Markdown/LaTeX source. Local linking to an imported exam/PeekAnchor, JSON import, account registration and background scheduled sync are not included.
+Limitations: no real-account/password or connected-device end-to-end run was performed during implementation. On-device pen interaction, Keystore behavior and live RLS/storage authorization still need the smoke test below. Local linking to an imported exam/PeekAnchor, JSON import, account registration and background scheduled sync are not included.
 
 ### Device smoke test
 
