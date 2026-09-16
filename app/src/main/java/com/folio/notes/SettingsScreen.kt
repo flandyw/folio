@@ -17,7 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
-@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit) {
+@Composable fun SettingsScreen(dynamic: Boolean, onDynamic: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}) {
     val context = LocalContext.current
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
         }
         HorizontalDivider()
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).widthIn(max = 680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text("Account", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onExamTrack) { Text("ExamTrack · Sign in and manage mistake sync") }
+            HorizontalDivider()
             Text("Your writing space", style = MaterialTheme.typography.headlineMedium)
             Text("Make room for your ideas. These preferences apply to all notebooks.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Stylus", style = MaterialTheme.typography.titleMedium)

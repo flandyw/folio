@@ -42,7 +42,7 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 
 private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
 
-@Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit) {
+@Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {}) {
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var setAssign by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -110,6 +110,7 @@ private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MM
                     FilledTonalButton(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
                     Spacer(Modifier.height(12.dp))
                     NavItem("All notebooks", Icons.Rounded.GridView, !starred && !unfiled && state.folderId == null, state.notes.size) { starred = false; unfiled = false; model.folder(null) }
+                    NavItem("Mistakes", Icons.Rounded.School, false, null, onMistakes)
                     NavItem("Favorites", Icons.Rounded.StarOutline, starred, state.notes.count { it.starred }) { starred = true; unfiled = false; model.folder(null) }
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -135,6 +136,7 @@ private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MM
                             if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                             if (!wide) Spacer(Modifier.weight(1f))
                             if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
+                            TextButton(onMistakes) { Text("Mistakes") }
                             Box {
                                 var importMenu by remember { mutableStateOf(false) }
                                 IconButton({ importMenu = true }) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
