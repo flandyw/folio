@@ -33,7 +33,9 @@ The overview searches questions, subjects and categories and filters by subject,
 
 ## Text and maths rendering
 
-Question, correction and explanation render offline as Markdown-lite with LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`). Supported Markdown: **bold**, *italic*, `code`, headings, bullets, numbered lists, quotes and dividers. Supported LaTeX: `\frac`, `\sqrt`, `^`/`_` super/subscripts, `\text`, Greek letters and common operators/functions (`\times`, `\le`, `\sin`…). Unknown commands fall back to readable text so content is never dropped; malformed input renders as plain text. See `MistakeRichText.kt` (pure parser) and `MistakeRichTextUi.kt` (Compose renderer), covered by `RichTextParserTests`.
+Question, correction and explanation render offline as Markdown-lite with LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`). Markdown splitting, math-delimiter detection, plain-text fallbacks and accessibility strings are local (`MistakeRichText.kt`, pure Kotlin, covered by `RichTextParserTests`). Every math segment itself is rendered by [huarangmeng/latex](https://github.com/huarangmeng/latex) (`latex-renderer:1.5.4-kt2.1.0`, MIT, bundled KaTeX fonts — see its `THIRD_PARTY_NOTICES.md` for KaTeX attribution): display math through its `Latex` composable, inline math through its shared measurer's `inlineContent()` so formulas sit inside the surrounding text with precisely measured placeholders. The theme follows Folio's Material 3 `ColorScheme` via `LatexTheme.material3()`. If a formula cannot be measured it falls back to readable unicode text, so content is never dropped.
+
+Toolchain note: the `-kt2.1.0` artifacts require Kotlin 2.1.0 (see root `build.gradle.kts`) and compileSdk 36 (targetSdk stays 35, so no new runtime behavior is opted into). Before upgrading the pin, re-check the library's compatibility table — its standard variant tracks newer Kotlin/Compose releases than Folio uses.
 
 ## Authentication and isolation
 

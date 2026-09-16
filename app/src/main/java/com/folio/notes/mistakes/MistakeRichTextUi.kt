@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -23,9 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -34,10 +30,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hrm.latex.renderer.Latex
+import com.hrm.latex.renderer.measure.rememberLatexMeasurer
+import com.hrm.latex.renderer.model.LatexConfig
+import com.hrm.latex.renderer.model.LatexTheme
 
 /**
- * Renders ExamTrack Markdown + LaTeX offline. Never throws: any parse failure falls
- * back to the raw source as plain text so a card always shows something readable.
+ * Renders ExamTrack Markdown + LaTeX offline.
+ *
+ * Markdown splitting, math-delimiter detection (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`),
+ * plain-text fallbacks and accessibility strings are local ([RichTextParser], pure
+ * Kotlin, unit tested). Every math segment itself is rendered by the
+ * huarangmeng/latex renderer (MIT, bundled KaTeX fonts): display math via [Latex],
+ * inline math via the shared measurer's `inlineContent()` so formulas sit inside
+ * the surrounding `Text` with precisely measured placeholders. If measurement
+ * fails, the segment falls back to a readable unicode rendering instead of
+ * vanishing. Never throws: a parse failure falls back to raw source text.
  */
 @Composable
 fun RichText(
@@ -52,10 +60,11 @@ fun RichText(
         runCatching { RichTextParser.parse(source) }.getOrDefault(emptyList())
             .ifEmpty { listOf(RichBlock.Para(listOf(RichInline.Run(source)))) }
     }
+    val measurer = rememberLatexMeasurer()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is RichBlock.Para -> InlineParagraph(block.inlines, style, maxLines, overflow)
+                is RichBlock.Para -> InlineParagraph(block.inlines, style, maxLines, overflow, measurer = measurer)
                 is RichBlock.Heading -> InlineParagraph(
                     block.inlines,
                     when (block.level) {
@@ -63,13 +72,13 @@ fun RichText(
                         2 -> MaterialTheme.typography.titleMedium
                         else -> MaterialTheme.typography.titleSmall
                     }.merge(style),
-                    maxLines, overflow
+                    maxLines, overflow, measurer = measurer
                 )
                 is RichBlock.Bullets -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     block.items.forEach { item ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("•", style = style, color = MaterialTheme.colorScheme.primary)
-                            InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f))
+                            InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f), measurer)
                         }
                     }
                 }
@@ -77,7 +86,7 @@ fun RichText(
                     block.items.forEachIndexed { index, item ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${index + 1}.", style = style, color = MaterialTheme.colorScheme.primary)
-                            InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f))
+                            InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f), measurer)
                         }
                     }
                 }
@@ -93,7 +102,7 @@ fun RichText(
                         )
                         InlineParagraph(
                             block.inlines, style.merge(fontStyle = FontStyle.Italic),
-                            maxLines, overflow, Modifier.weight(1f)
+                            maxLines, overflow, Modifier.weight(1f), measurer
                         )
                     }
                 }
@@ -115,6 +124,8 @@ fun RichText(
     }
 }
 
+private typealias LatexMeasurer = com.hrm.latex.renderer.measure.LatexMeasurerState
+
 @OptIn(ExperimentalTextApi::class)
 @Composable
 private fun InlineParagraph(
@@ -123,7 +134,12 @@ private fun InlineParagraph(
     maxLines: Int,
     overflow: TextOverflow,
     modifier: Modifier = Modifier,
+    measurer: LatexMeasurer,
 ) {
+    val mathConfig = LatexConfig(
+        fontSize = (style.fontSize.value.takeIf { it > 0 } ?: 16f).sp,
+        theme = LatexTheme.material3()
+    )
     // Display math splits the paragraph so it can centre on its own line.
     val sections = remember(inlines) {
         val out = mutableListOf<Any>()
@@ -150,7 +166,7 @@ private fun InlineParagraph(
                         items.forEach { inline ->
                             when (inline) {
                                 is RichInline.Run -> withStyle(
-                                    SpanStyle(
+                                    androidx.compose.ui.text.SpanStyle(
                                         fontWeight = if (inline.bold) FontWeight.SemiBold else null,
                                         fontStyle = if (inline.italic) FontStyle.Italic else null,
                                         fontFamily = if (inline.code) FontFamily.Monospace else null,
@@ -159,31 +175,26 @@ private fun InlineParagraph(
                                     )
                                 ) { append(inline.text) }
                                 is RichInline.Math -> {
-                                    val nodes = runCatching { MathParser.parse(inline.latex) }.getOrDefault(
-                                        listOf(MathNode.Text(inline.latex))
+                                    val latex = inline.latex
+                                    val fallback = MathParser.toUnicode(
+                                        runCatching { MathParser.parse(latex) }
+                                            .getOrDefault(listOf(MathNode.Text(latex)))
                                     )
-                                    if (!MathParser.isComplex(nodes)) {
-                                        val unicode = MathParser.toUnicode(nodes)
+                                    // Precisely measured KaTeX rendering embedded in the text line;
+                                    // null when the formula cannot be measured.
+                                    val content = runCatching { measurer.inlineContent(latex, mathConfig) }.getOrNull()
+                                    if (content != null) {
+                                        val id = "math${mathId++}"
+                                        appendInlineContent(id, fallback)
+                                        inlineContent[id] = content
+                                    } else {
                                         withStyle(
-                                            SpanStyle(
+                                            androidx.compose.ui.text.SpanStyle(
                                                 fontFamily = FontFamily.Serif,
                                                 fontStyle = FontStyle.Italic,
                                                 background = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .45f)
                                             )
-                                        ) { append(unicode) }
-                                    } else {
-                                        val id = "math${mathId++}"
-                                        val fallback = MathParser.toUnicode(nodes)
-                                        appendInlineContent(id, fallback)
-                                        val hasFrac = nodes.any { it is MathNode.Frac || (it is MathNode.Group && MathParser.isComplex(it.children)) }
-                                        val width = (fallback.length * 8 + 20).coerceIn(32, 220).sp
-                                        val height = (if (hasFrac) 34 else 24).sp
-                                        inlineContent[id] = InlineTextContent(
-                                            Placeholder(
-                                                width = width, height = height,
-                                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                                            )
-                                        ) { MathInline(nodes, style) }
+                                        ) { append(fallback) }
                                     }
                                 }
                                 RichInline.Break -> append("\n")
@@ -197,108 +208,19 @@ private fun InlineParagraph(
     }
 }
 
-@Composable
-private fun MathInline(nodes: List<MathNode>, base: androidx.compose.ui.text.TextStyle) {
-    val mathStyle = base.merge(
-        androidx.compose.ui.text.TextStyle(
-            fontFamily = FontFamily.Serif,
-            fontStyle = FontStyle.Italic
-        )
-    )
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        nodes.forEach { MathNodeView(it, mathStyle, display = false) }
-    }
-}
-
+/** Centred display math rendered with KaTeX fonts; horizontally scrolls when too wide. */
 @Composable
 fun MathDisplay(latex: String, base: androidx.compose.ui.text.TextStyle = LocalTextStyle.current) {
-    val nodes = remember(latex) {
-        runCatching { MathParser.parse(latex) }.getOrDefault(listOf(MathNode.Text(latex)))
-    }
-    val style = base.merge(
-        androidx.compose.ui.text.TextStyle(
-            fontFamily = FontFamily.Serif,
-            fontSize = (base.fontSize.value.takeIf { it > 0 } ?: 16f).sp * 1.1f
-        )
+    if (latex.isBlank()) return
+    val config = LatexConfig(
+        fontSize = (base.fontSize.value.takeIf { it > 0 } ?: 16f).sp * 1.1f,
+        theme = LatexTheme.material3(),
+        accessibilityEnabled = true
     )
-    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            nodes.forEach { MathNodeView(it, style, display = true) }
-        }
-    }
-}
-
-@Composable
-private fun MathNodeView(node: MathNode, style: androidx.compose.ui.text.TextStyle, display: Boolean) {
-    when (node) {
-        is MathNode.Text -> {
-            // Single letters read as variables (italic); longer runs stay upright-ish.
-            val italic = node.value.length == 1 && node.value[0].isLetter()
-            Text(node.value, style = style.merge(fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal))
-        }
-        is MathNode.Sym -> Text(node.value, style = style.merge(fontStyle = FontStyle.Normal))
-        is MathNode.Func -> Text(
-            node.name + " ", // thin space after upright operators like sin, log
-            style = style.merge(fontStyle = FontStyle.Normal, fontWeight = FontWeight.Medium)
-        )
-        MathNode.ThinSpace -> Spacer(Modifier.width(4.dp))
-        MathNode.QuadSpace -> Spacer(Modifier.width(14.dp))
-        MathNode.LineBreak -> if (display) Spacer(Modifier.width(8.dp)) else Spacer(Modifier.width(4.dp))
-        is MathNode.Group -> Row(verticalAlignment = Alignment.CenterVertically) {
-            node.children.forEach { MathNodeView(it, style, display) }
-        }
-        is MathNode.Frac -> {
-            val small = style.merge(fontSize = style.fontSize * 0.82f)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    node.num.forEach { MathNodeView(it, small, display) }
-                }
-                HorizontalDivider(
-                    Modifier.width(28.dp).padding(vertical = 1.dp),
-                    thickness = 1.dp, color = MaterialTheme.colorScheme.onSurface
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    node.den.forEach { MathNodeView(it, small, display) }
-                }
-            }
-            Spacer(Modifier.width(2.dp))
-        }
-        is MathNode.Sqrt -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                node.index?.let {
-                    Column { it.forEach { n -> MathNodeView(n, style.merge(fontSize = style.fontSize * 0.65f), display) } }
-                }
-                Text("√", style = style.merge(fontStyle = FontStyle.Normal))
-                Column(horizontalAlignment = Alignment.Start) {
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(bottom = 1.dp)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        node.body.forEach { MathNodeView(it, style, display) }
-                    }
-                }
-            }
-            Spacer(Modifier.width(2.dp))
-        }
-        is MathNode.SupSub -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                node.base?.forEach { MathNodeView(it, style, display) }
-                if (node.sup != null || node.sub != null) {
-                    Column {
-                        node.sup?.let {
-                            Row { it.forEach { n -> MathNodeView(n, style.merge(fontSize = style.fontSize * 0.68f), display) } }
-                        }
-                        node.sub?.let {
-                            Row { it.forEach { n -> MathNodeView(n, style.merge(fontSize = style.fontSize * 0.68f), display) } }
-                        }
-                    }
-                }
-            }
-        }
+    Box(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Latex(latex = latex, config = config)
     }
 }

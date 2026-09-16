@@ -60,9 +60,11 @@ A native Android notebook app built with Kotlin, Jetpack Compose, and Material 3
 
 The UI uses Material 3 Expressive: `MaterialExpressiveTheme`, expressive motion, morphing creation and tool buttons, and `LoadingIndicator`. Folio retains its warm colors, serif headings, system dark mode, and optional wallpaper colors. Tool toggles expose their checked state to accessibility services and preserve tapping the active pen to open its settings.
 
-Material 3 is explicitly pinned to `1.5.0-alpha01` with Compose BOM `2025.06.01` to fit the existing SDK 35/Kotlin 2.0 toolchain. The stable Material 3 release omits the experimental Expressive APIs; review API changes before upgrading this pin. See [Android's Material 3 release notes](https://developer.android.com/jetpack/androidx/releases/compose-material3#1.5.0-alpha01). `ExpressiveComponents.kt` includes light, dark, and large-text previews; use interactive preview to inspect selection and press transitions.
+Material 3 is explicitly pinned to `1.5.0-alpha01` with Compose BOM `2025.06.01` to fit the existing SDK 36/Kotlin 2.1 toolchain. The stable Material 3 release omits the experimental Expressive APIs; review API changes before upgrading this pin. See [Android's Material 3 release notes](https://developer.android.com/jetpack/androidx/releases/compose-material3#1.5.0-alpha01). `ExpressiveComponents.kt` includes light, dark, and large-text previews; use interactive preview to inspect selection and press transitions.
 
-Open this directory in Android Studio and use **JDK 17**, Android SDK **35**, and the included Gradle wrapper. Android Studio can create `local.properties` with the SDK location.
+LaTeX math in Mistakes renders with [huarangmeng/latex](https://github.com/huarangmeng/latex) (`latex-renderer:1.5.4-kt2.1.0`, MIT, bundled KaTeX fonts). The `-kt2.1.0` variant is what pins Kotlin at 2.1.0, and its Android artifacts require compileSdk 36 (targetSdk stays 35). See [setup and rendering notes](docs/examtrack.md).
+
+Open this directory in Android Studio and use **JDK 17**, Android SDK **36** (compile SDK; target remains 35), and the included Gradle wrapper. Android Studio can create `local.properties` with the SDK location.
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
@@ -78,7 +80,7 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Signe
 
 Release signing uses one persistent RSA-3072 key (PKCS#12 alias `folio`) stored in the repository Actions secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. The workflow decodes it only for the signing step and removes it afterward. Local backup material lives in ignored `.signing/`; keep a secure backup, since replacing the key prevents updates to existing release installations. Debug installations use a different key and must be removed before installing a release (export notebooks first).
 
-To build a signed release locally with JDK 17 and SDK 35, set `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `VERSION_CODE`, and `VERSION_NAME`, then run `./gradlew :app:assembleRelease`. Missing signing credentials cause the release build to fail.
+To build a signed release locally with JDK 17 and SDK 36, set `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `VERSION_CODE`, and `VERSION_NAME`, then run `./gradlew :app:assembleRelease`. Missing signing credentials cause the release build to fail.
 
 ## Code organization
 
