@@ -4,6 +4,7 @@ package com.folio.notes
 import android.graphics.Bitmap
 import android.content.Intent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
@@ -94,6 +95,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     val peekAnchor = note.sharedPeekAnchor()
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
+    val toolbarLayouts = remember(appPrefs) { ToolbarLayoutState(appPrefs) }
     var options by remember(tool) { mutableStateOf(ToolOptions.load(prefs, tool)) }
     fun changeOptions(value: ToolOptions) { options = value; value.save(prefs, tool) }
     /** Applies a saved favorite tool setup: switches tool and restores its colour/width/opacity/style. */
@@ -186,6 +188,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var selection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
+    /** Selection frame in view fractions for the floating pill; cleared with the page. */
+    var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
     var activeInkView by remember { mutableStateOf<InkView?>(null) }
@@ -218,26 +222,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun setTextColor(value: Int) {
         textColor = value
         appPrefs.edit().putInt("text.color", value).apply()
-    }
-    /** Applies a whole-selection edit to ink, text and pictures together, then drops the selection. */
-    fun transformSelection(
-        strokeTransform: (List<Stroke>, InkPoint) -> List<Stroke>,
-        textTransform: (List<TextBox>, InkPoint) -> List<TextBox>,
-        imageTransform: (List<PageImage>, InkPoint) -> List<PageImage>
-    ) {
-        val current = selected
-        if (current.isEmpty()) return
-        val center = InkGeometry.selectionCenter(
-            current.strokes, current.texts, current.images, { InkRenderer.textHeight(it) }) ?: return
-        // New objects replace the originals, so the canvas drops its own copy of the selection
-        // when the edited page arrives; the bar's copy is dropped here.
-        model.updateContent(
-            page.id,
-            page.strokes.filterNot { it in current.strokes } + strokeTransform(current.strokes, center),
-            page.texts.filterNot { box -> current.texts.any { it.id == box.id } } + textTransform(current.texts, center),
-            page.images.filterNot { image -> current.images.any { it.id == image.id } } + imageTransform(current.images, center)
-        )
-        selection = null
     }
     /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
     fun placeTextBox(at: InkPoint) {
@@ -291,7 +275,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     val motionDensity = LocalDensity.current.density
     val motion = remember(pages, note.id, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
     DisposableEffect(motion) { onDispose { motion.reset() } }
-    var canvasViewport by remember(page.id) { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var canvasReset by remember { mutableIntStateOf(0) }
     fun resetZoom() {
         activeInkView?.suspendWritingFollow()
@@ -300,6 +283,13 @@ private fun paperLabel(p: Paper): String = when (p) {
         pages.requestScrollToItem(pages.firstVisibleItemIndex, (pages.firstVisibleItemScrollOffset / documentZoom).roundToInt())
         documentZoom = 1f
         documentPan = 0f
+    }
+    /** Zooms the infinite canvas out to everything drawn on it, replacing the old minimap. */
+    fun fitAllContent() {
+        if (!page.infinite || !page.loaded) return
+        activeInkView?.fitCanvas(
+            InkGeometry.contentBounds(page.strokes, page.texts, page.images, { InkRenderer.textHeight(it) }, page.width, page.height)
+        )
     }
     fun jumpTo(index: Int) { activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
     /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
@@ -438,7 +428,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Box {
                     IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
                     PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                        onResetZoom = ::resetZoom, onAxes = model::insertAxes, onPaper = { paperMenu = true },
+                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onAxes = model::insertAxes, onPaper = { paperMenu = true },
                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                         onClear = { clear = true }, onRetry = model::retrySave,
                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
@@ -451,29 +441,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onBookmark = { model.togglePageBookmark(page.id) },
                         onNamePage = { namedPage = page; pageTitle = page.title })
                 }
-            },
-            selectedCount = selected.size,
-            canRestyle = selected.strokes.isNotEmpty(),
-            onDeselect = { activeInkView?.clearSelection(); selection = null; selectTool(Tool.PEN) },
-            onCopySelection = { model.copyToClipboard(selected) },
-            onCutSelection = { model.cutSelection(selected); selection = null },
-            onDuplicateSelection = {
-                model.duplicateSelection(selected)
-                activeInkView?.clearSelection()
-                selection = null
-            },
-            onRotateSelection = { degrees -> transformSelection(
-                { strokes, center -> InkGeometry.rotate(strokes, center, degrees) },
-                { texts, center -> InkGeometry.rotateTexts(texts, center, degrees) },
-                { images, center -> InkGeometry.rotateImages(images, center, degrees) }
-            ) },
-            onResizeSelection = { factor -> transformSelection(
-                { strokes, center -> InkGeometry.scale(strokes, center, factor) },
-                { texts, center -> InkGeometry.scaleTexts(texts, center, factor) },
-                { images, center -> InkGeometry.scaleImages(images, center, factor) }
-            ) },
-            onRestyleSelection = { restyleSelection = selected.strokes },
-            onDeleteSelection = { model.deleteSelection(selected); selection = null }
+            }
         )
         // The ink toolbar floats over the page, not inside the top bar, so no
         // top-bar background ever stretches behind the pills.
@@ -502,12 +470,30 @@ private fun paperLabel(p: Paper): String = when (p) {
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
+            /** Drops the lasso selection on canvas and in state, returning to the pen. */
+            fun dismissSelection() { activeInkView?.clearSelection(); selection = null; selectTool(Tool.PEN) }
+            /** Floating contextual pill: Copy · Duplicate · Style · Delete · ⋯ near the selection. */
+            val selectionPill: @Composable BoxScope.() -> Unit = {
+                SelectionPill(
+                    canRestyle = selected.strokes.isNotEmpty(),
+                    onCopy = { model.copyToClipboard(selected) },
+                    onDuplicate = {
+                        model.duplicateSelection(selected)
+                        activeInkView?.clearSelection()
+                        selection = null
+                    },
+                    onStyle = { restyleSelection = selected.strokes },
+                    onDelete = { model.deleteSelection(selected); selection = null },
+                    onDeselect = ::dismissSelection,
+                    onSelectAll = ::selectAllInk
+                )
+            }
             if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
                     onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
-                    onCanvasZoom = { documentZoom = it }, onCanvasViewport = { canvasViewport = it },
+                    onCanvasZoom = { documentZoom = it },
                     initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
@@ -516,7 +502,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { activeInkView = it }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld)
+                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld,
+                    onSelectionAnchor = { selectionAnchor = it },
+                    selectionAnchor = selectionAnchor,
+                    selectionPill = if (selected.isNotEmpty()) selectionPill else null)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -646,7 +635,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                             inputBlocked = peekHeld, onFollowPan = { dx, dy ->
                                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                                 pages.dispatchRawDelta(-dy)
-                            })
+                            },
+                            onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
+                            selectionAnchor = if (item.id == page.id) selectionAnchor else null,
+                            selectionPill = if (item.id == page.id && selected.isNotEmpty()) selectionPill else null)
                     }
                     item { OutlinedButton({ addPage() }, modifier = Modifier.guardUiTouches()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
                 }
@@ -704,13 +696,6 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
-            if (page.infinite && page.loaded) {
-                CanvasNavigator(page, canvasViewport,
-                    onNavigate = { x, y -> activeInkView?.navigateCanvas(x, y) },
-                    onFit = { activeInkView?.fitCanvas(it) }, onHome = ::resetZoom,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp,
-                        bottom = 12.dp))
-            }
             // Floating ink tools: centred over the page with nothing behind them
             // but the page itself, so the top bar never shows through.
             Box(
@@ -742,7 +727,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelectAll = ::selectAllInk,
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
-                    toolPresetsState = toolPresets
+                    toolPresetsState = toolPresets,
+                    toolbarLayoutState = toolbarLayouts
                 )
             }
         }
@@ -1163,7 +1149,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
-    onFollowPan: (Float, Float) -> Unit = { _, _ -> }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null) {
+    onFollowPan: (Float, Float) -> Unit = { _, _ -> }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
+    /** Selection frame in view fractions (0..1) for the floating pill, or null before it reports. */
+    selectionAnchor: Rect? = null,
+    /** Contextual pill shown near the selection; null on pages without one. */
+    selectionPill: (@Composable BoxScope.() -> Unit)? = null,
+    onSelectionAnchor: (Rect?) -> Unit = {}) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
@@ -1223,44 +1214,72 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         val target = page.pdfIndex ?: return@remember emptyList<PdfLink>()
         pdfLinks.filter { it.pageIndex == target }
     }
-    Surface(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height), shape = RoundedCornerShape(3.dp), color = Color.White) {
-        // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
-        // of a blank stand-in and replace the content that is still on disk.
-        if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
-        else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
-            if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
-            view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
-            view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
-            view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
-            view.peekRegion = peekRegion
-            view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
-            view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-            view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
-            view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
-            onSelectAllView?.invoke(view)
-            view.snapEnabled = snapEnabled
-            view.shapeRecognition = shapeRecognition
-            view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
-            view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
-            view.onSelectionChanged = onSelection
-            view.onContentChanged = { strokes, texts, images -> if (!readOnly) model.updateContent(page.id, strokes, texts, images) }
-            view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
-            view.onTextsChanged = { if (!readOnly) model.texts(page.id, it) }
-            view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
-            view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
-            view.onImageSelected = onImageSelected
-            view.pdfLinks = pageLinks
-            view.onPdfLink = onPdfLink
-            if (!active) view.clearSelection()
-        }) else Box(contentAlignment = Alignment.Center) {
-            if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Couldn't open this PDF page", color = Color.DarkGray)
-                TextButton({ retry++ }) { Text("Try again") }
-            } else LoadingIndicator(Modifier.semanticsLabel("Loading page"))
+    // The pill scrolls and zooms with the page because it is laid out in the
+    // page's own box, above the selection when there is room, below it when
+    // the selection sits at the top, top-center until the frame reports.
+    Box(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height)) {
+        Surface(Modifier.fillMaxSize(), shape = RoundedCornerShape(3.dp), color = Color.White) {
+            // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
+            // of a blank stand-in and replace the content that is still on disk.
+            if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
+            else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
+                if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
+                view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
+                view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
+                view.peekRegion = peekRegion
+                view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
+                view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
+                view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
+                view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
+                onSelectAllView?.invoke(view)
+                view.snapEnabled = snapEnabled
+                view.shapeRecognition = shapeRecognition
+                view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
+                view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
+                view.onSelectionChanged = onSelection
+                view.onSelectionViewBounds = onSelectionAnchor
+                view.onContentChanged = { strokes, texts, images -> if (!readOnly) model.updateContent(page.id, strokes, texts, images) }
+                view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
+                view.onTextsChanged = { if (!readOnly) model.texts(page.id, it) }
+                view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
+                view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
+                view.onImageSelected = onImageSelected
+                view.pdfLinks = pageLinks
+                view.onPdfLink = onPdfLink
+                if (!active) view.clearSelection()
+            }) else Box(contentAlignment = Alignment.Center) {
+                if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Couldn't open this PDF page", color = Color.DarkGray)
+                    TextButton({ retry++ }) { Text("Try again") }
+                } else LoadingIndicator(Modifier.semanticsLabel("Loading page"))
+            }
+        }
+        // The contextual pill floats over the page near the selection: above it when
+        // there is room, below it when the selection sits at the top, top-center
+        // until the canvas reports the frame. It scrolls and zooms with the page
+        // because it is laid out in the page's own box.
+        if (selectionPill != null && page.loaded && ready) {
+            val pill = selectionPill
+            BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                val hPx = constraints.maxHeight.toFloat()
+                val density = LocalDensity.current
+                // Pill rise + gap in view pixels, so the anchor math never depends on density twice.
+                val risePx = with(density) { 60.dp.toPx() }
+                val gapPx = with(density) { 12.dp.toPx() }
+                val yPx = selectionAnchor?.let { anchor ->
+                    val topPx = anchor.top * hPx
+                    if (topPx > risePx + gapPx) topPx - risePx else anchor.bottom * hPx + gapPx
+                } ?: gapPx
+                val yDp = with(density) { yPx.coerceIn(0f, (hPx - risePx).coerceAtLeast(0f)).toDp() }
+                // Only the pill itself takes input; the rest of the overlay stays transparent to touches.
+                Box(Modifier.offset(y = yDp).guardUiTouches()) { pill() }
+            }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun FloatingInkToolbar(
     modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState,
     canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onAxes: () -> Unit, onPalette: (Boolean) -> Unit,
@@ -1273,12 +1292,18 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     onSelectAll: (() -> Unit)? = null,
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
-    toolPresetsState: ToolPresetState? = null
+    toolPresetsState: ToolPresetState? = null,
+    toolbarLayoutState: ToolbarLayoutState? = null
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
     var showWidth by remember { mutableStateOf(false) }
+    var editToolbar by remember { mutableStateOf(false) }
     var lastShape by rememberSaveable { mutableStateOf(Tool.LINE) }
+    val toolbarLayout = toolbarLayoutState?.layout ?: ToolbarLayouts.default()
+    val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
+        toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
+    }
     val isShape = tool in ShapeTools
     val isDrawing = tool in DrawingTools
     // The text tool gets its own quick row for the colour new boxes are created with.
@@ -1365,11 +1390,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
         }
     }
-    val controls: @Composable () -> Unit = {
-        IconButton(undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
-        IconButton(redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
-        ToolbarDivider()
-        ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot)) { if (it == tool) onPalette(true) else pick(it) }
+    @Composable fun ShapesSlot() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val shapeIcon = when (tool) {
                 Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
@@ -1395,15 +1416,59 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 }
             }
         }
-        ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot)) { if (it == tool) onPalette(true) else pick(it) }
-        ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser") { if (it == tool) onPalette(true) else pick(it) }
-        ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text") { pick(it) }
-        ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select") { pick(it) }
-        ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom") { pick(it) }
+    }
+    @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
+        when (slot) {
+            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot)) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.SHAPES -> ShapesSlot()
+            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot)) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser") { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text") { pick(it) }
+            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select") { pick(it) }
+            ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom") { pick(it) }
+        }
+    }
+    val controls: @Composable () -> Unit = {
+        IconButton(undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
+        IconButton(redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+        ToolbarDivider()
+        toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
+        pinnedPresets.forEach { preset ->
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
+                FilterChip(
+                    selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
+                    onClick = { onApplyPreset?.invoke(preset) },
+                    label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = {
+                        Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
+                    },
+                    modifier = Modifier.height(32.dp)
+                )
+            }
+        }
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
             IconButton({ shapes = true }) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
+                toolbarLayout.overflow.forEach { slot ->
+                    if (slot == ToolbarSlot.SHAPES) {
+                        listOf(
+                            Triple(Tool.LINE, "Line", Icons.AutoMirrored.Rounded.ShowChart),
+                            Triple(Tool.RECTANGLE, "Rectangle", Icons.Rounded.CropSquare),
+                            Triple(Tool.ELLIPSE, "Ellipse", Icons.Rounded.Circle)
+                        ).forEach { (value, label, icon) ->
+                            DropdownMenuItem({ Text(label) }, { lastShape = value; pick(value); shapes = false },
+                                leadingIcon = { Icon(icon, null) },
+                                trailingIcon = { if (tool == value) Icon(Icons.Rounded.Check, "Selected") })
+                        }
+                    } else {
+                        val first = slot.tools.first()
+                        DropdownMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
+                            leadingIcon = { Icon(toolbarSlotIcon(slot, tool, lastShape), null) },
+                            trailingIcon = { if (tool in slot.tools) Icon(Icons.Rounded.Check, "Selected") })
+                    }
+                }
+                if (toolbarLayout.overflow.isNotEmpty()) HorizontalDivider()
                 if (presets.isNotEmpty() && onApplyPreset != null) {
                     presets.forEach { preset ->
                         DropdownMenuItem(
@@ -1436,13 +1501,22 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 }
                 DropdownMenuItem({ Text("Insert graph axes") }, { onAxes(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
                 DropdownMenuItem({ Text("Tool settings") }, { onPalette(true); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             }
         }
     }
     // The bar hugs its content: capped width fits narrow phones without clipping, and the
     // quick row only takes space when the active tool has quick settings. Each row scrolls.
+    // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
     Column(modifier.guardUiTouches().widthIn(max = 560.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Surface(
+            Modifier.fillMaxWidth().height(52.dp).combinedClickable(
+                onClick = {},
+                onLongClick = { if (toolbarLayoutState != null) editToolbar = true },
+                onLongClickLabel = "Edit toolbar"
+            ),
+            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
         if (showQuickBar) {
@@ -1506,6 +1580,160 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     if (palette) FolioPanel(title = "Tool settings", onDismissRequest = { onPalette(false) }) {
         ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
     }
+    if (editToolbar && toolbarLayoutState != null) {
+        ToolbarEditPanel(
+            layoutState = toolbarLayoutState,
+            presets = presets,
+            onDismiss = { editToolbar = false }
+        )
+    }
+}
+
+private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
+    ToolbarSlot.PEN -> "Pen"
+    ToolbarSlot.SHAPES -> "Shapes"
+    ToolbarSlot.HIGHLIGHTER -> "Highlighter"
+    ToolbarSlot.ERASER -> "Eraser"
+    ToolbarSlot.TEXT -> "Text"
+    ToolbarSlot.LASSO -> "Lasso select"
+    ToolbarSlot.HAND -> "Hand"
+}
+
+private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
+    ToolbarSlot.PEN -> Icons.Rounded.Edit
+    ToolbarSlot.SHAPES -> when (if (tool in setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) tool else lastShape) {
+        Tool.ELLIPSE -> Icons.Rounded.Circle
+        Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
+        else -> Icons.Rounded.CropSquare
+    }
+    ToolbarSlot.HIGHLIGHTER -> Icons.Rounded.BorderColor
+    ToolbarSlot.ERASER -> Icons.Rounded.AutoFixNormal
+    ToolbarSlot.TEXT -> Icons.Rounded.TextFields
+    ToolbarSlot.LASSO -> Icons.Rounded.Gesture
+    ToolbarSlot.HAND -> Icons.Rounded.PanTool
+}
+
+/**
+ * Reorders, hides and pins toolbar tools. The strip shows the first 5–7
+ * visible tools; the rest live under "…". Saved presets can be pinned beside
+ * them. Rows drag by their handle (long-press) and also move with arrows so
+ * the sheet stays usable without fine motor control.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable private fun ToolbarEditPanel(
+    layoutState: ToolbarLayoutState,
+    presets: List<ToolPreset>,
+    onDismiss: () -> Unit
+) {
+    val layout = layoutState.layout
+    val rowHeight = 56.dp
+    val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
+    var dragFrom by remember(layout.order) { mutableStateOf<Int?>(null) }
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    FolioPanel(title = "Edit toolbar", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("Long-press the tool strip any time to come back here. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Primary tools · first ${layout.maxPrimary} shown", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(5, 6, 7).forEach { count ->
+                    FilterChip(layout.maxPrimary == count, { layoutState.setMaxPrimary(count) }, { Text("$count") })
+                }
+            }
+            Text("Order", style = MaterialTheme.typography.titleSmall)
+            layout.order.forEachIndexed { index, slot ->
+                val dragging = dragFrom == index
+                val primary = slot in layout.primary
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (dragging) MaterialTheme.colorScheme.secondaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth().height(rowHeight)
+                        .zIndex(if (dragging) 1f else 0f)
+                        .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
+                ) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            toolbarSlotIcon(slot, Tool.PEN, Tool.LINE), null,
+                            Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                            Text(toolbarSlotLabel(slot), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                when {
+                                    slot in layout.hidden -> "Hidden"
+                                    primary -> "On strip · ${index + 1}"
+                                    else -> "Under …"
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton({ layoutState.moveSlot(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Rounded.ArrowUpward, "Move ${toolbarSlotLabel(slot)} up", Modifier.size(18.dp))
+                        }
+                        IconButton({ layoutState.moveSlot(index, index + 1) }, enabled = index < layout.order.lastIndex, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Rounded.ArrowDownward, "Move ${toolbarSlotLabel(slot)} down", Modifier.size(18.dp))
+                        }
+                        if (slot in layout.hidden) {
+                            TextButton({ layoutState.show(slot) }) { Text("Show") }
+                        } else {
+                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1) { Text("Hide") }
+                        }
+                        Icon(
+                            Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}",
+                            Modifier.size(20.dp).pointerInput(slot, index, layout.order.size) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { dragFrom = index; dragDelta = 0f },
+                                    onDrag = { change, amount -> change.consume(); dragDelta += amount.y },
+                                    onDragEnd = {
+                                        val from = dragFrom
+                                        if (from != null) layoutState.moveSlot(from, (from + (dragDelta / rowHeightPx).roundToInt()).coerceIn(0, layout.order.lastIndex))
+                                        dragFrom = null; dragDelta = 0f
+                                    },
+                                    onDragCancel = { dragFrom = null; dragDelta = 0f }
+                                )
+                            },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Text("Pinned presets · up to ${ToolbarLayouts.MAX_PINNED}", style = MaterialTheme.typography.titleSmall)
+            if (presets.isEmpty()) {
+                Text("Save a tool setup as a preset (Tool settings → Save current) to pin it here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                presets.forEach { preset ->
+                    val pinnedIndex = layout.pinnedPresetIds.indexOf(preset.id)
+                    val pinned = pinnedIndex >= 0
+                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape))
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(preset.tool.name.lowercase(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (pinned) {
+                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }, enabled = pinnedIndex > 0, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.ArrowUpward, "Move ${preset.name} up", Modifier.size(18.dp))
+                                }
+                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex + 1) }, enabled = pinnedIndex < layout.pinnedPresetIds.lastIndex, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.ArrowDownward, "Move ${preset.name} down", Modifier.size(18.dp))
+                                }
+                            }
+                            TextButton({ layoutState.togglePin(preset.id) }) { Text(if (pinned) "Unpin" else "Pin") }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton({ layoutState.reset() }) { Text("Reset toolbar") }
+                Button(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Done") }
+            }
+        }
+    }
 }
 
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
@@ -1515,7 +1743,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
+    /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
+    onFitAll: (() -> Unit)? = null
 ) {
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
@@ -1535,7 +1765,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
         DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
         DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.FormatListBulleted, null) })
-        DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+        if (onFitAll != null) {
+            DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+            DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
+        } else {
+            DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+        }
         DropdownMenuItem({ Text("Add maths axes") }, { onDismiss(); onAxes() }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
         DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
@@ -1600,6 +1835,44 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     Box(modifier.background(Color.White), contentAlignment = Alignment.Center) {
         preview?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
+    }
+}
+
+/**
+ * Floating contextual pill over a lasso selection: Copy · Duplicate · Style ·
+ * Delete · ⋯. Resize and rotate live on the selection's own canvas handles,
+ * so shrink/grow, fixed rotations and cut stay out of the visible editor.
+ */
+@Composable private fun SelectionPill(
+    canRestyle: Boolean,
+    onCopy: () -> Unit, onDuplicate: () -> Unit, onStyle: () -> Unit, onDelete: () -> Unit,
+    onDeselect: () -> Unit, onSelectAll: () -> Unit
+) {
+    var overflow by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")
+    ) {
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onCopy, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Copy") }
+            TextButton(onDuplicate, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Duplicate") }
+            if (canRestyle) TextButton(onStyle, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Style") }
+            TextButton(
+                onDelete,
+                contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) { Text("Delete") }
+            Box {
+                IconButton({ overflow = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
+                DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
+                    DropdownMenuItem({ Text("Select all") }, { overflow = false; onSelectAll() }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    DropdownMenuItem({ Text("Deselect") }, { overflow = false; onDeselect() }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
+                }
+            }
+        }
     }
 }
 

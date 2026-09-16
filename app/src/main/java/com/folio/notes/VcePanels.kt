@@ -559,19 +559,32 @@ fun ExamSetsPanel(
     onDelete: (ExamSet) -> Unit,
     openNote: (Notebook) -> Unit
 ) {
+    FolioPanel(title = "Exam sets", onDismissRequest = onDismiss) {
+        ExamSetsContent(groups, onCreate, onDelete, openNote, Modifier.fillMaxWidth())
+    }
+}
+
+/** The same set manager without the dialog wrapper, for the Library's Review destination. */
+@Composable
+fun ExamSetsContent(
+    groups: List<ExamSetGroup>,
+    onCreate: (String, VceSubject?, Int?, String) -> Unit,
+    onDelete: (ExamSet) -> Unit,
+    openNote: (Notebook) -> Unit,
+    modifier: Modifier = Modifier
+) {
     var name by rememberSaveable { mutableStateOf("") }
     var subject by remember { mutableStateOf<VceSubject?>(null) }
     var year by rememberSaveable { mutableStateOf("") }
     var company by rememberSaveable { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf<ExamSet?>(null) }
 
-    FolioPanel(title = "Exam sets", onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text("Keep Exam 1 and Exam 2 together for the same subject, year and company. Matching ungrouped papers are added when you create the set.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(
+        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text("Keep Exam 1 and Exam 2 together for the same subject, year and company. Matching ungrouped papers are added when you create the set.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             groups.forEach { group ->
                 ExamSetCard(group, openSet = {}, openNote = { openNote(it) })
                 if (group.notes.isEmpty()) {
@@ -614,7 +627,6 @@ fun ExamSetsPanel(
                     enabled = subject != null && (year.toIntOrNull() ?: 0) in 1000..9999 && company.isNotBlank()
                 ) { Text("Create set") }
             }
-        }
     }
     confirmDelete?.let { set ->
         AlertDialog(
@@ -634,13 +646,23 @@ fun ExamSetsPanel(
 /** Per-subject score roll-up, or the empty state when nothing has been marked. */
 @Composable
 fun ExamProgressPanel(notes: List<Notebook>, onDismiss: () -> Unit) {
-    val progress = remember(notes) { subjectProgress(notes) }
     FolioPanel(title = "Progress", onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        ExamProgressContent(notes, Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * The same roll-up without the dialog wrapper, so the Library's Progress
+ * destination can show it inline instead of behind another button.
+ */
+@Composable
+fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier) {
+    val progress = remember(notes) { subjectProgress(notes) }
+    Column(
+        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
             if (progress.isEmpty()) {
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Text(
@@ -672,7 +694,6 @@ fun ExamProgressPanel(notes: List<Notebook>, onDismiss: () -> Unit) {
                 }
             }
             Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 
@@ -696,17 +717,24 @@ private fun ProgressRow(label: String, share: Float) {
 /** Every flagged page across the library, grouped by notebook, one tap from the page itself. */
 @Composable
 fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (String, Int) -> Unit) {
+    FolioPanel(title = "Redo list", onDismissRequest = onDismiss) {
+        RedoReviewContent(notes, onOpen, Modifier.fillMaxWidth())
+    }
+}
+
+/** The same redo queue without the dialog wrapper, for the Library's Review destination. */
+@Composable
+fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier) {
     // O(totalPages) scan memoized: recomputing per recomposition janked the redo list.
     val flagged = remember(notes) {
         notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
     }
     val grouped = remember(flagged) { flagged.groupBy { it.first } }
-    FolioPanel(title = "Redo list", onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    Column(
+        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
             Text("Pages you marked to try again, across every notebook. Clear a flag from the page's own menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (flagged.isEmpty()) {
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -738,7 +766,6 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
                     }
                 }
             }
-        }
     }
 }
 

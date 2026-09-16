@@ -46,17 +46,7 @@ import androidx.compose.ui.unit.dp
     zoomPercent: Int,
     onFit: () -> Unit,
     onAdd: () -> Unit,
-    actions: @Composable RowScope.() -> Unit,
-    selectedCount: Int,
-    canRestyle: Boolean,
-    onDeselect: () -> Unit,
-    onCopySelection: () -> Unit,
-    onCutSelection: () -> Unit,
-    onDuplicateSelection: () -> Unit,
-    onRotateSelection: (Float) -> Unit,
-    onResizeSelection: (Float) -> Unit,
-    onRestyleSelection: () -> Unit,
-    onDeleteSelection: () -> Unit
+    actions: @Composable RowScope.() -> Unit
 ) {
     Surface(modifier = Modifier.guardUiTouches(), color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
         Column {
@@ -117,28 +107,6 @@ import androidx.compose.ui.unit.dp
                             modifier = Modifier
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) { actions() }
-                    }
-                }
-            }
-            if (selectedCount > 0) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onDeselect) { Icon(Icons.Rounded.Close, "Deselect selection") }
-                    Text("$selectedCount selected", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.titleSmall)
-                    IconButton(onCopySelection) { Icon(Icons.Rounded.ContentCopy, "Copy selection") }
-                    IconButton(onCutSelection) { Icon(Icons.Rounded.ContentCut, "Cut selection") }
-                    IconButton(onDuplicateSelection) { Icon(Icons.Rounded.ControlPointDuplicate, "Duplicate selection in place") }
-                    IconButton({ onRotateSelection(-90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate selection left") }
-                    IconButton({ onRotateSelection(90f) }) { Icon(Icons.AutoMirrored.Rounded.RotateRight, "Rotate selection right") }
-                    IconButton({ onResizeSelection(0.9f) }) { Icon(Icons.Rounded.ZoomOut, "Shrink selection") }
-                    IconButton({ onResizeSelection(1.1f) }) { Icon(Icons.Rounded.ZoomIn, "Grow selection") }
-                    if (canRestyle) IconButton(onRestyleSelection) { Icon(Icons.Rounded.Palette, "Restyle selection") }
-                    TextButton(onDeleteSelection) {
-                        Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp)); Text("Delete")
                     }
                 }
             }

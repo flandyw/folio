@@ -14,6 +14,14 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun BookmarkPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (String, Int) -> Unit) {
+    FolioPanel(title = "Bookmarked pages", onDismissRequest = onDismiss) {
+        BookmarkListContent(notes, onOpen, Modifier.fillMaxWidth())
+    }
+}
+
+/** The same bookmark search without the dialog wrapper, for the Library's Review destination. */
+@Composable
+fun BookmarkListContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier) {
     var query by rememberSaveable { mutableStateOf("") }
     val entries = remember(notes, query) {
         notes.sortedByDescending { it.updated }.flatMap { note ->
@@ -24,7 +32,7 @@ fun BookmarkPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (String,
             }.map { note to it }
         }
     }
-    FolioPanel(title = "Bookmarked pages", onDismissRequest = onDismiss) {
+    Column(modifier.fillMaxWidth()) {
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp),
             label = { Text("Find a notebook or page") }, singleLine = true)
         Text("${entries.size} bookmarks across your library", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),

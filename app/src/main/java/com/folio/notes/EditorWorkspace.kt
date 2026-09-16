@@ -22,6 +22,51 @@ data class WorkspaceViewport(
 
 enum class CompanionMode { SPLIT, REFERENCE }
 
+/**
+ * Draggable split proportions, free of Compose types so snapping stays
+ * JVM-testable. The editor owns [FolioState.splitFraction]; the divider maps
+ * drag distance onto it and settles on a snap point.
+ */
+object SplitPanes {
+    const val MIN_FRACTION = 0.2f
+    const val MAX_FRACTION = 0.8f
+    const val EQUAL = 0.5f
+    /** Roughly 30/70, 50/50 and 70/30 from the editor's side. */
+    val SNAPS = listOf(0.3f, 0.5f, 0.7f)
+    /** Magnet radius around a snap point on release; outside it the value stands. */
+    const val SNAP_THRESHOLD = 0.08f
+
+    fun coerce(fraction: Float): Float =
+        if (fraction.isFinite()) fraction.coerceIn(MIN_FRACTION, MAX_FRACTION) else EQUAL
+
+    /** Where a released drag settles: the nearest snap within threshold, else the value itself. */
+    fun snap(fraction: Float): Float {
+        val value = coerce(fraction)
+        val nearest = SNAPS.minByOrNull { kotlin.math.abs(it - value) } ?: return value
+        return if (kotlin.math.abs(nearest - value) <= SNAP_THRESHOLD) nearest else value
+    }
+
+    /** Applies a drag of [deltaPx] over [totalPx] to [fraction], for one axis. */
+    fun dragged(fraction: Float, deltaPx: Float, totalPx: Float, invert: Boolean = false): Float {
+        if (!totalPx.isFinite() || totalPx <= 0f || !deltaPx.isFinite()) return coerce(fraction)
+        val delta = if (invert) -deltaPx else deltaPx
+        return coerce(fraction + delta / totalPx)
+    }
+}
+
+/**
+ * Which companion page a linked page turn lands on. Same notebook: the same
+ * page. Different notebooks (questions beside solutions): the same index,
+ * clamped, so a 12-page paper beside a 4-page solution set never runs off.
+ */
+fun linkedCompanionTarget(active: Notebook, companionNote: Notebook, newPageIndex: Int): String? {
+    if (active.pages.isEmpty() || companionNote.pages.isEmpty()) return null
+    val clamped = newPageIndex.coerceIn(0, active.pages.lastIndex)
+    if (active.id == companionNote.id) return active.pages[clamped].id
+    val index = clamped.coerceIn(0, companionNote.pages.lastIndex)
+    return companionNote.pages[index].id
+}
+
 /** Stable ordering, even when an existing document is reopened through a deep link. */
 fun List<EditorTab>.withTab(tab: EditorTab): List<EditorTab> =
     if (any { it.id == tab.id }) map { if (it.id == tab.id) tab else it } else this + tab

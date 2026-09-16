@@ -37,6 +37,10 @@ data class FolioState(
     val tabs: List<EditorTab> = emptyList(),
     val companion: EditorTab? = null,
     val companionMode: CompanionMode = CompanionMode.SPLIT,
+    /** Share of the split given to the editor pane (0.2..0.8); the companion takes the rest. */
+    val splitFraction: Float = 0.5f,
+    /** When true, turning the editor's page also turns the companion (linked reference). */
+    val companionLinked: Boolean = false,
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
     val saveFailed: Boolean = false, val loadFailed: Boolean = false, val error: String? = null,
@@ -87,6 +91,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         pdfSearch = restoredTabs.find { it.notebookId == savedState.get<String>("activeId") }?.search ?: PdfSearchState(),
         companion = WorkspaceSessionCodec.decode(savedState["workspaceCompanion"]).firstOrNull(),
         companionMode = runCatching { CompanionMode.valueOf(savedState.get<String>("workspaceMode") ?: "SPLIT") }.getOrDefault(CompanionMode.SPLIT),
+        splitFraction = (savedState.get<Float>("splitFraction") ?: 0.5f).coerceIn(SplitPanes.MIN_FRACTION, SplitPanes.MAX_FRACTION),
+        companionLinked = savedState.get<Boolean>("companionLinked") ?: false,
         editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
@@ -173,6 +179,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 .distinctUntilChanged { a, b ->
                     a.activeId == b.activeId && a.pageIndex == b.pageIndex && a.folderId == b.folderId &&
                         a.tabs == b.tabs && a.companion == b.companion && a.companionMode == b.companionMode &&
+                        a.splitFraction == b.splitFraction && a.companionLinked == b.companionLinked &&
                         a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
                 }
                 .collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId
@@ -181,6 +188,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             })
             savedState["workspaceCompanion"] = WorkspaceSessionCodec.encode(listOfNotNull(it.companion))
             savedState["workspaceMode"] = it.companionMode.name
+            savedState["splitFraction"] = it.splitFraction
+            savedState["companionLinked"] = it.companionLinked
             savedState["editorOnRight"] = it.editorOnRight
         } }
     }
@@ -443,6 +452,32 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     fun dismissCompanion() { _state.update { it.copy(companion = null, editorOnRight = false) } }
 
+    /** Dragged divider position, as the editor's share; snapped by the caller on release. */
+    fun setSplitFraction(fraction: Float) {
+        val next = SplitPanes.coerce(fraction)
+        _state.update { if (it.splitFraction == next) it else it.copy(splitFraction = next) }
+    }
+
+    /** Linked reference: turning the editor's page also turns the companion. */
+    fun setCompanionLinked(linked: Boolean) {
+        _state.update { if (it.companionLinked == linked) it else it.copy(companionLinked = linked) }
+    }
+
+    /** Switches the companion between an editable split and a read-only reference. */
+    fun setCompanionMode(mode: CompanionMode) {
+        val current = _state.value
+        if (current.companionMode == mode) return
+        captureTab()
+        _state.update { it.copy(companionMode = mode,
+            tabs = if (mode == CompanionMode.SPLIT && it.companion != null) it.tabs.withTab(it.companion.copy(id = it.companion.notebookId)) else it.tabs) }
+    }
+
+    /** Swaps which side the editor sits on, keeping both documents where they are. */
+    fun swapPaneSides() {
+        if (_state.value.companion == null) return
+        _state.update { it.copy(editorOnRight = !it.editorOnRight) }
+    }
+
     fun companionPage(index: Int) {
         val pane = _state.value.companion ?: return
         val note = _state.value.notes.find { it.id == pane.notebookId } ?: return
@@ -647,11 +682,24 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         // The page turn and the tab capture that follows it share one state pass. As two updates
         // they recomposed the whole editor twice per page, and a fling pays that on every page it
         // crosses. An unchanged state is not emitted at all, so a repeat selection costs nothing.
-        _state.update { state -> captureTabInto(state.copy(pageIndex = target)) }
+        _state.update { state ->
+            var next = captureTabInto(state.copy(pageIndex = target))
+            // Linked reference: the companion follows the editor's page turn.
+            val pane = next.companion
+            if (next.companionLinked && pane != null) {
+                val companionNote = next.notes.find { it.id == pane.notebookId }
+                val pageId = if (companionNote != null) linkedCompanionTarget(note, companionNote, target) else null
+                if (pageId != null && pageId != pane.currentPageId) {
+                    next = next.copy(companion = pane.copy(currentPageId = pageId, viewport = WorkspaceViewport()))
+                }
+            }
+            next
+        }
         persistPosition(note.id)
         historyState()
         _state.value.page?.let { loadPage(it.id) }
         _state.value.page?.let { noteVisit(it.id) }
+        _state.value.companion?.let { loadPage(it.currentPageId) }
     }
     /**
      * Brings one page's ink and text into memory. The page is left untouched while the read is in

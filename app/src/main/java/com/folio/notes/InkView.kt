@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -14,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import kotlin.math.*
 
@@ -62,6 +64,13 @@ class InkView(context: Context) : View(context) {
     /** Reports the ink, text and pictures inside the lasso loop so the editor can offer actions. */
     var onSelectionChanged: (CanvasSelection) -> Unit = {}
     /**
+     * The selection's frame as fractions of this view (0..1), or null when empty,
+     * so the editor can float its contextual pill near the selection. Reported
+     * when the selection settles and when the camera moves under it — never
+     * mid-gesture, where the pill simply holds its place until release.
+     */
+    var onSelectionViewBounds: (Rect?) -> Unit = {}
+    /**
      * Commits a lasso drag that moved ink, text and pictures together, so the editor can store
      * it as one undoable step instead of three.
      */
@@ -95,6 +104,17 @@ class InkView(context: Context) : View(context) {
     private var selectionIds: MutableSet<Stroke>? = null
     private var movingSelection = false
     private var lastMoveX = 0f; private var lastMoveY = 0f
+    /** Direct frame handles: a resize drag, a rotate drag, or neither (a plain move). */
+    private var resizingSelection = false
+    private var rotatingSelection = false
+    /** Grab-time pivot of a handle gesture, in page units including any drag offset. */
+    private var handleCenter = InkPoint(0f, 0f)
+    private var handleStartDist = 1f
+    private var handleStartAngle = 0f
+    /** Live handle preview: uniform scale and degrees about [handleCenter]. Committed on release. */
+    private var selectionPreviewScale = 1f
+    private var selectionPreviewDeg = 0f
+    private var lastReportedSelectionBounds: Rect? = null
     private var pointerId = -1
     private var stylus = false
     private var ignored = false
@@ -150,6 +170,15 @@ class InkView(context: Context) : View(context) {
     }
     private val imageHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.FILL }
     private val imageHandleEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f }
+    private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f
+        pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
+    }
+    private val selectionLinkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f }
+    private val selectionGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
     private val measurementTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 26f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) }
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
@@ -281,18 +310,16 @@ class InkView(context: Context) : View(context) {
             onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
                 (width - camera.x) / camera.zoom, (height - camera.y) / camera.zoom))
         }
+        // A camera move under a live selection re-anchors the editor's pill,
+        // but never mid-gesture: the release reports the settled frame.
+        if (hasSelection() && !movingSelection && !resizingSelection && !rotatingSelection && lasso == null) {
+            reportSelectionViewBounds()
+        }
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         peekRegion?.let(::fitPeekAnchor)
         reportCanvasViewport()
-    }
-    fun navigateCanvas(x: Float, y: Float) {
-        if (!page.infinite) return
-        suspendWritingFollow()
-        cancelGesture()
-        camera.centerOn(x, y, width.toFloat(), height.toFloat())
-        reportCanvasViewport(); invalidate()
     }
     fun fitCanvas(bounds: androidx.compose.ui.geometry.Rect) {
         if (!page.infinite) return
@@ -511,6 +538,21 @@ class InkView(context: Context) : View(context) {
             InkRenderer.pageCached(canvas, placed, background, images = imageBitmaps,
                 boundsOf = ::boundsOf, renderOf = ::renderedOf)
         } else drawCommittedPage(canvas, rest)
+        // A handle drag previews scale/turn live through one matrix instead of reallocating
+        // transformed copies per frame; the release commits the real geometry in one step.
+        val previewing = hasSelection() &&
+            (selectionPreviewScale != 1f || selectionPreviewDeg != 0f)
+        if (previewing) {
+            canvas.save()
+            val pivot = selectionBox()?.let { box -> InkPoint((box[0] + box[2]) / 2f, (box[1] + box[3]) / 2f) }
+                ?: handleCenter
+            val matrix = Matrix()
+            matrix.postTranslate(-pivot.x, -pivot.y)
+            matrix.postScale(selectionPreviewScale, selectionPreviewScale)
+            matrix.postRotate(selectionPreviewDeg)
+            matrix.postTranslate(pivot.x, pivot.y)
+            canvas.concat(matrix)
+        }
         if (selection.isNotEmpty()) {
             // Draw the originals under a translate instead of allocating translated copies:
             // the geometry cache (and the text layout cache for boxes below) keeps hitting,
@@ -539,6 +581,8 @@ class InkView(context: Context) : View(context) {
             }
             canvas.restore()
         }
+        if (hasSelection()) drawSelectionFrame(canvas)
+        if (previewing) canvas.restore()
         val draftStroke = draft
         // A pen stroke in progress draws from incremental geometry: only the section the tip is
         // still extending is re-smoothed, so a long line costs the same per frame as a short one
@@ -665,7 +709,7 @@ class InkView(context: Context) : View(context) {
                     ignored = false
                     navigating = tool == Tool.HAND
                     panGate.release()
-                    draft = null; erasing = null; lasso = null; movingSelection = false; offPage = false; eraserMark = null
+                    draft = null; erasing = null; lasso = null; cancelSelectionGesture(); offPage = false; eraserMark = null
                     movingText = null; pendingTextBox = null
                     movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null
                     if (lassoActive()) beginLasso(event, event.actionIndex)
@@ -673,7 +717,7 @@ class InkView(context: Context) : View(context) {
                     else if (!navigating) beginStroke(event, event.actionIndex)
                 } else if (!stylus && !ignored) {
                     suspendWritingFollow()
-                    draft = null; erasing = null; lasso = null; movingSelection = false; movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
+                    draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     // Two fingers are a deliberate pinch or pan, never a resting hand.
                     panGate.release()
                     lastX = centroidX(event); lastY = centroidY(event)
@@ -726,7 +770,17 @@ class InkView(context: Context) : View(context) {
                     if (hypot(dx, dy) * scale > ViewConfiguration.get(context).scaledTouchSlop) textDragged = true
                     if (textDragged) { textDx = dx; textDy = dy }
                 } else if (lassoActive()) {
-                    if (movingSelection) {
+                    if (resizingSelection || rotatingSelection) {
+                        val at = clampToPage(point(event, index))
+                        if (resizingSelection) {
+                            selectionPreviewScale =
+                                (hypot(at.x - handleCenter.x, at.y - handleCenter.y) / handleStartDist)
+                                    .coerceIn(0.2f, 5f)
+                        } else {
+                            selectionPreviewDeg = InkGeometry.rotationDelta(
+                                handleStartAngle, InkGeometry.angleOf(handleCenter, at))
+                        }
+                    } else if (movingSelection) {
                         val moved = clampToPage(point(event, index))
                         selectionDx += moved.x - lastMoveX; selectionDy += moved.y - lastMoveY
                         lastMoveX = moved.x; lastMoveY = moved.y
@@ -1030,19 +1084,52 @@ class InkView(context: Context) : View(context) {
         linkFromX = at.x; linkFromY = at.y
         return true
     }
-    private fun cancelGesture() { followProgressAt = 0L; panGate.release(); draft = null; erasing = null; lasso = null; movingSelection = false; selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelSelectionGesture() {
+        movingSelection = false; resizingSelection = false; rotatingSelection = false
+        selectionPreviewScale = 1f; selectionPreviewDeg = 0f
+    }
+    private fun cancelGesture() { followProgressAt = 0L; panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
-    /** Starts a fresh loop, or picks up the current selection when the drag begins inside it. */
+    /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         val start = clampToPage(raw)
+        if (hasSelection()) {
+            val box = selectionBox()
+            if (box != null) {
+                when (InkGeometry.selectionHandleAt(box, start)) {
+                    InkGeometry.SelectionHandle.RESIZE -> {
+                        if (beginHandleGesture(start)) { resizingSelection = true; return }
+                    }
+                    InkGeometry.SelectionHandle.ROTATE -> {
+                        if (beginHandleGesture(start)) { rotatingSelection = true; return }
+                    }
+                    InkGeometry.SelectionHandle.NONE -> Unit
+                }
+            }
+        }
         if (insideSelection(start)) { movingSelection = true; lastMoveX = start.x; lastMoveY = start.y; return }
         setSelection(CanvasSelection())
         lasso = listOf(start)
     }
+    /** Arms a resize/rotate gesture about the selection's current center. False when uncenterable. */
+    private fun beginHandleGesture(start: InkPoint): Boolean {
+        val center = InkGeometry.selectionCenter(selection, selectedTexts, selectedImages, { InkRenderer.textHeight(it) })
+            ?: return false
+        handleCenter = InkPoint(center.x + selectionDx, center.y + selectionDy)
+        handleStartDist = hypot(start.x - handleCenter.x, start.y - handleCenter.y).coerceAtLeast(1f)
+        handleStartAngle = InkGeometry.angleOf(handleCenter, start)
+        selectionPreviewScale = 1f
+        selectionPreviewDeg = 0f
+        invalidate()
+        return true
+    }
+    private fun hasSelection(): Boolean =
+        selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()
     private fun finishLasso() {
-        if (movingSelection) commitSelectionMove()
+        if (resizingSelection || rotatingSelection) commitSelectionTransform()
+        else if (movingSelection) commitSelectionMove()
         else {
             val loop = lasso ?: emptyList()
             lasso = null
@@ -1053,28 +1140,85 @@ class InkView(context: Context) : View(context) {
                 images = page.images.filter { InkGeometry.lassoSelectsImage(loop, it) }
             ) else CanvasSelection())
         }
-        movingSelection = false
+        movingSelection = false; resizingSelection = false; rotatingSelection = false
     }
     private fun commitSelectionMove() {
         if ((selectionDx != 0f || selectionDy != 0f) &&
             (selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty())
         ) {
-            val movedStrokes = selection.map { InkGeometry.translate(it, selectionDx, selectionDy) }
-            val movedTexts = selectedTexts.map { it.moved(selectionDx, selectionDy) }
-            val movedImages = selectedImages.map { it.moved(selectionDx, selectionDy) }
-            val doomed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
-            val strokes = page.strokes.filterNot { it in doomed || it in selection } + movedStrokes
-            val texts = page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + movedTexts
-            val images = page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + movedImages
-            page = page.copy(strokes = strokes, texts = texts, images = images)
-            setSelection(CanvasSelection(movedStrokes, movedTexts, movedImages))
-            onContentChanged(strokes, texts, images)
+            replaceSelectionContent(
+                selection.map { InkGeometry.translate(it, selectionDx, selectionDy) },
+                selectedTexts.map { it.moved(selectionDx, selectionDy) },
+                selectedImages.map { it.moved(selectionDx, selectionDy) }
+            )
         }
     }
     private fun setSelection(value: CanvasSelection) {
         selection = value.strokes; selectedTexts = value.texts; selectedImages = value.images
         selectionDx = 0f; selectionDy = 0f
-        onSelectionChanged(value); invalidate()
+        selectionPreviewScale = 1f; selectionPreviewDeg = 0f
+        onSelectionChanged(value); reportSelectionViewBounds(); invalidate()
+    }
+    /**
+     * Commits a resize/rotate handle drag as one undoable step and keeps the
+     * selection alive, mirroring a move. Uniform scale applies first, then the
+     * turn, both about the grab-time pivot.
+     */
+    private fun commitSelectionTransform() {
+        val factor = selectionPreviewScale
+        val degrees = selectionPreviewDeg
+        selectionPreviewScale = 1f; selectionPreviewDeg = 0f
+        if ((factor == 1f && degrees == 0f) ||
+            (selection.isEmpty() && selectedTexts.isEmpty() && selectedImages.isEmpty())
+        ) {
+            invalidate()
+            return
+        }
+        var strokes = selection
+        var texts = selectedTexts
+        var images = selectedImages
+        if (factor != 1f) {
+            strokes = InkGeometry.scale(strokes, handleCenter, factor)
+            texts = InkGeometry.scaleTexts(texts, handleCenter, factor)
+            images = InkGeometry.scaleImages(images, handleCenter, factor)
+        }
+        if (degrees != 0f) {
+            strokes = InkGeometry.rotate(strokes, handleCenter, degrees)
+            texts = InkGeometry.rotateTexts(texts, handleCenter, degrees)
+            images = InkGeometry.rotateImages(images, handleCenter, degrees)
+        }
+        replaceSelectionContent(strokes, texts, images)
+    }
+    /** Swaps the selection's members for transformed copies across the whole page. */
+    private fun replaceSelectionContent(
+        strokes: List<Stroke>, texts: List<TextBox>, images: List<PageImage>
+    ) {
+        val doomed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
+        val allStrokes = page.strokes.filterNot { it in doomed || it in selection } + strokes
+        val allTexts = page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + texts
+        val allImages = page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + images
+        page = page.copy(strokes = allStrokes, texts = allTexts, images = allImages)
+        setSelection(CanvasSelection(strokes, texts, images))
+        onContentChanged(allStrokes, allTexts, allImages)
+    }
+    /**
+     * The selection frame in view fractions (0..1) for the editor's floating
+     * pill. Null while empty or before first layout.
+     */
+    private fun reportSelectionViewBounds() {
+        val rect = if (!hasSelection() || width <= 0 || height <= 0) null
+        else selectionBox()?.let { box ->
+            Rect(
+                (originX + box[0] * scale) / width,
+                (originY + box[1] * scale) / height,
+                (originX + box[2] * scale) / width,
+                (originY + box[3] * scale) / height
+            )
+        }
+        if (rect != lastReportedSelectionBounds) {
+            lastReportedSelectionBounds = rect
+            onSelectionViewBounds(rect)
+        }
     }
     /** Drops the lasso selection, e.g. when the page scrolls away or another tool is picked. */
     fun clearSelection() {
@@ -1090,6 +1234,8 @@ class InkView(context: Context) : View(context) {
                 // The drag offset counts: grabbing the moved selection's new position keeps working.
                 floatArrayOf(bounds[0] + selectionDx, bounds[1] + selectionDy, bounds[2] + selectionDx, bounds[3] + selectionDy)
             }
+    /** The frame the resize/rotate handles live on: tighter than the move grab area. */
+    private fun selectionBox(): FloatArray? = selectionBounds(margin = 8f)
     private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) {
         val polygon = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) }; close() }
         canvas.drawPath(polygon, lassoFillPaint); canvas.drawPath(polygon, lassoEdgePaint)
@@ -1097,6 +1243,47 @@ class InkView(context: Context) : View(context) {
     /** A dashed outline around a text box while it is dragged, so its extent is visible. */
     private fun drawTextBox(canvas: Canvas, box: TextBox) {
         canvas.drawRect(box.x - 4f, box.y - 4f, box.x + box.width + 4f, box.y + InkRenderer.textHeight(box) + 4f, textBoxPaint)
+    }
+    /**
+     * Dashed frame around the lasso selection with direct handles: a plain dot
+     * on the bottom-right corner resizes about the center, a ringed dot with a
+     * circular arrow above the top edge rotates about it. Drawn in page units,
+     * inside the preview matrix while a handle drag is live.
+     */
+    private fun drawSelectionFrame(canvas: Canvas) {
+        val box = selectionBox() ?: return
+        canvas.drawRect(box[0], box[1], box[2], box[3], selectionBoxPaint)
+        val cx = (box[0] + box[2]) / 2f
+        val rotateY = box[1] - InkGeometry.SELECTION_ROTATE_LIFT
+        canvas.drawLine(cx, box[1], cx, rotateY + SELECTION_HANDLE_RADIUS, selectionLinkPaint)
+        canvas.drawCircle(box[2], box[3], SELECTION_HANDLE_RADIUS, imageHandlePaint)
+        canvas.drawCircle(box[2], box[3], SELECTION_HANDLE_RADIUS, imageHandleEdgePaint)
+        canvas.drawCircle(cx, rotateY, SELECTION_HANDLE_RADIUS, imageHandlePaint)
+        canvas.drawCircle(cx, rotateY, SELECTION_HANDLE_RADIUS, imageHandleEdgePaint)
+        // Circular arrow: 300° of arc plus a V head at its end (420° == 60°).
+        val r = 8f
+        canvas.drawArc(RectF(cx - r, rotateY - r, cx + r, rotateY + r), 120f, 300f, false, selectionGlyphPaint)
+        val end = Math.toRadians(60.0)
+        val ex = (cx + r * cos(end)).toFloat()
+        val ey = (rotateY + r * sin(end)).toFloat()
+        // Unit tangent of clockwise travel at 60°; wings fan the backward
+        // direction ±25° into a V, in page units.
+        val tx = -sin(end).toFloat()
+        val ty = cos(end).toFloat()
+        val head = 5.5f
+        val spread = Math.toRadians(25.0)
+        fun wing(flip: Double): Pair<Float, Float> {
+            val a = flip * spread
+            val bx = -tx
+            val by = -ty
+            val wx = bx * cos(a) - by * sin(a)
+            val wy = bx * sin(a) + by * cos(a)
+            return (ex + head * wx).toFloat() to (ey + head * wy).toFloat()
+        }
+        val (x1, y1) = wing(1.0)
+        val (x2, y2) = wing(-1.0)
+        canvas.drawLine(ex, ey, x1, y1, selectionGlyphPaint)
+        canvas.drawLine(ex, ey, x2, y2, selectionGlyphPaint)
     }
     /** A dashed outline with a bottom-right handle around the selected picture. */
     private fun drawImageSelection(canvas: Canvas, image: PageImage, withHandle: Boolean = true) {
@@ -1251,6 +1438,8 @@ class InkView(context: Context) : View(context) {
         const val SCRIBBLE_RADIUS = 14f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
+        /** Drawn radius of each selection frame handle, in page units. */
+        const val SELECTION_HANDLE_RADIUS = 16f
         /** Identity-keyed geometry caches stay bounded; beyond this they are pruned to the live page. */
         const val MAX_CACHED_STROKES = 4000
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()

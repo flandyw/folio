@@ -1,5 +1,6 @@
 package com.folio.notes
 
+import androidx.compose.ui.geometry.Rect
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -542,6 +543,78 @@ object InkGeometry {
     /** The look a restyle sheet starts from, read from the first stroke of a selection. */
     fun styleOf(strokes: List<Stroke>): SelectionStyle? =
         strokes.firstOrNull()?.let { SelectionStyle(it.color, it.width, it.opacity) }
+
+    /** Which part of a lasso selection's frame a press landed on, if any. */
+    enum class SelectionHandle { NONE, RESIZE, ROTATE }
+
+    /** Touch radius around each selection handle, in page units. */
+    const val SELECTION_HANDLE_TOUCH = 30f
+
+    /** How far the rotate handle floats above the selection's top edge, in page units. */
+    const val SELECTION_ROTATE_LIFT = 52f
+
+    /**
+     * Hit-tests a press against the selection frame: a resize handle on its
+     * bottom-right corner and a rotate handle floating above its top-center.
+     * Resize wins ties, so a tiny selection still resizes predictably.
+     */
+    fun selectionHandleAt(
+        bounds: FloatArray,
+        at: InkPoint,
+        touch: Float = SELECTION_HANDLE_TOUCH,
+        rotateLift: Float = SELECTION_ROTATE_LIFT
+    ): SelectionHandle {
+        if (bounds.size < 4) return SelectionHandle.NONE
+        if (hypot(at.x - bounds[2], at.y - bounds[3]) <= touch) return SelectionHandle.RESIZE
+        val cx = (bounds[0] + bounds[2]) / 2f
+        if (hypot(at.x - cx, at.y - (bounds[1] - rotateLift)) <= touch) return SelectionHandle.ROTATE
+        return SelectionHandle.NONE
+    }
+
+    /** Pointer angle about [center] in degrees, for the rotate handle's drag math. */
+    fun angleOf(center: InkPoint, at: InkPoint): Float =
+        Math.toDegrees(atan2((at.y - center.y).toDouble(), (at.x - center.x).toDouble())).toFloat()
+
+    /** Shortest signed turn from one pointer angle to another, in -180..180 degrees. */
+    fun rotationDelta(fromDeg: Float, toDeg: Float): Float =
+        ((toDeg - fromDeg + 540f) % 360f) - 180f
+
+    /**
+     * The union of everything drawn on an infinite canvas page: each stroke's
+     * points padded by its own width, every text box at its rendered height and
+     * every picture frame. An empty page falls back to the page rect itself, so
+     * "fit all content" always has somewhere to go.
+     */
+    fun contentBounds(
+        strokes: List<Stroke>,
+        texts: List<TextBox>,
+        images: List<PageImage>,
+        textHeight: (TextBox) -> Float,
+        pageWidth: Float,
+        pageHeight: Float
+    ): Rect {
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        var any = false
+        fun include(left: Float, top: Float, right: Float, bottom: Float) {
+            any = true
+            if (left < minX) minX = left
+            if (top < minY) minY = top
+            if (right > maxX) maxX = right
+            if (bottom > maxY) maxY = bottom
+        }
+        for (stroke in strokes) {
+            val pts = stroke.points
+            if (pts.isEmpty()) continue
+            val pad = stroke.width.coerceAtLeast(1f) * 2f
+            include(pts.minOf { it.x } - pad, pts.minOf { it.y } - pad,
+                pts.maxOf { it.x } + pad, pts.maxOf { it.y } + pad)
+        }
+        for (box in texts) include(box.x, box.y, box.x + box.width, box.y + textHeight(box))
+        images.forEach { image -> include(image.x, image.y, image.x + image.width, image.y + image.height) }
+        if (!any) return Rect(0f, 0f, pageWidth, pageHeight)
+        return Rect(minX, minY, maxX, maxY)
+    }
 
     // ---- Placed images ---------------------------------------------------------------
 
