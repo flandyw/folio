@@ -11,9 +11,11 @@ package com.folio.notes.mistakes
  *
  * Supported Markdown: **bold**, *italic*, `code`, ~~strike~~, # headings, - bullets,
  * 1. numbered lists, > quotes, ``` fences, --- dividers, line breaks.
- * Supported LaTeX: \frac, \sqrt, ^ _ superscripts/subscripts, \text, Greek letters,
- * common operators/functions (\times, \le, \sin…). Unknown commands degrade to their
- * name instead of vanishing, so content is never lost.
+ * Supported LaTeX: everything [LatexParser] understands — fractions and binomials, radicals,
+ * scripts with the correct limits placement, the Greek alphabet, the operator/relation/arrow
+ * tables, accents, `\left…\right`, matrices and cases, text and font commands, colours and
+ * spacing. Unknown commands degrade to their own name instead of vanishing, so content is
+ * never lost.
  */
 
 // ---- Inline + block model (pure, no Android types) ----------------------------------------------
@@ -34,302 +36,6 @@ sealed interface RichBlock {
     data class Code(val code: String) : RichBlock
     data class DisplayMath(val latex: String) : RichBlock
     data object Divider : RichBlock
-}
-
-// ---- Math AST (pure) ---------------------------------------------------------------------------
-
-sealed interface MathNode {
-    data class Text(val value: String) : MathNode
-    data class Sym(val value: String) : MathNode
-    data class Func(val name: String) : MathNode
-    data class Frac(val num: List<MathNode>, val den: List<MathNode>) : MathNode
-    data class Sqrt(val body: List<MathNode>, val index: List<MathNode>? = null) : MathNode
-    data class SupSub(val base: List<MathNode>?, val sup: List<MathNode>?, val sub: List<MathNode>?) : MathNode
-    data class Group(val children: List<MathNode>) : MathNode
-    data object ThinSpace : MathNode
-    data object QuadSpace : MathNode
-    data object LineBreak : MathNode
-}
-
-object LatexSymbols {
-    private val greek = mapOf(
-        "alpha" to "α", "beta" to "β", "gamma" to "γ", "delta" to "δ",
-        "epsilon" to "ε", "varepsilon" to "ε", "zeta" to "ζ", "eta" to "η",
-        "theta" to "θ", "vartheta" to "θ", "iota" to "ι", "kappa" to "κ",
-        "lambda" to "λ", "mu" to "μ", "nu" to "ν", "xi" to "ξ",
-        "pi" to "π", "varpi" to "π", "rho" to "ρ", "sigma" to "σ",
-        "varsigma" to "ς", "tau" to "τ", "upsilon" to "υ", "phi" to "φ",
-        "varphi" to "φ", "chi" to "χ", "psi" to "ψ", "omega" to "ω",
-        "Gamma" to "Γ", "Delta" to "Δ", "Theta" to "Θ", "Lambda" to "Λ",
-        "Xi" to "Ξ", "Pi" to "Π", "Sigma" to "Σ", "Phi" to "Φ",
-        "Psi" to "Ψ", "Omega" to "Ω"
-    )
-    private val ops = mapOf(
-        "times" to "×", "cdot" to "·", "div" to "÷", "pm" to "±", "mp" to "∓",
-        "leq" to "≤", "le" to "≤", "geq" to "≥", "ge" to "≥",
-        "neq" to "≠", "ne" to "≠", "approx" to "≈", "sim" to "∼",
-        "simeq" to "≃", "propto" to "∝", "infty" to "∞", "partial" to "∂",
-        "nabla" to "∇", "forall" to "∀", "exists" to "∃", "in" to "∈",
-        "notin" to "∉", "ni" to "∋", "subset" to "⊂", "subseteq" to "⊆",
-        "supset" to "⊃", "supseteq" to "⊇", "cup" to "∪", "cap" to "∩",
-        "vee" to "∨", "wedge" to "∧", "neg" to "¬", "lnot" to "¬",
-        "rightarrow" to "→", "to" to "→", "leftarrow" to "←", "leftrightarrow" to "↔",
-        "Rightarrow" to "⇒", "Leftarrow" to "⇐", "Leftrightarrow" to "⇔",
-        "mapsto" to "↦", "dots" to "…", "ldots" to "…", "cdots" to "⋯",
-        "equiv" to "≡", "cong" to "≅", "perp" to "⊥", "parallel" to "∥",
-        "angle" to "∠", "degree" to "°", "prime" to "′", "surd" to "√",
-        "sum" to "∑", "prod" to "∏", "int" to "∫", "oint" to "∮",
-        "sqrt" to "√", "aleph" to "ℵ", "hbar" to "ℏ", "ell" to "ℓ",
-        "Re" to "ℜ", "Im" to "ℑ", "checkmark" to "✓", "circ" to "∘",
-        "bullet" to "•", "star" to "★", "dagger" to "†", "ddagger" to "‡"
-    )
-    val functions = setOf("sin", "cos", "tan", "sec", "csc", "cot", "arcsin", "arccos", "arctan",
-        "sinh", "cosh", "tanh", "log", "ln", "lg", "exp", "det", "dim", "gcd", "hom", "ker",
-        "max", "min", "sup", "inf", "lim", "limsup", "liminf", "arg", "deg", "Pr")
-
-    fun command(name: String): String? = greek[name] ?: ops[name]
-}
-
-object MathParser {
-    fun parse(latex: String): List<MathNode> = Parser(latex).parseSequence(null).nodes
-
-    fun isComplex(nodes: List<MathNode>): Boolean = nodes.any {
-        when (it) {
-            is MathNode.Frac, is MathNode.Sqrt, is MathNode.SupSub -> true
-            is MathNode.Group -> isComplex(it.children)
-            else -> false
-        }
-    }
-
-    /** Lossy but readable single-line fallback, used inside cards and semantics. */
-    fun toUnicode(nodes: List<MathNode>): String = buildString {
-        fun emit(list: List<MathNode>) {
-            list.forEach { n ->
-                when (n) {
-                    is MathNode.Text -> append(n.value)
-                    is MathNode.Sym -> append(n.value)
-                    is MathNode.Func -> { append(n.name); append(" ") }
-                    is MathNode.Frac -> { append("("); emit(n.num); append(")/("); emit(n.den); append(")") }
-                    is MathNode.Sqrt -> { append("√("); emit(n.body); append(")") }
-                    is MathNode.SupSub -> {
-                        n.base?.let { emit(it) }
-                        n.sup?.let { append("^("); emit(it); append(")") }
-                        n.sub?.let { append("_("); emit(it); append(")") }
-                    }
-                    is MathNode.Group -> emit(n.children)
-                    MathNode.ThinSpace -> append(" ")
-                    MathNode.QuadSpace -> append("  ")
-                    MathNode.LineBreak -> append(" ")
-                }
-            }
-        }
-        emit(nodes)
-    }
-
-    private class Parser(val s: String) {
-        var i = 0
-        data class Seq(val nodes: MutableList<MathNode> = mutableListOf())
-
-        fun parseSequence(stop: Char?): Seq {
-            val out = Seq()
-            var text = StringBuilder()
-            fun flush() { if (text.isNotEmpty()) { out.nodes += MathNode.Text(text.toString()); text = StringBuilder() } }
-            while (i < s.length) {
-                val c = s[i]
-                if (stop != null && c == stop) break
-                when {
-                    c == '\\' -> {
-                        flush()
-                        parseCommand(out)
-                    }
-                    c == '{' -> {
-                        flush(); i++
-                        val inner = parseSequence('}')
-                        if (i < s.length && s[i] == '}') i++
-                        val group = MathNode.Group(inner.nodes)
-                        attachSupSub(out, listOf(group))
-                    }
-                    c == '}' || c == ')' || c == ']' -> break
-                    c == '^' || c == '_' -> {
-                        flush()
-                        val isSup = c == '^'
-                        i++
-                        skipSpaces()
-                        val arg = readScriptArg()
-                        val prev = out.nodes.removeLastOrNull()
-                        val base = prev?.let { listOf(it) }
-                        val lastSupSub = null // merged below via SupSub node
-                        if (prev is MathNode.SupSub && ((isSup && prev.sup == null) || (!isSup && prev.sub == null))) {
-                            out.nodes += if (isSup) prev.copy(sup = arg) else prev.copy(sub = arg)
-                        } else {
-                            // Peek a following _/^ to merge x^a_b into one node.
-                            var sup: List<MathNode>? = if (isSup) arg else null
-                            var sub: List<MathNode>? = if (!isSup) arg else null
-                            val save = i
-                            skipSpaces()
-                            if (i < s.length && ((isSup && s[i] == '_') || (!isSup && s[i] == '^'))) {
-                                val secondSup = s[i] == '^'
-                                i++; skipSpaces()
-                                val arg2 = readScriptArg()
-                                if (secondSup) sup = arg2 else sub = arg2
-                            } else i = save
-                            out.nodes += MathNode.SupSub(base, sup, sub)
-                            @Suppress("UNUSED_EXPRESSION") lastSupSub
-                        }
-                    }
-                    c == '&' -> { flush(); out.nodes += MathNode.ThinSpace; i++ }
-                    c == '\n' -> { flush(); out.nodes += MathNode.LineBreak; i++ }
-                    c == ' ' || c == '\t' -> { text.append(' '); i++ }
-                    else -> { text.append(c); i++ }
-                }
-            }
-            flush()
-            return out
-        }
-
-        private fun skipSpaces() { while (i < s.length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n')) i++ }
-
-        private fun readScriptArg(): List<MathNode> {
-            skipSpaces()
-            if (i >= s.length) return listOf(MathNode.Text(""))
-            return when {
-                s[i] == '{' -> {
-                    i++
-                    val inner = parseSequence('}')
-                    if (i < s.length && s[i] == '}') i++
-                    inner.nodes.ifEmpty { listOf(MathNode.Text("")) }
-                }
-                s[i] == '\\' -> {
-                    val seq = Seq()
-                    parseCommand(seq)
-                    seq.nodes.ifEmpty { listOf(MathNode.Text("")) }
-                }
-                else -> listOf(MathNode.Text(s[i++].toString()))
-            }
-        }
-
-        private fun readGroup(): List<MathNode> {
-            skipSpaces()
-            if (i < s.length && s[i] == '{') {
-                i++
-                val inner = parseSequence('}')
-                if (i < s.length && s[i] == '}') i++
-                return inner.nodes
-            }
-            return readScriptArg()
-        }
-
-        private fun readOptional(): List<MathNode>? {
-            skipSpaces()
-            if (i < s.length && s[i] == '[') {
-                i++
-                val buf = StringBuilder()
-                while (i < s.length && s[i] != ']') buf.append(s[i++])
-                if (i < s.length) i++
-                return Parser(buf.toString()).parseSequence(null).nodes
-            }
-            return null
-        }
-
-        private fun attachSupSub(out: Seq, base: List<MathNode>) {
-            // Attach a trailing ^/_ directly to this base when present (e.g. x^{2}).
-            val save = i
-            skipSpaces()
-            if (i < s.length && (s[i] == '^' || s[i] == '_')) {
-                val isSup = s[i] == '^'
-                i++; skipSpaces()
-                val arg = readScriptArg()
-                var sup: List<MathNode>? = if (isSup) arg else null
-                var sub: List<MathNode>? = if (!isSup) arg else null
-                val save2 = i
-                skipSpaces()
-                if (i < s.length && ((isSup && s[i] == '_') || (!isSup && s[i] == '^'))) {
-                    val secondSup = s[i] == '^'
-                    i++; skipSpaces()
-                    val arg2 = readScriptArg()
-                    if (secondSup) sup = arg2 else sub = arg2
-                } else i = save2
-                // Merge multiple bases (e.g. \alpha^{2}) into one group base.
-                out.nodes += MathNode.SupSub(if (base.size == 1) base else listOf(MathNode.Group(base)), sup, sub)
-            } else {
-                i = save
-                out.nodes.addAll(base)
-            }
-        }
-
-        private fun parseCommand(out: Seq) {
-            // s[i] == '\\'
-            i++
-            if (i >= s.length) { out.nodes += MathNode.Text("\\"); return }
-            val c = s[i]
-            when {
-                c == '\\' -> { out.nodes += MathNode.LineBreak; i++ }
-                c in listOf('{', '}', '$', '&', '#', '%', '_', ' ', ',', ';', ':', '!', '/', '|', '(', ')', '[', ']') -> {
-                    when (c) {
-                        ',' -> out.nodes += MathNode.ThinSpace
-                        ';', ':' -> out.nodes += MathNode.ThinSpace
-                        '!' -> Unit // negative thin space: render as nothing
-                        ' ' -> out.nodes += MathNode.ThinSpace
-                        else -> out.nodes += MathNode.Text(c.toString())
-                    }
-                    i++
-                }
-                c.isLetter() -> {
-                    val start = i
-                    while (i < s.length && s[i].isLetter()) i++
-                    // A trailing * (e.g. \tag*) is part of the command for our purposes: ignore it.
-                    if (i < s.length && s[i] == '*') i++
-                    val name = s.substring(start, i).trimEnd('*')
-                    // Consume one trailing space after a command, per TeX.
-                    if (i < s.length && s[i] == ' ') i++
-                    when (name) {
-                        "frac", "dfrac", "tfrac", "cfrac" -> {
-                            val num = readGroup()
-                            val den = readGroup()
-                            attachSupSub(out, listOf(MathNode.Frac(num, den)))
-                        }
-                        "sqrt" -> {
-                            val idx = readOptional()
-                            val body = readGroup()
-                            attachSupSub(out, listOf(MathNode.Sqrt(body, idx)))
-                        }
-                        "text", "mathrm", "textup", "textrm", "mathbf", "mathit", "operatorname" -> {
-                            val body = readGroup()
-                            // Render upright: collapse to plain text.
-                            attachSupSub(out, listOf(MathNode.Text(MathParser.toUnicode(body))))
-                        }
-                        "left" -> {
-                            skipSpaces()
-                            val d = if (i < s.length) s[i++].toString() else ""
-                            if (d != ".") out.nodes += MathNode.Text(d)
-                        }
-                        "right" -> {
-                            skipSpaces()
-                            val d = if (i < s.length) s[i++].toString() else ""
-                            if (d != ".") out.nodes += MathNode.Text(d)
-                        }
-                        "quad" -> out.nodes += MathNode.QuadSpace
-                        "qquad" -> { out.nodes += MathNode.QuadSpace; out.nodes += MathNode.QuadSpace }
-                        "hspace", "vspace" -> { readOptional(); readGroup(); out.nodes += MathNode.ThinSpace }
-                        "begin", "end" -> { readGroup() /* environments ignored, inner content parsed normally */ }
-                        else -> {
-                            LatexSymbols.command(name)?.let {
-                                attachSupSub(out, listOf(MathNode.Sym(it)))
-                                return
-                            }
-                            if (name in LatexSymbols.functions) {
-                                out.nodes += MathNode.Func(name)
-                                return
-                            }
-                            // Unknown command: keep it readable rather than dropping content.
-                            out.nodes += MathNode.Text(name)
-                        }
-                    }
-                }
-                else -> { out.nodes += MathNode.Text(c.toString()); i++ }
-            }
-        }
-    }
 }
 
 object RichTextParser {
@@ -572,7 +278,7 @@ object RichTextParser {
             list.forEach {
                 when (it) {
                     is RichInline.Run -> sb.append(it.text)
-                    is RichInline.Math -> sb.append(MathParser.toUnicode(runCatching { MathParser.parse(it.latex) }.getOrDefault(emptyList())))
+                    is RichInline.Math -> sb.append(mathPlainText(it.latex))
                     RichInline.Break -> sb.append(' ')
                 }
             }
@@ -585,7 +291,7 @@ object RichTextParser {
                 is RichBlock.Numbers -> b.items.forEach { inlines(it); sb.append(' ') }
                 is RichBlock.Quote -> inlines(b.inlines)
                 is RichBlock.Code -> sb.append(b.code)
-                is RichBlock.DisplayMath -> sb.append(MathParser.toUnicode(runCatching { MathParser.parse(b.latex) }.getOrDefault(emptyList())))
+                is RichBlock.DisplayMath -> sb.append(mathPlainText(b.latex))
                 RichBlock.Divider -> Unit
             }
             sb.append(' ')
@@ -594,6 +300,10 @@ object RichTextParser {
             if (it.length <= maxLength) it else it.take(maxLength - 1).trimEnd() + "…"
         }
     }
+
+    /** Never throws: a formula the parser chokes on still contributes its raw source. */
+    private fun mathPlainText(latex: String): String =
+        runCatching { LatexParser.plainText(latex) }.getOrDefault(latex.trim())
 
     fun containsMath(source: String): Boolean {
         if (!source.contains('$') && !source.contains('\\')) return false

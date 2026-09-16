@@ -45,37 +45,6 @@ class RichTextParserTests {
         assertTrue(blocks[2] is RichBlock.DisplayMath)
     }
 
-    @Test fun fracParses() {
-        val nodes = MathParser.parse("\\frac{a+1}{b-2}")
-        val frac = nodes.single() as MathNode.Frac
-        assertEquals("a+1", MathParser.toUnicode(frac.num))
-        assertEquals("b-2", MathParser.toUnicode(frac.den))
-        assertTrue(MathParser.isComplex(nodes))
-    }
-
-    @Test fun sqrtAndSupSub() {
-        val sqrt = MathParser.parse("\\sqrt{x+1}") .single() as MathNode.Sqrt
-        assertEquals("x+1", MathParser.toUnicode(sqrt.body))
-        val sup = MathParser.parse("x^{2}") .single() as MathNode.SupSub
-        assertEquals("2", MathParser.toUnicode(sup.sup!!))
-        val both = MathParser.parse("x_a^b") .single() as MathNode.SupSub
-        assertNotNull(both.sup); assertNotNull(both.sub)
-    }
-
-    @Test fun greekAndFunctions() {
-        assertEquals("α", MathParser.toUnicode(MathParser.parse("\\alpha")))
-        assertEquals("×", MathParser.toUnicode(MathParser.parse("\\times")))
-        assertEquals("≤", MathParser.toUnicode(MathParser.parse("\\le")))
-        val func = MathParser.parse("\\sin x").first() as MathNode.Func
-        assertEquals("sin", func.name)
-        assertFalse(MathParser.isComplex(MathParser.parse("\\alpha + \\beta")))
-    }
-
-    @Test fun unknownCommandNeverDropsContent() {
-        assertEquals("weirdcommand", MathParser.toUnicode(MathParser.parse("\\weirdcommand")))
-        assertEquals("text", MathParser.toUnicode(MathParser.parse("\\text{text}")))
-    }
-
     @Test fun plainTextFallback() {
         val plain = RichTextParser.plainText("Solve \$\\frac{1}{2}\$ **bold**", 80)
         assertTrue(plain.contains("(1)/(2)"))
@@ -84,10 +53,18 @@ class RichTextParserTests {
         assertFalse(plain.contains("$"))
     }
 
+    @Test fun plainTextFlattensOperatorsAndLimits() {
+        val plain = RichTextParser.plainText("So \$\\Pr_{x}(A)\$ holds", 120)
+        assertTrue(plain.contains("Pr"))
+        assertTrue(plain.contains("x"))
+        assertTrue(plain.contains("A"))
+    }
+
     @Test fun malformedLatexDoesNotThrow() {
-        assertNotNull(MathParser.parse("\\frac{a}{"))
         assertNotNull(RichTextParser.parse("## \n\$\$unclosed\n- "))
         assertNotNull(RichTextParser.plainText("\$\\sqrt{\$"))
+        assertNotNull(RichTextParser.plainText("\$\\begin{pmatrix} a\$"))
+        assertNotNull(RichTextParser.plainText("\$\\left( \\frac{1}{\$"))
     }
 
     @Test fun snakeCaseNotItalic() {
@@ -95,5 +72,12 @@ class RichTextParserTests {
         val joined = inlines.filterIsInstance<RichInline.Run>().joinToString("") { it.text }
         assertTrue(joined.contains("practice_page_id"))
         assertTrue(inlines.none { it is RichInline.Run && it.italic })
+    }
+
+    @Test fun containsMathDetectsLatex() {
+        assertTrue(RichTextParser.containsMath("Solve \$x\$"))
+        assertTrue(RichTextParser.containsMath("Value: \\[\\Pr(A)\\]"))
+        assertFalse(RichTextParser.containsMath("Plain prose, no maths here."))
+        assertFalse(RichTextParser.containsMath("Price is \$5."))
     }
 }

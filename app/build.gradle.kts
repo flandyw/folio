@@ -9,8 +9,7 @@ plugins {
 
 android {
     namespace = "com.folio.notes"
-    // compileSdk 36 satisfies the huarangmeng/latex renderer (min compile 36);
-    // targetSdk stays 35 so no new runtime behavior is opted into.
+    // compileSdk stays at 36; targetSdk stays 35 so no new runtime behavior is opted into.
     compileSdk = 36
     defaultConfig {
         applicationId = "com.folio.notes"
@@ -79,11 +78,6 @@ dependencies {
     implementation("io.ktor:ktor-client-okhttp:3.0.3")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-gif:2.7.0")
-    // LaTeX math rendering (huarangmeng/latex, MIT; bundles KaTeX fonts).
-    // The -kt2.1.0 variant matches this repo's Kotlin 2.1.0 toolchain.
-    implementation("io.github.huarangmeng:latex-base:1.5.4-kt2.1.0")
-    implementation("io.github.huarangmeng:latex-parser:1.5.4-kt2.1.0")
-    implementation("io.github.huarangmeng:latex-renderer:1.5.4-kt2.1.0")
 
     implementation(platform("androidx.compose:compose-bom:2025.06.01"))
     implementation("androidx.activity:activity-compose:1.9.3")

@@ -33,9 +33,24 @@ The overview searches questions, subjects and categories and filters by subject,
 
 ## Text and maths rendering
 
-Question, correction and explanation render offline as Markdown-lite with LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`). Markdown splitting, math-delimiter detection, plain-text fallbacks and accessibility strings are local (`MistakeRichText.kt`, pure Kotlin, covered by `RichTextParserTests`). Every math segment itself is rendered by [huarangmeng/latex](https://github.com/huarangmeng/latex) (`latex-renderer:1.5.4-kt2.1.0`, MIT, bundled KaTeX fonts — see its `THIRD_PARTY_NOTICES.md` for KaTeX attribution): display math through its `Latex` composable, inline math through its shared measurer's `inlineContent()` so formulas sit inside the surrounding text with precisely measured placeholders. The theme follows Folio's Material 3 `ColorScheme` via `LatexTheme.material3()`. If a formula cannot be measured it falls back to readable unicode text, so content is never dropped.
+Question, correction and explanation render offline as Markdown-lite with LaTeX math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`). Markdown splitting, math-delimiter detection, plain-text fallbacks and accessibility strings are local (`MistakeRichText.kt`, pure Kotlin, covered by `RichTextParserTests`).
 
-Toolchain note: the `-kt2.1.0` artifacts require Kotlin 2.1.0 (see root `build.gradle.kts`) and compileSdk 36 (targetSdk stays 35, so no new runtime behavior is opted into). Before upgrading the pin, re-check the library's compatibility table — its standard variant tracks newer Kotlin/Compose releases than Folio uses.
+Maths is typeset by Folio's own LaTeX engine instead of a WebView or a third-party renderer, so review works in airplane mode with no web fonts and no extra dependency:
+
+- `LatexMath.kt` — the maths model: atom classes, the AST, and the command/symbol tables (Greek, operators, relations, arrows, delimiters, accents, colours).
+- `LatexParser.kt` — tokenizer and recursive-descent parser: grouping, `^`/`_` with TeX's binding rule, `\left…\right`, `\begin…\end` matrices/`cases`/`aligned`/`array` with their column specs, infix fractions (`a \over b`), extensible arrows (`\xrightarrow[below]{above}`), text and font commands, style and colour scopes.
+- `LatexLayout.kt` — the TeX box model: width/ascent/depth per atom, the TeXbook inter-atom spacing table, fractions, radicals, scripts (including limits under `\sum`, `\lim`, `\Pr`), scaled delimiters, accents, stretchy decorations and matrices. Glyph metrics arrive through the `LatexMetrics` interface, so this file has no Android types and is unit tested against a fake measurer.
+- `LatexView.kt` — the Compose front end: measures glyphs with the platform text stack, paints the engine's draw list, and embeds inline formulas as measured `InlineTextContent` placeholders so they sit inside the surrounding text.
+
+`\Pr` (like `\lim`, `\max`, `\det`, `\gcd`) renders as an upright operator whose subscripts drop underneath the name in display style and sit beside it in text style, matching LaTeX; `\sin`, `\log` and friends never take limits, and `\limits`/`\nolimits` override either default. Unknown commands degrade to their own name and malformed input ends the current group, so content is never dropped; a formula with no measurable extent falls back to readable unicode text.
+
+Rows line up the way their environment says: `aligned`/`align`/`split`/`alignat` follow amsmath's `rl` template (each `&` opens a right-then-left pair, a relation that starts a pair is padded with an empty atom so it keeps its spacing, and pairs are separated by the usual gap), `array`/`subarray` use the `{lcr}` spec with `@{}` dropped, and `matrix`/`cases` centre every column.
+
+Decorations that must grow are drawn as geometry rather than one centred glyph: `\overbrace`, `\underbrace`, the brackets, and `\overrightarrow`/`\overleftarrow`/`\overleftrightarrow` span exactly their argument, `\overbrace{…}^{n}` puts its label over the brace, and `\xrightarrow`/`\xleftarrow` grow with their label and sit on the maths axis with the optional `[below]` argument underneath.
+
+Deliberate approximations, since the engine draws with the fonts already on the device rather than shipping a maths font: `\mathbb` is bold serif and `\mathfrak`/`\mathcal` use the platform cursive face (no blackboard-bold or Fraktur glyphs are bundled, and Unicode maths alphanumerics are not guaranteed to be present in Android's font fallback). Everything else above is a real layout, not a substitution.
+
+Toolchain note: replacing the `huarangmeng/latex` dependency removed the bundled KaTeX font artifacts from the build. Kotlin stays at 2.1.0 and compileSdk at 36 to match the pinned Compose BOM; targetSdk stays 35, so no new runtime behavior is opted into.
 
 ## Authentication and isolation
 
