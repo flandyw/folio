@@ -2,12 +2,13 @@ package com.folio.notes
 
 import kotlin.math.abs
 
-/** Transient geometry only. Printed guides can be supplied later without coupling input to PDF IO. */
+/** Transient handwriting geometry; printed guide detection runs separately from input. */
 data class WritingLane(val left: Float, val top: Float, val right: Float, val bottom: Float)
 data class WritingFollowState(
     val baselineY: Float? = null,
     val recent: List<WritingLane> = emptyList(),
-    val suspendedUntil: Long = 0L
+    val suspendedUntil: Long = 0L,
+    val completedGuide: WritingGuide? = null
 )
 enum class WritingHand(val direction: Float) { RIGHT(1f), LEFT(-1f) }
 
@@ -48,28 +49,28 @@ class WritingFollow {
         val heights = state.recent.map { it.bottom - it.top }.sorted()
         return heights.getOrNull(heights.size / 2)?.coerceAtLeast(12f) ?: 24f
     }
-    /** Distance to drop the page for one handwritten line, in page units. */
-    fun estimateSpacing(): Float = maxOf(48f, laneHeight() * 2.5f)
-    /**
-     * The visible edge alone is not a line ending: zoomed pages may have more room
-     * off screen. Infinite canvases have no page margin, so use the far viewport edge.
-     */
-    fun shouldAdvance(tipFraction: Float, zoom: Float, hand: WritingHand, now: Long,
-                      pageFraction: Float? = null): Boolean {
-        if (zoom < 1.4f || now < state.suspendedUntil || state.baselineY == null) return false
-        val edge = if (hand == WritingHand.RIGHT) tipFraction else 1f - tipFraction
-        val pageEdge = pageFraction?.let { if (hand == WritingHand.RIGHT) it else 1f - it }
-        return if (pageEdge == null) edge >= .97f else edge >= .90f && pageEdge >= .95f
+    /** A return is possible only at a detected rule's endpoint with a real rule below it. */
+    fun advanceFor(points: List<InkPoint>, guides: List<WritingGuide>, zoom: Float,
+                   hand: WritingHand, now: Long): WritingAdvance? {
+        if (zoom < 1.4f || now < state.suspendedUntil || points.isEmpty()) return null
+        val left = points.minOf { it.x }
+        val right = points.maxOf { it.x }
+        val bottom = points.maxOf { it.y }
+        val top = points.minOf { it.y }
+        val line = guides.filter { left >= it.left - 6f && right <= it.right + 6f && abs(bottom - it.y) <= 10f }
+            .minByOrNull { abs(bottom - it.y) } ?: return null
+        if (line == state.completedGuide) return null
+        val next = WritingGuides.next(line, guides) ?: return null
+        // Tall marks and long strokes are diagrams/underlines, not the end of a word.
+        if (bottom - top > (next.y - line.y) * .9f || right - left > 80f) return null
+        val atEnd = if (hand == WritingHand.RIGHT) right >= line.right - 4f else left <= line.left + 4f
+        return if (atEnd) WritingAdvance(line, next) else null
     }
-    /** Give inter-letter lifts time to resume before moving the page. */
+
+    fun arrived(advance: WritingAdvance) {
+        state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from)
+    }
+
     fun lineAdvanceProgress(liftedAt: Long, now: Long): Float =
-        ((now - liftedAt - 700L).toFloat() / 280f).coerceIn(0f, 1f)
-    /** Leftmost (or rightmost for left-hand) x of the current line, in page units. */
-    fun lineStart(hand: WritingHand): Float? {
-        val baseline = state.baselineY ?: return null
-        val threshold = maxOf(28f, laneHeight() * 1.5f)
-        val sameLine = state.recent.filter { abs(it.bottom - baseline) <= threshold }
-        if (sameLine.isEmpty()) return null
-        return if (hand == WritingHand.RIGHT) sameLine.minOf { it.left } else sameLine.maxOf { it.right }
-    }
+        ((now - liftedAt).toFloat() / 280f).coerceIn(0f, 1f)
 }

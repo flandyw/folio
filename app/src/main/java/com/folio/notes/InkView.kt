@@ -45,6 +45,7 @@ class InkView(context: Context) : View(context) {
     var pressureVariation = 1f
     var eraserPressureEnabled = true
     var scribbleToErase = true
+    var scribbleSensitivity = ScribbleSensitivity.DEFAULT
     var eraserWholeStroke = false
     var shapeMeasurements = true
     var multiTouchUndo = true
@@ -153,6 +154,8 @@ class InkView(context: Context) : View(context) {
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
     val writingFollow = WritingFollow()
+    var writingGuides: List<WritingGuide> = emptyList()
+    private var lineAdvance: WritingAdvance? = null
     var followEnabled = false
     var writingHand = WritingHand.RIGHT
     var documentFollowZoom = 1f
@@ -175,7 +178,7 @@ class InkView(context: Context) : View(context) {
     fun suspendWritingFollow() {
         writingFollow.suspend(SystemClock.uptimeMillis())
         followProgressAt = 0L
-        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null
         removeCallbacks(followFrame)
     }
     fun currentPeekAnchor(): PeekAnchor? {
@@ -206,14 +209,14 @@ class InkView(context: Context) : View(context) {
             val dt = ((now - followFrameAt).coerceIn(0, 32)) / 1000f
             followFrameAt = now
             if (!followEnabled || inputBlocked || readOnly || tool != Tool.PEN || !getLocalVisibleRect(followVisible)) {
-                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null
                 return
             }
             val zoom = if (page.infinite) camera.zoom else documentFollowZoom
             val down = draft?.tool == Tool.PEN
             // A fresh stroke or manual pan cancels a pending carriage return.
             if (down || now < writingFollow.state.suspendedUntil) {
-                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null
             }
             var ax = 0f; var ay = 0f
             val advancing = !down && (advanceTotalX != 0f || advanceTotalY != 0f)
@@ -225,7 +228,7 @@ class InkView(context: Context) : View(context) {
                 ax = targetX - advanceDoneX
                 ay = targetY - advanceDoneY
                 advanceDoneX = targetX; advanceDoneY = targetY
-                if (t >= 1f) { advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f }
+                if (t >= 1f) { lineAdvance?.let(writingFollow::arrived); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null }
             }
             val vx = writingFollow.horizontalVelocity((followTipX - followVisible.left) / followVisible.width().coerceAtLeast(1),
                 zoom, writingHand, down && now - followProgressAt < 80, now)
@@ -248,27 +251,16 @@ class InkView(context: Context) : View(context) {
         followFrameAt = SystemClock.uptimeMillis()
         postOnAnimation(followFrame)
     }
-    /**
-     * Carriage return + line feed: after the pen lifts near the trailing edge, swing the
-     * line start back into view and drop one line, so the next stroke begins on screen.
-     */
-    private fun startLineAdvance(lineStartPageX: Float) {
+    /** Place the next printed rule's start where the current rule was being written. */
+    private fun startLineAdvance(advance: WritingAdvance) {
         if (!getLocalVisibleRect(followVisible)) return
-        val w = followVisible.width().coerceAtLeast(1).toFloat()
-        val margin = w * 0.18f
-        val desired = if (writingHand == WritingHand.RIGHT) followVisible.left + margin
-        else followVisible.left + w - margin
-        val current = originX + lineStartPageX * scale
-        var dx = desired - current
-        // Never jump backwards past the writing direction: clamp to a return.
-        if (writingHand == WritingHand.RIGHT) dx = dx.coerceAtLeast(0f) else dx = dx.coerceAtMost(0f)
-        // A tiny nudge is just jitter; a huge one is a manual pan, not a line wrap.
-        if (abs(dx) < 8f) dx = 0f
-        val maxJump = w * 1.5f
-        dx = dx.coerceIn(-maxJump, maxJump)
-        val dy = -writingFollow.estimateSpacing() * scale
-        if (dx == 0f && dy == 0f) return
+        val margin = followVisible.width() * .18f
+        val desiredX = if (writingHand == WritingHand.RIGHT) followVisible.left + margin
+            else followVisible.right - margin
+        val dx = desiredX - (originX + advance.startX(writingHand) * scale)
+        val dy = -(advance.to.y - advance.from.y) * scale
         advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
+        lineAdvance = advance
         advanceStartAt = SystemClock.uptimeMillis()
         scheduleFollow()
     }
@@ -352,7 +344,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
         else if (page.strokes !== value.strokes) {
             // Same page, new revision: drop geometry for strokes that are gone so the
             // caches track the live ink instead of every undone fragment.
@@ -912,8 +904,8 @@ class InkView(context: Context) : View(context) {
         val wasErasing = erasing != null
         val drawn = draft?.copy(createdAt = System.currentTimeMillis())
         var scribbleErased: List<Stroke>? = null
-        if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER) && InkGeometry.isScribble(drawn.points)) {
-            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS)
+        if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
+            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity)
             if (scrubbed.size != page.strokes.size) scribbleErased = scrubbed
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
@@ -923,23 +915,8 @@ class InkView(context: Context) : View(context) {
             val now = SystemClock.uptimeMillis()
             writingFollow.completed(drawn.points, now)
             val zoom = if (page.infinite) camera.zoom else documentFollowZoom
-            val box = WritingLane(drawn.points.minOf { it.x }, drawn.points.minOf { it.y },
-                drawn.points.maxOf { it.x }, drawn.points.maxOf { it.y })
-            val baseline = writingFollow.state.baselineY
-            val onLine = baseline != null && abs(box.bottom - baseline) <= maxOf(28f, writingFollow.laneHeight() * 1.5f)
-            if (onLine && getLocalVisibleRect(followVisible)) {
-                val tipPageX = if (writingHand == WritingHand.RIGHT) box.right else box.left
-                val tipFraction = (originX + tipPageX * scale - followVisible.left) / followVisible.width().coerceAtLeast(1)
-                val pageFraction = if (page.infinite) null else tipPageX / page.width.coerceAtLeast(1f)
-                if (writingFollow.shouldAdvance(tipFraction, zoom, writingHand, now, pageFraction)) {
-                    val lineStart = if (page.infinite) {
-                        writingFollow.lineStart(writingHand) ?: box.left
-                    } else {
-                        if (writingHand == WritingHand.RIGHT) 0f else page.width
-                    }
-                    startLineAdvance(lineStart)
-                }
-            }
+            writingFollow.advanceFor(drawn.points, writingGuides, zoom, writingHand, now)
+                ?.let(::startLineAdvance)
             scheduleFollow()
         }
         val changed = strokes != null && strokes != page.strokes
@@ -1178,7 +1155,7 @@ class InkView(context: Context) : View(context) {
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
         // Cancel on contact, including strokes that finish before the next animation frame.
-        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         var start = clampToPage(raw)

@@ -91,7 +91,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
     var followMenu by remember { mutableStateOf(false) }
     var peekHeld by remember(note.id, page.id) { mutableStateOf(false) }
-    val peekAnchor = page.peekAnchor?.takeIf { it.resolve(note.pages) != null }
+    val peekAnchor = note.sharedPeekAnchor()
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
     var options by remember(tool) { mutableStateOf(ToolOptions.load(prefs, tool)) }
@@ -115,6 +115,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var eraserPressure by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
     fun setEraserPressure(v: Boolean) { eraserPressure = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, v).apply() }
     var scribbleToErase by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
+    var scribbleSensitivity by remember { mutableStateOf(appPrefs.getFloat(EditorQuickPrefs.SCRIBBLE_SENSITIVITY, ScribbleSensitivity.DEFAULT)) }
     fun setScribbleToErase(v: Boolean) { scribbleToErase = v; appPrefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, v).apply() }
     var eraserWholeStroke by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
     fun setEraserWholeStroke(v: Boolean) { eraserWholeStroke = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, v).apply() }
@@ -128,6 +129,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             when (key) {
                 EditorQuickPrefs.ERASER_SINGLE_STROKE -> { eraserSingleStroke = appPrefs.getBoolean(key, false) }
                 EditorQuickPrefs.ERASER_PRESSURE -> eraserPressure = appPrefs.getBoolean(key, true)
+                EditorQuickPrefs.SCRIBBLE_SENSITIVITY -> scribbleSensitivity = appPrefs.getFloat(key, ScribbleSensitivity.DEFAULT)
                 EditorQuickPrefs.SCRIBBLE_TO_ERASE -> scribbleToErase = appPrefs.getBoolean(key, true)
                 EditorQuickPrefs.ERASER_WHOLE_STROKE -> eraserWholeStroke = appPrefs.getBoolean(key, false)
                 EditorQuickPrefs.SHAPE_MEASUREMENTS -> shapeMeasurements = appPrefs.getBoolean(key, true)
@@ -510,7 +512,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
-                    eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
+                    eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { activeInkView = it }, inkStyle = options.style,
@@ -636,7 +638,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 selectedImage = image?.let { item.id to it }
                             },
                             pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
-                            eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
+                            eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                             eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                             onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                             onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style,
@@ -681,16 +683,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     activeInkView?.suspendWritingFollow()
                                 })
                                 DropdownMenuItem({ Text("Set current view as Peek Anchor") }, {
-                                    activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(page.id, it) }
+                                    activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
                                     followMenu = false
                                 })
-                                note.pages.filter { it.id != page.id && it.peekAnchor?.resolve(note.pages) != null }.forEach { source ->
-                                    DropdownMenuItem({ Text("Peek at " + source.displayTitle(note.pages.indexOf(source))) }, {
-                                        model.setPeekAnchor(page.id, source.peekAnchor); followMenu = false
-                                    })
-                                }
-                                if (page.peekAnchor != null) DropdownMenuItem({ Text("Remove Peek Anchor") }, {
-                                    model.setPeekAnchor(page.id, null); followMenu = false
+                                if (peekAnchor != null) DropdownMenuItem({ Text("Remove Peek Anchor") }, {
+                                    model.setPeekAnchor(null); followMenu = false
                                 })
                             }
                         }
@@ -1164,10 +1161,11 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
 private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.HIGHLIGHTER)
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     onFollowPan: (Float, Float) -> Unit = { _, _ -> }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null) {
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
+    var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
     var retry by remember(page.id) { mutableIntStateOf(0) }
@@ -1186,6 +1184,22 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { error = true }
+        }
+    }
+    // Detect only the immutable paper/PDF background, never the user's ink. Pixel scanning
+    // runs off the input thread and reruns only when the source or follow setting changes.
+    LaunchedEffect(page.id, page.paper, page.width, page.height, background, followEnabled) {
+        writingGuides = if (!followEnabled || page.infinite) emptyList() else withContext(Dispatchers.Default) {
+            val bitmap = background
+            when {
+                page.pdfIndex != null && bitmap != null -> {
+                    val pixels = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    WritingGuides.detect(pixels, bitmap.width, bitmap.height, page.width, page.height)
+                }
+                page.pdfIndex == null && page.paper == Paper.RULED -> WritingGuides.ruled(page.width, page.height)
+                else -> emptyList()
+            }
         }
     }
     // Pictures arrive with the page content; a missing file simply leaves no bitmap to draw.
@@ -1216,12 +1230,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
             if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
             view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
-            view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
+            view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
             view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
             view.peekRegion = peekRegion
             view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
             view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-            view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
+            view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.onEraserFinished = onEraserFinished
             view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
             onSelectAllView?.invoke(view)
             view.snapEnabled = snapEnabled

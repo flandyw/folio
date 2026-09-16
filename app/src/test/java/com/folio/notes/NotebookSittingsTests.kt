@@ -43,4 +43,15 @@ class NotebookSittingsTests {
         sittings.save("a", ExamTimerState().start(preset, 1000), null, null)
         assertEquals(ExamTimerPhase.DONE, sittings.restore("a", 601000)!!.timer.phase)
     }
+
+    @Test fun aPausedTimerDoesNotFinishWhileItsNotebookIsNotOpen() {
+        val sittings = NotebookSittings()
+        // selectNotebookTimer pauses on leave, so the background sitting is stored paused.
+        val pausedOnLeave = ExamTimerState().start(preset, 1000).pause(21000)
+        sittings.save("a", pausedOnLeave, null, null)
+        val restored = sittings.restore("a", 601000)!!.timer
+        assertTrue(restored.paused)
+        assertEquals(pausedOnLeave.remaining, restored.remaining)
+        assertNotEquals(ExamTimerPhase.DONE, restored.phase)
+    }
 }

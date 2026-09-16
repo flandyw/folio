@@ -5,6 +5,18 @@ import org.json.JSONObject
 import java.util.UUID
 import kotlin.math.*
 
+/** Higher values accept shorter, less exact scrubs; coverage of existing ink is always required. */
+object ScribbleSensitivity {
+    const val DEFAULT = 0.5f
+    fun normalize(value: Float) = if (value.isFinite()) value.coerceIn(0f, 1f) else DEFAULT
+    fun reversals(value: Float): Int = when {
+        normalize(value) < .25f -> 4
+        normalize(value) < .8f -> 3
+        else -> 2
+    }
+    fun passes(value: Float) = if (normalize(value) < .25f) 3 else 2
+}
+
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND }
 /** Line pattern for shape tools, like GoodNotes' dashed and dotted lines for diagrams. */
 enum class StrokeStyle {
@@ -699,8 +711,9 @@ object InkGeometry {
      * forward-moving `W` whose teeth only touch at a point), and the stroke as a whole must
      * end near where it travelled — low net progress along that axis for the distance covered.
      */
-    fun isScribble(points: List<InkPoint>): Boolean {
-        if (points.size < 5) return false
+    fun isScribble(points: List<InkPoint>, sensitivity: Float = ScribbleSensitivity.DEFAULT): Boolean {
+        val ease = ScribbleSensitivity.normalize(sensitivity)
+        if (points.size < ScribbleSensitivity.reversals(ease) + 2) return false
         val minX = points.minOf { it.x }; val maxX = points.maxOf { it.x }
         val minY = points.minOf { it.y }; val maxY = points.maxOf { it.y }
         val width = maxX - minX; val height = maxY - minY
@@ -709,9 +722,9 @@ object InkGeometry {
         // Remove tiny wiggles and rounded turnaround samples before measuring direction changes.
         val corners = simplify(points, max(2f, span * .025f))
         val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
-        if (total < 80f || total / span < 2.2f) return false
+        if (total < 80f - 20f * ease || total / span < 2.2f) return false
         // Letter cusps are short: a scrub leg must span a real share of the whole stroke.
-        val minLeg = max(8f, span * 0.18f)
+        val minLeg = max(8f - 2f * ease, span * (.18f - .06f * ease))
         val horizontal = width >= height
         var reversals = 0
         for (i in 1 until corners.lastIndex) {
@@ -728,9 +741,9 @@ object InkGeometry {
             ) else segmentOverlap(
                 corners[i - 1].y, corners[i].y, corners[i].y, corners[i + 1].y
             )
-            if (overlap >= 0.6f) reversals++
+            if (overlap >= .6f - .1f * ease) reversals++
         }
-        if (reversals < 4) return false
+        if (reversals < ScribbleSensitivity.reversals(ease)) return false
         // Cursive marches forward while a scrub stays put: net progress along the dominant
         // axis must be small next to the distance travelled along it.
         val travel = corners.zipWithNext().sumOf { (a, b) ->
@@ -741,7 +754,7 @@ object InkGeometry {
         else abs(corners.last().y - corners.first().y)
         // Repeated small backtracks in a word must not add up to a scrub.
         val axisSpan = if (horizontal) width else height
-        return net / travel <= 0.32f && axisSpan / travel <= 0.32f
+        return net / travel <= .32f + .13f * ease && axisSpan / travel <= .32f + .13f * ease
     }
 
     /** Share of the longer 1-D segment covered by the overlap, 0 when they only touch. */
@@ -786,19 +799,20 @@ object InkGeometry {
     }
 
     /** Require repeated coverage of existing ink; a nearby mark or one crossing is not enough. */
-    fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float): List<Stroke> {
-        if (strokes.isEmpty() || !isScribble(scribble.points)) return strokes
+    fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float, sensitivity: Float = ScribbleSensitivity.DEFAULT): List<Stroke> {
+        val ease = ScribbleSensitivity.normalize(sensitivity)
+        if (strokes.isEmpty() || !isScribble(scribble.points, ease)) return strokes
         val bounds = strokeBoundsOf(scribble.points)
         val span = hypot(bounds[2] - bounds[0], bounds[3] - bounds[1])
         val legs = simplify(scribble.points, max(2f, span * .025f)).zipWithNext()
-            .filter { (a, b) -> distance(a, b) >= max(8f, span * .18f) }
+            .filter { (a, b) -> distance(a, b) >= max(8f - 2f * ease, span * (.18f - .06f * ease)) }
         // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
         val contactRadius = min(radius.coerceAtLeast(0f), 2f)
         return strokes.filterNot { target ->
             var passes = 0
             legs.any { (a, b) ->
                 if (scribbleHits(scribble.copy(points = listOf(a, b)), target, contactRadius)) passes++
-                passes >= 3
+                passes >= ScribbleSensitivity.passes(ease)
             }
         }
     }

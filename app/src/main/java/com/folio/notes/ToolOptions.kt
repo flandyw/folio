@@ -54,6 +54,7 @@ object EditorQuickPrefs {
     const val ERASER_SINGLE_STROKE = "eraserSingleStroke"
     const val ERASER_PRESSURE = "eraserPressure"
     const val SCRIBBLE_TO_ERASE = "scribbleToErase"
+    const val SCRIBBLE_SENSITIVITY = "scribbleSensitivity"
     const val ERASER_WHOLE_STROKE = "eraserWholeStroke"
     const val SHAPE_MEASUREMENTS = "shapeMeasurements"
     const val MULTI_TOUCH_UNDO = "multiTouchUndo"
@@ -138,28 +139,8 @@ object EditorQuickPrefs {
             if (presets != null && tool in listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
                 ToolPresetSection(tool, options, presets)
             }
-            // For pen/highlighter the scribble switch already appeared above; repeating would duplicate.
-            if (tool != Tool.PEN && tool != Tool.HIGHLIGHTER && tool != Tool.ERASER) {
-                var scribble by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Scribble to erase", Modifier.weight(1f))
-                    Switch(scribble, {
-                        scribble = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it).apply()
-                    })
-                }
-                Text("Scribble over ink to delete strokes. Closest experience when scribbling with the pen/highlighter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                var scribble by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Scribble to erase", Modifier.weight(1f))
-                    Switch(scribble, {
-                        scribble = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it).apply()
-                    })
-                }
-                Text("Scribble over ink with the pen/highlighter to delete entire strokes it touches. A compact one-tap erase without switching tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) {
+                ScribbleSettingsSection(showPracticeInitially = false)
             }
             if (tool == Tool.ERASER) {
                 var single by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }

@@ -18,3 +18,16 @@ data class PeekAnchor(val pageId: String, val left: Float, val top: Float, val r
 }
 
 data class ViewportSnapshot(val pageId: String, val viewport: WorkspaceViewport)
+
+/** Read legacy page-stored anchors notebook-wide, including unloaded page summaries. */
+fun Notebook.sharedPeekAnchor(): PeekAnchor? = pages.asSequence().mapNotNull { it.peekAnchor }
+    .firstOrNull { it.resolve(pages) != null }
+
+/** Keep the existing archive format; store one shared anchor on its target page. */
+fun Notebook.withSharedPeekAnchor(anchor: PeekAnchor?): Notebook {
+    if (anchor != null && anchor.resolve(pages) == null) return this
+    return copy(pages = pages.map { page ->
+        val value = anchor?.takeIf { it.pageId == page.id }
+        if (page.peekAnchor == value) page else page.copy(peekAnchor = value)
+    })
+}

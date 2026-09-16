@@ -89,7 +89,7 @@ class ScribbleEraseTests {
         val hooks = listOf(0f, 40f, 22f, 62f, 44f, 84f, 66f, 106f, 88f)
             .mapIndexed { i, x -> InkPoint(x, if (i % 2 == 0) 0f else 8f) }
         assertFalse(InkGeometry.isScribble(hooks))
-        assertFalse(InkGeometry.isScribble(zigzag.take(5)))
+        assertFalse(InkGeometry.isScribble(zigzag.take(5), sensitivity = 0f))
         for (angle in listOf(0.0, PI / 4, PI / 2)) {
             val rotated = hooks.map { InkPoint(
                 (it.x * cos(angle) - it.y * sin(angle)).toFloat(),
@@ -108,6 +108,42 @@ class ScribbleEraseTests {
         assertEquals(listOf(nearby), InkGeometry.scribbleErase(listOf(nearby), stroke(zigzag), 14f))
         assertEquals(targets, InkGeometry.scribbleErase(targets, stroke(zigzag.take(4)), 14f))
         assertTrue(InkGeometry.scribbleErase(emptyList(), stroke(zigzag), 14f).isEmpty())
+    }
+
+    @Test fun sensitivityMakesShorterScrubsEasierWithoutRemovingCoverageChecks() {
+        val medium = stroke(zigzag.take(5))
+        val short = stroke(zigzag.take(4))
+        val target = stroke(listOf(InkPoint(30f, -5f), InkPoint(30f, 25f)))
+        val nearby = stroke(listOf(InkPoint(65f, 0f), InkPoint(65f, 15f)))
+        assertFalse(InkGeometry.isScribble(medium.points, 0f))
+        assertTrue(InkGeometry.isScribble(medium.points))
+        assertFalse(InkGeometry.isScribble(short.points))
+        assertTrue(InkGeometry.isScribble(short.points, 1f))
+        assertEquals(listOf(target), InkGeometry.scribbleErase(listOf(target), short, 14f, 0f))
+        assertTrue(InkGeometry.scribbleErase(listOf(target), short, 14f, 1f).isEmpty())
+        for (sensitivity in listOf(0f, .5f, 1f)) {
+            assertEquals(listOf(nearby), InkGeometry.scribbleErase(listOf(nearby), short, 14f, sensitivity))
+            assertTrue(InkGeometry.scribbleErase(emptyList(), short, 14f, sensitivity).isEmpty())
+            val word = (0..8).map { InkPoint(it * 15f, if (it % 2 == 0) 0f else 40f) }
+            assertFalse(InkGeometry.isScribble(word, sensitivity))
+            val hooks = listOf(0f, 40f, 22f, 62f, 44f, 84f, 66f, 106f, 88f)
+                .mapIndexed { i, x -> InkPoint(x, if (i % 2 == 0) 0f else 8f) }
+            assertFalse(InkGeometry.isScribble(hooks, sensitivity))
+        }
+    }
+
+    @Test fun sensitivityClampsAndAcceptanceIsMonotonic() {
+        assertEquals(0f, ScribbleSensitivity.normalize(-1f), 0f)
+        assertEquals(1f, ScribbleSensitivity.normalize(2f), 0f)
+        assertEquals(ScribbleSensitivity.DEFAULT, ScribbleSensitivity.normalize(Float.NaN), 0f)
+        for (count in 4..6) {
+            var accepted = false
+            for (step in 0..100) {
+                val result = InkGeometry.isScribble(zigzag.take(count), step / 100f)
+                if (accepted) assertTrue(result)
+                accepted = result
+            }
+        }
     }
 
     @Test fun handlesDotsParallelSegmentsAndEmptyPaths() {

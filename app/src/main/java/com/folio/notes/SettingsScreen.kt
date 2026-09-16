@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
             Text("Writing & appearance", style = MaterialTheme.typography.titleMedium)
             PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
             PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
+            ScribbleSettingsSection()
+            HorizontalDivider()
             Text("Appearance", style = MaterialTheme.typography.titleSmall)
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.selectableGroup().padding(8.dp)) {

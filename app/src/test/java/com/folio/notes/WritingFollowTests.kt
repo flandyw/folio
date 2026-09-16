@@ -49,44 +49,45 @@ class WritingFollowTests {
         assertTrue(follow.verticalVelocity(.2f, 2f, 0) > 0)
         assertEquals(0f, follow.verticalVelocity(.9f, 1f, 0), 0f)
     }
-    @Test fun lineAdvanceRequiresFarEdgeAndRespectsSuspension() {
+    private val guides = listOf(WritingGuide(50f, 400f, 100f), WritingGuide(60f, 390f, 132f),
+        WritingGuide(60f, 390f, 160f))
+    @Test fun returnsAtPrintedEndpointToActualNextStartAndSpacing() {
         val follow = WritingFollow()
-        follow.completed(stroke(10f, 100f), 0)
-        assertTrue(follow.shouldAdvance(.98f, 2f, WritingHand.RIGHT, 0))
-        assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.RIGHT, 0))
-        assertTrue(follow.shouldAdvance(.02f, 2f, WritingHand.LEFT, 0))
-        assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.LEFT, 0))
-        assertFalse(follow.shouldAdvance(.98f, 1.2f, WritingHand.RIGHT, 0))
-        follow.suspend(0)
-        assertFalse(follow.shouldAdvance(.98f, 2f, WritingHand.RIGHT, 0))
+        val advance = follow.advanceFor(stroke(390f, 100f), guides, 2f, WritingHand.RIGHT, 0)!!
+        assertEquals(guides[0], advance.from)
+        assertEquals(guides[1], advance.to)
+        assertEquals(60f, advance.startX(WritingHand.RIGHT), 0f)
+        assertEquals(32f, advance.to.y - advance.from.y, 0f)
+        assertNull(follow.advanceFor(stroke(360f, 100f), guides, 2f, WritingHand.RIGHT, 0))
+        val left = follow.advanceFor(stroke(50f, 100f), guides, 2f, WritingHand.LEFT, 0)!!
+        assertEquals(390f, left.startX(WritingHand.LEFT), 0f)
     }
-    @Test fun visibleEdgeDoesNotEndALineWithPageSpaceRemaining() {
+    @Test fun neverInventsALineOnBlankPagesOrAfterLastRule() {
         val follow = WritingFollow()
-        follow.completed(stroke(10f, 100f), 0)
-        for (hand in WritingHand.entries) {
-            fun fraction(value: Float) = if (hand == WritingHand.RIGHT) value else 1f - value
-            assertFalse(follow.shouldAdvance(fraction(.99f), 2f, hand, 0, fraction(.6f)))
-            assertFalse(follow.shouldAdvance(fraction(.8f), 2f, hand, 0, fraction(.98f)))
-            assertTrue(follow.shouldAdvance(fraction(.98f), 2f, hand, 0, fraction(.98f)))
-            assertFalse(follow.shouldAdvance(fraction(.8f), 2f, hand, 0))
-            assertFalse(follow.shouldAdvance(fraction(.94f), 2f, hand, 0))
-        }
+        assertNull(follow.advanceFor(stroke(390f, 100f), emptyList(), 2f, WritingHand.RIGHT, 0))
+        assertNull(follow.advanceFor(stroke(382f, 160f), guides, 2f, WritingHand.RIGHT, 0))
+        assertNull(follow.advanceFor(stroke(390f, 70f), guides, 2f, WritingHand.RIGHT, 0))
+        assertNull(follow.advanceFor(listOf(InkPoint(390f, 40f), InkPoint(400f, 100f)), guides, 2f, WritingHand.RIGHT, 0))
     }
-    @Test fun lineAdvanceWaitsForAPauseBeforeAnimating() {
+    @Test fun manualPanAndLowZoomSuppressPrintedReturns() {
+        val follow = WritingFollow()
+        assertNull(follow.advanceFor(stroke(390f, 100f), guides, 1f, WritingHand.RIGHT, 0))
+        follow.suspend(100)
+        assertNull(follow.advanceFor(stroke(390f, 100f), guides, 2f, WritingHand.RIGHT, 1599))
+        assertNotNull(follow.advanceFor(stroke(390f, 100f), guides, 2f, WritingHand.RIGHT, 1600))
+    }
+    @Test fun completedReturnTracksDestinationAndDoesNotRepeatForDotsOrCrosses() {
+        val follow = WritingFollow()
+        val advance = follow.advanceFor(stroke(390f, 100f), guides, 2f, WritingHand.RIGHT, 0)!!
+        follow.arrived(advance)
+        assertEquals(132f, follow.state.baselineY!!, 0f)
+        assertNull(follow.advanceFor(stroke(390f, 100f), guides, 2f, WritingHand.RIGHT, 1))
+        assertNotNull(follow.advanceFor(stroke(382f, 132f), guides, 2f, WritingHand.RIGHT, 1))
+    }
+    @Test fun printedReturnAnimatesWithoutTheOldArbitraryDelay() {
         val follow = WritingFollow()
         assertEquals(0f, follow.lineAdvanceProgress(1000, 1000), 0f)
-        assertEquals(0f, follow.lineAdvanceProgress(1000, 1699), 0f)
-        assertEquals(0f, follow.lineAdvanceProgress(1000, 1700), 0f)
-        assertEquals(.5f, follow.lineAdvanceProgress(1000, 1840), .001f)
-        assertEquals(1f, follow.lineAdvanceProgress(1000, 1980), 0f)
-        assertEquals(1f, follow.lineAdvanceProgress(1000, 2500), 0f)
-    }
-    @Test fun lineStartTracksCurrentLaneAndSpacingIsSane() {
-        val follow = WritingFollow()
-        assertNull(follow.lineStart(WritingHand.RIGHT))
-        follow.completed(stroke(50f, 100f), 0)
-        follow.completed(stroke(120f, 102f), 0)
-        assertEquals(50f, follow.lineStart(WritingHand.RIGHT)!!, 0f)
-        assertTrue(follow.estimateSpacing() >= 48f)
+        assertEquals(.5f, follow.lineAdvanceProgress(1000, 1140), .001f)
+        assertEquals(1f, follow.lineAdvanceProgress(1000, 1280), 0f)
     }
 }

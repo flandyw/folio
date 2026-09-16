@@ -142,14 +142,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(timer = timer, lastTimedSeconds = cached?.seconds, lastTelemetry = cached?.telemetry) }
     }
 
-    /** Switching notebooks leaves their clocks running, but closes page dwell in the old one. */
-    private fun selectNotebookTimer(id: String?) {
+    /** Leaving a notebook pauses its clock, so time away never counts; returning stays paused until resumed. */
+    private fun selectNotebookTimer(id: String?, now: Long = System.currentTimeMillis()) {
         if (id == timerNotebookId) return
         timerNotebookId?.let { previous ->
-            sittingVisits = closeVisits(sittingVisits, System.currentTimeMillis()).toMutableList()
+            val current = _state.value.timer
+            val paused = if (current.running) current.pause(now) else current
+            if (paused != current) saveSitting(paused)
+            sittingVisits = closeVisits(sittingVisits, now).toMutableList()
             saveVisits()
             val state = _state.value
-            notebookSittings.save(previous, state.timer, state.lastTimedSeconds, state.lastTelemetry)
+            notebookSittings.save(previous, paused, state.lastTimedSeconds, state.lastTelemetry)
         }
         timerNotebookId = id
         restoreNotebookTimer()
@@ -756,11 +759,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(note.withPage(page.copy(title = title.trim().take(120))))
     }
 
-    fun setPeekAnchor(pageId: String, anchor: PeekAnchor?) {
+    fun setPeekAnchor(anchor: PeekAnchor?) {
         val note = _state.value.active ?: return
-        val page = note.pages.find { it.id == pageId } ?: return
-        if (anchor != null && anchor.resolve(note.pages) == null) return
-        updateNote(note.withPage(page.copy(peekAnchor = anchor)))
+        updateNote(note.withSharedPeekAnchor(anchor))
     }
 
     fun togglePageBookmark(pageId: String) {

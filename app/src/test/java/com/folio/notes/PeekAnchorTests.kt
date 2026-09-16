@@ -29,4 +29,27 @@ class PeekAnchorTests {
         assertEquals(-1234.125f, camera.x, 0f)
         assertEquals(234.75f, camera.y, 0f)
     }
+    @Test fun oneAnchorIsAvailableFromEveryPageAndSurvivesReload() {
+        val note = Notebook(title = "Peek", pages = listOf(NotePage(id = "writing"), NotePage(id = "reference")))
+            .withSharedPeekAnchor(anchor)
+        assertEquals(anchor, note.sharedPeekAnchor())
+        assertEquals(anchor, NoteMetaCodec.decode(NoteMetaCodec.encode(note)).sharedPeekAnchor())
+        assertEquals(anchor, NoteCodec.decode(NoteCodec.encode(note)).sharedPeekAnchor())
+        assertEquals(anchor, note.withInsertedPage(0).sharedPeekAnchor())
+        assertEquals(anchor, note.withMovedPage(1, 0).sharedPeekAnchor())
+        assertEquals(anchor, note.withDeletedPage(0).sharedPeekAnchor())
+        assertNull(note.withDeletedPage(1).sharedPeekAnchor())
+    }
+    @Test fun replacingOrRemovingSharedAnchorClearsLegacyPageAssignments() {
+        val legacy = Notebook(title = "Peek", pages = listOf(NotePage(id = "writing", peekAnchor = anchor),
+            NotePage(id = "reference", peekAnchor = anchor)))
+        assertEquals(anchor, legacy.sharedPeekAnchor())
+        val replacement = anchor.copy(pageId = "writing")
+        val changed = legacy.withSharedPeekAnchor(replacement)
+        assertEquals(replacement, changed.sharedPeekAnchor())
+        assertEquals(1, changed.pages.count { it.peekAnchor != null })
+        assertNull(changed.withSharedPeekAnchor(null).sharedPeekAnchor())
+        assertEquals(changed, changed.withSharedPeekAnchor(anchor.copy(pageId = "missing")))
+    }
+
 }
