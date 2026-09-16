@@ -15,7 +15,27 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
       - run: chmod +x gradlew
-      - run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+      - name: Check no hardcoded Supabase secrets
+        run: |
+          set -euo pipefail
+          # Fail if a real-looking publishable key or project URL is committed.
+          # Placeholders (example.* / your-*) and test keys are allowed.
+          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "sb_publishable_[A-Za-z0-9_.-]{10,}" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "sb_publishable_example_placeholder_for_local_ci_builds_only" | grep -v "your-publishable" | grep -q .; then
+            echo "Hardcoded Supabase publishable key found; use EXAMTRACK_SUPABASE_PUBLISHABLE_KEY secret instead"
+            exit 1
+          fi
+          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "[a-z0-9-]+\.supabase\.co" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "example\.supabase\.co" | grep -v "your-project\.supabase\.co" | grep -q .; then
+            echo "Hardcoded Supabase URL found; use EXAMTRACK_SUPABASE_URL secret instead"
+            exit 1
+          fi
+      - name: Build and test
+        env:
+          # Injected from Actions secrets on main; empty on forks falls back to safe
+          # placeholders in app/build.gradle.kts (blank values are ignored there).
+          # GitHub automatically masks these values in logs; do not echo them.
+          EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
+          EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
       - uses: actions/upload-artifact@v7
         with:
           name: folio-debug

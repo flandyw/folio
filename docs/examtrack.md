@@ -4,11 +4,17 @@ Folio uses ExamTrack's existing Supabase project. Verified against ExamTrack ups
 
 ## Setup
 
-The default public client configuration connects to the ExamTrack project supplied for this integration. Override these values using environment variables, Gradle properties, or untracked `local.properties`, in that order:
+Configure these values using environment variables, Gradle properties, or untracked `local.properties`, in that order. CI builds without credentials use safe placeholders; release builds inject GitHub Actions secrets. Never commit real keys.
 
 ```properties
-EXAMTRACK_SUPABASE_URL=https://tqlmkctgmcuwtasbipxi.supabase.co
+EXAMTRACK_SUPABASE_URL=https://your-project.supabase.co
 EXAMTRACK_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-anon-key
+```
+
+```sh
+# Store production credentials (actions secrets, used by CI/release only):
+gh secret set EXAMTRACK_SUPABASE_URL --app actions
+gh secret set EXAMTRACK_SUPABASE_PUBLISHABLE_KEY --app actions
 ```
 
 Only HTTPS and publishable/anon keys are accepted. The build rejects secret keys and JWT keys without the `anon` role. Public keys identify the project; Supabase Auth and RLS authorize access.

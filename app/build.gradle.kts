@@ -20,8 +20,12 @@ android {
             val local = Properties().apply {
                 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
             }
-            val value = providers.environmentVariable(name).orNull
-                ?: providers.gradleProperty(name).orNull ?: local.getProperty(name) ?: fallback
+            // Treat blank env/property values (e.g. unset GitHub secrets on forks) as missing
+            // so local CI builds fall back to safe placeholders. Real values come from
+            // environment, -P gradle properties, or untracked local.properties, never source.
+            val value = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+                ?: providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
+                ?: local.getProperty(name)?.takeIf { it.isNotBlank() } ?: fallback
             if (name.endsWith("KEY")) {
                 val anonJwt = runCatching {
                     val claims = String(Base64.getUrlDecoder().decode(value.split('.')[1]))
@@ -31,8 +35,11 @@ android {
             } else require(value.startsWith("https://")) { "ExamTrack requires HTTPS" }
             return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
         }
-        buildConfigField("String", "EXAMTRACK_SUPABASE_URL", examTrackConfig("EXAMTRACK_SUPABASE_URL", "https://tqlmkctgmcuwtasbipxi.supabase.co"))
-        buildConfigField("String", "EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", examTrackConfig("EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_H1Y4cEBBRSipKMvwRXg9pw_RNawrUE6"))
+        // Safe placeholders for local/CI builds without credentials. Production values are
+        // injected via EXAMTRACK_SUPABASE_URL / EXAMTRACK_SUPABASE_PUBLISHABLE_KEY secrets
+        // (see .github/workflows/*.yml and docs/examtrack.md). Never commit real keys here.
+        buildConfigField("String", "EXAMTRACK_SUPABASE_URL", examTrackConfig("EXAMTRACK_SUPABASE_URL", "https://example.supabase.co"))
+        buildConfigField("String", "EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", examTrackConfig("EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
