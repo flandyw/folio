@@ -28,6 +28,8 @@ jobs:
             echo "Hardcoded Supabase URL found; use EXAMTRACK_SUPABASE_URL secret instead"
             exit 1
           fi
+      - name: Check bundled offline KaTeX
+        run: node tools/katex-smoke.cjs
       - name: Build and test
         env:
           # Injected from Actions secrets on main; empty on forks falls back to safe

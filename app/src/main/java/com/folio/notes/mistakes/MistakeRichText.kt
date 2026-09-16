@@ -1,25 +1,9 @@
 package com.folio.notes.mistakes
 
 /**
- * Offline Markdown-lite + LaTeX renderer for ExamTrack content.
- *
- * ExamTrack stores question / correction / explanation as Markdown with LaTeX math
- * ($…$, $$…$$, \(…\), \[…\]). There is no WebView here on purpose: review must work
- * in airplane mode, must never drop content on malformed input, and must stay unit
- * testable on the JVM. [RichTextParser] is pure Kotlin with no Compose dependency;
- * the composables below only render what it produces.
- *
- * Supported Markdown: **bold**, *italic*, `code`, ~~strike~~, # headings, - bullets,
- * 1. numbered lists, > quotes, ``` fences, --- dividers, line breaks.
- * Supported LaTeX: everything [LatexParser] understands — fractions and binomials, radicals,
- * scripts with the correct limits placement, the Greek alphabet, the operator/relation/arrow
- * tables, accents, `\left…\right`, matrices and cases, text and font commands, colours and
- * spacing. Unknown commands degrade to their own name instead of vanishing, so content is
- * never lost.
+ * Pure Markdown-lite and math-delimiter segmentation. Math is opaque source for bundled KaTeX;
+ * this layer knows no TeX commands or layout rules. Code spans/fences remain literal.
  */
-
-// ---- Inline + block model (pure, no Android types) ----------------------------------------------
-
 sealed interface RichInline {
     data class Run(val text: String, val bold: Boolean = false, val italic: Boolean = false,
         val code: Boolean = false, val strike: Boolean = false) : RichInline
@@ -59,20 +43,21 @@ object RichTextParser {
                     if (i < lines.size) i++ // closing fence
                     blocks += RichBlock.Code(buf.toString().trimEnd('\n'))
                 }
-                isDisplayMathFence(trimmed) && trimmed.length > 4 -> {
-                    // Single-line $$…$$.
-                    blocks += RichBlock.DisplayMath(trimmed.removePrefix("$$").removeSuffix("$$").trim())
-                    i++
+                trimmed == "$$" || trimmed == "\\[" -> {
+                    val close = if (trimmed == "$$") "$$" else "\\]"
+                    val end = (i + 1 until lines.size).firstOrNull { lines[it].trim() == close }
+                    if (end == null) {
+                        blocks += RichBlock.Para(listOf(RichInline.Run(lines.drop(i).joinToString("\n"))))
+                        i = lines.size
+                    } else {
+                        // Preserve every character between delimiters, including edge newlines.
+                        val body = lines.subList(i, end + 1).joinToString("\n")
+                        blocks += RichBlock.DisplayMath(body.substringAfter(trimmed).substringBeforeLast(close))
+                        i = end + 1
+                    }
                 }
-                trimmed == "$$" -> {
-                    val buf = StringBuilder()
-                    i++
-                    while (i < lines.size && lines[i].trim() != "$$") { buf.appendLine(lines[i]); i++ }
-                    if (i < lines.size) i++
-                    blocks += RichBlock.DisplayMath(buf.toString().trim())
-                }
-                trimmed.startsWith("\\[") && trimmed.endsWith("\\]") && trimmed.length > 4 -> {
-                    blocks += RichBlock.DisplayMath(trimmed.removePrefix("\\[").removeSuffix("\\]").trim())
+                isDisplayMathFence(trimmed) -> {
+                    blocks += RichBlock.DisplayMath(trimmed.substring(2, trimmed.length - 2))
                     i++
                 }
                 trimmed == "---" || trimmed == "***" || trimmed == "___" -> { blocks += RichBlock.Divider; i++ }
@@ -110,7 +95,7 @@ object RichTextParser {
                     val buf = mutableListOf<String>()
                     while (i < lines.size) {
                         val t = lines[i].trim()
-                        if (t.isEmpty() || t.startsWith("```") || t == "$$" || isDisplayMathFence(t) ||
+                        if (t.isEmpty() || t.startsWith("```") || t == "$$" || t == "\\[" || isDisplayMathFence(t) ||
                             (t.startsWith("#") && t.dropWhile { it == '#' }.startsWith(" ")) ||
                             t.startsWith(">") || isBullet(t) || isNumbered(t) ||
                             t == "---" || t == "***" || t == "___"
@@ -125,7 +110,15 @@ object RichTextParser {
         return blocks
     }
 
-    private fun isDisplayMathFence(t: String) = t.startsWith("$$") && t.endsWith("$$")
+    private fun isDisplayMathFence(t: String): Boolean {
+        if (t.length <= 4) return false
+        val close = when {
+            t.startsWith("$$") -> "$$"
+            t.startsWith("\\[") -> "\\]"
+            else -> return false
+        }
+        return findClosing(t, close, 2) == t.length - 2
+    }
     private fun isBullet(t: String) = (t.startsWith("- ") || t.startsWith("* ") || t.startsWith("• "))
     private fun isNumbered(t: String): Boolean {
         val dot = t.indexOf(". ")
@@ -133,139 +126,94 @@ object RichTextParser {
         return t.substring(0, dot).all { it.isDigit() }
     }
 
-    /** Split display math out first so Markdown never eats $…$ contents. */
+    /** Delimiters only: never inspect, trim or translate the mathematical source. */
     fun parseInlines(source: String): List<RichInline> {
-        if (source.isEmpty()) return emptyList()
         val out = mutableListOf<RichInline>()
+        val text = StringBuilder()
+        fun flush() {
+            if (text.isNotEmpty()) { out += RichInline.Run(text.toString()); text.clear() }
+        }
         var i = 0
-        var text = StringBuilder()
-        fun flush() { if (text.isNotEmpty()) { out.addAll(parseMarkdownSpans(text.toString())); text = StringBuilder() } }
         while (i < source.length) {
-            when {
-                source.startsWith("$$", i) -> {
-                    val end = source.indexOf("$$", i + 2)
-                    if (end == -1) { text.append(source.substring(i)); break }
-                    flush()
-                    out += RichInline.Math(source.substring(i + 2, end).trim(), display = true)
-                    i = end + 2
-                }
-                source.startsWith("\\[", i) -> {
-                    val end = source.indexOf("\\]", i + 2)
-                    if (end == -1) { text.append(source.substring(i)); break }
-                    flush()
-                    out += RichInline.Math(source.substring(i + 2, end).trim(), display = true)
-                    i = end + 2
-                }
-                source.startsWith("\\(", i) -> {
-                    val end = source.indexOf("\\)", i + 2)
-                    if (end == -1) { text.append(source.substring(i)); break }
-                    flush()
-                    out += RichInline.Math(source.substring(i + 2, end).trim(), display = false)
-                    i = end + 2
-                }
-                source[i] == '$' && (i == 0 || source[i - 1] != '\\') -> {
-                    val end = findClosingDollar(source, i + 1)
-                    if (end == -1) { text.append(source[i]); i++ }
-                    else {
-                        flush()
-                        out += RichInline.Math(source.substring(i + 1, end).trim(), display = false)
-                        i = end + 1
-                    }
-                }
-                source[i] == '\n' -> { flush(); out += RichInline.Break; i++ }
-                else -> { text.append(source[i]); i++ }
+            // Markdown escapes and code take precedence over math delimiters.
+            if (source[i] == '\\' && i + 1 < source.length && source[i + 1] in "$\\*_`~") {
+                text.append(source[i + 1]); i += 2; continue
             }
+            if (source[i] == '`') {
+                val fence = source.substring(i).takeWhile { it == '`' }
+                val end = source.indexOf(fence, i + fence.length)
+                if (end >= 0) {
+                    flush(); out += RichInline.Run(source.substring(i + fence.length, end), code = true)
+                    i = end + fence.length; continue
+                }
+            }
+            val delimiter = when {
+                source.startsWith("$$", i) -> "$$" to "$$"
+                source.startsWith("\\[", i) -> "\\[" to "\\]"
+                source.startsWith("\\(", i) -> "\\(" to "\\)"
+                source[i] == '$' -> "$" to "$"
+                else -> null
+            }
+            if (delimiter != null) {
+                val (open, close) = delimiter
+                val start = i + open.length
+                val end = if (open == "$") findClosingDollar(source, start) else findClosing(source, close, start)
+                if (end > start) {
+                    flush()
+                    out += RichInline.Math(source.substring(start, end), open == "$$" || open == "\\[")
+                    i = end + close.length; continue
+                }
+                // Keep malformed source literal, including its delimiter and Markdown-like characters.
+                if (open != "$") { text.append(source.substring(i)); break }
+            }
+            val mark = when {
+                source.startsWith("**", i) -> "**"
+                source.startsWith("__", i) -> "__"
+                source.startsWith("~~", i) -> "~~"
+                source[i] == '*' -> "*"
+                source[i] == '_' && (i == 0 || !source[i - 1].isLetterOrDigit()) -> "_"
+                else -> null
+            }
+            if (mark != null) {
+                val end = findClosing(source, mark, i + mark.length)
+                if (end > i + mark.length) {
+                    flush()
+                    out += parseInlines(source.substring(i + mark.length, end)).map {
+                        if (it is RichInline.Run) it.copy(
+                            bold = it.bold || mark == "**" || mark == "__",
+                            italic = it.italic || mark == "*" || mark == "_",
+                            strike = it.strike || mark == "~~"
+                        ) else it
+                    }
+                    i = end + mark.length; continue
+                }
+            }
+            if (source[i] == '\n') { flush(); out += RichInline.Break } else text.append(source[i])
+            i++
         }
         flush()
         return out
     }
 
-    private fun findClosingDollar(s: String, from: Int): Int {
-        var j = from
-        // Opening $ must be followed by a non-space to start math (avoids "$ 5" / currency noise).
-        if (j >= s.length || s[j].isWhitespace()) return -1
-        while (j < s.length) {
-            if (s[j] == '$' && s[j - 1] != '\\') {
-                // A $$ opener inside inline math ends the search; treat as unclosed.
-                if (j + 1 < s.length && s[j + 1] == '$') return -1
-                // Closing $ must be preceded by a non-space ($5 stays text without a real closer).
-                if (!s[j - 1].isWhitespace()) return j
-                return -1
-            }
-            if (s[j] == '\n' && j + 1 < s.length && s[j + 1] == '\n') return -1
-            j++
-        }
-        return -1
+    private fun isEscaped(source: String, index: Int): Boolean {
+        var backslashes = 0
+        var i = index - 1
+        while (i >= 0 && source[i--] == '\\') backslashes++
+        return backslashes % 2 == 1
     }
 
-    /** Bold / italic / code / strike on text that contains no math. */
-    private fun parseMarkdownSpans(source: String): List<RichInline> {
-        val out = mutableListOf<RichInline>()
-        var i = 0
-        fun push(text: String, bold: Boolean = false, italic: Boolean = false, code: Boolean = false, strike: Boolean = false) {
-            if (text.isEmpty()) return
-            // Keep escaped dollars readable: "\$5" renders as "$5" and never starts math.
-            val unescaped = if (!code) text.replace("\\$", "$") else text
-            out += RichInline.Run(unescaped, bold, italic, code, strike)
-        }
-        while (i < source.length) {
-            when {
-                source.startsWith("```", i) || (source[i] == '`') -> {
-                    val fence = if (source.startsWith("```", i)) "```" else "`"
-                    val end = source.indexOf(fence, i + fence.length)
-                    if (end == -1) { push(source.substring(i)); break }
-                    push(source.substring(i + fence.length, end), code = true)
-                    i = end + fence.length
-                }
-                source.startsWith("**", i) || source.startsWith("__", i) -> {
-                    val mark = source.substring(i, i + 2)
-                    val end = source.indexOf(mark, i + 2)
-                    if (end == -1) { push(source[i].toString()); i++ }
-                    else {
-                        val inner = source.substring(i + 2, end)
-                        if (inner.isBlank()) { push(source.substring(i, end + 2)); i = end + 2 }
-                        else {
-                            // Allow italic inside bold.
-                            parseMarkdownSpans(inner).forEach {
-                                if (it is RichInline.Run) out += it.copy(bold = true) else out += it
-                            }
-                            i = end + 2
-                        }
-                    }
-                }
-                source.startsWith("~~", i) -> {
-                    val end = source.indexOf("~~", i + 2)
-                    if (end == -1) { push(source[i].toString()); i++ }
-                    else { push(source.substring(i + 2, end), strike = true); i = end + 2 }
-                }
-                source[i] == '*' || source[i] == '_' -> {
-                    val mark = source[i]
-                    // Avoid treating a_b or snake_case as emphasis.
-                    val prevIsWord = i > 0 && (source[i - 1].isLetterOrDigit())
-                    var end = -1
-                    var j = i + 1
-                    while (j < source.length) {
-                        if (source[j] == mark && source[j - 1] != '\\' && source[j - 1] != ' ') { end = j; break }
-                        j++
-                    }
-                    if (end == -1 || (prevIsWord && mark == '_')) { push(mark.toString()); i++ }
-                    else {
-                        val inner = source.substring(i + 1, end)
-                        if (inner.isBlank()) { push(source.substring(i, end + 1)); i = end + 1 }
-                        else { push(inner, italic = true); i = end + 1 }
-                    }
-                }
-                else -> {
-                    var j = i
-                    while (j < source.length && source[j] != '`' && source[j] != '*' &&
-                        source[j] != '_' && !source.startsWith("~~", j)
-                    ) j++
-                    push(source.substring(i, j))
-                    i = j
-                }
-            }
-        }
-        return out
+    private fun findClosing(source: String, delimiter: String, from: Int): Int {
+        var end = source.indexOf(delimiter, from)
+        while (end >= 0 && isEscaped(source, end)) end = source.indexOf(delimiter, end + delimiter.length)
+        return end
+    }
+
+    private fun findClosingDollar(source: String, from: Int): Int {
+        if (from >= source.length || source[from].isWhitespace()) return -1
+        val end = findClosing(source, "$", from)
+        if (end < 0 || source[end - 1].isWhitespace() || source.startsWith("$$", end)) return -1
+        if (source.substring(from, end).contains("\n\n")) return -1
+        return end
     }
 
     /** Readable one-line fallback for previews, semantics and notifications. */
@@ -278,7 +226,7 @@ object RichTextParser {
             list.forEach {
                 when (it) {
                     is RichInline.Run -> sb.append(it.text)
-                    is RichInline.Math -> sb.append(mathPlainText(it.latex))
+                    is RichInline.Math -> sb.append(it.latex)
                     RichInline.Break -> sb.append(' ')
                 }
             }
@@ -291,7 +239,7 @@ object RichTextParser {
                 is RichBlock.Numbers -> b.items.forEach { inlines(it); sb.append(' ') }
                 is RichBlock.Quote -> inlines(b.inlines)
                 is RichBlock.Code -> sb.append(b.code)
-                is RichBlock.DisplayMath -> sb.append(mathPlainText(b.latex))
+                is RichBlock.DisplayMath -> sb.append(b.latex)
                 RichBlock.Divider -> Unit
             }
             sb.append(' ')
@@ -300,10 +248,6 @@ object RichTextParser {
             if (it.length <= maxLength) it else it.take(maxLength - 1).trimEnd() + "…"
         }
     }
-
-    /** Never throws: a formula the parser chokes on still contributes its raw source. */
-    private fun mathPlainText(latex: String): String =
-        runCatching { LatexParser.plainText(latex) }.getOrDefault(latex.trim())
 
     fun containsMath(source: String): Boolean {
         if (!source.contains('$') && !source.contains('\\')) return false

@@ -1,6 +1,7 @@
 package com.folio.notes.mistakes
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,18 +11,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -33,18 +30,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.folio.notes.math.KaTeXMath
+import com.folio.notes.math.rememberKaTeXInlineContent
 
-/**
- * Renders ExamTrack Markdown + LaTeX offline.
- *
- * Markdown splitting, math-delimiter detection (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`), plain-text
- * fallbacks and accessibility strings are local ([RichTextParser], pure Kotlin, unit tested).
- * Every math segment is laid out by the in-repo LaTeX engine ([LatexParser] → [LatexLayoutEngine])
- * and painted by [LatexMathDisplay] / an [InlineTextContent] placeholder, so formulas sit inside
- * the surrounding `Text` with exactly measured dimensions. If a formula has no measurable extent
- * the segment falls back to readable unicode text instead of vanishing, and a parse failure falls
- * back to the raw source. Nothing here can throw.
- */
+/** Native Markdown text with opaque math fragments rendered by bundled offline KaTeX. */
 @Composable
 fun RichText(
     source: String,
@@ -114,14 +103,13 @@ fun RichText(
                         maxLines = maxLines, overflow = overflow
                     )
                 }
-                is RichBlock.DisplayMath -> LatexMathDisplay(block.latex, base = style)
+                is RichBlock.DisplayMath -> KaTeXMath(block.latex, displayMode = true, textStyle = style)
                 RichBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
 }
 
-@OptIn(ExperimentalTextApi::class)
 @Composable
 private fun InlineParagraph(
     inlines: List<RichInline>,
@@ -143,16 +131,11 @@ private fun InlineParagraph(
         if (current.isNotEmpty()) out.add(current.toList())
         out.toList()
     }
-    val metrics = rememberLatexMetrics()
-    val density = LocalDensity.current
-    val color = mathColor(style, LocalContentColor.current)
-    val fallbackBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .45f)
-
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         sections.forEach { section ->
             when (section) {
-                is RichInline.Math -> LatexMathDisplay(section.latex, base = style)
-                else -> {
+                is RichInline.Math -> KaTeXMath(section.latex, displayMode = true, textStyle = style)
+                else -> BoxWithConstraints(Modifier.fillMaxWidth()) {
                     @Suppress("UNCHECKED_CAST")
                     val items = section as List<RichInline>
                     // Measurement needs a composable scope, so placeholders are built before the
@@ -160,14 +143,13 @@ private fun InlineParagraph(
                     val contents = ArrayList<InlineTextContent?>(items.size)
                     for (item in items) {
                         contents += if (item is RichInline.Math && !item.display) {
-                            inlineMathContent(item.latex, style, metrics, density, color)
+                            rememberKaTeXInlineContent(item.latex, style, maxWidth)
                         } else null
                     }
                     val inlineContent = mutableMapOf<String, InlineTextContent>()
                     val annotated = buildAnnotatedString {
                         var mathId = 0
-                        var mathIndex = 0
-                        items.forEach { inline ->
+                        items.forEachIndexed { itemIndex, inline ->
                             when (inline) {
                                 is RichInline.Run -> withStyle(
                                     SpanStyle(
@@ -179,22 +161,9 @@ private fun InlineParagraph(
                                     )
                                 ) { append(inline.text) }
                                 is RichInline.Math -> {
-                                    val fallback = LatexParser.plainText(inline.latex).ifEmpty { inline.latex }
-                                    val content = contents.getOrNull(mathIndex)
-                                    mathIndex++
-                                    if (content != null) {
-                                        val id = "math${mathId++}"
-                                        appendInlineContent(id, fallback.ifEmpty { " " })
-                                        inlineContent[id] = content
-                                    } else {
-                                        withStyle(
-                                            SpanStyle(
-                                                fontFamily = FontFamily.Serif,
-                                                fontStyle = FontStyle.Italic,
-                                                background = fallbackBackground
-                                            )
-                                        ) { append(fallback) }
-                                    }
+                                    val id = "math${mathId++}"
+                                    appendInlineContent(id, inline.latex.ifEmpty { " " })
+                                    contents[itemIndex]?.let { inlineContent[id] = it }
                                 }
                                 RichInline.Break -> append("\n")
                             }
