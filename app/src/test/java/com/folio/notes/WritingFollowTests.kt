@@ -49,16 +49,37 @@ class WritingFollowTests {
         assertTrue(follow.verticalVelocity(.2f, 2f, 0) > 0)
         assertEquals(0f, follow.verticalVelocity(.9f, 1f, 0), 0f)
     }
-    @Test fun liftNearTrailingEdgeRequestsLineAdvance() {
+    @Test fun lineAdvanceRequiresFarEdgeAndRespectsSuspension() {
         val follow = WritingFollow()
         follow.completed(stroke(10f, 100f), 0)
-        assertTrue(follow.shouldAdvance(.9f, 2f, WritingHand.RIGHT, 0))
+        assertTrue(follow.shouldAdvance(.98f, 2f, WritingHand.RIGHT, 0))
         assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.RIGHT, 0))
-        assertTrue(follow.shouldAdvance(.1f, 2f, WritingHand.LEFT, 0))
+        assertTrue(follow.shouldAdvance(.02f, 2f, WritingHand.LEFT, 0))
         assertFalse(follow.shouldAdvance(.5f, 2f, WritingHand.LEFT, 0))
-        assertFalse(follow.shouldAdvance(.9f, 1.2f, WritingHand.RIGHT, 0))
+        assertFalse(follow.shouldAdvance(.98f, 1.2f, WritingHand.RIGHT, 0))
         follow.suspend(0)
-        assertFalse(follow.shouldAdvance(.9f, 2f, WritingHand.RIGHT, 0))
+        assertFalse(follow.shouldAdvance(.98f, 2f, WritingHand.RIGHT, 0))
+    }
+    @Test fun visibleEdgeDoesNotEndALineWithPageSpaceRemaining() {
+        val follow = WritingFollow()
+        follow.completed(stroke(10f, 100f), 0)
+        for (hand in WritingHand.entries) {
+            fun fraction(value: Float) = if (hand == WritingHand.RIGHT) value else 1f - value
+            assertFalse(follow.shouldAdvance(fraction(.99f), 2f, hand, 0, fraction(.6f)))
+            assertFalse(follow.shouldAdvance(fraction(.8f), 2f, hand, 0, fraction(.98f)))
+            assertTrue(follow.shouldAdvance(fraction(.98f), 2f, hand, 0, fraction(.98f)))
+            assertFalse(follow.shouldAdvance(fraction(.8f), 2f, hand, 0))
+            assertFalse(follow.shouldAdvance(fraction(.94f), 2f, hand, 0))
+        }
+    }
+    @Test fun lineAdvanceWaitsForAPauseBeforeAnimating() {
+        val follow = WritingFollow()
+        assertEquals(0f, follow.lineAdvanceProgress(1000, 1000), 0f)
+        assertEquals(0f, follow.lineAdvanceProgress(1000, 1699), 0f)
+        assertEquals(0f, follow.lineAdvanceProgress(1000, 1700), 0f)
+        assertEquals(.5f, follow.lineAdvanceProgress(1000, 1840), .001f)
+        assertEquals(1f, follow.lineAdvanceProgress(1000, 1980), 0f)
+        assertEquals(1f, follow.lineAdvanceProgress(1000, 2500), 0f)
     }
     @Test fun lineStartTracksCurrentLaneAndSpacingIsSane() {
         val follow = WritingFollow()

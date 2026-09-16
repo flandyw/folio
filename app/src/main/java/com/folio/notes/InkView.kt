@@ -216,8 +216,9 @@ class InkView(context: Context) : View(context) {
                 advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
             }
             var ax = 0f; var ay = 0f
-            if (!down && (advanceTotalX != 0f || advanceTotalY != 0f)) {
-                val t = ((now - advanceStartAt).toFloat() / LINE_ADVANCE_MS).coerceIn(0f, 1f)
+            val advancing = !down && (advanceTotalX != 0f || advanceTotalY != 0f)
+            if (advancing) {
+                val t = writingFollow.lineAdvanceProgress(advanceStartAt, now)
                 val eased = 1f - (1f - t) * (1f - t) * (1f - t)
                 val targetX = advanceTotalX * eased
                 val targetY = advanceTotalY * eased
@@ -229,7 +230,7 @@ class InkView(context: Context) : View(context) {
             val vx = writingFollow.horizontalVelocity((followTipX - followVisible.left) / followVisible.width().coerceAtLeast(1),
                 zoom, writingHand, down && now - followProgressAt < 80, now)
             val baseline = writingFollow.state.baselineY
-            val vy = if (!down && baseline != null) writingFollow.verticalVelocity(
+            val vy = if (!down && !advancing && baseline != null) writingFollow.verticalVelocity(
                 (originY + baseline * scale - followVisible.top) / followVisible.height().coerceAtLeast(1), zoom, now) else 0f
             val dx = ax + vx * dt
             val dy = ay + vy * dt
@@ -929,7 +930,8 @@ class InkView(context: Context) : View(context) {
             if (onLine && getLocalVisibleRect(followVisible)) {
                 val tipPageX = if (writingHand == WritingHand.RIGHT) box.right else box.left
                 val tipFraction = (originX + tipPageX * scale - followVisible.left) / followVisible.width().coerceAtLeast(1)
-                if (writingFollow.shouldAdvance(tipFraction, zoom, writingHand, now)) {
+                val pageFraction = if (page.infinite) null else tipPageX / page.width.coerceAtLeast(1f)
+                if (writingFollow.shouldAdvance(tipFraction, zoom, writingHand, now, pageFraction)) {
                     val lineStart = if (page.infinite) {
                         writingFollow.lineStart(writingHand) ?: box.left
                     } else {
@@ -1175,6 +1177,8 @@ class InkView(context: Context) : View(context) {
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
+        // Cancel on contact, including strokes that finish before the next animation frame.
+        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         var start = clampToPage(raw)
@@ -1268,8 +1272,6 @@ class InkView(context: Context) : View(context) {
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */
         const val LINK_SLOP = 12f
         const val SCRIBBLE_RADIUS = 14f
-        /** How long a guided-writing carriage return takes, easing the next line into view. */
-        const val LINE_ADVANCE_MS = 280f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
         /** Identity-keyed geometry caches stay bounded; beyond this they are pruned to the live page. */

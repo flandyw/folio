@@ -51,14 +51,19 @@ class WritingFollow {
     /** Distance to drop the page for one handwritten line, in page units. */
     fun estimateSpacing(): Float = maxOf(48f, laneHeight() * 2.5f)
     /**
-     * True when the pen lifted near the trailing edge of a zoomed-in line, so the view
-     * should carriage-return to the next line's start instead of sitting at the margin.
+     * The visible edge alone is not a line ending: zoomed pages may have more room
+     * off screen. Infinite canvases have no page margin, so use the far viewport edge.
      */
-    fun shouldAdvance(tipFraction: Float, zoom: Float, hand: WritingHand, now: Long): Boolean {
+    fun shouldAdvance(tipFraction: Float, zoom: Float, hand: WritingHand, now: Long,
+                      pageFraction: Float? = null): Boolean {
         if (zoom < 1.4f || now < state.suspendedUntil || state.baselineY == null) return false
         val edge = if (hand == WritingHand.RIGHT) tipFraction else 1f - tipFraction
-        return edge > .78f
+        val pageEdge = pageFraction?.let { if (hand == WritingHand.RIGHT) it else 1f - it }
+        return if (pageEdge == null) edge >= .97f else edge >= .90f && pageEdge >= .95f
     }
+    /** Give inter-letter lifts time to resume before moving the page. */
+    fun lineAdvanceProgress(liftedAt: Long, now: Long): Float =
+        ((now - liftedAt - 700L).toFloat() / 280f).coerceIn(0f, 1f)
     /** Leftmost (or rightmost for left-hand) x of the current line, in page units. */
     fun lineStart(hand: WritingHand): Float? {
         val baseline = state.baselineY ?: return null

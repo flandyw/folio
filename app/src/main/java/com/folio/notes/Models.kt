@@ -728,9 +728,9 @@ object InkGeometry {
             ) else segmentOverlap(
                 corners[i - 1].y, corners[i].y, corners[i].y, corners[i + 1].y
             )
-            if (overlap > 0.4f) reversals++
+            if (overlap >= 0.6f) reversals++
         }
-        if (reversals < 3) return false
+        if (reversals < 4) return false
         // Cursive marches forward while a scrub stays put: net progress along the dominant
         // axis must be small next to the distance travelled along it.
         val travel = corners.zipWithNext().sumOf { (a, b) ->
@@ -739,16 +739,18 @@ object InkGeometry {
         if (travel <= 0f) return false
         val net = if (horizontal) abs(corners.last().x - corners.first().x)
         else abs(corners.last().y - corners.first().y)
-        return net / travel <= 0.6f
+        // Repeated small backtracks in a word must not add up to a scrub.
+        val axisSpan = if (horizontal) width else height
+        return net / travel <= 0.32f && axisSpan / travel <= 0.32f
     }
 
-    /** Share of the shorter 1-D segment covered by the overlap, 0 when they only touch. */
+    /** Share of the longer 1-D segment covered by the overlap, 0 when they only touch. */
     private fun segmentOverlap(a1: Float, a2: Float, b1: Float, b2: Float): Float {
         val lo1 = min(a1, a2); val hi1 = max(a1, a2)
         val lo2 = min(b1, b2); val hi2 = max(b1, b2)
-        val shorter = min(hi1 - lo1, hi2 - lo2)
-        if (shorter <= 0f) return 0f
-        return (min(hi1, hi2) - max(lo1, lo2)).coerceAtLeast(0f) / shorter
+        val longer = max(hi1 - lo1, hi2 - lo2)
+        if (longer <= 0f) return 0f
+        return (min(hi1, hi2) - max(lo1, lo2)).coerceAtLeast(0f) / longer
     }
 
     /** Test the entire sweep, including crossings between widely spaced input samples. */
@@ -783,10 +785,22 @@ object InkGeometry {
             ((aSide < 0f && bSide > 0f) || (aSide > 0f && bSide < 0f))
     }
 
-    /** Strokes that remain once a scribble stroke has scrubbed away every stroke it touches. */
+    /** Require repeated coverage of existing ink; a nearby mark or one crossing is not enough. */
     fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float): List<Stroke> {
-        if (strokes.isEmpty()) return strokes
-        return strokes.filterNot { scribbleHits(scribble, it, radius) }
+        if (strokes.isEmpty() || !isScribble(scribble.points)) return strokes
+        val bounds = strokeBoundsOf(scribble.points)
+        val span = hypot(bounds[2] - bounds[0], bounds[3] - bounds[1])
+        val legs = simplify(scribble.points, max(2f, span * .025f)).zipWithNext()
+            .filter { (a, b) -> distance(a, b) >= max(8f, span * .18f) }
+        // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
+        val contactRadius = min(radius.coerceAtLeast(0f), 2f)
+        return strokes.filterNot { target ->
+            var passes = 0
+            legs.any { (a, b) ->
+                if (scribbleHits(scribble.copy(points = listOf(a, b)), target, contactRadius)) passes++
+                passes >= 3
+            }
+        }
     }
 
     /** Variant of [erase] where each centre has its own radius (for pressure-varying eraser). */

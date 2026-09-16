@@ -84,6 +84,32 @@ class ScribbleEraseTests {
         assertTrue(InkGeometry.scribbleHits(stroke(zigzag), target.copy(tool = Tool.LINE), 2f))
     }
 
+    @Test fun rejectsShortCursiveBacktracksAndTentativeScrubs() {
+        // A connected word with long forward strokes and shorter returning hooks.
+        val hooks = listOf(0f, 40f, 22f, 62f, 44f, 84f, 66f, 106f, 88f)
+            .mapIndexed { i, x -> InkPoint(x, if (i % 2 == 0) 0f else 8f) }
+        assertFalse(InkGeometry.isScribble(hooks))
+        assertFalse(InkGeometry.isScribble(zigzag.take(5)))
+        for (angle in listOf(0.0, PI / 4, PI / 2)) {
+            val rotated = hooks.map { InkPoint(
+                (it.x * cos(angle) - it.y * sin(angle)).toFloat(),
+                (it.x * sin(angle) + it.y * cos(angle)).toFloat()) }
+            assertFalse(InkGeometry.isScribble(rotated))
+        }
+    }
+
+    @Test fun requiresRepeatedActualCoverageOfEachTarget() {
+        val covered = stroke(listOf(InkPoint(30f, -5f), InkPoint(30f, 25f)))
+        val nearby = stroke(listOf(InkPoint(65f, 0f), InkPoint(65f, 15f)))
+        val singleTouch = stroke(listOf(InkPoint(30f, 0f)))
+        val inEmptyPartOfBounds = stroke(listOf(InkPoint(5f, 15f)))
+        val targets = listOf(covered, nearby, singleTouch, inEmptyPartOfBounds)
+        assertEquals(targets.drop(1), InkGeometry.scribbleErase(targets, stroke(zigzag), 14f))
+        assertEquals(listOf(nearby), InkGeometry.scribbleErase(listOf(nearby), stroke(zigzag), 14f))
+        assertEquals(targets, InkGeometry.scribbleErase(targets, stroke(zigzag.take(4)), 14f))
+        assertTrue(InkGeometry.scribbleErase(emptyList(), stroke(zigzag), 14f).isEmpty())
+    }
+
     @Test fun handlesDotsParallelSegmentsAndEmptyPaths() {
         val sweep = stroke(listOf(InkPoint(0f, 0f), InkPoint(60f, 0f)))
         assertTrue(InkGeometry.scribbleHits(sweep, stroke(listOf(InkPoint(30f, 2f))), 2f))
