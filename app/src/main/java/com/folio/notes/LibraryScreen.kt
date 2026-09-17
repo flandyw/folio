@@ -363,7 +363,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     ReviewTab.REDO -> {
                         Text("Redo queue", style = MaterialTheme.typography.titleMedium)
                         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            RedoReviewContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth())
+                            RedoReviewContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(), scrollEnabled = false)
                         }
                     }
                     ReviewTab.BOOKMARKS -> {
@@ -389,7 +389,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                 }
                 Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    ExamProgressContent(state.notes, Modifier.fillMaxWidth())
+                    ExamProgressContent(state.notes, Modifier.fillMaxWidth(), scrollEnabled = false)
                 }
             }
         }

@@ -645,13 +645,15 @@ fun ExamProgressPanel(notes: List<Notebook>, onDismiss: () -> Unit) {
 
 /**
  * The same roll-up without the dialog wrapper, so the Library's Progress
- * destination can show it inline instead of behind another button.
+ * destination can show it inline instead of behind another button. The Library
+ * page already scrolls, so its inline use must not add a second vertical
+ * scroll — nested scrolling containers crash on measure.
  */
 @Composable
-fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier) {
+fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier, scrollEnabled: Boolean = true) {
     val progress = remember(notes) { subjectProgress(notes) }
     Column(
-        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+        modifier.fillMaxWidth().then(if (scrollEnabled) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(horizontal = 24.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -716,14 +718,14 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
 
 /** The same redo queue without the dialog wrapper, for the Library's Review destination. */
 @Composable
-fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier) {
+fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier, scrollEnabled: Boolean = true) {
     // O(totalPages) scan memoized: recomputing per recomposition janked the redo list.
     val flagged = remember(notes) {
         notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
     }
     val grouped = remember(flagged) { flagged.groupBy { it.first } }
     Column(
-        modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+        modifier.fillMaxWidth().then(if (scrollEnabled) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(horizontal = 24.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
