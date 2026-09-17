@@ -52,6 +52,13 @@ class MainActivity : ComponentActivity() {
         // request is re-checked on every return rather than assumed to have stuck.
         requestHighRefreshRate()
     }
+    override fun onStop() {
+        super.onStop()
+        // The exam clock only runs while the user is looking at the pages: backgrounding the app
+        // or turning the screen off parks it, and parked time never counts. Rotation also stops
+        // the activity, so it is skipped — the timer keeps running across a rotate.
+        if (!isChangingConfigurations) model.autoPauseTimer()
+    }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

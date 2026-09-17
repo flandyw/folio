@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.os.Build
@@ -93,7 +94,7 @@ import androidx.compose.ui.unit.dp
                     Text("Check GitHub for a newer signed Folio release.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
-                    if (updateChecking) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Check")
+                    if (updateChecking) LoadingIndicator(Modifier.size(18.dp)) else Text("Check")
                 }
             }
             Text("Your notebooks stay on this device. Export a PDF to keep a copy or share your work.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -581,6 +581,19 @@ data class ExamTimerState(
     }
 
     fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null, pausedAt = null, pausedMillis = 0L)
+    /**
+     * Parks a sitting that came back running after the user stopped looking at the pages — a
+     * crash or kill while it was foregrounded, so no background pause was ever recorded. Time
+     * after [lastSeen] never counts: the clock is frozen exactly there and stays parked until
+     * the user resumes it. Returns this state when it is not running, when [lastSeen] is
+     * unknown, or when the gap is within [graceMs] of continuous foreground use (a notebook
+     * switch restoring moments later, or a heartbeat that simply has not been written yet).
+     */
+    fun clampUnseenGap(lastSeen: Long?, now: Long, graceMs: Long = UNSEEN_GAP_GRACE_MS): ExamTimerState {
+        if (!running || lastSeen == null || lastSeen <= 0L) return this
+        if (now - lastSeen <= graceMs) return this
+        return pause(lastSeen.coerceAtLeast(startedAt ?: lastSeen))
+    }
     /** "1:28:03" style, used by the countdown chip and the timer panel. */
     fun clockText(): String {
         val total = remaining.coerceAtLeast(0)
@@ -596,12 +609,20 @@ data class ExamTimerState(
         private const val MAX_RESUME_AGE_MS = 48L * 60 * 60 * 1000
 
         /**
+         * A restored sitting still running this long after its last confirmed-visible moment is
+         * treated as an unseen gap and parked, not caught up. Covers crashes and kills while
+         * foregrounded; clean backgroundings are already recorded as pauses before this runs.
+         */
+        const val UNSEEN_GAP_GRACE_MS = 30_000L
+
+        /**
          * Rebuilds a sitting that was already running when the app last stopped, from the preset and
          * start moment that were saved with it. The clock catches up on its own because every state
          * is derived from the start moment, and a deadline that passed while the app was closed
-         * comes back as Pens down rather than being silently discarded. Returns null when there is
-         * nothing sane to restore: no preset, a missing or future start moment, or a record older
-         * than [MAX_RESUME_AGE_MS].
+         * comes back as Pens down rather than being silently discarded. Callers clamp unseen gaps
+         * first ([clampUnseenGap]), so this catch-up only ever covers moments the user was
+         * confirmed to be looking. Returns null when there is nothing sane to restore: no preset,
+         * a missing or future start moment, or a record older than [MAX_RESUME_AGE_MS].
          */
         fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis(),
                    pausedAt: Long? = null, pausedMillis: Long = 0L): ExamTimerState? {

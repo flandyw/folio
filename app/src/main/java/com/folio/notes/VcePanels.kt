@@ -1,5 +1,7 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -51,7 +53,8 @@ fun SubjectChip(subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
         color = if (selected) color else color.copy(alpha = .12f),
-        contentColor = if (selected) Color.White else color
+        contentColor = if (selected) Color.White else color,
+        border = if (selected) BorderStroke(2.dp, Color.White.copy(alpha = .6f)) else null
     ) {
         Text(
             subject?.label ?: "Other",
@@ -245,7 +248,7 @@ fun ExamDetailsPanel(
                         )
                     )
                     onDismiss()
-                }) { Text("Save") }
+                }, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }
@@ -380,7 +383,7 @@ fun BatchExamTagsPanel(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 TextButton(onDismiss) { Text("Cancel") }
-                Button({ onApply(buildTransform()) }, enabled = canApply) { Text("Apply to $count") }
+                Button({ onApply(buildTransform()) }, enabled = canApply, shapes = ButtonDefaults.shapes()) { Text("Apply to $count") }
             }
         }
     }
@@ -466,7 +469,8 @@ fun ScoreDialog(
         confirmButton = {
             Button(
                 { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
-                enabled = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal
+                enabled = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal,
+                shapes = ButtonDefaults.shapes()
             ) { Text("Record") }
         }
     )
@@ -611,7 +615,8 @@ fun ExamSetsContent(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 Button(
                     { onCreate(name, subject, year.toIntOrNull(), company); name = ""; year = ""; company = "" },
-                    enabled = subject != null && (year.toIntOrNull() ?: 0) in 1000..9999 && company.isNotBlank()
+                    enabled = subject != null && (year.toIntOrNull() ?: 0) in 1000..9999 && company.isNotBlank(),
+                    shapes = ButtonDefaults.shapes()
                 ) { Text("Create set") }
             }
     }
@@ -744,7 +749,7 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("Page ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                     if (page.paper == Paper.MC_SHEET) {
-                                        Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Icon(Icons.AutoMirrored.Rounded.FactCheck, "Multiple-choice answer sheet", Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${index + 1}", Modifier.size(16.dp))
                                 }
@@ -805,7 +810,7 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                                     val minutes = (customMinutes.toIntOrNull() ?: 90).coerceIn(1, 480)
                                     customPreset = ExamTimerPreset("Custom · $minutes min", minutes * 60, 15 * 60)
                                     onStart(customPreset)
-                                }) { Text("Start") }
+                                }, shapes = ButtonDefaults.shapes()) { Text("Start") }
                             }
                         }
                     }
@@ -835,7 +840,7 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                             )
                         }
                     }
-                    Button(onPauseResume, Modifier.fillMaxWidth()) {
+                    Button(onPauseResume, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Icon(if (timer.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (timer.paused) "Resume timer" else "Pause timer")

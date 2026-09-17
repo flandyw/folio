@@ -356,6 +356,38 @@ class ExamTimerTests {
         assertEquals(done, done.pause(100000L))
     }
 
+    @Test fun unseenGapParksARunningSittingAtTheLastVisibleMoment() {
+        val running = ExamTimerState().start(ExamTimerPreset("Test", 60, 10), 1000L)
+        // Last seen 20s in, restored minutes later: the clock freezes at 20s, parked.
+        val parked = running.clampUnseenGap(lastSeen = 21000L, now = 600000L)
+        assertTrue(parked.paused)
+        assertFalse(parked.running)
+        assertEquals(21000L, parked.pausedAt)
+        assertEquals(running.tick(21000L).remaining, parked.remaining)
+        assertEquals(running.tick(21000L).phase, parked.phase)
+        // Parked time never counts, however late the restore comes.
+        assertEquals(parked, parked.tick(3600000L))
+        assertEquals(10, parked.elapsedWriting(3600000L))
+    }
+
+    @Test fun unseenGapLeavesFreshPausedAndFinishedSittingsAlone() {
+        val running = ExamTimerState().start(ExamTimerPreset("Test", 60, 10), 1000L)
+        // Within grace: continuous foreground use, e.g. a notebook switch restoring moments later.
+        assertEquals(running, running.clampUnseenGap(lastSeen = 20000L, now = 25000L))
+        assertEquals(running, running.clampUnseenGap(lastSeen = 20000L, now = 20000L + ExamTimerState.UNSEEN_GAP_GRACE_MS))
+        // Unknown heartbeat: nothing to clamp against.
+        assertEquals(running, running.clampUnseenGap(lastSeen = null, now = 600000L))
+        assertEquals(running, running.clampUnseenGap(lastSeen = 0L, now = 600000L))
+        // Already parked, done or idle sittings are untouched.
+        val paused = running.pause(21000L)
+        assertEquals(paused, paused.clampUnseenGap(lastSeen = 21000L, now = 600000L))
+        val done = running.tick(100000L)
+        assertEquals(ExamTimerPhase.DONE, done.phase)
+        assertEquals(done, done.clampUnseenGap(lastSeen = 21000L, now = 600000L))
+        val idle = ExamTimerState()
+        assertEquals(idle, idle.clampUnseenGap(lastSeen = 21000L, now = 600000L))
+    }
+
     private val preset = ExamTimerPreset("Test", 60 * 60, 15 * 60)
 
     @Test fun startingGoesStraightIntoReadingTime() {

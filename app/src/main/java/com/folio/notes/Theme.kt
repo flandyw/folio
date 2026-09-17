@@ -210,7 +210,7 @@ fun darkSchemeFor(palette: ThemePalette): ColorScheme = when (palette) {
 /** True-black backgrounds for OLED screens; accents stay untouched so ink keeps its hue. */
 fun ColorScheme.withAmoled(): ColorScheme = copy(
     background = Color.Black, surface = Color.Black,
-    surfaceContainer = Color(0xFF111111), surfaceContainerLow = Color.Black,
+    surfaceContainer = Color(0xFF111111), surfaceContainerLow = Color(0xFF0E0E0E),
     surfaceContainerHigh = Color(0xFF1A1A1A), surfaceContainerHighest = Color(0xFF242424)
 )
 

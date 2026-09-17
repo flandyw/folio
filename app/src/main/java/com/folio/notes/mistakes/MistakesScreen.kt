@@ -102,6 +102,13 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var paper by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
+    // Debounced query drives the O(N) filter so typing never blocks the text field.
+    var debouncedQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(query) {
+        if (query == debouncedQuery) return@LaunchedEffect
+        kotlinx.coroutines.delay(150)
+        debouncedQuery = query
+    }
     var shuffle by rememberSaveable { mutableStateOf(false) }
     var reviewQueue by remember { mutableStateOf(listOf<String>()) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
@@ -142,16 +149,18 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
-    val visible = remember(mistakes, due, filter, subject, paper, category, query, state.cache.contexts, schedules) {
-        val q = query.trim().lowercase()
+    val visible = remember(mistakes, due, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
+        val q = debouncedQuery.trim().lowercase()
+        // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
+        val dueSet = due.toSet()
         mistakes.filter { m ->
             val ctx = state.cache.contexts[m.attemptId]
             val matchesSubject = subject.isBlank() || ctx?.subject == subject
             val matchesPaper = paper.isBlank() || ctx?.paper == paper
             val matchesCategory = category.isBlank() || category == m.category
             val matchesFilter = when (filter) {
-                "Due" -> m in due
-                "Upcoming" -> !m.suspended && m !in due
+                "Due" -> m in dueSet
+                "Upcoming" -> !m.suspended && m !in dueSet
                 "Suspended" -> m.suspended
                 else -> true
             }
@@ -163,7 +172,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
     }
     // Review respects the current list filters so "MM · Exam 1" reviews only those due cards.
-    val reviewCandidates = remember(visible, due) { visible.filter { it in due } }
+    val reviewCandidates = remember(visible, due) { val dueSet = due.toSet(); visible.filter { it in dueSet } }
+    // Attempt counts hoisted out of the card list: one O(notes) pass instead of one per card.
+    val dueSet = remember(due) { due.toSet() }
+    val attemptCountMap = remember(folioState.notes) {
+        buildMap<String, Int> {
+            folioState.notes.forEach { n ->
+                n.mistakeReviews.forEach { r -> put(r.mistakeId, (get(r.mistakeId) ?: 0) + 1) }
+            }
+        }
+    }
     fun leaveReview() { activeReview = null; reviewQueue = emptyList(); folio.close() }
     fun start(mistake: ExamTrackMistake) {
         val user = state.userId ?: return
@@ -297,7 +315,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             { model.requestSync(force = true) },
                             enabled = !syncing
                         ) {
-                            if (syncing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            if (syncing) LoadingIndicator(Modifier.size(20.dp))
                             else Icon(Icons.Rounded.Sync, "Sync now")
                         }
                     }
@@ -412,9 +430,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 mistake = m,
                                 context = state.cache.contexts[m.attemptId],
                                 schedule = schedules[m.id],
-                                due = m in due,
+                                due = m in dueSet,
                                 attachmentCount = m.attachments.size,
-                                attemptCount = folioState.notes.sumOf { n -> n.mistakeReviews.count { it.mistakeId == m.id } },
+                                attemptCount = attemptCountMap[m.id] ?: 0,
                                 onOpen = { detail = m.id },
                                 onPractice = { start(m) },
                                 working = working
@@ -445,7 +463,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     confirmSignOut = false
                     leaveReview()
                     model.signOut()
-                }) { Text("Sign out") }
+                }, shapes = ButtonDefaults.shapes()) { Text("Sign out") }
             }
         )
     }
@@ -480,7 +498,7 @@ private fun LoginCard(
             }
             if (state.status == "Loading saved mistakes…") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    LoadingIndicator(Modifier.size(18.dp))
                     Text("Restoring your saved session…", style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -594,7 +612,7 @@ private fun AccountCard(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (syncing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                if (syncing) LoadingIndicator(Modifier.size(22.dp))
                 else IconButton(onSync) { Icon(Icons.Rounded.Sync, "Sync now") }
                 IconButton(onSignOut) { Icon(Icons.Rounded.Logout, "Sign out") }
             }

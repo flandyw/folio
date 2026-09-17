@@ -214,7 +214,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                 TextButton({ retry++ }) { Text("Retry") }
             }
             else -> Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                LoadingIndicator(Modifier.size(20.dp))
                 Text("Loading ${attachment.name}…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

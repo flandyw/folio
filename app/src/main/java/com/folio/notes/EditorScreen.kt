@@ -260,6 +260,13 @@ private fun paperLabel(p: Paper): String = when (p) {
             model.tickTimer()
         }
     }
+    // The exam clock only runs while the pages are on screen: leaving the editor for the library
+    // or the mistakes list parks it. Rotation tears the composition down too, so it is skipped
+    // the same way as the activity stop — the timer keeps running across a rotate.
+    val hostActivity = context as? android.app.Activity
+    DisposableEffect(Unit) {
+        onDispose { if (hostActivity?.isChangingConfigurations != true) model.autoPauseTimer() }
+    }
     val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex, initialFirstVisibleItemScrollOffset = session?.viewport?.scrollOffset ?: 0)
     var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
     LaunchedEffect(note.id, pages) {
@@ -1249,7 +1256,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 if (!active) view.clearSelection()
             }) else Box(contentAlignment = Alignment.Center) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Couldn't open this PDF page", color = Color.DarkGray)
+                    Text("Couldn't open this PDF page", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton({ retry++ }) { Text("Try again") }
                 } else LoadingIndicator(Modifier.semanticsLabel("Loading page"))
             }

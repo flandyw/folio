@@ -103,6 +103,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private val loadingPages = mutableSetOf<String>()
     private var timerNotebookId: String? = _state.value.activeId
     private val notebookSittings = NotebookSittings()
+    /** Last moment the running timer's heartbeat was written to preferences. */
+    private var lastSeenPersistedAt: Long = 0L
 
     private fun timerKey(key: String): String = "$key.notebook.${requireNotNull(timerNotebookId)}"
 
@@ -135,7 +137,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (timerNotebookId == owner.id) restoreNotebookTimer()
     }
 
-    private fun restoreNotebookTimer() {
+    private fun restoreNotebookTimer(now: Long = System.currentTimeMillis()) {
         val id = timerNotebookId
         val cached = notebookSittings.restore(id)
         val timer = if (id == null) ExamTimerState() else cached?.timer
@@ -143,7 +145,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
                 pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L))
             ?: ExamTimerState()
-        _state.update { it.copy(timer = timer, lastTimedSeconds = cached?.seconds) }
+        // A crash or kill while foregrounded leaves a running sitting with no recorded pause;
+        // anything past the last confirmed-visible moment never counts.
+        val clamped = timer.clampUnseenGap(prefs.getLong(timerKey(TIMER_LAST_SEEN_KEY), 0L).takeIf { it > 0L }, now)
+        if (clamped != timer) saveSitting(clamped, clamped.pausedAt ?: now)
+        _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds) }
     }
 
     /** Leaving a notebook pauses its clock, so time away never counts; returning stays paused until resumed. */
@@ -1061,13 +1067,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * The running sitting is saved to preferences the moment it starts, so a process death — the
      * app swiped away, a crash, the system reclaiming memory — never ends an exam. Every timer
      * state is derived from the start moment, so restoring is only a matter of keeping the preset
-     * and the start time; the record is cleared when the sitting stops.
+     * and the start time; the record is cleared when the sitting stops. [lastSeen] is the last
+     * moment the user was confirmed to be looking at the pages; the editor refreshes it while the
+     * timer runs, so a death with no recorded pause can still cut the unseen gap instead of
+     * counting it.
      */
-    private fun saveSitting(timer: ExamTimerState) {
+    private fun saveSitting(timer: ExamTimerState, lastSeen: Long = System.currentTimeMillis()) {
         prefs.edit()
             .putLong(timerKey(TIMER_START_KEY), timer.startedAt ?: 0L)
             .putLong(timerKey(TIMER_PAUSED_AT_KEY), timer.pausedAt ?: 0L)
             .putLong(timerKey(TIMER_PAUSED_MILLIS_KEY), timer.pausedMillis)
+            .putLong(timerKey(TIMER_LAST_SEEN_KEY), lastSeen)
             .putInt(timerKey(TIMER_WRITING_KEY), timer.preset.writingSeconds)
             .putInt(timerKey(TIMER_READING_KEY), timer.preset.readingSeconds)
             .putString(timerKey(TIMER_LABEL_KEY), timer.preset.label)
@@ -1077,6 +1087,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun clearSitting() {
         prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
             .remove(timerKey(TIMER_PAUSED_AT_KEY)).remove(timerKey(TIMER_PAUSED_MILLIS_KEY))
+            .remove(timerKey(TIMER_LAST_SEEN_KEY))
             .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY))
             .remove(timerKey(TIMER_VISITS_KEY)).apply()
     }
@@ -1094,12 +1105,33 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /**
      * Advances the countdown by however long has passed. The editor ticks once a second, so a
      * no-op tick must not emit a new state: otherwise every open editor recomposes every second
-     * even with no timer running.
+     * even with no timer running. While the timer runs, the tick also refreshes the last-seen
+     * heartbeat (throttled — disk writes stay far below the tick rate) so a crash with no
+     * recorded pause restores parked at the last visible moment instead of counting the gap.
      */
     fun tickTimer(now: Long = System.currentTimeMillis()) {
         val current = _state.value.timer
         val next = current.tick(now)
         if (next != current) _state.update { it.copy(timer = next) }
+        if (next.running && now - lastSeenPersistedAt >= LAST_SEEN_THROTTLE_MS) {
+            lastSeenPersistedAt = now
+            saveSitting(next, lastSeen = now)
+        }
+    }
+    /**
+     * Parks the clock the moment the user stops looking at the pages — app backgrounded, screen
+     * off, or the editor left for the library or mistakes. Parked time never counts, the parked
+     * state is saved immediately so a kill still restores it parked, and it stays parked until
+     * the user explicitly resumes it. A timer that is not running is untouched.
+     */
+    fun autoPauseTimer(now: Long = System.currentTimeMillis()) {
+        if (_state.value.active == null) return
+        val current = _state.value.timer
+        if (!current.running) return
+        val parked = current.pause(now)
+        if (parked == current) return
+        saveSitting(parked, lastSeen = now)
+        _state.update { it.copy(timer = parked) }
     }
     fun startTimer(preset: ExamTimerPreset) {
         if (_state.value.active == null) return
@@ -1254,6 +1286,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         const val TIMER_LABEL_KEY = "examTimer.label"
         const val TIMER_PAUSED_AT_KEY = "examTimer.pausedAt"
         const val TIMER_PAUSED_MILLIS_KEY = "examTimer.pausedMillis"
+        const val TIMER_LAST_SEEN_KEY = "examTimer.lastSeen"
         const val TIMER_VISITS_KEY = "examTimer.visits"
+        /** The running timer's visible-heartbeat is written at most this often. */
+        const val LAST_SEEN_THROTTLE_MS = 5_000L
     }
 }

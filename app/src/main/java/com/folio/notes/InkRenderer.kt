@@ -28,14 +28,22 @@ object InkRenderer {
     private val strokePathPool by lazy { ThreadLocal.withInitial { Path() } }
     private val clipRectPool by lazy { ThreadLocal.withInitial { android.graphics.Rect() } }
     private val bitmapRectPool by lazy { ThreadLocal.withInitial { RectF() } }
+    // Cached typefaces: Typeface.create does a font lookup, far too heavy per text layout.
+    private val serifNormal by lazy { Typeface.create(Typeface.SERIF, Typeface.NORMAL) }
+    private val serifBold by lazy { Typeface.create(Typeface.SERIF, Typeface.BOLD) }
+    private val sansNormal by lazy { Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL) }
+    // Dash effects are immutable and shareable; building one per stroke per frame churned
+    // hundreds of native objects while scrolling a shape-heavy page. Widths are bucketed
+    // to 0.5px so pressure/base-width variance stays in a small cache.
+    private val dashCache = mutableMapOf<Pair<StrokeStyle, Int>, android.graphics.PathEffect?>()
     // Finite-paper paints hoisted so scrolling never allocates Paint/drawText Paints per frame.
     private val mcInkPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f; style = Paint.Style.STROKE } }
     private val mcLabelPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(120, 120, 115); textSize = 11f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        color = Color.rgb(120, 120, 115); textSize = 11f; typeface = sansNormal
     } }
     private val mcNumberPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(150, 150, 145); textAlign = Paint.Align.RIGHT; textSize = 13f
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        typeface = sansNormal
     } }
     private val hanziOuterPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 200); strokeWidth = .9f } }
     private val hanziGuidePaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -558,7 +566,7 @@ object InkRenderer {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = box.color
             textSize = box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
-            typeface = Typeface.create(Typeface.SERIF, if (box.bold) Typeface.BOLD else Typeface.NORMAL)
+            typeface = if (box.bold) serifBold else serifNormal
             isFakeBoldText = box.bold
             textSkewX = if (box.italic) -0.25f else 0f
             isUnderlineText = box.underline
@@ -831,10 +839,22 @@ object InkRenderer {
     /**
      * Dash pattern for a shape stroke, scaled by its width so thin and heavy lines read alike.
      * Dotted uses a zero-length dash with a round cap, which renders as evenly spaced dots.
+     * Effects are cached by style + width bucket; PathEffect is immutable so sharing is safe.
      */
-    internal fun dashEffect(style: StrokeStyle, width: Float): android.graphics.PathEffect? = when (style) {
-        StrokeStyle.SOLID -> null
-        StrokeStyle.DASHED -> android.graphics.DashPathEffect(floatArrayOf(14f.coerceAtLeast(width * 3f), 10f.coerceAtLeast(width * 2f)), 0f)
-        StrokeStyle.DOTTED -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 3f).coerceAtLeast(8f)), 0f)
+    internal fun dashEffect(style: StrokeStyle, width: Float): android.graphics.PathEffect? {
+        if (style == StrokeStyle.SOLID) return null
+        val bucket = (width * 2).roundToInt()
+        val key = style to bucket
+        synchronized(dashCache) { dashCache[key]?.let { return it } }
+        val effect = when (style) {
+            StrokeStyle.DASHED -> android.graphics.DashPathEffect(floatArrayOf(14f.coerceAtLeast(width * 3f), 10f.coerceAtLeast(width * 2f)), 0f)
+            StrokeStyle.DOTTED -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 3f).coerceAtLeast(8f)), 0f)
+            else -> null
+        }
+        synchronized(dashCache) {
+            if (dashCache.size > 64) dashCache.clear()
+            dashCache[key] = effect
+        }
+        return effect
     }
 }

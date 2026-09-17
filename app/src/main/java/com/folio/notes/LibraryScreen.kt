@@ -589,7 +589,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Image(imageBitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            Image(imageBitmap, "First page preview of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
     } else {
         NotebookCover(note, modifier.aspectRatio(aspect), compact = true)
@@ -600,9 +600,10 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
 @Composable private fun NotebookListThumbnail(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 44.dp.roundToPx() })
     val imageBitmap = remember(preview) { preview?.asImageBitmap() }
+    val isPdf = note.pages.any { it.pdfIndex != null }
     Box(modifier.clip(RoundedCornerShape(5.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-        if (imageBitmap != null) Image(imageBitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        else Icon(if (note.pages.any { it.pdfIndex != null }) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, null)
+        if (imageBitmap != null) Image(imageBitmap, "First page preview of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        else Icon(if (isPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (isPdf) "PDF notebook ${note.title}" else "Notebook ${note.title}")
     }
 }
 
@@ -610,10 +611,9 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
 @Composable private fun rememberNotebookPreview(note: Notebook, thumbnails: PageThumbnailCache, widthPx: Int): Bitmap? {
     val first = note.pages.firstOrNull()
     var preview by remember(note.id, first?.id, first?.revision, widthPx) { mutableStateOf<Bitmap?>(null) }
-    // Clear stale bitmap immediately on revision bump so covers never flash old ink.
+    // Keep the previous preview until the new revision arrives so covers never flash blank.
     LaunchedEffect(note.id, first?.id, first?.revision, widthPx) {
-        preview = null
-        preview = first?.let { thumbnails.thumbnail(note.id, it, widthPx) }
+        first?.let { preview = thumbnails.thumbnail(note.id, it, widthPx) }
     }
     return preview
 }

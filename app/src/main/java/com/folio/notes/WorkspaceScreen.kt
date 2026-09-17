@@ -47,7 +47,8 @@ import androidx.compose.ui.unit.dp
                             if (note != null) Surface(color = if (state.activeId == tab.notebookId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     TextButton({ model.open(tab.notebookId) }, Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }) {
-                                        Icon(if (note.pages.any { it.pdfIndex != null }) Icons.Rounded.PictureAsPdf else Icons.Rounded.MenuBook, null, Modifier.size(18.dp))
+                                        val tabIsPdf = note.pages.any { it.pdfIndex != null }
+                                        Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(note.title, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }

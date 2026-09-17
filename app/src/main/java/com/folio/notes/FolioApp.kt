@@ -193,10 +193,10 @@ import java.io.File
                 when {
                     state.loading -> LoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
                     state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Icon(Icons.Rounded.ErrorOutline, null)
+                        Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
                         Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
                         Text("Your stored files have been kept. Retry to open them.")
-                        Button(model::loadLibrary) { Text("Retry") }
+                        Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                     }
                     showMistakes -> com.folio.notes.mistakes.MistakesScreen(mistakes, model, state, finger, haptics, shapeRecognition,
                         onBack = { showMistakes = false }, onSettings = { settings = true }, onExport = { exportMenu = true })
@@ -274,7 +274,7 @@ import java.io.File
             text = {
                 when {
                     updateChecking -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        LoadingIndicator(Modifier.size(24.dp))
                         Text("Checking GitHub releases…")
                     }
                     updateDownloading -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -290,8 +290,8 @@ import java.io.File
             dismissButton = { if (!updateChecking && !updateDownloading) TextButton({ updateDialog = false }) { Text("Later") } },
             confirmButton = {
                 when {
-                    updateReady != null && !updateDownloading -> Button({ installUpdate(updateReady!!) }) { Text("Install update") }
-                    updateInfo != null && !updateDownloading -> Button({ downloadUpdate(updateInfo!!) }) { Text("Download & install") }
+                    updateReady != null && !updateDownloading -> Button({ installUpdate(updateReady!!) }, shapes = ButtonDefaults.shapes()) { Text("Install update") }
+                    updateInfo != null && !updateDownloading -> Button({ downloadUpdate(updateInfo!!) }, shapes = ButtonDefaults.shapes()) { Text("Download & install") }
                     updateFailure && !updateChecking -> TextButton({ checkForUpdates(showDialog = true) }) { Text("Retry") }
                 }
             }
