@@ -138,9 +138,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     private fun restoreNotebookTimer(now: Long = System.currentTimeMillis()) {
-        val id = timerNotebookId
+        val id = timerNotebookId ?: run {
+            _state.update { it.copy(timer = ExamTimerState(), lastTimedSeconds = null) }
+            return
+        }
         val cached = notebookSittings.restore(id)
-        val timer = if (id == null) ExamTimerState() else cached?.timer
+        val timer = cached?.timer
             ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L),
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
                 pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L))
