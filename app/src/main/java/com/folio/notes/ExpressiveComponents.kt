@@ -27,23 +27,25 @@ import androidx.compose.ui.unit.dp
     /** Current ink colour shown as a dot, so the pen reads its colour without opening options. */
     indicatorColor: Color? = null,
 ) {
-    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
         FilledTonalIconToggleButton(
             checked = selected,
             // Tapping the active pen still opens its options rather than deselecting the tool.
             onCheckedChange = { onClick() },
             shapes = IconButtonDefaults.toggleableShapes(),
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(44.dp),
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
-        ) { Icon(icon, label) }
+        ) { Icon(icon, label, Modifier.size(22.dp)) }
         if (indicatorColor != null) {
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = 7.dp, bottom = 7.dp).size(10.dp)
+                Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 6.dp).size(10.dp)
                     .background(indicatorColor, CircleShape)
-                    .border(1.5.dp, MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
+                    .border(1.5.dp, if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
             )
         }
     }

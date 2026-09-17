@@ -7,6 +7,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.*
 import androidx.compose.ui.input.pointer.*
@@ -52,6 +60,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -451,10 +460,11 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         )
         // The ink toolbar floats over the page, not inside the top bar, so no
-        // top-bar background ever stretches behind the pills.
+        // top-bar background ever stretches behind the pills. The offset animates
+        // so switching between tools with/without a quick row glides instead of jumping.
         val showQuickBar = tool == Tool.PEN || tool == Tool.LINE || tool == Tool.RECTANGLE ||
             tool == Tool.ELLIPSE || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER || tool == Tool.TEXT
-        val floatingToolbarTop = if (showQuickBar) 122.dp else 68.dp
+        val floatingToolbarTop by animateDpAsState(if (showQuickBar) 122.dp else 68.dp, label = "toolbarOffset")
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -619,35 +629,50 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
-                    contentPadding = PaddingValues(top = floatingToolbarTop + 16.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp * documentZoom), horizontalAlignment = Alignment.CenterHorizontally
+                    contentPadding = PaddingValues(top = floatingToolbarTop + 16.dp, bottom = 32.dp, start = 12.dp, end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
-                        EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
-                            onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
-                            onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
-                            onTextEdit = { box -> textEditor = box; textEditorNew = false },
-                            onTextCreate = ::placeTextBox,
-                            onLoad = { model.loadPage(item.id) },
-                            selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
-                            onImageSelected = { image ->
-                                selectedImage = image?.let { item.id to it }
-                            },
-                            pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
-                            eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
-                            eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
-                            onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                            onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style,
-                            followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
-                            inputBlocked = peekHeld, onFollowPan = { dx, dy ->
-                                documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
-                                pages.dispatchRawDelta(-dy)
-                            },
-                            onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
-                            selectionAnchor = if (item.id == page.id) selectionAnchor else null,
-                            selectionPill = if (item.id == page.id && selected.isNotEmpty()) selectionPill else null)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
+                                onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
+                                onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
+                                onTextEdit = { box -> textEditor = box; textEditorNew = false },
+                                onTextCreate = ::placeTextBox,
+                                onLoad = { model.loadPage(item.id) },
+                                selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
+                                onImageSelected = { image ->
+                                    selectedImage = image?.let { item.id to it }
+                                },
+                                pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
+                                eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
+                                eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                                onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
+                                onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style,
+                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
+                                inputBlocked = peekHeld, onFollowPan = { dx, dy ->
+                                    documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
+                                    pages.dispatchRawDelta(-dy)
+                                },
+                                onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
+                                selectionAnchor = if (item.id == page.id) selectionAnchor else null,
+                                selectionPill = if (item.id == page.id && selected.isNotEmpty()) selectionPill else null)
+                            // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                Text(
+                                    item.title.ifBlank { "Page ${index + 1}" } + " · ${index + 1} / ${note.pages.size}",
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                    item { OutlinedButton({ addPage() }, modifier = Modifier.guardUiTouches()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add page — ${paperLabel(page.paper)}") } }
+                    item {
+                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp)) {
+                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
+                        }
+                    }
                 }
             }
             // Keep the original composition and cameras alive. Dismissing this read-only lens is
@@ -659,42 +684,85 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
                         onLoad = { model.loadPage(target.id) }, fullscreen = true, readOnly = true,
                         inputBlocked = true, peekRegion = peekAnchor)
+                    // Hint floats above the lens so a first-time holder knows to let go to return.
+                    Surface(
+                        Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shadowElevation = 4.dp, tonalElevation = 1.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("Peeking — release to return", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
             }
             Row(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 16.dp)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shadowElevation = 4.dp, tonalElevation = 1.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Box {
-                            IconButton({ followMenu = true }, enabled = !peekHeld) {
-                                Icon(Icons.Rounded.SwipeRight, "Writing follow options",
-                                    tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (writingFollowEnabled) "Writing follow on" else "Writing follow off") } }, state = rememberTooltipState()) {
+                                IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Rounded.SwipeRight, "Writing follow options",
+                                            tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                                        if (writingFollowEnabled) Box(
+                                            Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(7.dp)
+                                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                        )
+                                    }
+                                }
                             }
-                            DropdownMenu(followMenu, { followMenu = false }) {
-                                DropdownMenuItem({ Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") }, {
-                                    writingFollowEnabled = !writingFollowEnabled
-                                    appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
-                                    activeInkView?.suspendWritingFollow()
-                                })
-                                DropdownMenuItem({ Text("Writing hand: " + writingHand.name.lowercase()) }, {
-                                    writingHand = if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT
-                                    appPrefs.edit().putString("writingHand", writingHand.name).apply()
-                                    activeInkView?.suspendWritingFollow()
-                                })
-                                DropdownMenuItem({ Text("Set current view as Peek Anchor") }, {
-                                    activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
-                                    followMenu = false
-                                })
-                                if (peekAnchor != null) DropdownMenuItem({ Text("Remove Peek Anchor") }, {
-                                    model.setPeekAnchor(null); followMenu = false
-                                })
+                            DropdownMenu(followMenu, { followMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem(
+                                    { Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") },
+                                    {
+                                        writingFollowEnabled = !writingFollowEnabled
+                                        appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
+                                        activeInkView?.suspendWritingFollow()
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
+                                    trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }
+                                )
+                                DropdownMenuItem(
+                                    { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
+                                    {
+                                        writingHand = if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT
+                                        appPrefs.edit().putString("writingHand", writingHand.name).apply()
+                                        activeInkView?.suspendWritingFollow()
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    { Text("Set current view as Peek Anchor") },
+                                    {
+                                        activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
+                                        followMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
+                                )
+                                if (peekAnchor != null) DropdownMenuItem(
+                                    { Text("Remove Peek Anchor") },
+                                    { model.setPeekAnchor(null); followMenu = false },
+                                    leadingIcon = { Icon(Icons.Rounded.Close, null) }
+                                )
                             }
                         }
-                        if (peekAnchor != null) PeekHoldButton(peekAnchor) { held ->
-                            if (!held) peekHeld = false
-                            else if (activeInkView?.isWritingGesture == false) {
-                                motion.reset()
-                                peekHeld = true
+                        if (peekAnchor != null) {
+                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            PeekHoldButton(peekAnchor) { held ->
+                                if (!held) peekHeld = false
+                                else if (activeInkView?.isWritingGesture == false) {
+                                    motion.reset()
+                                    peekHeld = true
+                                }
                             }
                         }
                     }
@@ -741,11 +809,11 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
-
         val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
         val canDrag = pageQuery.isBlank() && pageFilter == PageFilter.ALL
         OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-            label = { Text("Find a page by name or number") }, singleLine = true,
+            label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
+            shape = RoundedCornerShape(16.dp),
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }) { Icon(Icons.Rounded.Close, "Clear page search") } })
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -756,8 +824,11 @@ private fun paperLabel(p: Paper): String = when (p) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-            TextButton({ pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" },
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" }),
+                modifier = Modifier.weight(1f))
+            FilledTonalButton({ pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" },
                 enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -765,14 +836,20 @@ private fun paperLabel(p: Paper): String = when (p) {
             TextButton({
                 model.duplicatePage()?.let { pages.requestScrollToItem(it) }
                 pageBrowser = false
-            }) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Duplicate page ${state.pageIndex + 1}") }
+            }) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Duplicate ${state.pageIndex + 1}") }
         }
-        val rowHeight = 108.dp
+        val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            if (visiblePages.isEmpty()) item { Text("No pages match. Try another name or filter.", Modifier.padding(16.dp)) }
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (visiblePages.isEmpty()) item {
+                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No pages match", style = MaterialTheme.typography.titleSmall)
+                    Text("Try another name or filter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             items(visiblePages, key = { it.value.id }) { (index, item) ->
                 val dragging = dragFrom == index
                 PageRow(item, index, state.pageIndex == index, dragging,
@@ -804,26 +881,38 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item { TextButton({ addPage(); pageBrowser = false }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Add a blank page — ${paperLabel(page.paper)}") } }
+            item { FilledTonalButton({ addPage(); pageBrowser = false }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
         }
     }
     namedPage?.let { target ->
         AlertDialog(onDismissRequest = { namedPage = null }, modifier = Modifier.guardUiTouches(),
+            icon = { Icon(Icons.Rounded.Edit, null) },
             title = { Text("Name page") }, text = {
                 OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
-                    supportingText = { Text("Leave blank to use the page number.") }, singleLine = true)
+                    placeholder = { Text("e.g. Quadratics homework") },
+                    supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
             }, dismissButton = { TextButton({ namedPage = null }) { Text("Cancel") } },
-            confirmButton = { TextButton({ model.renamePage(target.id, pageTitle); namedPage = null }) { Text("Save") } })
+            confirmButton = { Button({ model.renamePage(target.id, pageTitle); namedPage = null }) { Text("Save") } })
     }
     movingPage?.let { pageId ->
         val destination = destinationPage.toIntOrNull()
         AlertDialog(onDismissRequest = { movingPage = null }, modifier = Modifier.guardUiTouches(),
+            icon = { Icon(Icons.Rounded.LowPriority, null) },
             title = { Text("Move page") }, text = {
                 OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
                     label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        val from = note.pages.indexOfFirst { it.id == pageId }
+                        if (from >= 0 && destination != null) model.movePage(from, destination - 1)
+                        movingPage = null
+                    }),
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
             }, dismissButton = { TextButton({ movingPage = null }) { Text("Cancel") } },
-            confirmButton = { TextButton({
+            confirmButton = { Button({
                 val from = note.pages.indexOfFirst { it.id == pageId }
                 if (from >= 0 && destination != null) model.movePage(from, destination - 1)
                 movingPage = null
@@ -832,33 +921,56 @@ private fun paperLabel(p: Paper): String = when (p) {
     deletingPage?.let { pageId ->
         val index = note.pages.indexOfFirst { it.id == pageId }
         AlertDialog(onDismissRequest = { deletingPage = null }, modifier = Modifier.guardUiTouches(),
+            icon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?") },
             text = { Text("This removes the page and its content. This cannot be undone.") },
             dismissButton = { TextButton({ deletingPage = null }) { Text("Cancel") } },
-            confirmButton = { TextButton({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null }) { Text("Delete") } })
+            confirmButton = { Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) { Text("Delete") } })
     }
-    if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false }, title = { Text("Rename notebook") }, text = {
-        OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true)
+    if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false },
+        icon = { Icon(Icons.Rounded.Edit, null) }, title = { Text("Rename notebook") }, text = {
+        OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (renameTitle.isNotBlank()) { model.rename(note, renameTitle); rename = false } }),
+            shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
     }, dismissButton = { TextButton({ rename = false }) { Text("Cancel") } }, confirmButton = {
-        TextButton({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank()) { Text("Save") }
+        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank()) { Text("Save") }
     })
-    if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false }, title = { Text("Change paper") }, text = {
-        Column {
+    if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false },
+        icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text("Change paper") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text("Applies to the current page only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
             listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
-                Row(Modifier.fillMaxWidth().clickable { model.setPaper(p); paperMenu = false }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(page.paper == p, { model.setPaper(p); paperMenu = false })
-                    Column(Modifier.padding(start = 8.dp)) {
-                        Text(paperLabel(p)); if (p == Paper.MATH_GRID) Text("Fine 20 px grid, bold every 5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (p == Paper.GRAPH) Text("Same grid + centred axes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (p == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet, 25 questions A–E", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (p == Paper.TIAN_GRID) Text("田字格 — one character per square, dashed cross", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (p == Paper.MI_GRID) Text("米字格 — cross plus diagonals per square", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val selectedPaper = page.paper == p
+                Surface(
+                    onClick = { model.setPaper(p); paperMenu = false },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selectedPaper) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selectedPaper, { model.setPaper(p); paperMenu = false })
+                        Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                            Text(paperLabel(p), style = MaterialTheme.typography.bodyMedium)
+                            val hint = when (p) {
+                                Paper.MATH_GRID -> "Fine 20 px grid, bold every 5"
+                                Paper.GRAPH -> "Same grid + centred axes"
+                                Paper.MC_SHEET -> "Exam Section A answer sheet, 25 questions A–E"
+                                Paper.TIAN_GRID -> "田字格 — one character per square, dashed cross"
+                                Paper.MI_GRID -> "米字格 — cross plus diagonals per square"
+                                else -> null
+                            }
+                            if (hint != null) Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (selectedPaper) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
         }
     }, confirmButton = { TextButton({ paperMenu = false }) { Text("Done") } })
-    if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { TextButton({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
+    if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false },
+        icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
     if (timerPanel) ExamTimerPanel(
         timer = state.timer,
         onDismiss = { timerPanel = false },
@@ -899,21 +1011,21 @@ private fun paperLabel(p: Paper): String = when (p) {
         val live = note.pages.find { it.id == ownerId }?.images?.find { it.id == image.id }
         if (live != null && ownerId == page.id) {
             FolioPanel(title = "Picture", onDismissRequest = { selectedImage = null }) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Drag with the hand tool to move. Drag the blue dot to resize. Ink draws over the picture.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilledTonalButton({ model.bringImageToFront(live.id) }, Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.FlipToFront, null); Spacer(Modifier.width(8.dp)); Text("Bring to front")
+                        Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Bring to front")
                     }
                     OutlinedButton({ model.sendImageToBack(live.id) }, Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.FlipToBack, null); Spacer(Modifier.width(8.dp)); Text("Send to back")
+                        Icon(Icons.Rounded.FlipToBack, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send to back")
                     }
-                    TextButton(
+                    Button(
                         { model.removeImage(live.id); selectedImage = null },
                         Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)
                     ) {
-                        Icon(Icons.Rounded.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("Remove picture")
+                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Remove picture")
                     }
                 }
             }
@@ -939,6 +1051,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 label = { Text("Find typed text") },
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 trailingIcon = {
                     if (noteQuery.isNotEmpty()) IconButton({ noteQuery = "" }) {
@@ -947,17 +1061,24 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             )
             if (noteQuery.isBlank()) {
-                Text("Searches every typed text box in this notebook. Handwriting is not searched.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Rounded.FindInPage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Searches every typed text box in this notebook. Handwriting is not searched.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             } else if (hits.isEmpty()) {
-                Text("No typed text matches “${noteQuery.trim().take(80)}”.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No typed text matches “${noteQuery.trim().take(80)}”.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             } else {
                 Text("${hits.size} ${if (hits.size == 1) "page matches" else "pages match"} — most matches first.",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(hits, key = { it.pageIndex }) { hit ->
-                        Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
@@ -972,9 +1093,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             InkStamps.kinds.forEach { kind ->
                 FilledTonalButton({
                     model.insertStamp(kind, color = options.color, width = options.width)
@@ -988,7 +1109,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             InkStamps.Kind.CHECKBOX -> Icons.Rounded.CheckBoxOutlineBlank
                             InkStamps.Kind.CALLOUT -> Icons.Rounded.ChatBubbleOutline
                             InkStamps.Kind.UNDERLINE -> Icons.Rounded.FormatUnderlined
-                        }, null
+                        }, null, Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(8.dp)); Text(InkStamps.label(kind))
                 }
@@ -1003,6 +1124,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 label = { Text("Find in this PDF") },
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { model.searchPdf(pdfQuery) }),
                 trailingIcon = {
@@ -1012,20 +1135,25 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             )
             Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.Search, null); Spacer(Modifier.width(8.dp)); Text("Search")
+                Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Search")
             }
             val search = state.pdfSearch
             if (search.searching) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching PDF"))
-                    Text("Reading this PDF's text…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else if (search.searched && search.query.isNotBlank()) {
                 if (search.results.isEmpty()) {
-                    Text(
-                        "No matches for “${search.query.trim().take(80)}”. Scanned or locked PDFs have no searchable text.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "No matches for “${search.query.trim().take(80)}”.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text("Scanned or locked PDFs have no searchable text.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 } else {
                     Text(
                         "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
@@ -1033,7 +1161,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     )
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(search.results, key = { it.pageIndex }) { hit ->
-                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Column(Modifier.weight(1f)) {
                                         Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
@@ -1053,20 +1182,20 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (outline == null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Loading contents"))
-                Text("Reading bookmarks…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Reading bookmarks…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else if (outline.isEmpty()) {
-            Text(
-                "This PDF has no bookmarks.",
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.FormatListBulleted, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = 16.dp), contentPadding = PaddingValues(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = 16.dp), contentPadding = PaddingValues(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(outline) { _, entry ->
-                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + 16.dp * entry.depth, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f)) {
+                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
+                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + 16.dp * entry.depth, end = 14.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1085,24 +1214,36 @@ private fun paperLabel(p: Paper): String = when (p) {
  */
 @Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
-    if (!active) {
-        IconButton(onClick) { Icon(Icons.Rounded.Timer, "Exam timer") }
-    } else {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(10.dp),
-            color = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-            contentColor = if (timer.phase == ExamTimerPhase.DONE) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = (height - 36.dp) / 2)
-        ) {
-            Text(
-                if (timer.paused) "Paused · ${timer.clockText()}"
-                else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
-                else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
-                else "Pens down",
-                Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                style = MaterialTheme.typography.labelLarge
-            )
+    Crossfade(targetState = active, label = "timerChip") { isActive ->
+        if (!isActive) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Exam timer") } }, state = rememberTooltipState()) {
+                IconButton(onClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.Timer, "Exam timer") }
+            }
+        } else {
+            val done = timer.phase == ExamTimerPhase.DONE
+            Surface(
+                onClick = onClick,
+                shape = RoundedCornerShape(20.dp),
+                color = if (done) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (done) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                tonalElevation = 1.dp,
+                shadowElevation = 1.dp,
+                modifier = Modifier.height(36.dp)
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(
+                        if (timer.paused) Icons.Rounded.Pause else if (done) Icons.Rounded.Flag else Icons.Rounded.Timer,
+                        null, Modifier.size(15.dp)
+                    )
+                    Text(
+                        if (timer.paused) "Paused · ${timer.clockText()}"
+                        else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
+                        else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
+                        else "Pens down",
+                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false
+                    )
+                }
+            }
         }
     }
 }
@@ -1122,22 +1263,25 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
 /** The page count follows the thumb without making the label a touch target. */
 @Composable private fun FastScrollTrack(pages: LazyListState, pageCount: Int, scrubbing: Boolean, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
-    // The thumb brightens smoothly when grabbed instead of snapping between two alphas.
-    val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .6f, label = "fastScrollAlpha")
+    // The thumb brightens and thickens smoothly when grabbed instead of snapping.
+    val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
+    val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, label = "fastScrollWidth")
     BoxWithConstraints(modifier) {
-        val geometry = fastScrollGeometry(pages, constraints.maxHeight.toFloat(), with(density) { 24.dp.toPx() })
+        val geometry = fastScrollGeometry(pages, constraints.maxHeight.toFloat(), with(density) { 28.dp.toPx() })
             ?: return@BoxWithConstraints
         Box(Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-            Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .25f)))
-            Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(5.dp).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)))
+            Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .22f)))
+            Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(thumbWidth).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)))
         }
-        val labelHeightPx = with(density) { 28.dp.toPx() }
+        val labelHeightPx = with(density) { 32.dp.toPx() }
         val labelTop = (geometry.top + geometry.height / 2 - labelHeightPx / 2)
             .coerceIn(0f, (constraints.maxHeight - labelHeightPx).coerceAtLeast(0f))
-        Box(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp)
-            .clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp),
+            shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
             Text("${(pages.firstVisibleItemIndex + 1).coerceAtMost(pageCount)} / $pageCount",
-                Modifier.padding(horizontal = 8.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
+                Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)
         }
     }
@@ -1224,10 +1368,22 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // page's own box, above the selection when there is room, below it when
     // the selection sits at the top, top-center until the frame reports.
     Box(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height)) {
-        Surface(Modifier.fillMaxSize(), shape = RoundedCornerShape(3.dp), color = Color.White) {
+        Surface(
+            Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(if (fullscreen) 0.dp else 10.dp),
+            color = Color.White,
+            shadowElevation = if (fullscreen) 0.dp else 3.dp,
+            tonalElevation = 0.dp,
+            border = if (fullscreen) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
             // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
             // of a blank stand-in and replace the content that is still on disk.
-            if (!page.loaded) Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.semanticsLabel("Loading page")) }
+            if (!page.loaded) Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LoadingIndicator(Modifier.semanticsLabel("Loading page"))
+                    Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
@@ -1254,11 +1410,16 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink
                 if (!active) view.clearSelection()
-            }) else Box(contentAlignment = Alignment.Center) {
-                if (error) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Couldn't open this PDF page", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ retry++ }) { Text("Try again") }
-                } else LoadingIndicator(Modifier.semanticsLabel("Loading page"))
+            }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+                if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(24.dp)) {
+                    Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Couldn't open this PDF page", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Check the file still exists, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton({ retry++ }) { Text("Try again") }
+                } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LoadingIndicator(Modifier.semanticsLabel("Loading page"))
+                    Text("Rendering PDF…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         // The contextual pill floats over the page near the selection: above it when
@@ -1335,10 +1496,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     @Composable fun QuickColors() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(horizontal = 2.dp)) {
             quick.colors(colorGroup).forEachIndexed { index, c ->
-                InkColorDot(c, options.color == c, { onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}")
+                InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}")
             }
-            IconButton({ onPalette(true) }) {
-                Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
+                IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -1435,16 +1598,20 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         }
     }
     val controls: @Composable () -> Unit = {
-        IconButton(undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
-        IconButton(redo, enabled = canRedo) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
+            IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
+        }
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+            IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+        }
         ToolbarDivider()
         toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
         pinnedPresets.forEach { preset ->
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
                 FilterChip(
                     selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
-                    onClick = { onApplyPreset?.invoke(preset) },
-                    label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
+                    label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
                     leadingIcon = {
                         Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
                     },
@@ -1514,68 +1681,81 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // The bar hugs its content: capped width fits narrow phones without clipping, and the
     // quick row only takes space when the active tool has quick settings. Each row scrolls.
     // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
-    Column(modifier.guardUiTouches().widthIn(max = 560.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.guardUiTouches().widthIn(max = 560.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
-            Modifier.fillMaxWidth().height(52.dp).combinedClickable(
+            Modifier.fillMaxWidth().height(54.dp).combinedClickable(
                 onClick = {},
-                onLongClick = { if (toolbarLayoutState != null) editToolbar = true },
+                onLongClick = {
+                    feedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (toolbarLayoutState != null) editToolbar = true
+                },
                 onLongClickLabel = "Edit toolbar"
             ),
-            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 6.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         ) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
-        if (showQuickBar) {
-            Spacer(Modifier.height(4.dp))
-            Surface(Modifier.widthIn(max = 560.dp).height(48.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (tool == Tool.TEXT && onTextColor != null) {
-                        quick.colors(colorGroup).forEachIndexed { index, c ->
-                            InkColorDot(c, textColor == c, { onTextColor(c) }, label = "Text colour ${index + 1}")
-                        }
-                    } else {
-                        if (tool != Tool.ERASER) QuickColors()
-                        WidthControl()
-                        if (tool == Tool.ERASER && onEraserPressure != null) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
-                                FilterChip(selected = eraserPressureEnabled, onClick = { onEraserPressure(!eraserPressureEnabled) }, label = { Text("Pressure", style = MaterialTheme.typography.labelSmall) })
+        AnimatedVisibility(
+            visible = showQuickBar,
+            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
+        ) {
+            Column {
+                Spacer(Modifier.height(6.dp))
+                Surface(Modifier.widthIn(max = 560.dp).height(50.dp), shape = RoundedCornerShape(25.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (tool == Tool.TEXT && onTextColor != null) {
+                            quick.colors(colorGroup).forEachIndexed { index, c ->
+                                InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}")
                             }
-                        }
-                        if (tool == Tool.ERASER && onEraserWholeStroke != null) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
-                                FilterChip(selected = eraserWholeStroke, onClick = { onEraserWholeStroke(!eraserWholeStroke) }, label = { Text("Whole", style = MaterialTheme.typography.labelSmall) })
+                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            Text("New text uses this colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        } else {
+                            if (tool != Tool.ERASER) QuickColors()
+                            if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            WidthControl()
+                            if (tool == Tool.ERASER && onEraserPressure != null) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
+                                    FilterChip(selected = eraserPressureEnabled, onClick = { onEraserPressure(!eraserPressureEnabled) }, label = { Text("Pressure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
                             }
-                        }
-                        if ((tool == Tool.PEN || tool == Tool.HIGHLIGHTER) && onScribbleToErase != null) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
-                                FilterChip(selected = scribbleToErase, onClick = { onScribbleToErase(!scribbleToErase) }, label = { Text("Scribble", style = MaterialTheme.typography.labelSmall) })
+                            if (tool == Tool.ERASER && onEraserWholeStroke != null) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
+                                    FilterChip(selected = eraserWholeStroke, onClick = { onEraserWholeStroke(!eraserWholeStroke) }, label = { Text("Whole", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
                             }
-                        }
-                        if (tool == Tool.ERASER && onEraserSingleStroke != null) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
-                                FilterChip(selected = eraserSingleStroke, onClick = { onEraserSingleStroke(!eraserSingleStroke) }, label = { Text("Single", style = MaterialTheme.typography.labelSmall) })
+                            if ((tool == Tool.PEN || tool == Tool.HIGHLIGHTER) && onScribbleToErase != null) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
+                                    FilterChip(selected = scribbleToErase, onClick = { onScribbleToErase(!scribbleToErase) }, label = { Text("Scribble", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
                             }
-                        }
-                        if (isShape && onShapeMeasurements != null) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
-                                FilterChip(selected = shapeMeasurements, onClick = { onShapeMeasurements(!shapeMeasurements) }, label = { Text("Measure", style = MaterialTheme.typography.labelSmall) })
+                            if (tool == Tool.ERASER && onEraserSingleStroke != null) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
+                                    FilterChip(selected = eraserSingleStroke, onClick = { onEraserSingleStroke(!eraserSingleStroke) }, label = { Text("Single", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
                             }
-                        }
-                        if (isShape) {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Line style: ${options.style.name.lowercase()} — tap to cycle") } }, state = rememberTooltipState()) {
-                                val styleLabel = when (options.style) { StrokeStyle.SOLID -> "Solid"; StrokeStyle.DASHED -> "Dashed"; StrokeStyle.DOTTED -> "Dotted" }
-                                FilterChip(selected = options.style != StrokeStyle.SOLID, onClick = {
-                                    onOptions(options.copy(style = when (options.style) {
-                                        StrokeStyle.SOLID -> StrokeStyle.DASHED
-                                        StrokeStyle.DASHED -> StrokeStyle.DOTTED
-                                        StrokeStyle.DOTTED -> StrokeStyle.SOLID
-                                    }))
-                                }, label = { Text(styleLabel, style = MaterialTheme.typography.labelSmall) })
+                            if (isShape && onShapeMeasurements != null) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
+                                    FilterChip(selected = shapeMeasurements, onClick = { onShapeMeasurements(!shapeMeasurements) }, label = { Text("Measure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
                             }
-                        }
-                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
-                            IconButton({ onSnap(!snapEnabled) }) {
-                                Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                            if (isShape) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Line style: ${options.style.name.lowercase()} — tap to cycle") } }, state = rememberTooltipState()) {
+                                    val styleLabel = when (options.style) { StrokeStyle.SOLID -> "Solid"; StrokeStyle.DASHED -> "Dashed"; StrokeStyle.DOTTED -> "Dotted" }
+                                    FilterChip(selected = options.style != StrokeStyle.SOLID, onClick = {
+                                        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onOptions(options.copy(style = when (options.style) {
+                                            StrokeStyle.SOLID -> StrokeStyle.DASHED
+                                            StrokeStyle.DASHED -> StrokeStyle.DOTTED
+                                            StrokeStyle.DOTTED -> StrokeStyle.SOLID
+                                        }))
+                                    }, label = { Text(styleLabel, style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
+                                }
+                            }
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
+                                IconButton({ onSnap(!snapEnabled) }, modifier = Modifier.size(36.dp)) {
+                                    Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                                }
                             }
                         }
                     }
@@ -1796,24 +1976,40 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     noteId: String, thumbnails: PageThumbnailCache
 ) {
     var menu by remember { mutableStateOf(false) }
-    Surface(onClick = onOpen, shape = RoundedCornerShape(18.dp), modifier = modifier.fillMaxWidth(),
+    Surface(onClick = onOpen, shape = RoundedCornerShape(20.dp), modifier = modifier.fillMaxWidth(),
         color = if (current) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        shadowElevation = if (dragging) 6.dp else 0.dp) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PageThumbnail(noteId, page, thumbnails, Modifier.width(56.dp).aspectRatio(page.width / page.height).clip(RoundedCornerShape(4.dp)))
-            Column(Modifier.weight(1f)) {
-                Text(page.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        shadowElevation = if (dragging) 6.dp else 1.dp, tonalElevation = if (current) 1.dp else 0.dp,
+        border = BorderStroke(
+            if (current) 1.5.dp else 1.dp,
+            if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PageThumbnail(noteId, page, thumbnails, Modifier.width(64.dp).aspectRatio(page.width / page.height).clip(RoundedCornerShape(8.dp)))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(page.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (current) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                        Text("Open", Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
                 // A page that has not been read yet cannot say how much ink it holds.
                 val detail = "Page ${index + 1} · " + (if (page.pdfIndex != null) "Imported PDF" else paperLabel(page.paper))
+                val content = if (page.loaded) {
+                    val bits = mutableListOf<String>()
+                    if (page.strokes.isNotEmpty()) bits += "${page.strokes.size} marks"
+                    if (page.texts.isNotEmpty()) bits += "${page.texts.size} text"
+                    if (page.images.isNotEmpty()) bits += "${page.images.size} pics"
+                    if (bits.isEmpty()) "$detail · Blank" else "$detail · " + bits.joinToString(" · ")
+                } else detail
                 Text(
-                    if (page.loaded) "$detail · ${page.strokes.size} marks" else detail,
+                    content,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onBookmark) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                if (page.bookmarked) "Remove bookmark" else "Bookmark page", tint = MaterialTheme.colorScheme.primary) }
-            if (current) Icon(Icons.Rounded.Check, "Current page", tint = MaterialTheme.colorScheme.primary)
+            IconButton(onBookmark, modifier = Modifier.size(40.dp)) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                if (page.bookmarked) "Remove bookmark" else "Bookmark page",
+                tint = if (page.bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             Box {
-                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
+                IconButton({ menu = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
                 DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
                     DropdownMenuItem({ Text("Name page") }, { menu = false; onName() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
                     DropdownMenuItem({ Text("Move to position…") }, { menu = false; onMoveTo() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
@@ -1821,6 +2017,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                     DropdownMenuItem({ Text("Move down") }, { menu = false; onMoveDown() }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
                     DropdownMenuItem({ Text("Duplicate page") }, { menu = false; onDuplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                     DropdownMenuItem({ Text("Insert blank page after") }, { menu = false; onInsert() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                    HorizontalDivider()
                     DropdownMenuItem({ Text("Delete page") }, { menu = false; onDelete() }, enabled = canDelete, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
                 }
             }
@@ -1834,13 +2031,17 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
  * page file at all.
  */
 @Composable private fun PageThumbnail(noteId: String, page: NotePage, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
-    val widthPx = with(LocalDensity.current) { 56.dp.roundToPx() }
+    val widthPx = with(LocalDensity.current) { 64.dp.roundToPx() }
     var preview by remember(noteId, page.id) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(noteId, page.id, page.revision, page.loaded) {
         preview = thumbnails.thumbnail(noteId, page, widthPx)
     }
-    Box(modifier.background(Color.White), contentAlignment = Alignment.Center) {
-        preview?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
+    Surface(modifier, shape = RoundedCornerShape(8.dp), color = Color.White, shadowElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            val bitmap = preview
+            if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            else if (!page.loaded) LoadingIndicator(Modifier.size(20.dp).semanticsLabel("Loading preview"))
+        }
     }
 }
 
@@ -1855,27 +2056,47 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     onDeselect: () -> Unit, onSelectAll: () -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
+    val feedback = LocalHapticFeedback.current
+    // Pops in instead of snapping: a fresh selection feels confirmed, not pasted on.
+    var entered by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (entered) 1f else 0.92f, label = "pillScale")
+    val alpha by animateFloatAsState(if (entered) 1f else 0f, label = "pillAlpha")
+    LaunchedEffect(Unit) { entered = true }
+    fun tap(action: () -> Unit) {
+        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        action()
+    }
     Surface(
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 6.dp,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")
+            .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
     ) {
-        Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onCopy, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Copy") }
-            TextButton(onDuplicate, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Duplicate") }
-            if (canRestyle) TextButton(onStyle, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Style") }
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Copy")
+            }
+            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Icon(Icons.Rounded.DynamicFeed, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicate")
+            }
+            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Icon(Icons.Rounded.Palette, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Style")
+            }
             TextButton(
-                onDelete,
+                { tap(onDelete) },
                 contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) { Text("Delete") }
+            ) {
+                Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Delete")
+            }
             Box {
                 IconButton({ overflow = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
                 DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                    DropdownMenuItem({ Text("Select all") }, { overflow = false; onSelectAll() }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
-                    DropdownMenuItem({ Text("Deselect") }, { overflow = false; onDeselect() }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
+                    DropdownMenuItem({ Text("Select all") }, { overflow = false; tap(onSelectAll) }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    DropdownMenuItem({ Text("Deselect") }, { overflow = false; tap(onDeselect) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
                 }
             }
         }
@@ -1961,9 +2182,28 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         title = { Text(if (isNew) "Add text" else "Edit text") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 120.dp).focusRequester(textFocus),
-                    label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") })
+                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus),
+                    label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") },
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
                 LaunchedEffect(box.id) { textFocus.requestFocus() }
+                // Live preview so size/weight/colour choices read before they land on the page.
+                if (text.isNotBlank()) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+                        Text(
+                            text.trimEnd().take(220),
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            color = Color(color),
+                            fontSize = size.coerceIn(10f, 48f).sp,
+                            fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                            fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
+                            textAlign = when (align) { TextAlignMode.CENTER -> TextAlign.Center; TextAlignMode.RIGHT -> TextAlign.End; else -> TextAlign.Start },
+                            textDecoration = if (underline) androidx.compose.ui.text.style.TextDecoration.Underline else null,
+                            maxLines = 4, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f))
