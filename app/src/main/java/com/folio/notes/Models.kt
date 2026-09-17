@@ -59,11 +59,6 @@ data class Stroke(
     val tool: Tool, val color: Int, val width: Float, val points: List<InkPoint>,
     val opacity: Float = if (tool == Tool.HIGHLIGHTER) 72f / 255f else 1f,
     /**
-     * Wall-clock milliseconds when the stroke landed on the page, for exam timing reports and
-     * replay. Zero means unknown — ink from before timestamps existed — and is never analysed.
-     */
-    val createdAt: Long = 0L,
-    /**
      * Line pattern for shape tools (line, rectangle, ellipse). Freehand pen and highlighter
      * always draw solid so pressure-varying ink never breaks into uneven dashes.
      */

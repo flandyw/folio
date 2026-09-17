@@ -867,8 +867,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSave = { tags -> model.updateExamTags(note.id, tags); examPanel = false },
         onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
-        suggestedSeconds = state.lastTimedSeconds,
-        suggestedTelemetry = state.lastTelemetry
+        suggestedSeconds = state.lastTimedSeconds
     )
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(

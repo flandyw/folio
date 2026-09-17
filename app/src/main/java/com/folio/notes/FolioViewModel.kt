@@ -51,8 +51,6 @@ data class FolioState(
     val timer: ExamTimerState = ExamTimerState(),
     /** Seconds the last stopped timed sitting ran for, offered when recording the mark. */
     val lastTimedSeconds: Int? = null,
-    /** Timing record of the last stopped sitting, offered alongside the mark for its report. */
-    val lastTelemetry: ExamTelemetry? = null,
     /** Ink, text and pictures cut or copied from a lasso selection, kept so they paste on any page. */
     val clipboard: CanvasSelection = CanvasSelection(),
     /** Text search over the open notebook's imported PDF, driven by [FolioViewModel.searchPdf]. */
@@ -103,8 +101,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private var pasteGeneration = 0
     /** Pages whose content is being read right now, so a page is never fetched twice at once. */
     private val loadingPages = mutableSetOf<String>()
-    /** Page visits of the running timed sitting; closed into [FolioState.lastTelemetry] on stop. */
-    private var sittingVisits = mutableListOf<PageVisit>()
     private var timerNotebookId: String? = _state.value.activeId
     private val notebookSittings = NotebookSittings()
 
@@ -114,12 +110,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun migrateLegacyTimer(notes: List<Notebook>) {
         if (!prefs.contains(TIMER_START_KEY)) return
         val visits = try {
-            ExamTelemetryCodec.decodeVisits(org.json.JSONArray(prefs.getString(TIMER_VISITS_KEY, "[]")))
+            org.json.JSONArray(prefs.getString(TIMER_VISITS_KEY, "[]")).let { array ->
+                (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("pageId") }
+            }
         } catch (_: Exception) { emptyList() }
-        val pageIds = visits.map { it.pageId }.toSet()
+        val pageIds = visits.toSet()
         val owner = notes.filter { note -> note.pages.any { it.id in pageIds } }.singleOrNull() ?: return
         val keys = listOf(TIMER_START_KEY, TIMER_PAUSED_AT_KEY, TIMER_PAUSED_MILLIS_KEY,
-            TIMER_WRITING_KEY, TIMER_READING_KEY, TIMER_LABEL_KEY, TIMER_VISITS_KEY)
+            TIMER_WRITING_KEY, TIMER_READING_KEY, TIMER_LABEL_KEY)
         val editor = prefs.edit()
         if (!prefs.contains("$TIMER_START_KEY.notebook.${owner.id}")) {
             keys.forEach { key ->
@@ -132,6 +130,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             }
         }
         keys.forEach { editor.remove(it) }
+        editor.remove(TIMER_VISITS_KEY)
         editor.apply()
         if (timerNotebookId == owner.id) restoreNotebookTimer()
     }
@@ -144,8 +143,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
                 pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L))
             ?: ExamTimerState()
-        sittingVisits = if (id != null && timer.startedAt != null) loadVisits().toMutableList() else mutableListOf()
-        _state.update { it.copy(timer = timer, lastTimedSeconds = cached?.seconds, lastTelemetry = cached?.telemetry) }
+        _state.update { it.copy(timer = timer, lastTimedSeconds = cached?.seconds) }
     }
 
     /** Leaving a notebook pauses its clock, so time away never counts; returning stays paused until resumed. */
@@ -155,10 +153,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             val current = _state.value.timer
             val paused = if (current.running) current.pause(now) else current
             if (paused != current) saveSitting(paused)
-            sittingVisits = closeVisits(sittingVisits, now).toMutableList()
-            saveVisits()
             val state = _state.value
-            notebookSittings.save(previous, paused, state.lastTimedSeconds, state.lastTelemetry)
+            notebookSittings.save(previous, paused, state.lastTimedSeconds)
         }
         timerNotebookId = id
         restoreNotebookTimer()
@@ -393,7 +389,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             pageIndex = target.pages.indexOfFirst { p -> p.id == tab.currentPageId }.coerceAtLeast(0),
             pdfSearch = tab.search) }
         historyState()
-        _state.value.page?.let { loadPage(it.id); noteVisit(it.id) }
+        _state.value.page?.let { loadPage(it.id) }
         if (tab.search.query.isNotBlank() && (tab.search.searching || !tab.search.searched)) searchPdf(tab.search.query)
     }
 
@@ -578,7 +574,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         // A timed sitting is spent on the mark it belongs to, not offered to the next one.
         if (attempt.timed) {
             notebookSittings.consumeResult(noteId)
-            if (_state.value.activeId == noteId) _state.update { it.copy(lastTimedSeconds = null, lastTelemetry = null) }
+            if (_state.value.activeId == noteId) _state.update { it.copy(lastTimedSeconds = null) }
         }
     }
 
@@ -698,7 +694,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         persistPosition(note.id)
         historyState()
         _state.value.page?.let { loadPage(it.id) }
-        _state.value.page?.let { noteVisit(it.id) }
         _state.value.companion?.let { loadPage(it.currentPageId) }
     }
     /**
@@ -822,8 +817,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Inserts centred graph axes as editable LINE strokes so students can annotate immediately. */
     fun insertAxes() {
         val page = _state.value.page ?: return
-        val now = System.currentTimeMillis()
-        val axes = InkGeometry.mathAxes(page).map { it.copy(createdAt = now) }
+        val axes = InkGeometry.mathAxes(page)
         strokes(page.id, page.strokes + axes)
     }
     /** Stores a page's new content, bumping its revision so caches and exports know it changed. */
@@ -1010,9 +1004,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val clip = _state.value.clipboard
         if (clip.isEmpty()) return
         val offset = PASTE_OFFSET * ++pasteGeneration
-        // A paste lands now, whatever the source strokes' own timestamps were.
-        val now = System.currentTimeMillis()
-        val pastedStrokes = clip.strokes.map { InkGeometry.translate(it, offset, offset).copy(createdAt = now) }
+        val pastedStrokes = clip.strokes.map { InkGeometry.translate(it, offset, offset) }
         val pastedTexts = clip.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(offset, offset) }
         viewModelScope.launch {
             val existingIds = page.images.map { it.id }.toSet()
@@ -1050,12 +1042,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun insertStamp(kind: InkStamps.Kind, color: Int? = null, width: Float? = null) {
         val page = _state.value.page ?: return
         if (!page.loaded) return
-        val now = System.currentTimeMillis()
         val cx = if (page.infinite) 0f else page.width / 2f
         val cy = if (page.infinite) 0f else page.height / 2f
         val inkColor = color ?: 0xFF303431.toInt()
         val inkWidth = width ?: 2.2f
-        val stamp = InkStamps.make(kind, cx, cy, color = inkColor, width = inkWidth, createdAt = now)
+        val stamp = InkStamps.make(kind, cx, cy, color = inkColor, width = inkWidth)
         // Nudge stamps stacked on the same centre so repeated inserts never hide under each other.
         val offset = (page.strokes.size % 5) * 14f
         val placed = if (offset == 0f) stamp else stamp.map { InkGeometry.translate(it, offset, offset) }
@@ -1086,7 +1077,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun clearSitting() {
         prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
             .remove(timerKey(TIMER_PAUSED_AT_KEY)).remove(timerKey(TIMER_PAUSED_MILLIS_KEY))
-            .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY)).apply()
+            .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY))
+            .remove(timerKey(TIMER_VISITS_KEY)).apply()
     }
 
     /** The preset of a saved sitting, or null when none was running when the app last stopped. */
@@ -1097,34 +1089,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             prefs.getInt(timerKey(TIMER_WRITING_KEY), 90 * 60),
             prefs.getInt(timerKey(TIMER_READING_KEY), 15 * 60)
         )
-    }
-
-    /**
-     * Notes the open page while a sitting runs; anywhere else this is a no-op, so ordinary
-     * browsing never grows a visit log. Repeats of the page already open collapse away.
-     */
-    private fun noteVisit(pageId: String) {
-        if (!_state.value.timer.running) return
-        val updated = recordVisit(sittingVisits, pageId, System.currentTimeMillis())
-        if (updated === sittingVisits) return
-        sittingVisits = updated.toMutableList()
-        saveVisits()
-    }
-
-    /** The visit log is saved with the sitting so it survives the app being swiped away. */
-    private fun saveVisits() {
-        prefs.edit().putString(timerKey(TIMER_VISITS_KEY), ExamTelemetryCodec.encodeVisits(sittingVisits).toString()).apply()
-    }
-
-    private fun loadVisits(): List<PageVisit> {
-        val raw = prefs.getString(timerKey(TIMER_VISITS_KEY), null) ?: return emptyList()
-        return try {
-            ExamTelemetryCodec.decodeVisits(org.json.JSONArray(raw))
-        } catch (_: Exception) { emptyList() }
-    }
-
-    private fun clearVisits() {
-        prefs.edit().remove(timerKey(TIMER_VISITS_KEY)).apply()
     }
 
     /**
@@ -1141,10 +1105,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (_state.value.active == null) return
         val started = ExamTimerState().start(preset)
         saveSitting(started)
-        // A fresh sitting gets a fresh visit log, opening on the page already on screen.
-        sittingVisits = mutableListOf()
-        _state.value.page?.let { sittingVisits = recordVisit(sittingVisits, it.id, System.currentTimeMillis()).toMutableList() }
-        saveVisits()
         _state.update { it.copy(timer = started) }
     }
     fun adjustTimer(seconds: Int) {
@@ -1159,12 +1119,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val now = System.currentTimeMillis()
         val updated = if (current.paused) current.unpause(now) else current.pause(now)
         if (updated == current) return
-        if (updated.paused) sittingVisits = closeVisits(sittingVisits, now).toMutableList()
-        else if (updated.running) _state.value.page?.let {
-            sittingVisits = recordVisit(sittingVisits, it.id, now).toMutableList()
-        }
         saveSitting(updated)
-        saveVisits()
         _state.update { it.copy(timer = updated) }
     }
     fun skipTimerPhase() {
@@ -1179,13 +1134,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val current = _state.value.timer
         val now = System.currentTimeMillis()
         val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
-        val visits = closeVisits(sittingVisits, now)
-        // The timing record belongs to the mark recorded next, like the seconds it ran for.
-        val telemetry = current.startedAt?.let { ExamTelemetry(startedAt = it, endedAt = now, visits = visits) }
-        sittingVisits = mutableListOf()
         clearSitting()
-        clearVisits()
-        _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds, lastTelemetry = telemetry ?: it.lastTelemetry) }
+        _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
     }
     private fun record(page: NotePage) {
         undo.getOrPut(page.id) { mutableListOf() }.apply { add(Triple(page.strokes, page.texts, page.images)); if (size > 60) removeAt(0) }

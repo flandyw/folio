@@ -429,7 +429,8 @@ object InkRenderer {
         ink: Boolean = true,
         images: Map<String, Bitmap?>? = null,
         boundsOf: (Stroke) -> FloatArray = ::rawBounds,
-        renderOf: (Stroke) -> RenderedStroke = ::rendered
+        renderOf: (Stroke) -> RenderedStroke = ::rendered,
+        drawInk: ((Canvas) -> Unit)? = null
     ) {
         canvas.drawColor(Color.WHITE)
         if (background != null) {
@@ -456,7 +457,7 @@ object InkRenderer {
                 if (!rectVisible(box.x, box.y, box.x + box.width, box.y + box.height, clip)) return@forEach
                 images?.get(box.id)?.let { image(canvas, it, box) }
             }
-            page.strokes.forEach { stroke ->
+            if (drawInk != null) drawInk(canvas) else page.strokes.forEach { stroke ->
                 // Bounds first: off-screen ink never pays the spline math, so a dense page
                 // only smooths what is actually on screen.
                 if (!boundsVisible(boundsOf(stroke), stroke.width, clip)) return@forEach

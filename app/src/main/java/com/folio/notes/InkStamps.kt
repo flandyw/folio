@@ -34,12 +34,11 @@ object InkStamps {
         size: Float = 220f,
         color: Int = 0xFF303431.toInt(),
         width: Float = 2.2f,
-        opacity: Float = 1f,
-        createdAt: Long = 0L
+        opacity: Float = 1f
     ): List<Stroke> {
         val half = (size / 2f).coerceIn(40f, 600f)
         fun line(ax: Float, ay: Float, bx: Float, by: Float, style: StrokeStyle = StrokeStyle.SOLID) =
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(ax, ay), InkPoint(bx, by)), opacity, createdAt, style)
+            Stroke(Tool.LINE, color, width, listOf(InkPoint(ax, ay), InkPoint(bx, by)), opacity, style)
         return when (kind) {
             Kind.ARROW -> {
                 val tail = line(centerX - half, centerY, centerX + half * 0.72f, centerY)
@@ -74,28 +73,28 @@ object InkStamps {
                 }
                 vertices.indices.map { i ->
                     Stroke(Tool.PEN, color, width,
-                        listOf(vertices[i], vertices[(i + 1) % vertices.size]), opacity, createdAt)
+                        listOf(vertices[i], vertices[(i + 1) % vertices.size]), opacity)
                 }
             }
             Kind.CHECKBOX -> {
                 val boxHalf = half * 0.45f
                 val box = Stroke(Tool.RECTANGLE, color, width,
                     listOf(InkPoint(centerX - boxHalf, centerY - boxHalf), InkPoint(centerX + boxHalf, centerY + boxHalf)),
-                    opacity, createdAt)
+                    opacity)
                 // A tick inside, slightly oversized so it reads at a glance.
                 val check = listOf(
                     InkPoint(centerX - boxHalf * 0.45f, centerY + boxHalf * 0.05f),
                     InkPoint(centerX - boxHalf * 0.05f, centerY + boxHalf * 0.45f),
                     InkPoint(centerX + boxHalf * 0.55f, centerY - boxHalf * 0.45f)
                 )
-                listOf(box, Stroke(Tool.PEN, color, width, check, opacity, createdAt))
+                listOf(box, Stroke(Tool.PEN, color, width, check, opacity))
             }
             Kind.CALLOUT -> {
                 val w = half
                 val h = half * 0.6f
                 val rect = Stroke(Tool.RECTANGLE, color, width,
                     listOf(InkPoint(centerX - w, centerY - h), InkPoint(centerX + w, centerY + h)),
-                    opacity, createdAt)
+                    opacity)
                 val tail = line(centerX + w * 0.3f, centerY + h, centerX + w * 0.55f, centerY + h + half * 0.5f)
                 listOf(rect, tail)
             }
@@ -106,7 +105,7 @@ object InkStamps {
                     (0..16).map { i ->
                         val t = i / 16f
                         InkPoint(centerX - half + t * half * 2f, y + sin(t * PI).toFloat() * half * 0.06f)
-                    }, opacity, createdAt)
+                    }, opacity)
                 listOf(main)
             }
         }

@@ -106,9 +106,7 @@ fun ExamDetailsPanel(
     note: Notebook, onDismiss: () -> Unit, onSave: (ExamTags) -> Unit,
     onRecordMark: (ExamAttempt) -> Unit, onDeleteAttempt: (ExamAttempt) -> Unit,
     /** Seconds a just-stopped timed sitting ran for, offered as the default on the next mark. */
-    suggestedSeconds: Int? = null,
-    /** Timing record of that sitting, attached when the next timed mark is recorded. */
-    suggestedTelemetry: ExamTelemetry? = null
+    suggestedSeconds: Int? = null
 ) {
     val exam = note.exam
     var subject by remember { mutableStateOf(exam.subject) }
@@ -123,7 +121,6 @@ fun ExamDetailsPanel(
     var tags by remember { mutableStateOf(exam.tags) }
     var examDate by remember { mutableStateOf(exam.examDate) }
     var scoreDialog by remember { mutableStateOf(false) }
-    var timingReport by remember { mutableStateOf<ExamAttempt?>(null) }
 
     FolioPanel(title = "Exam details", onDismissRequest = onDismiss) {
         Column(
@@ -230,11 +227,6 @@ fun ExamDetailsPanel(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        if (attempt.timed || attempt.telemetry != null) {
-                            IconButton({ timingReport = attempt }) {
-                                Icon(Icons.Rounded.History, "Timing report for this sitting", Modifier.size(18.dp))
-                            }
-                        }
                         IconButton({ onDeleteAttempt(attempt) }) {
                             Icon(Icons.Rounded.Close, "Delete this attempt", Modifier.size(16.dp))
                         }
@@ -261,17 +253,13 @@ fun ExamDetailsPanel(
         ScoreDialog(
             total = marksTotal.toIntOrNull(),
             defaultSeconds = suggestedSeconds,
-            telemetry = suggestedTelemetry,
             onDismiss = { scoreDialog = false },
-            onRecord = { score, total, seconds, timed, telemetry ->
+            onRecord = { score, total, seconds, timed ->
                 // The score dialog always asks for a total, so the attempt knows its own share.
-                onRecordMark(ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed, telemetry = telemetry))
+                onRecordMark(ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
                 scoreDialog = false
             }
         )
-    }
-    timingReport?.let { attempt ->
-        SittingReportPanel(note = note, attempt = attempt, onDismiss = { timingReport = null })
     }
 }
 
@@ -424,8 +412,7 @@ private fun BatchSection(
 @Composable
 fun ScoreDialog(
     total: Int?, defaultSeconds: Int?, onDismiss: () -> Unit,
-    onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean, telemetry: ExamTelemetry?) -> Unit,
-    telemetry: ExamTelemetry? = null
+    onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit
 ) {
     var score by rememberSaveable { mutableStateOf("") }
     var totalText by rememberSaveable { mutableStateOf(total?.toString() ?: "") }
@@ -478,7 +465,7 @@ fun ScoreDialog(
         dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
         confirmButton = {
             Button(
-                { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed, if (timed) telemetry else null) },
+                { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
                 enabled = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal
             ) { Text("Record") }
         }
@@ -884,227 +871,3 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
         }
     }
 }
-
-// ---- Sitting timing report + replay ------------------------------------------------------------------
-
-private fun msLabel(ms: Long): String {
-    if (ms <= 0L) return "—"
-    val seconds = (ms / 1000L).toInt()
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    return when {
-        hours > 0 -> "$hours h $minutes min"
-        minutes > 0 -> "$minutes min"
-        else -> "$seconds s"
-    }
-}
-
-/** Offset into a sitting as "m:ss" (or "h:mm:ss"), for replay and idle ranges. */
-private fun offsetLabel(ms: Long): String {
-    val total = (ms / 1000L).toInt().coerceAtLeast(0)
-    val hours = total / 3600
-    val minutes = (total % 3600) / 60
-    val seconds = total % 60
-    return if (hours > 0) String.format(java.util.Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
-    else String.format(java.util.Locale.ROOT, "%d:%02d", minutes, seconds)
-}
-
-/**
- * How a timed sitting went: writing and dwell time per page, idle stretches, the final rush,
- * and a replay scrubber that steps through the paper as it was written. Strokes are timestamped
- * as they land and page visits while the timer runs, so older sittings may show writing time
- * without dwell.
- */
-@Composable
-fun SittingReportPanel(note: Notebook, attempt: ExamAttempt, onDismiss: () -> Unit) {
-    // Key on revision + attempt so unrelated strokes don't re-run O(N log N) analysis.
-    val revisionKey = remember(note) { note.pages.sumOf { it.revision + it.strokes.size } }
-    val analysis = remember(revisionKey, attempt) { analyzeSitting(note, attempt) }
-    FolioPanel(title = "Timing report", onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            if (analysis == null) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Text(
-                        "No timing data for this sitting. Strokes are timestamped while you write and pages while the timer runs, so future timed sittings will report here.",
-                        Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                return@Column
-            }
-            Text(
-                "Recorded ${compactDate(attempt.date)} · ${msLabel(analysis.durationMs)} sitting",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            ReportCard("Sitting") {
-                ReportRow("Strokes written", analysis.totalStrokes.toString())
-                ReportRow("Active writing", msLabel(analysis.activeMs))
-                ReportRow(
-                    "Idle",
-                    if (analysis.idleGaps.isEmpty()) "No gaps over a minute" else "${msLabel(analysis.idleMs)} across ${analysis.idleGaps.size}"
-                )
-            }
-            ReportCard("Time per page") {
-                if (analysis.pages.isEmpty()) {
-                    Text("Nothing was written during this sitting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                val peak = analysis.pages.maxOfOrNull { it.activeMs }?.coerceAtLeast(1L) ?: 1L
-                analysis.pages.forEach { page ->
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row {
-                            Text("Page ${page.pageIndex + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "${msLabel(page.activeMs)} writing · ${page.strokes} strokes",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        LinearProgressIndicator(
-                            progress = { (page.activeMs.toFloat() / peak).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        )
-                        if (page.dwellMs > 0L) {
-                            Text(
-                                "On page ${msLabel(page.dwellMs)}",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                if ((attempt.telemetry?.visits.orEmpty()).isEmpty()) {
-                    Text(
-                        "Page dwell needs the visit log — sittings from before this update show writing time only.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            ReportCard("Idle periods") {
-                if (analysis.idleGaps.isEmpty()) {
-                    Text("Steady writing — no gap over a minute.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                analysis.idleGaps.forEach { gap ->
-                    val from = gap.startMs - analysis.windowStartMs
-                    val to = gap.endMs - analysis.windowStartMs
-                    ReportRow("${offsetLabel(from)}–${offsetLabel(to)}", msLabel(gap.durationMs))
-                }
-            }
-            ReportCard("Final 10 minutes") {
-                val share = analysis.rushShare
-                if (share == null) {
-                    Text("Nothing was written during this sitting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    ProgressRow("Rush share", share)
-                    Text(
-                        "${analysis.rushStrokes} of ${analysis.totalStrokes} strokes landed in the last 10 minutes.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            ReportCard("Replay") {
-                SittingReplay(analysis)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReportCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ReportRow(label: String, value: String) {
-    Row {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-/**
- * Steps through the sitting as it was written: play runs at 60×, the slider scrubs, and the
- * chart shows strokes per minute with the playhead's minute highlighted.
- */
-@Composable
-private fun SittingReplay(analysis: SittingAnalysis) {
-    val duration = analysis.durationMs.coerceAtLeast(1L)
-    var replayMs by remember(analysis) { mutableLongStateOf(0L) }
-    var playing by remember(analysis) { mutableStateOf(false) }
-    LaunchedEffect(playing, analysis) {
-        while (playing) {
-            kotlinx.coroutines.delay(250)
-            val next = replayMs + 250L * REPLAY_SPEED
-            if (next >= duration) {
-                replayMs = duration
-                playing = false
-            } else replayMs = next
-        }
-    }
-    val cutoff = analysis.windowStartMs + replayMs
-    // Binary search on the time-ordered timeline: O(log N) per slider tick, not O(N).
-    val timeline = analysis.timeline
-    var lo = 0
-    var hi = timeline.size
-    while (lo < hi) {
-        val mid = (lo + hi) ushr 1
-        if (timeline[mid].atMs <= cutoff) lo = mid + 1 else hi = mid
-    }
-    val done = lo
-    val currentPage = if (done > 0) timeline[done - 1].pageIndex + 1 else null
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        IconButton({
-            playing = if (replayMs >= duration) {
-                replayMs = 0L
-                true
-            } else !playing
-        }) {
-            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause replay" else "Play replay at 60× speed")
-        }
-        Slider(
-            value = replayMs.toFloat(),
-            onValueChange = { replayMs = it.toLong().coerceIn(0L, duration); playing = false },
-            valueRange = 0f..duration.toFloat(),
-            modifier = Modifier.weight(1f)
-        )
-    }
-    Text(
-        "${offsetLabel(replayMs)} of ${offsetLabel(duration)} · " +
-            (currentPage?.let { "page $it · " } ?: "") +
-            "$done of ${analysis.totalStrokes} strokes",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    val peak = analysis.perMinute.maxOrNull()?.coerceAtLeast(1) ?: 1
-    val bar = MaterialTheme.colorScheme.primary
-    val playhead = MaterialTheme.colorScheme.tertiary
-    val track = MaterialTheme.colorScheme.surfaceContainerHigh
-    val currentBucket = ((replayMs / 60_000L).toInt()).coerceIn(0, analysis.perMinute.size - 1)
-    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(64.dp)) {
-        val n = analysis.perMinute.size
-        if (n == 0) return@Canvas
-        val gap = 2.dp.toPx()
-        val slot = size.width / n
-        val barWidth = (slot - gap).coerceAtLeast(1f)
-        analysis.perMinute.forEachIndexed { index, count ->
-            val height = if (peak == 0) 0f else size.height * count / peak
-            drawRect(
-                color = if (index == currentBucket) playhead else if (count > 0) bar else track,
-                topLeft = androidx.compose.ui.geometry.Offset(index * slot + gap / 2f, size.height - height),
-                size = androidx.compose.ui.geometry.Size(barWidth, height.coerceAtLeast(if (count > 0) 3.dp.toPx() else 1.dp.toPx()))
-            )
-        }
-    }
-    Text(
-        "Strokes per minute across the sitting, played back at 60×.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-}
-
-/** Replay speed: one real second steps through a minute of the sitting. */
-private const val REPLAY_SPEED = 60L

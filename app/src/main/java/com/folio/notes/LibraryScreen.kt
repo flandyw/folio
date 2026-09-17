@@ -408,8 +408,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
             onSave = { tags -> model.updateExamTags(note.id, tags); examDetails = null },
             onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
             onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
-            suggestedSeconds = state.lastTimedSeconds,
-            suggestedTelemetry = state.lastTelemetry
+            suggestedSeconds = state.lastTimedSeconds
         )
     }
     setAssign?.let { note ->

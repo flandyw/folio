@@ -371,14 +371,15 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
+        if (page.id != value.id || page.infinite != value.infinite) clearVectorLayer()
+        if (page.id != value.id || page.infinite != value.infinite) { writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; committedInk.clear(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
         else if (page.strokes !== value.strokes) {
             // Same page, new revision: drop geometry for strokes that are gone so the
             // caches track the live ink instead of every undone fragment.
             val keep = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
             keep.addAll(value.strokes); keep.addAll(selection)
-            renderCache.keys.retainAll(keep)
-            boundsCache.keys.retainAll(keep)
+            renderCache.retainAll(keep)
+            boundsCache.retainAll(keep)
         }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
@@ -404,10 +405,12 @@ class InkView(context: Context) : View(context) {
         if (selectedImageId != null && value.images.none { it.id == selectedImageId }) selectedImageId = null
         invalidate()
     }
+    private val committedInk = CommittedInkCache()
     private val committedLayer = if (android.os.Build.VERSION.SDK_INT >= 29) android.graphics.RenderNode("Committed page") else null
     private var recordedPage: NotePage? = null
     private var recordedBackground: Bitmap? = null
     private var recordedImages: Map<String, Bitmap>? = null
+
 
     private fun selectionIdentities(): MutableSet<Stroke> {
         val key = selection
@@ -430,30 +433,15 @@ class InkView(context: Context) : View(context) {
     /**
      * Smoothed ink geometry by stroke identity. Strokes are immutable and untouched strokes
      * keep their instance through erasing and page copies, so each stroke pays the spline
-     * math once no matter how many frames, recordings or eraser passes touch the page.
-     * UI thread only; pruned to the live page so undo generations never pin memory.
+     * math once while cached, across frames, recordings and eraser passes.
+     * UI thread only; bounded and pruned to the live page so undo generations never pin memory.
      */
-    private val renderCache = java.util.IdentityHashMap<Stroke, InkRenderer.RenderedStroke>()
-    private val boundsCache = java.util.IdentityHashMap<Stroke, FloatArray>()
+    private val renderCache = IdentityCache<Stroke, InkRenderer.RenderedStroke>(MAX_CACHED_STROKES)
+    private val boundsCache = IdentityCache<Stroke, FloatArray>(MAX_CACHED_STROKES)
     private fun renderedOf(stroke: Stroke): InkRenderer.RenderedStroke =
-        renderCache.getOrPut(stroke) {
-            if (renderCache.size > MAX_CACHED_STROKES) pruneStrokeCaches()
-            InkRenderer.rendered(stroke)
-        }
+        renderCache.getOrPut(stroke) { InkRenderer.rendered(stroke) }
     private fun boundsOf(stroke: Stroke): FloatArray =
-        boundsCache.getOrPut(stroke) {
-            if (boundsCache.size > MAX_CACHED_STROKES) pruneStrokeCaches()
-            InkRenderer.rawBounds(stroke)
-        }
-    private fun pruneStrokeCaches() {
-        val keep = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
-        keep.addAll(page.strokes); keep.addAll(selection)
-        draft?.let(keep::add)
-        erasing?.let(keep::addAll)
-        renderCache.keys.retainAll(keep)
-        boundsCache.keys.retainAll(keep)
-        if (renderCache.size > MAX_CACHED_STROKES) { renderCache.clear(); boundsCache.clear() }
-    }
+        boundsCache.getOrPut(stroke) { InkRenderer.rawBounds(stroke) }
     /** Reused base page (page minus selection) so a selection drag reuses the retained layer. */
     private var restCacheKeyPage: NotePage? = null
     private var restCacheKeyStrokes: List<Stroke>? = null
@@ -462,6 +450,20 @@ class InkView(context: Context) : View(context) {
     private var restCache: NotePage? = null
 
     private fun drawCommittedPage(canvas: Canvas, content: NotePage) {
+        // During camera gestures keep the vector display list: continuously rebuilding a
+        // screen-resolution bitmap at each pinch/pan step would make navigation expensive.
+        if (navigating || lineAdvance != null) {
+            drawVectorPage(canvas, content)
+            return
+        }
+        InkRenderer.pageCached(canvas, content, background, images = imageBitmaps,
+            boundsOf = ::boundsOf, renderOf = ::renderedOf,
+            drawInk = { inkCanvas ->
+                committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf)
+            })
+    }
+
+    private fun drawVectorPage(canvas: Canvas, content: NotePage) {
         // Infinite paper depends on the viewport clip; retain ordinary finite pages only.
         // Every path reuses the identity-keyed geometry cache, so a recording smooths only
         // strokes it has never seen instead of re-walking the whole page per commit.
@@ -482,11 +484,15 @@ class InkView(context: Context) : View(context) {
         canvas.drawRenderNode(node)
     }
 
-    override fun onDetachedFromWindow() {
-        removeCallbacks(followFrame)
+    private fun clearVectorLayer() {
         if (android.os.Build.VERSION.SDK_INT >= 29) committedLayer?.discardDisplayList()
         recordedPage = null; recordedBackground = null; recordedImages = null
-        renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(followFrame)
+        clearVectorLayer()
+        committedInk.clear(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
     }
@@ -956,7 +962,7 @@ class InkView(context: Context) : View(context) {
     }
     private fun finishGesture() {
         val wasErasing = erasing != null
-        val drawn = draft?.copy(createdAt = System.currentTimeMillis())
+        val drawn = draft
         var scribbleErased: List<Stroke>? = null
         if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
             val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity)
@@ -1440,7 +1446,7 @@ class InkView(context: Context) : View(context) {
         const val SELECTION_HALO_LIMIT = 40
         /** Drawn radius of each selection frame handle, in page units. */
         const val SELECTION_HANDLE_RADIUS = 16f
-        /** Identity-keyed geometry caches stay bounded; beyond this they are pruned to the live page. */
+        /** Geometry caches evict one old entry at capacity, even on pages with more live strokes. */
         const val MAX_CACHED_STROKES = 4000
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()
     }

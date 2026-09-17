@@ -126,9 +126,7 @@ data class ExamAttempt(
     /** Seconds spent, when sat under the exam timer. */
     val secondsTaken: Int? = null,
     /** True when the sitting was timed, so redo-after-timing comparisons stay honest. */
-    val timed: Boolean = false,
-    /** When each stroke landed and which pages were open, backing the timing report and replay. */
-    val telemetry: ExamTelemetry? = null
+    val timed: Boolean = false
 ) {
     /** Share of the paper's total marks, 0..1, or null while the total is unknown. */
     val share: Float? get() = total?.takeIf { it > 0 }?.let { (score.toFloat() / it).coerceIn(0f, 1f) }
@@ -202,7 +200,6 @@ object ExamTagsCodec {
             a.total?.let { put("total", it) }
             a.secondsTaken?.let { put("seconds", it) }
             if (a.timed) put("timed", true)
-            a.telemetry?.let { put("telemetry", ExamTelemetryCodec.encode(it)) }
         }) }
     }
 
@@ -216,8 +213,7 @@ object ExamTagsCodec {
                 total = if (a.has("total") && !a.isNull("total")) a.optInt("total") else null,
                 date = a.optLong("date", System.currentTimeMillis()),
                 secondsTaken = if (a.has("seconds") && !a.isNull("seconds")) a.optInt("seconds") else null,
-                timed = a.optBoolean("timed", false),
-                telemetry = ExamTelemetryCodec.decode(a.optJSONObject("telemetry"))
+                timed = a.optBoolean("timed", false)
             )
         }
     }
