@@ -533,7 +533,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         return@awaitEachGesture
                     }
                     val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(0f)
-                    val geometry = fastScrollGeometry(pages, span, minimumThumbPx)
+                    val geometry = fastScrollGeometry(pages, note.pages.size, span, minimumThumbPx)
                     val onThumb = geometry != null &&
                         down.position.x in (size.width - stripInsetPx - stripWidthPx)..(size.width - stripInsetPx) &&
                         down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
@@ -542,8 +542,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                         motion.reset()
                         down.consume()
                         val travelSpan = (span - geometry.height).coerceAtLeast(1f)
-                        val startProgress = DocumentViewport.scrollProgress(pages.firstVisibleItemIndex,
-                            pages.firstVisibleItemScrollOffset, pages.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0,
+                        val firstPageIndex = pages.firstVisibleItemIndex.coerceIn(0, (note.pages.size - 1).coerceAtLeast(0))
+                        val firstPageSize = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index < note.pages.size }?.size
+                            ?: pages.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0
+                        val startProgress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex,
+                            pages.firstVisibleItemScrollOffset, firstPageSize,
                             note.pages.size)
                         try {
                             while (true) {
@@ -1251,11 +1254,17 @@ private fun paperLabel(p: Paper): String = when (p) {
 private data class FastScrollGeometry(val top: Float, val height: Float)
 
 /** Shared geometry keeps the touch target aligned with the visible thumb. */
-private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb: Float): FastScrollGeometry? {
+private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Float, minimumThumb: Float): FastScrollGeometry? {
     val info = pages.layoutInfo
-    if (height <= 0f || (!pages.canScrollBackward && !pages.canScrollForward)) return null
-    val progress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(pages.firstVisibleItemIndex, pages.firstVisibleItemScrollOffset, info.visibleItemsInfo.firstOrNull()?.size ?: 0, info.totalItemsCount)
-    val share = DocumentViewport.thumbFraction(info.visibleItemsInfo.size, info.totalItemsCount)
+    if (pageCount <= 0 || height <= 0f || (!pages.canScrollBackward && !pages.canScrollForward)) return null
+    // The LazyColumn holds one extra trailing item (the Add page button), so clamp to real
+    // pages and count only pages: otherwise progress and thumb size drift off by one.
+    val firstPageIndex = pages.firstVisibleItemIndex.coerceIn(0, pageCount - 1)
+    val firstPageSize = info.visibleItemsInfo.firstOrNull { it.index < pageCount }?.size
+        ?: info.visibleItemsInfo.firstOrNull()?.size ?: 0
+    val progress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex, pages.firstVisibleItemScrollOffset, firstPageSize, pageCount)
+    val visiblePages = info.visibleItemsInfo.count { it.index < pageCount }.coerceAtLeast(1)
+    val share = DocumentViewport.thumbFraction(visiblePages, pageCount)
     val thumb = (height * share).coerceAtLeast(minimumThumb).coerceAtMost(height)
     return FastScrollGeometry((height - thumb) * progress, thumb)
 }
@@ -1267,7 +1276,7 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
     val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
     val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, label = "fastScrollWidth")
     BoxWithConstraints(modifier) {
-        val geometry = fastScrollGeometry(pages, constraints.maxHeight.toFloat(), with(density) { 28.dp.toPx() })
+        val geometry = fastScrollGeometry(pages, pageCount, constraints.maxHeight.toFloat(), with(density) { 28.dp.toPx() })
             ?: return@BoxWithConstraints
         Box(Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
             Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .22f)))
@@ -1280,7 +1289,8 @@ private fun fastScrollGeometry(pages: LazyListState, height: Float, minimumThumb
             shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-            Text("${(pages.firstVisibleItemIndex + 1).coerceAtMost(pageCount)} / $pageCount",
+            val current = DocumentViewport.displayedPage(pages.firstVisibleItemIndex, pages.canScrollForward, pageCount)
+            Text("${current + 1} / $pageCount",
                 Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)
         }
