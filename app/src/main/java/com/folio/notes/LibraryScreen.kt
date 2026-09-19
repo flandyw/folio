@@ -49,6 +49,8 @@ enum class LibrarySection { LIBRARY, REVIEW, PROGRESS }
 enum class ReviewTab { SETS, REDO, BOOKMARKS }
 
 @Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {}) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var setAssign by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -60,10 +62,14 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
         debouncedQuery = query
     }
     var starred by rememberSaveable { mutableStateOf(false) }
-    var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENT) }
-    var kind by rememberSaveable { mutableStateOf(LibraryKind.ALL) }
+    var sort by rememberSaveable { mutableStateOf(AppPrefs.librarySort(libraryPrefs.getString(AppPrefs.LIB_SORT, null))) }
+    var kind by rememberSaveable { mutableStateOf(AppPrefs.libraryKind(libraryPrefs.getString(AppPrefs.LIB_KIND, null))) }
     var unfiled by rememberSaveable { mutableStateOf(false) }
-    var listView by rememberSaveable { mutableStateOf(false) }
+    var listView by rememberSaveable { mutableStateOf(libraryPrefs.getBoolean(AppPrefs.LIB_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
+    // Persist library defaults so the shelf reopens the way it was left.
+    LaunchedEffect(sort) { libraryPrefs.edit().putString(AppPrefs.LIB_SORT, sort.name).apply() }
+    LaunchedEffect(kind) { libraryPrefs.edit().putString(AppPrefs.LIB_KIND, kind.name).apply() }
+    LaunchedEffect(listView) { libraryPrefs.edit().putBoolean(AppPrefs.LIB_LIST, listView).apply() }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(LibrarySection.LIBRARY) }
     var reviewTab by rememberSaveable { mutableStateOf(ReviewTab.SETS) }

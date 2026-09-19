@@ -768,7 +768,11 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
 @Composable
 fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit, onPauseResume: () -> Unit) {
-    var customMinutes by rememberSaveable { mutableStateOf("90") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val timerPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    val defaultCustom = AppPrefs.timerCustomMinutes(timerPrefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_CUSTOM_MIN) })
+    val defaultReading = AppPrefs.timerReadingMinutes(timerPrefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_READING_MIN) })
+    var customMinutes by rememberSaveable { mutableStateOf("$defaultCustom") }
     var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
     LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
     FolioPanel(title = "Exam timer", onDismissRequest = onDismiss) {
@@ -809,8 +813,8 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                                 )
                                 Button({
-                                    val minutes = (customMinutes.toIntOrNull() ?: 90).coerceIn(1, 480)
-                                    customPreset = ExamTimerPreset("Custom · $minutes min", minutes * 60, 15 * 60)
+                                    val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())
+                                    customPreset = ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60)
                                     onStart(customPreset)
                                 }, shapes = ButtonDefaults.shapes()) { Text("Start") }
                             }

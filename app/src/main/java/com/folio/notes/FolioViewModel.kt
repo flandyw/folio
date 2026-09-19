@@ -89,7 +89,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         pdfSearch = restoredTabs.find { it.notebookId == savedState.get<String>("activeId") }?.search ?: PdfSearchState(),
         companion = WorkspaceSessionCodec.decode(savedState["workspaceCompanion"]).firstOrNull(),
         companionMode = runCatching { CompanionMode.valueOf(savedState.get<String>("workspaceMode") ?: "SPLIT") }.getOrDefault(CompanionMode.SPLIT),
-        splitFraction = (savedState.get<Float>("splitFraction") ?: 0.5f).coerceIn(SplitPanes.MIN_FRACTION, SplitPanes.MAX_FRACTION),
+        splitFraction = (savedState.get<Float>("splitFraction")
+            ?: prefs.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { prefs.contains(AppPrefs.SPLIT_FRACTION) }
+            ?: AppPrefs.DEFAULT_SPLIT).let { AppPrefs.splitFraction(it) },
         companionLinked = savedState.get<Boolean>("companionLinked") ?: false,
         editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
@@ -460,6 +462,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Dragged divider position, as the editor's share; snapped by the caller on release. */
     fun setSplitFraction(fraction: Float) {
         val next = SplitPanes.coerce(fraction)
+        prefs.edit().putFloat(AppPrefs.SPLIT_FRACTION, next).apply()
         _state.update { if (it.splitFraction == next) it else it.copy(splitFraction = next) }
     }
 

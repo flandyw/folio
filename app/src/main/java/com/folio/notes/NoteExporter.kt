@@ -10,15 +10,16 @@ import kotlinx.coroutines.withContext
 import java.io.OutputStream
 
 class NoteExporter(private val repository: NoteRepository) {
-    suspend fun write(context: Context, uri: Uri, note: Notebook, pageIndex: Int, png: Boolean): Unit = withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { write(it, note, pageIndex, png) } ?: error("Couldn't open the export destination")
+    suspend fun write(context: Context, uri: Uri, note: Notebook, pageIndex: Int, png: Boolean, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { write(it, note, pageIndex, png, pngScale) } ?: error("Couldn't open the export destination")
     }
-    suspend fun write(output: OutputStream, note: Notebook, pageIndex: Int, png: Boolean): Unit = withContext(Dispatchers.IO) {
+    suspend fun write(output: OutputStream, note: Notebook, pageIndex: Int, png: Boolean, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
         // The imported PDF is parsed once here and reused, so a long notebook isn't reparsed per page.
         repository.openPdf(note.id).use { source ->
             if (png) {
                 val page = InkRenderer.exportPage(content(note, note.pages.getOrNull(pageIndex) ?: note.pages.first()))
-                val factor = minOf(2f, 2800f / page.height, 2800f / page.width)
+                val scale = AppPrefs.pngScale(pngScale)
+                val factor = minOf(scale, 2800f / page.height, 2800f / page.width)
                 val bitmap = Bitmap.createBitmap((page.width * factor).toInt().coerceAtLeast(1), (page.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
                 val background = source?.render(page, bitmap.width)
                 val images = repository.loadImages(note.id, page)

@@ -49,6 +49,8 @@ class InkView(context: Context) : View(context) {
     var scribbleToErase = true
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
     var eraserWholeStroke = false
+    /** How long after stylus activity a finger still counts as a resting palm. 0 disables. */
+    var palmRejectMs: Long = PALM_REJECT_MS
     var shapeMeasurements = true
     var multiTouchUndo = true
     var onEraserFinished: (() -> Unit)? = null
@@ -439,7 +441,7 @@ class InkView(context: Context) : View(context) {
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if ((0 until event.pointerCount).any { isStylus(event, it) }) {
             val leaving = event.actionMasked == MotionEvent.ACTION_HOVER_EXIT
-            lastStylusAt = if (leaving) -PALM_REJECT_MS else SystemClock.uptimeMillis()
+            lastStylusAt = if (leaving) -palmRejectMs else SystemClock.uptimeMillis()
             // Hovering with the eraser previews the same outline it will cut with, before the tip lands.
             if (leaving) { if (eraserMark != null) { eraserMark = null; invalidate() } }
             else if (tool == Tool.ERASER) {
@@ -1517,7 +1519,7 @@ class InkView(context: Context) : View(context) {
             style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
     }
     private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
-    private fun isPalm(event: MotionEvent, index: Int) = !isStylus(event, index) && SystemClock.uptimeMillis() - lastStylusAt < PALM_REJECT_MS
+    private fun isPalm(event: MotionEvent, index: Int) = palmRejectMs > 0 && !isStylus(event, index) && SystemClock.uptimeMillis() - lastStylusAt < palmRejectMs
     private fun point(e: MotionEvent, i: Int, history: Int? = null): InkPoint {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)

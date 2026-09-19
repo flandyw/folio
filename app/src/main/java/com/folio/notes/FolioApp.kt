@@ -64,6 +64,27 @@ import java.io.File
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
     var shapeRecognition by rememberSaveable { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
+    var fullscreen by remember { mutableStateOf(prefs.getBoolean(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN)) }
+    var autoUpdate by remember { mutableStateOf(prefs.getBoolean(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE)) }
+    // Fullscreen is applied here (not only in MainActivity) so turning it off in Settings
+    // brings the status bar and gesture pill back without restarting the app.
+    LaunchedEffect(fullscreen) {
+        val activity = context as? androidx.activity.ComponentActivity ?: return@LaunchedEffect
+        val controller = androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        controller.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (fullscreen) controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        else controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                AppPrefs.FULLSCREEN -> fullscreen = prefs.getBoolean(key, AppPrefs.DEFAULT_FULLSCREEN)
+                AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     var settings by rememberSaveable { mutableStateOf(false) }
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
@@ -91,8 +112,9 @@ import java.io.File
         val request = model.pendingExport ?: return
         model.pendingExport = null
         if (uri == null) return
+        val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
         model.export {
-            exporter.write(context.applicationContext, uri, request.first, request.second, png)
+            exporter.write(context.applicationContext, uri, request.first, request.second, png, pngScale)
             model.reportError(if (png) "Page saved as PNG" else "Notebook saved as PDF")
         }
     }
@@ -180,7 +202,8 @@ import java.io.File
         }
     }
     // Deferred past first paint + library load so cold start never competes with a network fetch.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(autoUpdate) {
+        if (!autoUpdate) return@LaunchedEffect
         kotlinx.coroutines.delay(3000)
         checkForUpdates(showDialog = false)
     }
@@ -317,13 +340,15 @@ import java.io.File
 }
 
 @Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
+    val context = LocalContext.current
+    val dialogPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var title by rememberSaveable { mutableStateOf("") }
-    var cover by rememberSaveable { mutableIntStateOf(0) }
-    var paper by rememberSaveable { mutableStateOf(Paper.MATH_GRID) }
+    var cover by rememberSaveable { mutableIntStateOf(AppPrefs.defaultCover(dialogPrefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { dialogPrefs.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
+    var paper by rememberSaveable { mutableStateOf(AppPrefs.defaultPaper(dialogPrefs.getString(AppPrefs.DEFAULT_PAPER, null))) }
     var template by rememberSaveable { mutableStateOf<String?>(null) }
     var pageCount by rememberSaveable { mutableIntStateOf(1) }
     var infinite by rememberSaveable { mutableStateOf(false) }
-    var pageCover by rememberSaveable { mutableStateOf(true) }
+    var pageCover by rememberSaveable { mutableStateOf(dialogPrefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
     fun chooseTemplate(item: NotebookTemplate) {
         infinite = false
         template = item.id
