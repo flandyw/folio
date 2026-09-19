@@ -136,6 +136,7 @@ class InkView(context: Context) : View(context) {
      */
     private var draftPenStroke: InkRenderer.IncrementalPenStroke? = null
     private var draftPenPoints: List<InkPoint>? = null
+    private var draftHighlighter: InkRenderer.IncrementalHighlighterStroke? = null
     /** Where the eraser outline sits, in page units, or null when it should not be shown. */
     private var eraserMark: InkPoint? = null
     // Text gestures: a box being dragged, or a tap waiting to become a new box.
@@ -322,7 +323,7 @@ class InkView(context: Context) : View(context) {
             if (down || followPaused) return
             val pending = pendingReturn
             if (pending != null) {
-                if (now - followLiftedAt < 650) { postOnAnimation(this); return }
+                if (now - followLiftedAt < followPreferences.returnDelayMs.coerceIn(300, 2000)) { postOnAnimation(this); return }
                 pendingReturn = null
                 backPanX = 0f; backPanY = 0f; hasFollowBack = true; backFollowState = writingFollow.state
                 startLineAdvance(pending)
@@ -332,7 +333,7 @@ class InkView(context: Context) : View(context) {
             var ax = 0f; var ay = 0f
             val advancing = !down && (advanceTotalX != 0f || advanceTotalY != 0f)
             if (advancing) {
-                val t = writingFollow.lineAdvanceProgress(advanceStartAt, now)
+                val t = writingFollow.lineAdvanceProgress(advanceStartAt, now, followPreferences.glideDurationMs)
                 val eased = 1f - (1f - t) * (1f - t) * (1f - t)
                 val targetX = advanceTotalX * eased
                 val targetY = advanceTotalY * eased
@@ -508,11 +509,16 @@ class InkView(context: Context) : View(context) {
         }
         return cached
     }
-    private fun resetDraftGeometry() { draftPenStroke = null; draftPenPoints = null }
+    private fun resetDraftGeometry() { draftPenStroke = null; draftPenPoints = null; draftHighlighter = null }
     private fun draftGeometry(stroke: Stroke): InkRenderer.RenderedStroke {
         val points = stroke.points
-        if (draftPenPoints !== points) { draftPenPoints = points; draftPenStroke = InkRenderer.IncrementalPenStroke() }
-        return draftPenStroke!!.update(points)
+        if (draftPenPoints !== points) {
+            draftPenPoints = points
+            draftPenStroke = InkRenderer.IncrementalPenStroke()
+            draftHighlighter = InkRenderer.IncrementalHighlighterStroke()
+        }
+        return if (stroke.tool == Tool.HIGHLIGHTER) draftHighlighter!!.update(points)
+            else draftPenStroke!!.update(points)
     }
     /**
      * Smoothed ink geometry by stroke identity. Strokes are immutable and untouched strokes
@@ -666,12 +672,11 @@ class InkView(context: Context) : View(context) {
         if (hasSelection()) drawSelectionFrame(canvas)
         if (previewing) canvas.restore()
         val draftStroke = draft
-        // A pen stroke in progress draws from incremental geometry: only the section the tip is
-        // still extending is re-smoothed, so a long line costs the same per frame as a short one
-        // instead of re-resampling the whole stroke 144 times a second.
+        // Live freehand ink retains settled spline segments and resamples only the changing tip.
+        // Drawing/tapering still visits the centreline, but smoothing no longer grows with the line.
         if (draftStroke == null) resetDraftGeometry()
         else {
-            val live = if (draftStroke.tool == Tool.PEN) draftGeometry(draftStroke) else null
+            val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
             if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
             else InkRenderer.stroke(canvas, draftStroke)
             if (shapeMeasurements && draftStroke.tool in MEASURE_TOOLS) drawMeasurement(canvas, draftStroke)
@@ -960,11 +965,10 @@ class InkView(context: Context) : View(context) {
                         draft = when {
                             accepted.isEmpty() -> current
                             current.tool in FREEHAND_TOOLS -> {
-                                // Reuse the backing list after the first batch: copying the whole
-                                // point list per MOVE is O(N²) for a long stroke.
-                                val backing = (current.points as? ArrayList<InkPoint>) ?: ArrayList(current.points)
-                                backing.addAll(accepted)
-                                current.copy(points = backing)
+                                // Drafts own their mutable samples until pen-up. Neither the list
+                                // nor the Stroke needs allocating again for each input event.
+                                (current.points as ArrayList<InkPoint>).addAll(accepted)
+                                current
                             }
                             else -> {
                                 var end = accepted.last()
@@ -1042,7 +1046,10 @@ class InkView(context: Context) : View(context) {
                                 if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)
                                 if (current.tool == Tool.LINE) end = InkGeometry.snapAngle(current.points.first(), end, 15f)
                             }
-                            draft = current.copy(points = if (current.tool in FREEHAND_TOOLS) current.points + end else listOf(current.points.first(), end))
+                            draft = if (current.tool in FREEHAND_TOOLS) {
+                                (current.points as ArrayList<InkPoint>).add(end)
+                                current
+                            } else current.copy(points = listOf(current.points.first(), end))
                         }
                     }
                     finishGesture()
@@ -1057,7 +1064,7 @@ class InkView(context: Context) : View(context) {
     }
     private fun finishGesture() {
         val wasErasing = erasing != null
-        val drawn = draft
+        val drawn = draft?.let { it.copy(points = it.points.toList()) }
         var scribbleErased: List<Stroke>? = null
         if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
             val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity)
@@ -1080,7 +1087,7 @@ class InkView(context: Context) : View(context) {
                 val next = FollowNavigation.next(baseline, region, writingGuides, followPreferences.spacing)
                 val nearEnd = FollowNavigation.nearEnd(drawn.points, region, followPreferences.direction)
                 if (nearEnd && next != null && followPreferences.mode == FollowMode.TEXT && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)) {
-                    onFollowStatus(if (followPreferences.automaticReturn) "Next line… keep writing to cancel" else "Next line ready")
+                    onFollowStatus(if (followPreferences.automaticReturn) "Next line in ${FollowPreferences.returnDelayLabel(followPreferences.returnDelayMs)}… touch down to cancel" else "Next line ready")
                     if (followPreferences.automaticReturn) pendingReturn = next
                 } else onFollowStatus(if (next == null) "End of answer area" else "Following")
                 if (pendingReturn == null && getLocalVisibleRect(followVisible)) {
@@ -1103,7 +1110,17 @@ class InkView(context: Context) : View(context) {
             }
         }
         val changed = strokes != null && strokes != page.strokes
-        if (changed) page = page.copy(strokes = strokes!!)
+        if (changed) {
+            if (drawn != null && drawn.tool in FREEHAND_TOOLS && scribbleErased == null && tidied == null) {
+                // Hand the final live geometry to the retained layer; pen-up need not smooth it again.
+                val geometry = draftGeometry(draft!!)
+                renderCache.getOrPut(drawn) {
+                    // Detach from the live builder so cached ink does not retain its scratch buffers.
+                    geometry.copy(centre = geometry.centre.toList())
+                }
+            }
+            page = page.copy(strokes = strokes!!)
+        }
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
         cancelGesture()
         if (changed) onStrokesChanged(page.strokes)
@@ -1217,7 +1234,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -1496,7 +1513,7 @@ class InkView(context: Context) : View(context) {
                 else InkGeometry.erase(it, start, radius)
             }
             eraserMark = start
-        } else draft = Stroke(tool, inkColor, inkWidth, listOf(start), inkOpacity,
+        } else draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
             style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
     }
     private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER

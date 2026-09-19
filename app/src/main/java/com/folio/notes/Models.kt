@@ -717,6 +717,65 @@ object InkGeometry {
         return result
     }
 
+    /**
+     * Append-only spline builder. Only the last three segments can change with new samples.
+     * The returned list is owned by this builder and valid until its next update/reset.
+     */
+    internal class IncrementalSmooth(private val preserveEndpoints: Boolean = false) {
+        private val clean = ArrayList<InkPoint>()
+        private val settled = ArrayList<InkPoint>()
+        private val tail = ArrayList<InkPoint>()
+        private var consumed = 0
+        private var settledSegments = 0
+        private val result = object : AbstractList<InkPoint>() {
+            override val size get() = settled.size + tail.size
+            override fun get(index: Int): InkPoint =
+                if (index < settled.size) settled[index] else tail[index - settled.size]
+        }
+
+        fun update(points: List<InkPoint>): List<InkPoint> {
+            // A forced endpoint may be too close to survive cleanup once another sample arrives.
+            // Keep it provisional rather than letting it influence future distance filtering.
+            val stableCount = if (preserveEndpoints) (points.size - 1).coerceAtLeast(0) else points.size
+            if (stableCount < consumed) reset()
+            while (consumed < stableCount) {
+                val point = points[consumed++]
+                if (clean.isEmpty() || distance(clean.last(), point) > MIN_SAMPLE) clean.add(point)
+            }
+            if (settled.isEmpty() && clean.isNotEmpty()) settled.add(clean.first())
+            while (settledSegments < clean.size - 3) appendSegment(settledSegments++, settled)
+            val temporaryEnd = preserveEndpoints && points.isNotEmpty()
+            if (temporaryEnd) clean.add(points.last())
+            tail.clear()
+            if (settled.isEmpty() && clean.isNotEmpty()) tail.add(clean.first())
+            for (i in settledSegments until clean.size - 1) appendSegment(i, tail)
+            if (preserveEndpoints && tail.isNotEmpty()) tail[tail.lastIndex] = clean.last()
+            if (temporaryEnd) clean.removeAt(clean.lastIndex)
+            return result
+        }
+
+        private fun averaged(index: Int): InkPoint {
+            val i = index.coerceIn(0, clean.lastIndex)
+            val point = clean[i]
+            if (i == 0 || i == clean.lastIndex) return point
+            val before = clean[i - 1]; val after = clean[i + 1]
+            return InkPoint((before.x + 2f * point.x + after.x) / 4f,
+                (before.y + 2f * point.y + after.y) / 4f,
+                (before.pressure + 2f * point.pressure + after.pressure) / 4f)
+        }
+
+        private fun appendSegment(i: Int, target: MutableList<InkPoint>) {
+            val p0 = averaged(i - 1); val p1 = averaged(i)
+            val p2 = averaged(i + 1); val p3 = averaged(i + 2)
+            val steps = (distance(p1, p2) / SMOOTH_STEP).roundToInt().coerceIn(1, MAX_SMOOTH_STEPS)
+            for (step in 1..steps) target.add(catmullRom(p0, p1, p2, p3, step.toFloat() / steps))
+        }
+
+        fun reset() {
+            clean.clear(); settled.clear(); tail.clear(); consumed = 0; settledSegments = 0
+        }
+    }
+
     /** The Catmull-Rom point between [p1] and [p2] at [t], so the curve passes through every sample. */
     private fun catmullRom(p0: InkPoint, p1: InkPoint, p2: InkPoint, p3: InkPoint, t: Float): InkPoint {
         val t2 = t * t; val t3 = t2 * t

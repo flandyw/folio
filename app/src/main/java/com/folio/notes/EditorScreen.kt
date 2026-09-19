@@ -106,11 +106,18 @@ private fun paperLabel(p: Paper): String = when (p) {
         automaticReturn = appPrefs.getBoolean("follow.autoReturn", false),
         position = appPrefs.getFloat("follow.position", .55f).coerceIn(.35f, .7f),
         horizontalPosition = appPrefs.getFloat("follow.horizontal", .5f).coerceIn(.35f, .65f),
-        spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(16f, 96f))) }
+        spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
+        returnDelayMs = appPrefs.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
+        glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800))) }
     LaunchedEffect(followPreferences) {
         appPrefs.edit().putString("follow.direction", followPreferences.direction.name)
             .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
-            .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing).apply()
+            .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing)
+            .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs).apply()
+    }
+    fun setWritingHand(value: WritingHand) {
+        writingHand = value
+        appPrefs.edit().putString("writingHand", value.name).apply()
     }
     var writingStripOpen by rememberSaveable { mutableStateOf(false) }
     var followStatus by remember(page.id) { mutableStateOf("Ready to write") }
@@ -119,31 +126,12 @@ private fun paperLabel(p: Paper): String = when (p) {
         val values = appPrefs.getString(regionKey, null)?.split(",")?.map { it.toFloat() } ?: return@runCatching null
         WritingLane(values[0], values[1], values[2], values[3]).takeIf { values.all(Float::isFinite) && it.right > it.left && it.bottom > it.top }
     }.getOrNull()) }
-    if (followSettingsOpen) AlertDialog(
-        onDismissRequest = { followSettingsOpen = false },
-        title = { Text("Writing follow") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The page moves only after you lift the pen. Use Next line whenever you finish early.")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Automatic line return", Modifier.weight(1f))
-                    Switch(followPreferences.automaticReturn, { followPreferences = followPreferences.copy(automaticReturn = it) })
-                }
-                TextButton({ followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT) }) {
-                    Text(if (followPreferences.mode == FollowMode.TEXT) "Mode: text" else "Mode: maths · vertical follow only")
-                }
-                TextButton({ followPreferences = followPreferences.copy(direction = if (followPreferences.direction == WritingDirection.LTR) WritingDirection.RTL else WritingDirection.LTR) }) {
-                    Text(if (followPreferences.direction == WritingDirection.LTR) "Writing direction: left to right" else "Writing direction: right to left")
-                }
-                Text("Horizontal writing position")
-                Slider(followPreferences.horizontalPosition, { followPreferences = followPreferences.copy(horizontalPosition = it) }, valueRange = .35f.. .65f)
-                Text("Writing height on screen")
-                Slider(followPreferences.position, { followPreferences = followPreferences.copy(position = it) }, valueRange = .35f.. .7f)
-                Text("Blank-paper line spacing: ${followPreferences.spacing.toInt()}")
-                Slider(followPreferences.spacing, { followPreferences = followPreferences.copy(spacing = it) }, valueRange = 16f..96f)
-            }
-        },
-        confirmButton = { TextButton({ followSettingsOpen = false }) { Text("Done") } }
+    if (followSettingsOpen) FollowSettingsDialog(
+        preferences = followPreferences,
+        writingHand = writingHand,
+        onPreferences = { followPreferences = it },
+        onHand = ::setWritingHand,
+        onDismiss = { followSettingsOpen = false },
     )
     var followMenu by remember { mutableStateOf(false) }
     var peekHeld by remember(note.id, page.id) { mutableStateOf(false) }
@@ -847,8 +835,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 DropdownMenuItem(
                                     { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
                                     {
-                                        writingHand = if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT
-                                        appPrefs.edit().putString("writingHand", writingHand.name).apply()
+                                        setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
                                         followView?.suspendWritingFollow()
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.PanTool, null) }

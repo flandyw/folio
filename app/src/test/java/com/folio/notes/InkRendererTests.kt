@@ -219,4 +219,64 @@ class InkRendererTests {
         assertEquals(first.centre, again.centre)
         assertEquals(first.taper?.toList(), again.taper?.toList())
     }
+    @Test fun incrementalSplineMatchesBatchIncludingProvisionalEndpoints() {
+        val random = kotlin.random.Random(927)
+        for (preserve in listOf(false, true)) {
+            for (spacing in listOf(.04f, .2f, 1f, 6f)) {
+                val live = InkGeometry.IncrementalSmooth(preserve)
+                val points = ArrayList<InkPoint>()
+                repeat(300) { i ->
+                    points.add(InkPoint(i * spacing, kotlin.math.sin(i * .03f) * spacing,
+                        .25f + random.nextFloat() * 1.55f))
+                    assertEquals("preserve=$preserve spacing=$spacing prefix=${points.size}",
+                        InkGeometry.smooth(points, preserve), live.update(points))
+                }
+            }
+        }
+    }
+
+    @Test fun longSmoothPenMatchesBatchAcrossBatchedInput() {
+        val live = InkRenderer.IncrementalPenStroke()
+        val points = ArrayList<InkPoint>()
+        repeat(100) { batch ->
+            repeat(13) { n ->
+                val x = (batch * 13 + n) * .6f
+                points.add(InkPoint(x, kotlin.math.sin(x * .01f) * 5f, .7f))
+            }
+            val expected = InkRenderer.rendered(Stroke(Tool.PEN, 0, 3f, points))
+            val actual = live.update(points)
+            assertEquals(expected.centre, actual.centre)
+            assertEquals(expected.taper!!.toList(), actual.taper!!.toList())
+        }
+    }
+
+    @Test fun splineUpdateDoesNotRevisitTheRawPrefix() {
+        var reads = 0
+        val backing = ArrayList<InkPoint>()
+        val counted = object : AbstractList<InkPoint>() {
+            override val size get() = backing.size
+            override fun get(index: Int): InkPoint { reads++; return backing[index] }
+        }
+        val live = InkGeometry.IncrementalSmooth(true)
+        repeat(10_000) { backing.add(InkPoint(it.toFloat(), 0f)) }
+        live.update(counted)
+        reads = 0
+        backing.add(InkPoint(10_000f, 0f))
+        val result = live.update(counted)
+        assertTrue("one new sample must not rescan the stroke: $reads reads", reads <= 3)
+        assertEquals(backing.last(), result.last())
+        assertEquals(InkGeometry.smooth(backing, true), result)
+    }
+
+    @Test fun incrementalHighlighterMatchesBatch() {
+        val live = InkRenderer.IncrementalHighlighterStroke()
+        val points = ArrayList<InkPoint>()
+        repeat(250) { i ->
+            points.add(InkPoint(i * .2f, kotlin.math.sin(i * .1f), .5f))
+            val actual = live.update(points)
+            val expected = InkRenderer.rendered(Stroke(Tool.HIGHLIGHTER, 0, 8f, points))
+            assertEquals(expected, actual)
+        }
+    }
+
 }

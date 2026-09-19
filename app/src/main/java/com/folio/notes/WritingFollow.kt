@@ -1,6 +1,7 @@
 package com.folio.notes
 
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Transient handwriting geometry; printed guide detection runs separately from input. */
 data class WritingLane(val left: Float, val top: Float, val right: Float, val bottom: Float)
@@ -71,8 +72,15 @@ class WritingFollow {
         state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from)
     }
 
-    fun lineAdvanceProgress(liftedAt: Long, now: Long): Float =
-        ((now - liftedAt).toFloat() / 280f).coerceIn(0f, 1f)
+    fun lineAdvanceProgress(liftedAt: Long, now: Long, durationMs: Int = DEFAULT_GLIDE_MS): Float =
+        ((now - liftedAt).toFloat() / durationMs.coerceIn(120, 800).toFloat()).coerceIn(0f, 1f)
+
+    companion object {
+        /** Default carriage-return glide, in ms; exposed so settings can offer speeds. */
+        const val DEFAULT_GLIDE_MS = 280
+        /** Default pause after pen lift before an automatic return fires, in ms. */
+        const val DEFAULT_RETURN_MS = 650
+    }
 }
 
 /** User intent is independent of the hand holding the pen. */
@@ -84,8 +92,69 @@ data class FollowPreferences(
     val automaticReturn: Boolean = false,
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
-    val spacing: Float = 32f
-)
+    val spacing: Float = 32f,
+    /** Pause after pen lift before an automatic return fires. 300..2000 ms. */
+    val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
+    /** Carriage-return glide length. 120..800 ms. */
+    val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
+) {
+    /** Page units are A4 at 4 units per mm (840 x 1188), so users see millimetres. */
+    val spacingMm: Float get() = spacing / UNITS_PER_MM
+    /** Vertical writing height as a whole percent down the screen. */
+    val positionPercent: Int get() = (position * 100).roundToInt()
+    /** Horizontal writing column as a whole percent across the screen. */
+    val horizontalPercent: Int get() = (horizontalPosition * 100).roundToInt()
+
+    companion object {
+        const val UNITS_PER_MM = 4f
+        const val MIN_SPACING = 16f
+        const val MAX_SPACING = 96f
+
+        fun fromMm(mm: Float): Float = (mm * UNITS_PER_MM).coerceIn(MIN_SPACING, MAX_SPACING)
+
+        /** Named line-spacing presets: raw page units paired with their mm label. */
+        val spacingPresets: List<Pair<String, Float>> = listOf(
+            "Narrow · 5 mm" to 20f,
+            "Ruled · 7 mm" to 28f,
+            "Comfortable · 8 mm" to 32f,
+            "Roomy · 10 mm" to 40f,
+            "Large · 12 mm" to 48f,
+        )
+
+        fun spacingLabel(spacing: Float): String {
+            val mm = spacing / UNITS_PER_MM
+            val name = when {
+                spacing <= 22f -> "Narrow"
+                spacing <= 30f -> "Ruled-like"
+                spacing <= 35f -> "Comfortable"
+                spacing <= 44f -> "Roomy"
+                else -> "Large"
+            }
+            return "$name · ${"%.1f".format(mm)} mm"
+        }
+
+        fun positionLabel(position: Float): String = when {
+            position < .42f -> "Near the top"
+            position < .52f -> "Slightly high"
+            position < .60f -> "Comfortable"
+            position < .66f -> "Lower"
+            else -> "Near the bottom"
+        }
+
+        fun horizontalLabel(fraction: Float): String = when {
+            fraction < .43f -> "Left of centre"
+            fraction <= .57f -> "Centred"
+            else -> "Right of centre"
+        }
+
+        fun returnDelayLabel(ms: Int): String = "${"%.1f".format(ms / 1000f)} s"
+        fun glideLabel(ms: Int): String = when {
+            ms <= 170 -> "Snappy"
+            ms <= 350 -> "Smooth"
+            else -> "Gentle"
+        }
+    }
+}
 
 object FollowNavigation {
     fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean = points.isNotEmpty() &&

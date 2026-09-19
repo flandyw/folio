@@ -59,6 +59,24 @@ object InkRenderer {
             size > MAX_CACHED_TEXT_LAYOUTS
     }
 
+    /** Uniform-width live ink shares the same bounded-tail spline path. */
+    internal class IncrementalHighlighterStroke {
+        private val smoother = InkGeometry.IncrementalSmooth()
+        private var consumed = 0
+        private var minX = Float.MAX_VALUE; private var minY = Float.MAX_VALUE
+        private var maxX = -Float.MAX_VALUE; private var maxY = -Float.MAX_VALUE
+        fun update(points: List<InkPoint>): RenderedStroke {
+            while (consumed < points.size) {
+                val p = points[consumed++]
+                minX = min(minX, p.x); minY = min(minY, p.y)
+                maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+            }
+            return RenderedStroke(smoother.update(points), null,
+                if (points.isEmpty()) 0f else minX, if (points.isEmpty()) 0f else minY,
+                if (points.isEmpty()) 0f else maxX, if (points.isEmpty()) 0f else maxY)
+        }
+    }
+
     /**
      * Tiny handwriting needs its direction changes left intact. A normal smoothing pass is useful on
      * long sweeps, but averaging across a fast, tight turn can erase the hump of a small n/m/r.
@@ -149,7 +167,14 @@ object InkRenderer {
     internal class IncrementalPenStroke {
         private val clean = ArrayList<InkPoint>()
         private val committed = ArrayList<InkPoint>()
-        private val centre = ArrayList<InkPoint>()
+        private var liveTail: List<InkPoint> = emptyList()
+        private val centre = object : AbstractList<InkPoint>() {
+            private val skip get() = if (committed.isEmpty()) 0 else 1
+            override val size get() = committed.size + (liveTail.size - skip).coerceAtLeast(0)
+            override fun get(index: Int): InkPoint = if (index < committed.size) committed[index]
+                else liveTail[index - committed.size + skip]
+        }
+        private val sectionSmoother = InkGeometry.IncrementalSmooth(preserveEndpoints = true)
         private var foldedRaw = 0
         private var sectionStart = 0
         private var nextCandidate = 1
@@ -212,20 +237,18 @@ object InkRenderer {
             }
             // The final section is never committed: its endpoint still moves as the tip does.
             val section = clean.subList(sectionStart, clean.size)
-            val tail = if (section.size <= 2) section else InkGeometry.smooth(section, preserveEndpoints = true)
-            centre.clear()
-            centre.addAll(committed)
-            if (centre.isEmpty()) centre.addAll(tail) else for (i in 1 until tail.size) centre.add(tail[i])
+            liveTail = if (section.size <= 2) section else sectionSmoother.update(section)
             return centre
         }
 
         private fun appendSection(endInclusive: Int) {
             if (endInclusive <= sectionStart) return
             val section = clean.subList(sectionStart, endInclusive + 1)
-            val smoothed = if (section.size <= 2) section else InkGeometry.smooth(section, preserveEndpoints = true)
+            val smoothed = if (section.size <= 2) section else sectionSmoother.update(section)
             if (committed.isEmpty()) committed.addAll(smoothed)
             else for (i in 1 until smoothed.size) committed.add(smoothed[i])
             sectionStart = endInclusive
+            sectionSmoother.reset()
         }
 
         private fun shouldPreserve(index: Int, turnThreshold: Float): Boolean {
@@ -242,7 +265,8 @@ object InkRenderer {
         }
 
         private fun retakeSplits() {
-            committed.clear(); centre.clear(); sectionStart = 0; nextCandidate = 1; cached = null
+            sectionSmoother.reset()
+            committed.clear(); liveTail = emptyList(); sectionStart = 0; nextCandidate = 1; cached = null
         }
 
         private fun restart() {
