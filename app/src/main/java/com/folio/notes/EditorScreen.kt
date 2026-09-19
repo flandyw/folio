@@ -840,6 +840,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
                                 )
+                                DropdownMenuItem(
+                                    { Text("Follow mode: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
+                                    {
+                                        followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
+                                        followMenu = false
+                                    },
+                                    leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) },
+                                    trailingIcon = { if (followPreferences.mode == FollowMode.MATH) Icon(Icons.Rounded.Check, "Maths on") }
+                                )
                                 DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
                                 DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
                                 DropdownMenuItem({ Text("Detect answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
@@ -869,6 +878,34 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                         }
                         if (writingFollowEnabled) {
+                            TooltipBox(
+                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+                                tooltip = {
+                                    PlainTooltip {
+                                        Text(
+                                            if (followPreferences.mode == FollowMode.TEXT) "Text follow — tap for Maths"
+                                            else "Maths follow — tap for Text"
+                                        )
+                                    }
+                                },
+                                state = rememberTooltipState()
+                            ) {
+                                IconButton(
+                                    {
+                                        followPreferences = followPreferences.copy(
+                                            mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
+                                        )
+                                    },
+                                    enabled = !peekHeld,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
+                                        if (followPreferences.mode == FollowMode.TEXT) "Text follow — switch to Maths" else "Maths follow — switch to Text",
+                                        tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                    )
+                                }
+                            }
                             TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld) { Text("Next line") }
                             TextButton({ followView?.backWritingView() }, enabled = !peekHeld) { Text("Back") }
                         }
