@@ -10,6 +10,44 @@ class CommittedInkRenderingTests {
     private fun stroke(x: Float, tool: Tool = Tool.PEN) = Stroke(tool, Color.BLUE, 5f,
         listOf(InkPoint(x, 20f), InkPoint(x + 10f, 40f), InkPoint(x + 20f, 20f)))
 
+    @Test fun rapidZoomReprojectsInkWithoutRenderingAgain() {
+        val cache = CommittedInkCache()
+        val page = List(5_000) { stroke((it % 100).toFloat()) }
+        val bounds = android.graphics.Rect(0, 0, 200, 200)
+        var rendered = 0
+        val render: (Stroke) -> InkRenderer.RenderedStroke = { rendered++; InkRenderer.rendered(it) }
+        val initial = Canvas(Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888))
+        cache.draw(initial, page, 1f, InkRenderer::rawBounds, render, bounds)
+        val output = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        repeat(100) { frame ->
+            val canvas = Canvas(output)
+            val scale = if (frame % 2 == 0) 2f else .5f
+            canvas.scale(scale, scale)
+            assertTrue(cache.drawSnapshot(canvas, page, bounds))
+        }
+        assertEquals(5_000, rendered)
+        assertFalse(cache.drawSnapshot(initial, page + stroke(30f), bounds))
+        assertFalse(cache.drawSnapshot(initial, page, android.graphics.Rect(-1, 0, 200, 200)))
+        cache.clear()
+        assertFalse(cache.drawSnapshot(initial, page, bounds))
+    }
+
+    @Test fun navigationSnapshotIncludesInkOutsideOriginalVisibleClip() {
+        val cache = CommittedInkCache()
+        val page = listOf(stroke(120f))
+        val output = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.save()
+        canvas.clipRect(0, 0, 50, 50)
+        val bounds = android.graphics.Rect(0, 0, 200, 200)
+        cache.draw(canvas, page, 1f, InkRenderer::rawBounds, InkRenderer::rendered, bounds)
+        canvas.restore()
+        assertTrue(cache.drawSnapshot(canvas, page, bounds))
+        val expected = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
+        InkRenderer.drawRendered(Canvas(expected), page[0], InkRenderer.rendered(page[0]))
+        assertTrue(output.sameAs(expected))
+    }
+
     @Test fun steadyFramesAndAppendsDoNotRenderOldStrokes() {
         val cache = CommittedInkCache()
         val canvas = Canvas(Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888))

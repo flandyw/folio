@@ -99,6 +99,52 @@ private fun paperLabel(p: Paper): String = when (p) {
     val appPrefs = context.getSharedPreferences("preferences", 0)
     var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
     var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
+    var followSettingsOpen by remember { mutableStateOf(false) }
+    var followPreferences by remember { mutableStateOf(FollowPreferences(
+        direction = runCatching { WritingDirection.valueOf(appPrefs.getString("follow.direction", "LTR")!!) }.getOrDefault(WritingDirection.LTR),
+        mode = runCatching { FollowMode.valueOf(appPrefs.getString("follow.mode", "TEXT")!!) }.getOrDefault(FollowMode.TEXT),
+        automaticReturn = appPrefs.getBoolean("follow.autoReturn", false),
+        position = appPrefs.getFloat("follow.position", .55f).coerceIn(.35f, .7f),
+        horizontalPosition = appPrefs.getFloat("follow.horizontal", .5f).coerceIn(.35f, .65f),
+        spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(16f, 96f))) }
+    LaunchedEffect(followPreferences) {
+        appPrefs.edit().putString("follow.direction", followPreferences.direction.name)
+            .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
+            .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing).apply()
+    }
+    var writingStripOpen by rememberSaveable { mutableStateOf(false) }
+    var followStatus by remember(page.id) { mutableStateOf("Ready to write") }
+    val regionKey = "follow.region.${note.id}.${page.id}"
+    var writingRegion by remember(regionKey) { mutableStateOf(runCatching {
+        val values = appPrefs.getString(regionKey, null)?.split(",")?.map { it.toFloat() } ?: return@runCatching null
+        WritingLane(values[0], values[1], values[2], values[3]).takeIf { values.all(Float::isFinite) && it.right > it.left && it.bottom > it.top }
+    }.getOrNull()) }
+    if (followSettingsOpen) AlertDialog(
+        onDismissRequest = { followSettingsOpen = false },
+        title = { Text("Writing follow") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The page moves only after you lift the pen. Use Next line whenever you finish early.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Automatic line return", Modifier.weight(1f))
+                    Switch(followPreferences.automaticReturn, { followPreferences = followPreferences.copy(automaticReturn = it) })
+                }
+                TextButton({ followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT) }) {
+                    Text(if (followPreferences.mode == FollowMode.TEXT) "Mode: text" else "Mode: maths · vertical follow only")
+                }
+                TextButton({ followPreferences = followPreferences.copy(direction = if (followPreferences.direction == WritingDirection.LTR) WritingDirection.RTL else WritingDirection.LTR) }) {
+                    Text(if (followPreferences.direction == WritingDirection.LTR) "Writing direction: left to right" else "Writing direction: right to left")
+                }
+                Text("Horizontal writing position")
+                Slider(followPreferences.horizontalPosition, { followPreferences = followPreferences.copy(horizontalPosition = it) }, valueRange = .35f.. .65f)
+                Text("Writing height on screen")
+                Slider(followPreferences.position, { followPreferences = followPreferences.copy(position = it) }, valueRange = .35f.. .7f)
+                Text("Blank-paper line spacing: ${followPreferences.spacing.toInt()}")
+                Slider(followPreferences.spacing, { followPreferences = followPreferences.copy(spacing = it) }, valueRange = 16f..96f)
+            }
+        },
+        confirmButton = { TextButton({ followSettingsOpen = false }) { Text("Done") } }
+    )
     var followMenu by remember { mutableStateOf(false) }
     var peekHeld by remember(note.id, page.id) { mutableStateOf(false) }
     val peekAnchor = note.sharedPeekAnchor()
@@ -178,6 +224,10 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (haptics) penHaptics?.start() else penHaptics?.stop()
         onDispose { penHaptics?.stop() }
     }
+    var mainInkView by remember { mutableStateOf<InkView?>(null) }
+    var stripInkView by remember(page.id) { mutableStateOf<InkView?>(null) }
+    val activeInkView = if (writingStripOpen) stripInkView else mainInkView
+    val followView = activeInkView
     fun applyStylusShortcut(action: StylusShortcut) {
         val effect = StylusShortcuts.effect(action, tool, previousTool)
         if (effect != StylusShortcutEffect.None) penHaptics?.pulse()
@@ -185,6 +235,11 @@ private fun paperLabel(p: Paper): String = when (p) {
             is StylusShortcutEffect.SwitchTool -> selectTool(effect.tool)
             StylusShortcutEffect.OpenPalette -> palette = true
             StylusShortcutEffect.Undo -> model.undo()
+            StylusShortcutEffect.NextLine -> {
+                writingFollowEnabled = true
+                appPrefs.edit().putBoolean("writingFollow", true).apply()
+                followView?.let { it.followEnabled = true; it.nextWritingLine() }
+            }
             StylusShortcutEffect.None -> Unit
         }
     }
@@ -201,7 +256,18 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
-    var activeInkView by remember { mutableStateOf<InkView?>(null) }
+    LaunchedEffect(followPreferences, writingHand, tool) { followView?.suspendWritingFollow() }
+    fun configureFollow(view: InkView) {
+        view.followPreferences = followPreferences
+        view.writingRegion = writingRegion
+        view.onWritingRegion = { region ->
+            writingRegion = region
+            val edit = appPrefs.edit()
+            if (region == null) edit.remove(regionKey) else edit.putString(regionKey, "${region.left},${region.top},${region.right},${region.bottom}")
+            edit.apply()
+        }
+        view.onFollowStatus = { followStatus = it }
+    }
     // Text defaults live with the app, not the notebook, so a new label keeps the last look.
     var textSize by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.size", 26f)) }
     var textColor by rememberSaveable { mutableIntStateOf(appPrefs.getInt("text.color", 0xFF303431.toInt())) }
@@ -518,8 +584,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                    onSelectAllView = { activeInkView = it }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld,
+                    onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
+                    followEnabled = writingFollowEnabled && !writingStripOpen, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld || writingStripOpen,
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionPill = if (selected.isNotEmpty()) selectionPill else null)
@@ -651,11 +717,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                                 eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                                onSelectAllView = { if (item.id == page.id) activeInkView = it }, inkStyle = options.style,
-                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
-                                inputBlocked = peekHeld, onFollowPan = { dx, dy ->
+                                onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
+                                followEnabled = writingFollowEnabled && !writingStripOpen && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
+                                inputBlocked = peekHeld || writingStripOpen, onFollowPan = { dx, dy ->
+                                    val oldPan = documentPan
                                     documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
-                                    pages.dispatchRawDelta(-dy)
+                                    val movedY = -pages.dispatchRawDelta(-dy)
+                                    (documentPan - oldPan) to movedY
                                 },
                                 onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                                 selectionAnchor = if (item.id == page.id) selectionAnchor else null,
@@ -676,6 +744,49 @@ private fun paperLabel(p: Paper): String = when (p) {
                             Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
                         }
                     }
+                }
+            }
+            if (writingStripOpen) {
+                Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().fillMaxHeight(.55f)
+                    .padding(top = floatingToolbarTop + 8.dp).zIndex(7f).background(MaterialTheme.colorScheme.surface)) {
+                    Text("Page overview · pinch to zoom", Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
+                    EditorPage(note.id, page, model, Tool.HAND, options, false, false, false, true,
+                        onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {},
+                        onTextEdit = {}, onTextCreate = {}, onLoad = { model.loadPage(page.id) },
+                        fullscreen = true, readOnly = true, inputBlocked = peekHeld,
+                        onSelectAllView = { it.writingRegion = writingRegion })
+                }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f).padding(bottom = 72.dp)
+                    .zIndex(8f).background(MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Writing strip · $followStatus", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                        TextButton({ stripInkView?.nextWritingLine() }) { Text("Next line") }
+                        IconButton({ writingStripOpen = false }) { Icon(Icons.Rounded.Close, "Close writing strip") }
+                    }
+                    EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
+                        onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = { selection = page.id to it },
+                        onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
+                        onLoad = { model.loadPage(page.id) }, fullscreen = true,
+                        onUndo = model::undo, onRedo = model::redo,
+                        onSelectAllView = { view ->
+                            stripInkView = view; configureFollow(view)
+                            view.initializeWritingStrip(writingRegion, mainInkView?.currentPeekAnchor())
+                        },
+                        followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = 2f,
+                        inputBlocked = peekHeld, writingStrip = true,
+                        eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
+                        scribbleSensitivity = scribbleSensitivity, eraserWholeStroke = eraserWholeStroke,
+                        multiTouchUndo = multiTouchUndo, inkStyle = options.style,
+                        onEraserFinished = ::finishSingleStrokeEraser,
+                        selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
+                        onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
+                        onSelectionAnchor = { selectionAnchor = it }, selectionAnchor = selectionAnchor,
+                        selectionPill = if (selected.isNotEmpty()) selectionPill else null)
+                }
+            } else if (writingFollowEnabled) {
+                Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp), shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Text(followStatus, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
             // Keep the original composition and cameras alive. Dismissing this read-only lens is
@@ -701,7 +812,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
-            Row(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 16.dp)
+            Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd).padding(horizontal = 12.dp, vertical = 16.dp)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -728,7 +839,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     {
                                         writingFollowEnabled = !writingFollowEnabled
                                         appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
-                                        activeInkView?.suspendWritingFollow()
+                                        followView?.suspendWritingFollow()
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
                                     trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }
@@ -738,10 +849,22 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     {
                                         writingHand = if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT
                                         appPrefs.edit().putString("writingHand", writingHand.name).apply()
-                                        activeInkView?.suspendWritingFollow()
+                                        followView?.suspendWritingFollow()
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
                                 )
+                                DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
+                                DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
+                                DropdownMenuItem({ Text("Detect answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                                if (writingRegion != null) DropdownMenuItem({ Text("Clear answer area") }, { followView?.clearWritingRegion(); followMenu = false })
+                                DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
+                                    activeInkView?.suspendWritingFollow()
+                                    motion.reset()
+                                    writingStripOpen = !writingStripOpen
+                                    writingFollowEnabled = true
+                                    appPrefs.edit().putBoolean("writingFollow", true).apply()
+                                    followMenu = false
+                                })
                                 HorizontalDivider()
                                 DropdownMenuItem(
                                     { Text("Set current view as Peek Anchor") },
@@ -757,6 +880,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     leadingIcon = { Icon(Icons.Rounded.Close, null) }
                                 )
                             }
+                        }
+                        if (writingFollowEnabled) {
+                            TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld) { Text("Next line") }
+                            TextButton({ followView?.backWritingView() }, enabled = !peekHeld) { Text("Back") }
                         }
                         if (peekAnchor != null) {
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
@@ -1309,7 +1436,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
-    onFollowPan: (Float, Float) -> Unit = { _, _ -> }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
+    onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, writingStrip: Boolean = false, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1) for the floating pill, or null before it reports. */
     selectionAnchor: Rect? = null,
     /** Contextual pill shown near the selection; null on pages without one. */
@@ -1398,7 +1525,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
                 view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
-                view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
+                view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked; view.writingStrip = writingStrip
                 view.peekRegion = peekRegion
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation

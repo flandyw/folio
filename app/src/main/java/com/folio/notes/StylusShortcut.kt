@@ -13,6 +13,7 @@ enum class StylusShortcut(val label: String, val description: String) {
     LASSO("Lasso", "Double tap switches to the lasso selection tool"),
     COLOR_PALETTE("Colour palette", "Double tap opens colour, width and opacity options"),
     UNDO("Undo", "Double tap undoes the last stroke"),
+    NEXT_LINE("Next writing line", "Double tap moves to the next writing line"),
     DISABLED("Disabled", "Ignore the stylus double tap");
 
     companion object {
@@ -28,6 +29,7 @@ sealed interface StylusShortcutEffect {
     data class SwitchTool(val tool: Tool) : StylusShortcutEffect
     data object OpenPalette : StylusShortcutEffect
     data object Undo : StylusShortcutEffect
+    data object NextLine : StylusShortcutEffect
     data object None : StylusShortcutEffect
 }
 
@@ -45,6 +47,7 @@ object StylusShortcuts {
         StylusShortcut.LASSO -> StylusShortcutEffect.SwitchTool(Tool.LASSO)
         StylusShortcut.COLOR_PALETTE -> StylusShortcutEffect.OpenPalette
         StylusShortcut.UNDO -> StylusShortcutEffect.Undo
+        StylusShortcut.NEXT_LINE -> StylusShortcutEffect.NextLine
         StylusShortcut.DISABLED -> StylusShortcutEffect.None
     }
 

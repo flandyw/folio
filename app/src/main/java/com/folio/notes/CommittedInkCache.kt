@@ -38,14 +38,24 @@ internal class CommittedInkCache(private val maxPixels: Long = 8_000_000L) {
         scale = 0f
     }
 
+    /** Reproject existing pixels during navigation, without rasterizing or allocating. */
+    fun drawSnapshot(canvas: Canvas, current: List<Stroke>, required: Rect): Boolean {
+        val layer = bitmap ?: return false
+        if (strokes !== current || !viewport.contains(required)) return false
+        canvas.drawBitmap(layer, null, destination, paint)
+        return true
+    }
+
     fun draw(
         canvas: Canvas,
         current: List<Stroke>,
         pixelsPerUnit: Float,
         boundsOf: (Stroke) -> FloatArray,
-        renderOf: (Stroke) -> InkRenderer.RenderedStroke
+        renderOf: (Stroke) -> InkRenderer.RenderedStroke,
+        rasterViewport: Rect? = null
     ) {
-        if (!canvas.getClipBounds(clip) || current.isEmpty()) {
+        if (rasterViewport != null) clip.set(rasterViewport) else canvas.getClipBounds(clip)
+        if (clip.isEmpty || current.isEmpty()) {
             clear()
             return
         }

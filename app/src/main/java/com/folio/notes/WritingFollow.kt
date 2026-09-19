@@ -74,3 +74,41 @@ class WritingFollow {
     fun lineAdvanceProgress(liftedAt: Long, now: Long): Float =
         ((now - liftedAt).toFloat() / 280f).coerceIn(0f, 1f)
 }
+
+/** User intent is independent of the hand holding the pen. */
+enum class WritingDirection { LTR, RTL }
+enum class FollowMode { TEXT, MATH }
+data class FollowPreferences(
+    val direction: WritingDirection = WritingDirection.LTR,
+    val mode: FollowMode = FollowMode.TEXT,
+    val automaticReturn: Boolean = false,
+    val position: Float = .55f,
+    val horizontalPosition: Float = .5f,
+    val spacing: Float = 32f
+)
+
+object FollowNavigation {
+    fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean = points.isNotEmpty() &&
+        points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f &&
+        points.maxOf { it.x } - points.minOf { it.x } < 80f
+
+    fun next(baseline: Float, region: WritingLane, guides: List<WritingGuide>, spacing: Float): WritingAdvance? {
+        if (!baseline.isFinite() || baseline > region.bottom) return null
+        val currentY = baseline.coerceAtLeast(region.top)
+        val eligible = guides.filter { it.left >= region.left - 6 && it.right <= region.right + 6 && it.y in region.top..region.bottom }
+        val current = eligible.minByOrNull { abs(it.y - currentY) }?.takeIf { abs(it.y - currentY) <= 16f }
+        val next = current?.let { WritingGuides.next(it, eligible) }
+        // A detected answer block ends at its last rule. Do not spill into the next question.
+        if (current != null && next == null) return null
+        val y = next?.y ?: (currentY + spacing.coerceIn(16f, 96f))
+        if (y > region.bottom) return null
+        return WritingAdvance(current ?: WritingGuide(region.left, region.right, baseline),
+            next ?: WritingGuide(region.left, region.right, y))
+    }
+    fun nearEnd(points: List<InkPoint>, region: WritingLane, direction: WritingDirection): Boolean {
+        if (points.isEmpty()) return false
+        val margin = ((region.right - region.left) * .08f).coerceIn(16f, 48f)
+        return if (direction == WritingDirection.LTR) points.maxOf { it.x } >= region.right - margin
+        else points.minOf { it.x } <= region.left + margin
+    }
+}
