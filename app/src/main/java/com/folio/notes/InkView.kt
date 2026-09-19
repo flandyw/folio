@@ -539,7 +539,7 @@ class InkView(context: Context) : View(context) {
         if (preview) {
             // Coalesce rapid pinches and container resizes into one full-detail refresh.
             removeCallbacks(refreshInkDetail)
-            postDelayed(refreshInkDetail, 180L)
+            postDelayed(refreshInkDetail, 90L)
         }
         InkRenderer.pageCached(canvas, content, background, images = imageBitmaps,
             boundsOf = ::boundsOf, renderOf = ::renderedOf,

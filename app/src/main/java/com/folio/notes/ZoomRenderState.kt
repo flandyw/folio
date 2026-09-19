@@ -1,7 +1,7 @@
 package com.folio.notes
 
 /** Detects both native camera zoom and page resizing by the Compose document container. */
-internal class ZoomRenderState(private val settleMillis: Long = 180L) {
+internal class ZoomRenderState(private val settleMillis: Long = 90L) {
     private var scale: Float? = null
     private var lastMotion: Long? = null
 
