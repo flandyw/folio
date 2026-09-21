@@ -145,8 +145,6 @@ data class Notebook(
     val updated: Long = System.currentTimeMillis(), val pages: List<NotePage> = listOf(NotePage()),
     /** Exam metadata: subject, year, company and so on, carried as [ExamTags]. */
     val exam: ExamTags = ExamTags(),
-    /** A [ExamSet] this notebook belongs to, e.g. Exam 1 within "VCAA 2022 Methods". */
-    val setId: String? = null,
     /** Marked attempts with scores and time taken, newest last. */
     val attempts: List<ExamAttempt> = emptyList(),
     /**
@@ -233,7 +231,6 @@ object NoteCodec {
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
         put("exam", ExamTagsCodec.encode(note.exam))
-        put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         if (!note.pageCover) put("pageCover", false)
         put("mistakePractice", note.mistakePractice)
@@ -265,7 +262,6 @@ object NoteCodec {
                     title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
-            if (o.isNull("set")) null else o.optString("set"),
             ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             // Older backups have no cover choice and default to the first-page cover.
             pageCover = o.optBoolean("pageCover", true),

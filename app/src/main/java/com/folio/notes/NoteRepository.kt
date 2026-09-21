@@ -82,7 +82,7 @@ class NoteRepository(private val context: Context) {
 
     // ---- Reading -------------------------------------------------------------------------
 
-    suspend fun load(): Triple<List<Notebook>, List<Folder>, List<ExamSet>> = withContext(Dispatchers.IO) {
+    suspend fun load(): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
         val dirs = root.listFiles().orEmpty()
             .filter { it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
         // Decode indexes concurrently; each notebook lives in its own directory.
@@ -94,13 +94,7 @@ class NoteRepository(private val context: Context) {
             val array = JSONArray(AtomicFile(library).openRead().bufferedReader().use { it.readText() })
             (0 until array.length()).map { val f = array.getJSONObject(it); Folder(f.getString("id"), f.getString("name")) }
         }
-        Triple(notes, folders, loadSets())
-    }
-
-    private fun loadSets(): List<ExamSet> {
-        val file = File(context.filesDir, "exam-sets.json")
-        if (!file.exists() && !File(context.filesDir, "exam-sets.json.bak").exists()) return emptyList()
-        return ExamTagsCodec.decodeSets(AtomicFile(file).openRead().bufferedReader().use { JSONArray(it.readText()) })
+        Pair(notes, folders)
     }
 
     /**
@@ -202,10 +196,6 @@ class NoteRepository(private val context: Context) {
         }.toString()) }
     }
 
-    /** Exam sets live beside the library file; the notebooks carry the membership link. */
-    suspend fun saveSets(sets: List<ExamSet>) = withContext(Dispatchers.IO) {
-        lock.withLock { atomicWrite(File(context.filesDir, "exam-sets.json"), ExamTagsCodec.encodeSets(sets).toString()) }
-    }
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)
         pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfOutlineCache.remove(id) }

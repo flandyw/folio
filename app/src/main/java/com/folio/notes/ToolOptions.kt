@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.content.SharedPreferences
@@ -111,7 +112,7 @@ object EditorQuickPrefs {
                     enabled = options.pressure, valueRange = PenPressure.variationRange,
                     modifier = Modifier.semanticsLabel("Pen pressure width variation"))
                 Text("0% keeps pressure width constant; 100% is the original response. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall)
-                TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }) {
+                TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, shapes = ButtonDefaults.shapes()) {
                     Text("Reset pen pressure")
                 }
                 // Thin “exam” preset — one tap to get a crisp 1.4 pt pen used for workings.
@@ -184,7 +185,7 @@ object EditorQuickPrefs {
                 }
                 Text("Two fingers: undo, three fingers: redo — on the page canvas (not the toolbar).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton({ onChange(ToolOptions.defaults(tool)) }) { Text("Reset $label settings") }
+            TextButton({ onChange(ToolOptions.defaults(tool)) }, shapes = ButtonDefaults.shapes()) { Text("Reset $label settings") }
         }
     }
 }
@@ -237,7 +238,7 @@ object EditorQuickPrefs {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Quick colours", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            TextButton({ editing = !editing }) { Text(if (editing) "Done" else "Customise") }
+            TextButton({ editing = !editing }, shapes = ButtonDefaults.shapes()) { Text(if (editing) "Done" else "Customise") }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             quickColors.forEachIndexed { index, color ->
@@ -278,7 +279,7 @@ object EditorQuickPrefs {
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Saved presets", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            TextButton({ presetName = ""; naming = true }, enabled = quickPresets.size < InkColors.MAX_PRESETS || quickPresets.any { it.colors == quickColors }) { Text("Save current") }
+            TextButton({ presetName = ""; naming = true }, enabled = quickPresets.size < InkColors.MAX_PRESETS || quickPresets.any { it.colors == quickColors }, shapes = ButtonDefaults.shapes()) { Text("Save current") }
         }
         if (quickPresets.isEmpty()) Text("Save your quick colours to bring the same five back in any notebook.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,8 +305,8 @@ object EditorQuickPrefs {
                 OutlinedTextField(presetName, { presetName = it.take(InkColors.MAX_PRESET_NAME) }, label = { Text("Preset name") }, singleLine = true)
             }
         },
-        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } },
-        confirmButton = { TextButton({ quick.savePreset(group, presetName); naming = false }, enabled = presetName.isNotBlank()) { Text("Save") } }
+        dismissButton = { TextButton({ naming = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
+        confirmButton = { TextButton({ quick.savePreset(group, presetName); naming = false }, enabled = presetName.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") } }
     )
 }
 
@@ -321,7 +322,7 @@ object EditorQuickPrefs {
     HorizontalDivider()
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Tool presets", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS) { Text("Save current") }
+        TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS, shapes = ButtonDefaults.shapes()) { Text("Save current") }
     }
     if (saved.isEmpty()) Text("Save this tool setup as a preset to bring it back in one tap.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -347,11 +348,12 @@ object EditorQuickPrefs {
                 OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true)
             }
         },
-        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } },
+        dismissButton = { TextButton({ naming = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
         confirmButton = {
             TextButton({
                 if (presets.save(presetName, tool, options, options.style)) naming = false
-            }, enabled = presetName.isNotBlank()) { Text("Save") }
+            }, enabled = presetName.isNotBlank(),
+                shapes = ButtonDefaults.shapes()) { Text("Save") }
         }
     )
 }

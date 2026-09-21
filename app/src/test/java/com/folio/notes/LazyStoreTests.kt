@@ -84,10 +84,9 @@ class LazyStoreTests {
         assertThrows(IllegalArgumentException::class.java) { NotePageCodec.decode("{\"version\":99}", marked.asSummary()) }
     }
 
-    @Test fun theIndexCarriesExamTagsSetLinkAttemptsAndRedoFlagsWithoutInk() {
+    @Test fun theIndexCarriesExamTagsAttemptsAndRedoFlagsWithoutInk() {
         val examNote = note.copy(
             exam = ExamTags(subject = VceSubject.MATHS_METHODS, year = 2022, company = "VCAA"),
-            setId = "set-1",
             attempts = listOf(ExamAttempt(id = "a1", score = 31, total = 40, secondsTaken = 4800, timed = true)),
             pages = note.pages.map { it.copy(redoFlag = it.pdfIndex != null) }
         )
@@ -98,7 +97,6 @@ class LazyStoreTests {
         assertFalse(encoded.contains("V = IR"))
         val decoded = NoteMetaCodec.decode(encoded)
         assertEquals(examNote.exam, decoded.exam)
-        assertEquals("set-1", decoded.setId)
         assertEquals(examNote.attempts, decoded.attempts)
         assertEquals(listOf(false, true), decoded.pages.map { it.redoFlag })
     }
@@ -106,15 +104,14 @@ class LazyStoreTests {
     @Test fun aVersion2SplitIndexMigratesWithDefaultExamFields() {
         val v2 = JSONObject(NoteMetaCodec.encode(note)).apply {
             put("version", 2)
-            // Strip the exam block, set link and attempts a v2 writer never emitted.
-            remove("exam"); remove("set"); remove("attempts"); remove("pageCover")
+            // Strip the exam block and attempts a v2 writer never emitted.
+            remove("exam"); remove("attempts"); remove("pageCover")
         }.toString()
         assertTrue(NoteMetaCodec.isSplitIndex(v2))
         assertFalse(NoteMetaCodec.isCurrent(v2))
         val migrated = NoteMetaCodec.decodeSplit(v2)
         assertEquals(note.title, migrated.title)
         assertEquals(ExamTags(), migrated.exam)
-        assertNull(migrated.setId)
         assertTrue(migrated.attempts.isEmpty())
         assertEquals(2, migrated.pages.size)
         assertTrue(migrated.pages.none { it.loaded })

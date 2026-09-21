@@ -56,15 +56,15 @@ import com.folio.notes.*
                         )
                     }
                 },
-                navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
+                navigationIcon = { IconButton(onBack, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
                 actions = {
-                    IconButton(onToggleShuffle, enabled = !busy) {
+                    IconButton(onToggleShuffle, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                         Icon(
                             Icons.Rounded.Shuffle, if (shuffle) "Shuffled order · tap for due order" else "Due order · tap to shuffle",
                             tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onSkip, enabled = canSkip && !busy) {
+                    IconButton(onSkip, enabled = canSkip && !busy, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.SkipNext, "Skip this card for now")
                     }
                 }
@@ -82,7 +82,7 @@ import com.folio.notes.*
                                 Text("Compare answer")
                             }
                             if (canSkip) {
-                                OutlinedButton(onSkip, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp)) {
+                                OutlinedButton(onSkip, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.SkipNext, "Skip this card for now")
                                     Spacer(Modifier.width(6.dp))
                                     Text("Skip")
@@ -109,9 +109,9 @@ import com.folio.notes.*
                                     }
                                 }
                                 when (rating) {
-                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
+                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp), shapes = ButtonDefaults.shapes()) { RatingContent() }
                                     ReviewRating.GOOD -> Button({ onRate(rating) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
-                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
+                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp), shapes = ButtonDefaults.shapes()) { RatingContent() }
                                 }
                             }
                         }
@@ -138,8 +138,8 @@ import com.folio.notes.*
                     Column(Modifier.fillMaxSize()) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            IconButton({ adjustLayout = !adjustLayout }) { Icon(Icons.Rounded.Tune, "Adjust question panel size") }
-                            if (!wide) TextButton({ questionExpanded = !questionExpanded }) { Text(if (questionExpanded) "Collapse" else "Expand") }
+                            IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel size") }
+                            if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
                         }
                         if (adjustLayout && (wide || questionExpanded)) {
                             Column(Modifier.padding(horizontal = 16.dp)) {

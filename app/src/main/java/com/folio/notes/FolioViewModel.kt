@@ -30,7 +30,6 @@ data class PdfSearchState(
 
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
-    val sets: List<ExamSet> = emptyList(),
     val examFilter: ExamFilter = ExamFilter(),
     val navigationRequest: Int = 0,
     val editorOnRight: Boolean = false,
@@ -205,10 +204,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(loading = true, loadFailed = false) }
         viewModelScope.launch {
             try {
-                val (notes, folders, sets) = repository.load()
+                val (notes, folders) = repository.load()
                 migrateLegacyTimer(notes)
                 prunePositions(notes)
-                _state.update { state -> state.copy(notes = notes, folders = folders, sets = sets, loading = false,
+                _state.update { state -> state.copy(notes = notes, folders = folders, loading = false,
                     activeId = state.activeId?.takeIf { id -> notes.any { it.id == id } },
                     tabs = state.tabs.filter { tab -> notes.any { it.id == tab.notebookId } },
                     companion = state.companion?.takeIf { tab -> notes.any { it.id == tab.notebookId } }) }
@@ -221,7 +220,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     private fun enqueue(block: suspend () -> Unit) { _state.update { it.copy(pendingSaves = it.pendingSaves + 1) }; writes.trySend(block) }
-    /** Records a change to the notebook itself — title, folder, star, or the order and set of pages. */
+    /** Records a change to the notebook itself — title, folder, star, or the order of pages. */
     private fun updateNote(note: Notebook) {
         val updated = note.copy(updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
@@ -299,10 +298,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
-    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, setId: String? = null, infinite: Boolean = false, pageCover: Boolean = true) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
-        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, setId = setId, pageCover = pageCover)
+        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover)
         captureTab()
         selectNotebookTimer(note.id)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
@@ -537,40 +536,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     fun setExamFilter(filter: ExamFilter) { _state.update { it.copy(examFilter = filter) } }
 
-    fun createExamSet(name: String, subject: VceSubject?, year: Int?, company: String) {
-        if (subject == null || year == null || year !in 1000..9999 || company.isBlank() || _state.value.loadFailed) return
-        val existing = _state.value.sets.find {
-            it.subject == subject && it.year == year && it.company.trim().equals(company.trim(), ignoreCase = true)
-        }
-        val set = existing ?: ExamSet(name = name.trim(), subject = subject, year = year, company = company.trim())
-        if (existing == null) {
-            val sets = _state.value.sets + set
-            _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
-        }
-        val matching = _state.value.notes.filter { it.setId == null && set.matchesPaper(it) }.map { it.id }.toSet()
-        assignToExamSet(matching, set.id)
-    }
-
-    fun updateExamSet(set: ExamSet) {
-        val sets = _state.value.sets.map { if (it.id == set.id) set else it }
-        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
-    }
-
-    /** Removes a set and unlinks its notebooks, which stay in the library untouched. */
-    fun deleteExamSet(set: ExamSet) {
-        val affected = _state.value.notes.filter { it.setId == set.id }.map { it.id }.toSet()
-        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(setId = null) }
-        val sets = _state.value.sets.filterNot { it.id == set.id }
-        _state.update { it.copy(sets = sets) }; enqueue { repository.saveSets(sets) }
-    }
-
-    /** Adds or removes notebooks from an exam set in one step; null unfiles them from any set. */
-    fun assignToExamSet(ids: Set<String>, setId: String?) {
-        if (setId != null && _state.value.sets.none { it.id == setId }) return
-        val affected = _state.value.notes.filter { it.id in ids && it.setId != setId }.map { it.id }.toSet()
-        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(setId = setId) }
-    }
-
     /** Flips the open page's redo flag — a question worth another attempt before the exam. */
     fun toggleRedoFlag() {
         val page = _state.value.page ?: return
@@ -740,7 +705,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun addPage(paper: Paper? = null) {
         val note = _state.value.active ?: return
-        // Inherit the current page's paper so an exam set stays consistent — keeps practice flowing.
+        // Inherit the current page's paper — keeps practice flowing.
         val chosen = paper ?: _state.value.page?.paper ?: Paper.MATH_GRID
         updateNote(note.copy(pages = note.pages + NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))); selectPage(note.pages.size)
     }

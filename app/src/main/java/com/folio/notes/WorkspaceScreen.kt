@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
 import androidx.compose.foundation.*
@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
                 Row(Modifier.fillMaxWidth().height(48.dp).guardUiTouches(), verticalAlignment = Alignment.CenterVertically) {
                     if (compact) {
-                        TextButton({ picker = "tabs" }, Modifier.weight(1f)) {
+                        TextButton({ picker = "tabs" }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
                             Text(state.active?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(Icons.Rounded.ExpandMore, "Open documents")
                         }
@@ -46,20 +46,20 @@ import androidx.compose.ui.unit.dp
                             val note = state.notes.find { it.id == tab.notebookId }
                             if (note != null) Surface(color = if (state.activeId == tab.notebookId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton({ model.open(tab.notebookId) }, Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }) {
+                                    TextButton({ model.open(tab.notebookId) }, modifier = Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }, shapes = ButtonDefaults.shapes()) {
                                         val tabIsPdf = note.pages.any { it.pdfIndex != null }
                                         Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(note.title, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
-                                    IconButton({ model.closeTab(tab.id) }) { Icon(Icons.Rounded.Close, "Close ${note.title}", Modifier.size(18.dp)) }
+                                    IconButton({ model.closeTab(tab.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}", Modifier.size(18.dp)) }
                                 }
                             }
                         }
                     }
-                    IconButton({ picker = "open" }) { Icon(Icons.Rounded.Add, "Open document") }
-                    IconButton({ picker = "split" }) { Icon(Icons.Rounded.VerticalSplit, "Split view") }
-                    IconButton({ picker = "reference" }) { Icon(Icons.Rounded.ChromeReaderMode, "Reference view") }
+                    IconButton({ picker = "open" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Open document") }
+                    IconButton({ picker = "split" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.VerticalSplit, "Split view") }
+                    IconButton({ picker = "reference" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ChromeReaderMode, "Reference view") }
                 }
             }
             val companion = state.companion
@@ -124,7 +124,7 @@ import androidx.compose.ui.unit.dp
                 items(notes, key = { it.id }) { note ->
                     ListItem(headlineContent = { Text(note.title) },
                         supportingContent = { Text("${note.pages.size} pages") },
-                        trailingContent = { if (kind == "tabs") IconButton({ model.closeTab(note.id) }) { Icon(Icons.Rounded.Close, "Close ${note.title}") } },
+                        trailingContent = { if (kind == "tabs") IconButton({ model.closeTab(note.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}") } },
                         modifier = Modifier.clickable {
                             when (kind) {
                                 "split" -> model.showCompanion(note.id, CompanionMode.SPLIT)
@@ -134,7 +134,7 @@ import androidx.compose.ui.unit.dp
                             picker = null
                         })
                 }
-                item { TextButton({ picker = null; model.close() }, Modifier.fillMaxWidth()) { Text("Browse Library") } }
+                item { TextButton({ picker = null; model.close() }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Browse Library") } }
             }
         }
     }
@@ -162,14 +162,14 @@ import androidx.compose.ui.unit.dp
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            IconButton({ model.setCompanionLinked(!state.companionLinked) }) {
+            IconButton({ model.setCompanionLinked(!state.companionLinked) }, shapes = IconButtonDefaults.shapes()) {
                 Icon(
                     if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff,
                     if (state.companionLinked) "Unlink pages — companion stays where it is" else "Link pages — companion follows the editor"
                 )
             }
-            if (state.companionMode == CompanionMode.SPLIT) IconButton(model::swapCompanion) { Icon(Icons.Rounded.Edit, "Edit this pane") }
-            IconButton(model::dismissCompanion) { Icon(Icons.Rounded.Close, "Close companion") }
+            if (state.companionMode == CompanionMode.SPLIT) IconButton(model::swapCompanion, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Edit, "Edit this pane") }
+            IconButton(model::dismissCompanion, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close companion") }
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
             Box(Modifier.fillMaxSize()) {
@@ -187,10 +187,10 @@ import androidx.compose.ui.unit.dp
             }
         }
         Row(Modifier.fillMaxWidth().guardUiTouches(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ model.companionPage(index - 1) }, enabled = index > 0) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page") }
+            IconButton({ model.companionPage(index - 1) }, enabled = index > 0, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page") }
             Text("${index + 1} / ${note.pages.size}", style = MaterialTheme.typography.labelLarge)
-            IconButton({ model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page") }
-            TextButton({ viewport = WorkspaceViewport(); reset++ }) { Text("Fit") }
+            IconButton({ model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page") }
+            TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
         }
     }
 }

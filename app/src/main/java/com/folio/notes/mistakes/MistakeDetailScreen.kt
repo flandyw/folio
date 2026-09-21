@@ -54,8 +54,8 @@ internal fun MistakeDetailCard(
         Text(mistake.question, style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
         Text(if (mistake.suspended) "Suspended in ExamTrack" else schedule?.let { dueLabel(it.dueAt) } ?: "Ready to practise",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-            if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
+            if (working) LoadingIndicator(Modifier.size(20.dp))
             else Icon(Icons.Rounded.Edit, null)
             Spacer(Modifier.width(8.dp))
             Text(if (mistake.suspended) "Unsuspend in ExamTrack to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
@@ -70,7 +70,7 @@ internal fun MistakeDetailCard(
                 if (!mistake.questionText.isNullOrBlank()) RichText(mistake.questionText, style = MaterialTheme.typography.bodyLarge)
                 else if (mistake.attachments.isEmpty()) Text("No extra question text saved. Use the question reference above.", style = MaterialTheme.typography.bodyMedium)
                 AttachmentGallery(mistake, userId, attachments)
-                TextButton({ showMetadata = !showMetadata }) {
+                TextButton({ showMetadata = !showMetadata }, shapes = ButtonDefaults.shapes()) {
                     Icon(if (showMetadata) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
                     Text(if (showMetadata) "Hide question information" else "Marks, topic & review information")
                 }
@@ -200,7 +200,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                     Text(attachment.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("Unavailable offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton({ retry++ }) { Text("Retry") }
+                TextButton({ retry++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
             }
             else -> Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LoadingIndicator(Modifier.size(20.dp))
@@ -218,9 +218,9 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose) { Icon(Icons.Rounded.Close, "Close attachment") }
+                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close attachment") }
                     Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton({ zoom = 1f; offset = Offset.Zero }) { Text("Reset") }
+                    TextButton({ zoom = 1f; offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(0.dp)).pointerInput(Unit) {
                     detectTransformGestures { _, pan, scale, _ ->
@@ -235,9 +235,9 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                     })
                 }
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton({ zoom = (zoom - .5f).coerceAtLeast(1f); offset = Offset.Zero }) { Text("Zoom out") }
+                    TextButton({ zoom = (zoom - .5f).coerceAtLeast(1f); offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Zoom out") }
                     Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
-                    TextButton({ zoom = (zoom + .5f).coerceAtMost(5f) }) { Text("Zoom in") }
+                    TextButton({ zoom = (zoom + .5f).coerceAtMost(5f) }, shapes = ButtonDefaults.shapes()) { Text("Zoom in") }
                 }
             }
         }

@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import android.content.SharedPreferences
@@ -59,8 +60,8 @@ import kotlin.math.roundToInt
         Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires repeated contact with existing ink.",
             style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton({ setSensitivity(ScribbleSensitivity.DEFAULT) }) { Text("Reset sensitivity") }
-            TextButton({ showPractice = !showPractice }) { Text(if (showPractice) "Hide test area" else "Test scribble to erase") }
+            TextButton({ setSensitivity(ScribbleSensitivity.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset sensitivity") }
+            TextButton({ showPractice = !showPractice }, shapes = ButtonDefaults.shapes()) { Text(if (showPractice) "Hide test area" else "Test scribble to erase") }
         }
         if (showPractice) ScribblePractice(enabled, sensitivity)
     }
@@ -110,11 +111,13 @@ private fun scribblePracticePage() = NotePage(
             OutlinedButton({
                 page = scribblePracticePage()
                 feedback = "Sample ink restored. Try again with your current sensitivity."
-            }) { Text("Reset test area") }
+            },
+                shapes = ButtonDefaults.shapes()) { Text("Reset test area") }
             TextButton({
                 page = page.copy(strokes = emptyList(), revision = page.revision + 1)
                 feedback = "Write something, then try scrubbing it out."
-            }) { Text("Clear") }
+            },
+                shapes = ButtonDefaults.shapes()) { Text("Clear") }
         }
     }
 }

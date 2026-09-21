@@ -78,12 +78,11 @@ class ExamTagsTests {
     @Test fun aNotebookCodecCarriesExamFieldsThroughThePortableFormat() {
         val note = Notebook(
             title = "2022 Exam 1", exam = ExamTags(subject = VceSubject.MATHS_METHODS, year = 2022, company = "VCAA"),
-            setId = "set-9", attempts = listOf(ExamAttempt(id = "a1", score = 32, total = 40, secondsTaken = 5100, timed = true)),
+            attempts = listOf(ExamAttempt(id = "a1", score = 32, total = 40, secondsTaken = 5100, timed = true)),
             pages = listOf(NotePage(paper = Paper.MC_SHEET, redoFlag = true))
         )
         val decoded = NoteCodec.decode(NoteCodec.encode(note))
         assertEquals(note.exam, decoded.exam)
-        assertEquals("set-9", decoded.setId)
         assertEquals(note.attempts, decoded.attempts)
         assertTrue(decoded.pages.first().redoFlag)
         assertEquals(Paper.MC_SHEET, decoded.pages.first().paper)
@@ -125,61 +124,6 @@ class ExamAttemptTests {
             ExamAttempt(id = "b", score = 33, total = 40)
         ))
         assertEquals(.825f, note.bestScore!!, .0001f)
-    }
-}
-
-class ExamSetTests {
-    private val set = ExamSet(id = "s1", name = "", subject = VceSubject.MATHS_METHODS, year = 2022, company = "VCAA", type = ExamType.EXAM_1)
-
-    @Test fun membersAreFoundThroughTheNotebookLink() {
-        val mine = Notebook(id = "a", title = "My attempt", setId = "s1")
-        val solutions = Notebook(id = "b", title = "Solutions", setId = "s1")
-        val other = Notebook(id = "c", title = "Unrelated")
-        val groups = groupExamSets(listOf(set), listOf(mine, other, solutions))
-        assertEquals(listOf("a", "b"), groups.single().notes.map { it.id })
-    }
-
-    @Test fun anEmptyNameFallsBackToTheTagLine() {
-        assertEquals("Maths Methods · VCAA · 2022", set.autoName())
-        assertEquals("My paper", set.copy(name = "My paper").autoName())
-    }
-
-    @Test fun scoresStaySeparateForEachPaper() {
-        val attempts = Notebook(id = "a", title = "First go", setId = "s1", exam = ExamTags(type = ExamType.EXAM_1), attempts = listOf(ExamAttempt(id = "a1", score = 20, total = 40)))
-        val redo = Notebook(id = "b", title = "Redo", setId = "s1", exam = ExamTags(type = ExamType.EXAM_2), attempts = listOf(ExamAttempt(id = "b1", score = 34, total = 40)))
-        val group = groupExamSets(listOf(set), listOf(attempts, redo)).single()
-        assertEquals(.5f, group.bestShare(ExamType.EXAM_1)!!, .0001f)
-        assertEquals(.85f, group.bestShare(ExamType.EXAM_2)!!, .0001f)
-        assertEquals(2, group.pairedPaperCount)
-        assertEquals(2, group.attemptCount)
-    }
-
-    @Test fun matchingRequiresTheSameSubjectYearAndCompanyForEitherExam() {
-        val paper = Notebook(title = "Paper", exam = ExamTags(subject = set.subject, year = 2022, company = " vcaa ", type = ExamType.EXAM_1))
-        assertTrue(set.matchesPaper(paper))
-        assertTrue(set.matchesPaper(paper.copy(exam = paper.exam.copy(type = ExamType.EXAM_2))))
-        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(year = 2021))))
-        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(company = "NEAP"))))
-        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(subject = VceSubject.PHYSICS))))
-        assertFalse(set.matchesPaper(paper.copy(exam = paper.exam.copy(type = ExamType.SAC))))
-        assertFalse(set.copy(subject = null).matchesPaper(paper))
-    }
-
-    @Test fun incompletePairsKeepSupportingNotebooksWithoutCountingThemAsPapers() {
-        val paper = Notebook(title = "Exam 2", setId = set.id, exam = ExamTags(type = ExamType.EXAM_2))
-        val supporting = Notebook(title = "Corrections", setId = set.id)
-        val group = groupExamSets(listOf(set), listOf(supporting, paper)).single()
-        assertEquals(1, group.pairedPaperCount)
-        assertTrue(group.papers(ExamType.EXAM_1).isEmpty())
-        assertEquals(listOf(paper), group.papers(ExamType.EXAM_2))
-        assertNull(group.bestShare(ExamType.EXAM_2))
-        assertEquals(2, group.notes.size)
-    }
-
-    @Test fun setsRoundTripThroughJson() {
-        val sets = listOf(set.copy(name = "VCAA 2022 Exam 1", durationSeconds = 5400))
-        val decoded = ExamTagsCodec.decodeSets(ExamTagsCodec.encodeSets(sets))
-        assertEquals(sets, decoded)
     }
 }
 
@@ -257,12 +201,6 @@ class ExamFilterTests {
         assertEquals(listOf("a"), organizeExams(notes, query = "exam 1").map { it.id })
         assertEquals(listOf("c"), organizeExams(notes, query = "NEAP").map { it.id })
         assertEquals(listOf("a", "b"), organizeExams(notes, query = "methods").map { it.id })
-    }
-
-    @Test fun setIdNarrowsToTheSetsMembers() {
-        val member = notes.first().copy(setId = "s1")
-        assertEquals(listOf(member.id), organizeExams(listOf(member, notes[1]), setId = "s1").map { it.id })
-        assertEquals(emptyList<String>(), organizeExams(listOf(member), setId = "gone").map { it.id })
     }
 }
 

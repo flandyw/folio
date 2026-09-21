@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
 import androidx.compose.foundation.BorderStroke
@@ -39,13 +39,13 @@ import androidx.compose.ui.unit.dp
                         }
                         FilterChip(shuffle, onShuffle, { Text("Shuffle") }, leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
                     }
-                    Button(onReview, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                        if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Button(onReview, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
+                        if (working) LoadingIndicator(Modifier.size(20.dp))
                         else Icon(Icons.Rounded.PlayArrow, null)
                         Spacer(Modifier.width(8.dp)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
                     }
                     Text(if (shuffle) "Random order" else "Oldest due first", style = MaterialTheme.typography.bodySmall)
-                } else OutlinedButton(onBrowse) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
+                } else OutlinedButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
             }
         }
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.dp
             Text("Session complete", style = MaterialTheme.typography.headlineSmall)
             Text("$completed questions reviewed. Your handwriting and ratings are saved.")
             if (pending > 0) Text("$pending ratings waiting to sync. You can safely leave this screen.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onBrowse) { Text("Back to your library") }
+            TextButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Back to your library") }
         }
     }
 }
@@ -104,7 +104,7 @@ import androidx.compose.ui.unit.dp
                     if (mistake.attachments.isNotEmpty()) add("${mistake.attachments.size} attachments")
                     if (isEmpty()) add("Open question for details")
                 }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!mistake.suspended) FilledTonalButton(onPractice, enabled = !working) { Text(if (resume) "Continue" else "Practise") }
+                if (!mistake.suspended) FilledTonalButton(onPractice, enabled = !working, shapes = ButtonDefaults.shapes()) { Text(if (resume) "Continue" else "Practise") }
             }
         }
     }

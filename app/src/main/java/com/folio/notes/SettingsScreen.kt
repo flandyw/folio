@@ -38,7 +38,7 @@ import kotlin.math.roundToInt
     val dynamicAvailable = Build.VERSION.SDK_INT >= 31
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (category == null) "Close settings" else "Back to settings") }
+            IconButton(close, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (category == null) "Close settings" else "Back to settings") }
             Text(category?.title ?: "Settings", style = MaterialTheme.typography.headlineSmall)
         }
         HorizontalDivider()
@@ -141,11 +141,11 @@ import kotlin.math.roundToInt
                         SettingsCategory.ACCOUNT -> {
                             SectionTitle("ExamTrack")
                             SectionHint("Sign in to manage mistake sync with ExamTrack.")
-                            OutlinedButton(onExamTrack) { Text("Open ExamTrack") }
+                            OutlinedButton(onExamTrack, shapes = ButtonDefaults.shapes()) { Text("Open ExamTrack") }
                             HorizontalDivider()
                             SectionTitle("App updates")
                             PrefsSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check for updates on launch", "Folio checks GitHub Releases for a newer signed build.")
-                            OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
+                            OutlinedButton(onCheckForUpdates, enabled = !updateChecking, shapes = ButtonDefaults.shapes()) {
                                 if (updateChecking) {
                                     LoadingIndicator(Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
@@ -287,7 +287,8 @@ private enum class SettingsCategory(val title: String, val description: String) 
             IconButton({
                 defaultCover = index
                 p.edit().putInt(AppPrefs.DEFAULT_COVER, index).apply()
-            }) {
+            },
+                shapes = IconButtonDefaults.shapes()) {
                 Surface(Modifier.size(34.dp), shape = RoundedCornerShape(12.dp), color = color, border = if (index == defaultCover) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
                     if (index == defaultCover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
                     else Box(Modifier.semanticsLabel("Cover ${index + 1}"))

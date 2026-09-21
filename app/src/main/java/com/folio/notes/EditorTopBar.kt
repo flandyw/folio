@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
@@ -129,7 +129,7 @@ import androidx.compose.ui.unit.dp
     modifier: Modifier = Modifier
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClose, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+        IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
         Column(Modifier.weight(1f).padding(vertical = 1.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -151,7 +151,7 @@ import androidx.compose.ui.unit.dp
         var notebookMenu by remember { mutableStateOf(false) }
         Box {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
-                IconButton({ notebookMenu = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
+                IconButton({ notebookMenu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
             }
             DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
                 DropdownMenuItem(text = { Text("Rename notebook") }, onClick = {
@@ -164,7 +164,7 @@ import androidx.compose.ui.unit.dp
                 }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
             }
         }
-        if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Retry") }
+        if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) { Text("Retry") }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
             IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(40.dp)) {
                 Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
@@ -191,11 +191,11 @@ import androidx.compose.ui.unit.dp
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(40.dp)) {
-                IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
-                TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
+                IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
+                TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
                     Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
                 }
-                IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
+                IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
             }
         }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Zoom $zoomPercent% — tap to reset") } }, state = rememberTooltipState()) {
@@ -209,7 +209,7 @@ import androidx.compose.ui.unit.dp
             }
         }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Add page") } }, state = rememberTooltipState()) {
-            FilledTonalIconButton(onAdd, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.Add, "Add page") }
+            FilledTonalIconButton(onAdd, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add page") }
         }
     }
 }

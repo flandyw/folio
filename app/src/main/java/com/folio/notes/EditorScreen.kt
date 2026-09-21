@@ -504,10 +504,10 @@ private fun paperLabel(p: Paper): String = when (p) {
             onFit = ::resetZoom,
             onAdd = ::addPage,
             actions = {
-                IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Editor settings") }
-                IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Export or share") }
+                IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Editor settings") }
+                IconButton(onExport, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Export or share") }
                 Box {
-                    IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
+                    IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
                     PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
                         onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
@@ -741,7 +741,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                     }
                     item {
-                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp)) {
+                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp), shapes = ButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
                         }
                     }
@@ -761,8 +761,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     .zIndex(8f).background(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Writing strip · $followStatus", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                        TextButton({ stripInkView?.nextWritingLine() }) { Text("Next line") }
-                        IconButton({ writingStripOpen = false }) { Icon(Icons.Rounded.Close, "Close writing strip") }
+                        TextButton({ stripInkView?.nextWritingLine() }, shapes = ButtonDefaults.shapes()) { Text("Next line") }
+                        IconButton({ writingStripOpen = false }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close writing strip") }
                     }
                     EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = { selection = page.id to it },
@@ -823,7 +823,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Box {
                             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (writingFollowEnabled) "Writing follow on" else "Writing follow off") } }, state = rememberTooltipState()) {
-                                IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp)) {
+                                IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(Icons.Rounded.SwipeRight, "Writing follow options",
                                             tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
@@ -910,8 +910,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         )
                                     },
                                     enabled = !peekHeld,
-                                    modifier = Modifier.size(40.dp)
-                                ) {
+                                    modifier = Modifier.size(40.dp),
+                                    shapes = IconButtonDefaults.shapes()) {
                                     Icon(
                                         if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
                                         if (followPreferences.mode == FollowMode.TEXT) "Text follow — switch to Maths" else "Maths follow — switch to Text",
@@ -919,8 +919,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     )
                                 }
                             }
-                            TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld) { Text("Next line") }
-                            TextButton({ followView?.backWritingView() }, enabled = !peekHeld) { Text("Back") }
+                            TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Next line") }
+                            TextButton({ followView?.backWritingView() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Back") }
                         }
                         if (peekAnchor != null) {
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
@@ -981,7 +981,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
             shape = RoundedCornerShape(16.dp),
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }) { Icon(Icons.Rounded.Close, "Clear page search") } })
+            trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear page search") } })
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PageFilter.entries.forEach { option ->
                 FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
@@ -995,14 +995,16 @@ private fun paperLabel(p: Paper): String = when (p) {
                 keyboardActions = KeyboardActions(onGo = { pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" }),
                 modifier = Modifier.weight(1f))
             FilledTonalButton({ pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" },
-                enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true) { Text("Go") }
+                enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true,
+                shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton({
                 model.duplicatePage()?.let { pages.requestScrollToItem(it) }
                 pageBrowser = false
-            }) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Duplicate ${state.pageIndex + 1}") }
+            },
+                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Duplicate ${state.pageIndex + 1}") }
         }
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
@@ -1047,7 +1049,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item { FilledTonalButton({ addPage(); pageBrowser = false }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
+            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
         }
     }
     namedPage?.let { target ->
@@ -1060,8 +1062,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
                     shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }, dismissButton = { TextButton({ namedPage = null }) { Text("Cancel") } },
-            confirmButton = { Button({ model.renamePage(target.id, pageTitle); namedPage = null }) { Text("Save") } })
+            }, dismissButton = { TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
+            confirmButton = { Button({ model.renamePage(target.id, pageTitle); namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Save") } })
     }
     movingPage?.let { pageId ->
         val destination = destinationPage.toIntOrNull()
@@ -1077,12 +1079,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                         movingPage = null
                     }),
                     shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }, dismissButton = { TextButton({ movingPage = null }) { Text("Cancel") } },
+            }, dismissButton = { TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = { Button({
                 val from = note.pages.indexOfFirst { it.id == pageId }
                 if (from >= 0 && destination != null) model.movePage(from, destination - 1)
                 movingPage = null
-            }, enabled = destination != null && destination in 1..note.pages.size) { Text("Move") } })
+            }, enabled = destination != null && destination in 1..note.pages.size,
+                shapes = ButtonDefaults.shapes()) { Text("Move") } })
     }
     deletingPage?.let { pageId ->
         val index = note.pages.indexOfFirst { it.id == pageId }
@@ -1090,9 +1093,10 @@ private fun paperLabel(p: Paper): String = when (p) {
             icon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?") },
             text = { Text("This removes the page and its content. This cannot be undone.") },
-            dismissButton = { TextButton({ deletingPage = null }) { Text("Cancel") } },
+            dismissButton = { TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = { Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) { Text("Delete") } })
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                shapes = ButtonDefaults.shapes()) { Text("Delete") } })
     }
     if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false },
         icon = { Icon(Icons.Rounded.Edit, null) }, title = { Text("Rename notebook") }, text = {
@@ -1100,8 +1104,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { if (renameTitle.isNotBlank()) { model.rename(note, renameTitle); rename = false } }),
             shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-    }, dismissButton = { TextButton({ rename = false }) { Text("Cancel") } }, confirmButton = {
-        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank()) { Text("Save") }
+    }, dismissButton = { TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = {
+        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
     })
     if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false },
         icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text("Change paper") }, text = {
@@ -1134,9 +1138,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
         }
-    }, confirmButton = { TextButton({ paperMenu = false }) { Text("Done") } })
+    }, confirmButton = { TextButton({ paperMenu = false }, shapes = ButtonDefaults.shapes()) { Text("Done") } })
     if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false },
-        icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }) { Text("Clear page") } })
+        icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }, shapes = ButtonDefaults.shapes()) { Text("Clear page") } })
     if (timerPanel) ExamTimerPanel(
         timer = state.timer,
         onDismiss = { timerPanel = false },
@@ -1189,17 +1193,17 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Drag with the hand tool to move. Drag the blue dot to resize. Ink draws over the picture.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FilledTonalButton({ model.bringImageToFront(live.id) }, Modifier.fillMaxWidth()) {
+                    FilledTonalButton({ model.bringImageToFront(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Bring to front")
                     }
-                    OutlinedButton({ model.sendImageToBack(live.id) }, Modifier.fillMaxWidth()) {
+                    OutlinedButton({ model.sendImageToBack(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.FlipToBack, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send to back")
                     }
                     Button(
                         { model.removeImage(live.id); selectedImage = null },
-                        Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)
-                    ) {
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                        shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Remove picture")
                     }
                 }
@@ -1230,7 +1234,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 trailingIcon = {
-                    if (noteQuery.isNotEmpty()) IconButton({ noteQuery = "" }) {
+                    if (noteQuery.isNotEmpty()) IconButton({ noteQuery = "" }, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Clear, "Clear search")
                     }
                 }
@@ -1275,7 +1279,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 FilledTonalButton({
                     model.insertStamp(kind, color = options.color, width = options.width)
                     stampPicker = false
-                }, Modifier.fillMaxWidth()) {
+                }, modifier = Modifier.fillMaxWidth(),
+                    shapes = ButtonDefaults.shapes()) {
                     Icon(
                         when (kind) {
                             InkStamps.Kind.ARROW -> Icons.AutoMirrored.Rounded.ArrowForward
@@ -1304,12 +1309,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { model.searchPdf(pdfQuery) }),
                 trailingIcon = {
-                    if (pdfQuery.isNotEmpty()) IconButton({ pdfQuery = ""; model.searchPdf("") }) {
+                    if (pdfQuery.isNotEmpty()) IconButton({ pdfQuery = ""; model.searchPdf("") }, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Clear, "Clear search")
                     }
                 }
             )
-            Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+            Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Search")
             }
             val search = state.pdfSearch
@@ -1392,7 +1397,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Crossfade(targetState = active, label = "timerChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Exam timer") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.Timer, "Exam timer") }
+                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Exam timer") }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
@@ -1597,7 +1602,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Couldn't open this PDF page", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text("Check the file still exists, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FilledTonalButton({ retry++ }) { Text("Try again") }
+                    FilledTonalButton({ retry++ }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
                 } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LoadingIndicator(Modifier.semanticsLabel("Loading page"))
                     Text("Rendering PDF…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1681,7 +1686,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}")
             }
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
-                IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp)) {
+                IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -1736,7 +1741,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                             Text("${(options.opacity * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(36.dp))
                         }
                     }
-                    TextButton({ onPalette(true); showWidth = false }, Modifier.align(Alignment.End)) { Text("More settings") }
+                    TextButton({ onPalette(true); showWidth = false }, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("More settings") }
                 }
             }
         }
@@ -1783,10 +1788,10 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     val controls: @Composable RowScope.() -> Unit = {
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
-            IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
+            IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
         }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
-            IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+            IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         }
         ToolbarDivider()
         // Only the tool tray scrolls; history and overflow always remain reachable.
@@ -1813,7 +1818,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
-            IconButton({ shapes = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
+            IconButton({ shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
@@ -2043,16 +2048,16 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        IconButton({ layoutState.moveSlot(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(40.dp)) {
+                        IconButton({ layoutState.moveSlot(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.ArrowUpward, "Move ${toolbarSlotLabel(slot)} up", Modifier.size(18.dp))
                         }
-                        IconButton({ layoutState.moveSlot(index, index + 1) }, enabled = index < layout.order.lastIndex, modifier = Modifier.size(40.dp)) {
+                        IconButton({ layoutState.moveSlot(index, index + 1) }, enabled = index < layout.order.lastIndex, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.ArrowDownward, "Move ${toolbarSlotLabel(slot)} down", Modifier.size(18.dp))
                         }
                         if (slot in layout.hidden) {
-                            TextButton({ layoutState.show(slot) }) { Text("Show") }
+                            TextButton({ layoutState.show(slot) }, shapes = ButtonDefaults.shapes()) { Text("Show") }
                         } else {
-                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1) { Text("Hide") }
+                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("Hide") }
                         }
                         Icon(
                             Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}",
@@ -2088,20 +2093,20 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                                 Text(preset.tool.name.lowercase(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (pinned) {
-                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }, enabled = pinnedIndex > 0, modifier = Modifier.size(40.dp)) {
+                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }, enabled = pinnedIndex > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.ArrowUpward, "Move ${preset.name} up", Modifier.size(18.dp))
                                 }
-                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex + 1) }, enabled = pinnedIndex < layout.pinnedPresetIds.lastIndex, modifier = Modifier.size(40.dp)) {
+                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex + 1) }, enabled = pinnedIndex < layout.pinnedPresetIds.lastIndex, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.ArrowDownward, "Move ${preset.name} down", Modifier.size(18.dp))
                                 }
                             }
-                            TextButton({ layoutState.togglePin(preset.id) }) { Text(if (pinned) "Unpin" else "Pin") }
+                            TextButton({ layoutState.togglePin(preset.id) }, shapes = ButtonDefaults.shapes()) { Text(if (pinned) "Unpin" else "Pin") }
                         }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                TextButton({ layoutState.reset() }) { Text("Reset toolbar") }
+                TextButton({ layoutState.reset() }, shapes = ButtonDefaults.shapes()) { Text("Reset toolbar") }
                 Button(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Done") }
             }
         }
@@ -2191,11 +2196,11 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                     content,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onBookmark, modifier = Modifier.size(40.dp)) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+            IconButton(onBookmark, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                 if (page.bookmarked) "Remove bookmark" else "Bookmark page",
                 tint = if (page.bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             Box {
-                IconButton({ menu = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
+                IconButton({ menu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
                 DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
                     DropdownMenuItem({ Text("Name page") }, { menu = false; onName() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
                     DropdownMenuItem({ Text("Move to position…") }, { menu = false; onMoveTo() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
@@ -2262,24 +2267,24 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
     ) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Copy")
             }
-            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.DynamicFeed, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicate")
             }
-            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Palette, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Style")
             }
             TextButton(
                 { tap(onDelete) },
                 contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Delete")
             }
             Box {
-                IconButton({ overflow = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
+                IconButton({ overflow = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
                 DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
                     DropdownMenuItem({ Text("Select all") }, { overflow = false; tap(onSelectAll) }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
                     DropdownMenuItem({ Text("Deselect") }, { overflow = false; tap(onDeselect) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
@@ -2340,8 +2345,8 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                TextButton(onDismiss) { Text("Cancel") }
-                Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle) }) { Text("Apply") }
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
             }
         }
     }
@@ -2413,12 +2418,12 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         },
         dismissButton = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!isNew) TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
-                TextButton(onDismiss) { Text("Cancel") }
+                if (!isNew) TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
             }
         },
         confirmButton = {
-            Button({ val edited = box.copy(text = text.trimEnd(), size = size, color = color, bold = bold, italic = italic, align = align, underline = underline); if (isNew) onCreate(edited) else onUpdate(edited) }, enabled = text.isNotBlank()) {
+            Button({ val edited = box.copy(text = text.trimEnd(), size = size, color = color, bold = bold, italic = italic, align = align, underline = underline); if (isNew) onCreate(edited) else onUpdate(edited) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) {
                 Text(if (isNew) "Add text" else "Save")
             }
         }

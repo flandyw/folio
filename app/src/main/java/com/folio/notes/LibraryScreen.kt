@@ -45,15 +45,14 @@ private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MM
 /** Top-level destinations in the Library sidebar: notebooks, study review, or score progress. */
 enum class LibrarySection { LIBRARY, REVIEW, PROGRESS }
 
-/** Review hub tabs: Exam Sets + Redo + Bookmarks live here instead of the Library header. */
-enum class ReviewTab { SETS, REDO, BOOKMARKS }
+/** Review hub tabs: Redo + Bookmarks live here instead of the Library header. */
+enum class ReviewTab { REDO, BOOKMARKS }
 
 @Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
-    var setAssign by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     // Debounced query drives the O(N) filter so typing never blocks the text field.
     var debouncedQuery by rememberSaveable { mutableStateOf("") }
@@ -73,7 +72,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
     LaunchedEffect(listView) { libraryPrefs.edit().putBoolean(AppPrefs.LIB_LIST, listView).apply() }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(LibrarySection.LIBRARY) }
-    var reviewTab by rememberSaveable { mutableStateOf(ReviewTab.SETS) }
+    var reviewTab by rememberSaveable { mutableStateOf(ReviewTab.REDO) }
     var sortMenu by remember { mutableStateOf(false) }
     var sidebarImportMenu by remember { mutableStateOf(false) }
     var selecting by rememberSaveable { mutableStateOf(false) }
@@ -88,8 +87,6 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
     var folderMenu by remember { mutableStateOf(false) }
     var renameFolder by remember { mutableStateOf<Folder?>(null) }
     var deleteFolder by remember { mutableStateOf<Folder?>(null) }
-    var setsPanel by remember { mutableStateOf(false) }
-    var assignPanel by remember { mutableStateOf(false) }
     val examFilter = state.examFilter
     // Filtering + sorting runs once per input change, not on every recomposition (selection
     // ticks, thumbnail arrivals), so scrolling and multi-select stay smooth on large libraries.
@@ -97,9 +94,6 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
         organizeNotebooks(state.notes, state.folderId, starred, unfiled, debouncedQuery, kind, sort)
             .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
     }
-    // Grouping is pure but not free; memoized here (a @Composable context) rather than inside
-    // the grid content, where remember is not allowed.
-    val groups = remember(state.sets, state.notes) { groupExamSets(state.sets, state.notes) }
     val redoCount = remember(state.notes) { state.notes.sumOf { note -> note.pages.count { it.redoFlag } } }
     val bookmarkCount = remember(state.notes) { state.notes.sumOf { note -> note.pages.count { it.bookmarked } } }
     val reviewCount = redoCount + bookmarkCount
@@ -129,7 +123,6 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     NavItem("Review", Icons.AutoMirrored.Rounded.FactCheck, section == LibrarySection.REVIEW, reviewCount.takeIf { it > 0 }) { section = LibrarySection.REVIEW }
                     if (section == LibrarySection.REVIEW) {
                         Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            NavItem("Exam sets", Icons.Rounded.Workspaces, reviewTab == ReviewTab.SETS, groups.size.takeIf { it > 0 }) { reviewTab = ReviewTab.SETS }
                             NavItem("Redo", Icons.Rounded.Refresh, reviewTab == ReviewTab.REDO, redoCount.takeIf { it > 0 }) { reviewTab = ReviewTab.REDO }
                             NavItem("Bookmarks", Icons.Rounded.Bookmark, reviewTab == ReviewTab.BOOKMARKS, bookmarkCount.takeIf { it > 0 }) { reviewTab = ReviewTab.BOOKMARKS }
                         }
@@ -146,7 +139,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("YOUR FOLDERS", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onFolder, Modifier.size(48.dp)) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                        IconButton(onFolder, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         state.folders.forEach { folder -> NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) } }
@@ -169,13 +162,13 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
                             if (!wide) Box {
                                 var importMenu by remember { mutableStateOf(false) }
-                                IconButton({ importMenu = true }) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
+                                IconButton({ importMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
                                 DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                                     DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
                                 }
                             }
-                            if (!wide) IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Settings") }
+                            if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                         }
                         // Narrow devices have no sidebar: section tabs live here instead.
                         if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -190,22 +183,22 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             state.folders.forEach { folder -> FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) }) }
                             AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                         }
-                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(8.dp))
                             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
                             Box {
-                                IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
+                                IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
                                 DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     LibrarySort.entries.forEach { option ->
                                         DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
                                     }
                                 }
                             }
-                            IconButton({ listView = !listView }) { Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Show covers" else "Show compact list") }
+                            IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) { Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Show covers" else "Show compact list") }
                             state.folders.find { it.id == state.folderId }?.let { folder -> Box {
-                                IconButton({ folderMenu = true }) { Icon(Icons.Rounded.MoreVert, "Folder options") }
+                                IconButton({ folderMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Folder options") }
                                 DropdownMenu(folderMenu, { folderMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("Rename folder") }, { folderMenu = false; renameFolder = folder })
                                     DropdownMenuItem({ Text("Remove folder") }, { folderMenu = false; deleteFolder = folder })
@@ -216,11 +209,11 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             FilterChip(filtersExpanded || filtersActive, { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
                                 leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
                                 trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-                            TextButton({ selecting = !selecting; selectedIds = emptyList() }) { Text(if (selecting) "Done" else "Select") }
+                            TextButton({ selecting = !selecting; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                         }
                         if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }) { Text("Reset filters") }
+                            TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
                         }
                         state.daysToExam?.let { days ->
                             Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
@@ -233,7 +226,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             }
                             // Exam filters: one chip per subject that is actually in use, then year,
                             // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
-                            val examNotes = state.notes.filter { it.exam.isTagged || it.setId != null }
+                            val examNotes = state.notes.filter { it.exam.isTagged }
                             if (examNotes.isNotEmpty()) {
                                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     VceSubject.entries.forEach { subject ->
@@ -271,24 +264,23 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                 Spacer(Modifier.weight(1f))
-                                TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
-                                TextButton({ selecting = false; selectedIds = emptyList() }) { Text("Done") }
+                                TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                                TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
                             }
                             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty()) { Text("Move") }
-                                TextButton({ assignPanel = true }, enabled = selection.isNotEmpty()) { Text("Exam set") }
-                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty()) { Text("Exam details") }
-                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty()) { Text("Cover") }
+                                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
+                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
+                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
                                 val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
-                                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
+                                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
                                 TextButton(
                                     { bulkDelete = true },
                                     enabled = selection.isNotEmpty(),
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                ) { Text("Delete") }
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
                             }
                         }
-                        if (state.saveFailed) FilledTonalButton(model::retrySave) { Text("Changes need saving · Retry save") }
+                        if (state.saveFailed) FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
                     }
                 }
                 if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -297,8 +289,8 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                             Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
                             Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
                             Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }) { Text("Clear filters") }
-                            if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                            if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
+                            if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
                         }
                     }
                 }
@@ -321,13 +313,13 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                                     Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", style = MaterialTheme.typography.bodySmall)
                                 }
                                 if (!selecting) {
-                                    IconButton({ model.star(note) }) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
-                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, { setAssign = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) })
+                                    IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
+                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) })
                                 }
                             }
                         } else NotebookCard(
                             note, model.thumbnails, folder, open, { model.star(note) },
-                            { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, { setAssign = note },
+                            { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note },
                             selecting, note.pages.count { it.redoFlag },
                             selected = note.id in selection, onLongPress = longPress,
                             pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) }
@@ -340,7 +332,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     if (!wide) Brand() else Text("Review", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     if (!wide) Spacer(Modifier.weight(1f))
                     if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
-                    if (!wide) IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Settings") }
+                    if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                 }
                 if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(false, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
@@ -348,25 +340,12 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     FilterChip(true, {}, { Text(if (reviewCount > 0) "Review · $reviewCount" else "Review") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(16.dp)) })
                     FilterChip(false, { section = LibrarySection.PROGRESS }, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
                 }
-                Text("Exam sets, redo queue and bookmarks — kept here so the shelf stays a shelf.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Redo queue and bookmarks — kept here so the shelf stays a shelf.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(reviewTab == ReviewTab.SETS, { reviewTab = ReviewTab.SETS }, { Text("Exam sets${if (groups.isNotEmpty()) " · ${groups.size}" else ""}") }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null, Modifier.size(16.dp)) })
                     FilterChip(reviewTab == ReviewTab.REDO, { reviewTab = ReviewTab.REDO }, { Text(if (redoCount > 0) "Redo · $redoCount" else "Redo") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp)) })
                     FilterChip(reviewTab == ReviewTab.BOOKMARKS, { reviewTab = ReviewTab.BOOKMARKS }, { Text(if (bookmarkCount > 0) "Bookmarks · $bookmarkCount" else "Bookmarks") }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null, Modifier.size(16.dp)) })
                 }
                 when (reviewTab) {
-                    ReviewTab.SETS -> {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Exam sets", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            TextButton({ setsPanel = true }) { Text(if (groups.isEmpty()) "New set" else "Manage sets") }
-                        }
-                        if (groups.isEmpty()) {
-                            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Text("No sets yet. Group Exam 1 + Exam 2 for the same subject, year and company.",
-                                    Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        } else groups.forEach { group -> ExamSetCard(group, openSet = { setsPanel = true }, openNote = { model.open(it.id) }) }
-                    }
                     ReviewTab.REDO -> {
                         Text("Redo queue", style = MaterialTheme.typography.titleMedium)
                         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -386,7 +365,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     if (!wide) Spacer(Modifier.weight(1f))
                     if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
-                    if (!wide) IconButton(onSettings) { Icon(Icons.Rounded.Tune, "Settings") }
+                    if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                 }
                 if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(false, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
@@ -401,13 +380,6 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
             }
         }
     }
-    if (assignPanel) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { assignPanel = false }, title = { Text("Add ${selection.size} to an exam set") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.assignToExamSet(selection, null); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Remove from set") }
-            state.sets.forEach { set -> TextButton({ model.assignToExamSet(selection, set.id); assignPanel = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text(set.autoName()) } }
-            if (state.sets.isEmpty()) Text("No sets yet. Create one with Manage sets.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }, confirmButton = { TextButton({ assignPanel = false }) { Text("Cancel") } })
     examDetails?.let { note ->
         // The dialog edits a snapshot: refresh the notebook from state so a mark recorded
         // elsewhere (e.g. the quick Record action) shows up while the panel is open.
@@ -433,42 +405,26 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
             }
         )
     }
-    setAssign?.let { note ->
-        AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { setAssign = null }, title = { Text("${note.title} — exam set") }, text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                TextButton({ model.assignToExamSet(setOf(note.id), null); setAssign = null }) { Text("No set") }
-                state.sets.forEach { set -> TextButton({ model.assignToExamSet(setOf(note.id), set.id); setAssign = null }) { Text(set.autoName()) } }
-                if (state.sets.isEmpty()) Text("No sets yet. Create one with Manage sets.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }, confirmButton = { TextButton({ setAssign = null }) { Text("Cancel") } })
-    }
-    if (setsPanel) ExamSetsPanel(
-        groups = groupExamSets(state.sets, state.notes),
-        onDismiss = { setsPanel = false },
-        onCreate = { name, subject, year, company -> model.createExamSet(name, subject, year, company) },
-        onDelete = { model.deleteExamSet(it) },
-        openNote = { setsPanel = false; model.open(it.id) }
-    )
     if (bulkMove) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.moveNotebooks(selection, null); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text("Unfiled") }
-            state.folders.forEach { folder -> TextButton({ model.moveNotebooks(selection, folder.id); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty()) { Text(folder.name) } }
+            TextButton({ model.moveNotebooks(selection, null); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Unfiled") }
+            state.folders.forEach { folder -> TextButton({ model.moveNotebooks(selection, folder.id); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(folder.name) } }
             if (state.folders.isEmpty()) Text("Create a folder using New folder, then move notebooks here.")
         }
-    }, confirmButton = { TextButton({ bulkMove = false }) { Text("Cancel") } })
+    }, confirmButton = { TextButton({ bulkMove = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } })
     if (bulkDelete) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
         onDismissRequest = { bulkDelete = false },
         title = { Text("Delete ${selection.size} notebook${if (selection.size == 1) "" else "s"}?") },
         text = { Text("This removes the selected notebooks and their pages from this device. Export a copy first if you want to keep them.") },
-        dismissButton = { TextButton({ bulkDelete = false }) { Text("Keep") } },
+        dismissButton = { TextButton({ bulkDelete = false }, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
         confirmButton = {
             TextButton(
                 { model.deleteNotebooks(selection); bulkDelete = false; selectedIds = emptyList() },
                 enabled = selection.isNotEmpty(),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) { Text("Delete") }
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                shapes = ButtonDefaults.shapes()) { Text("Delete") }
         }
     )
     if (bulkTags) BatchExamTagsPanel(
@@ -490,26 +446,26 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                 Text("Show the first page itself, or keep the decorative default cover.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(
                     { model.setPageCoverBatch(selection, true); bulkCover = false; selectedIds = emptyList() },
-                    enabled = selection.isNotEmpty()
-                ) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(12.dp)); Text("First page as cover") }
+                    enabled = selection.isNotEmpty(),
+                    shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(12.dp)); Text("First page as cover") }
                 TextButton(
                     { model.setPageCoverBatch(selection, false); bulkCover = false; selectedIds = emptyList() },
-                    enabled = selection.isNotEmpty()
-                ) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(12.dp)); Text("Default cover") }
+                    enabled = selection.isNotEmpty(),
+                    shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(12.dp)); Text("Default cover") }
             }
         },
-        confirmButton = { TextButton({ bulkCover = false }) { Text("Cancel") } }
+        confirmButton = { TextButton({ bulkCover = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
     renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { model.renameFolder(folder, it); renameFolder = null } }
-    deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }) { Text("Remove folder") } }) }
+    deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.move(note, null); move = null }) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(12.dp)); Text("No folder") }
-            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(12.dp)); Text(folder.name) } }
+            TextButton({ model.move(note, null); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(12.dp)); Text("No folder") }
+            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(12.dp)); Text(folder.name) } }
         }
-    }, confirmButton = { TextButton({ move = null }) { Text("Cancel") } }) }
-    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") } }) }
+    }, confirmButton = { TextButton({ move = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }) }
+    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") } }) }
 }
 
 @Composable private fun Brand() {
@@ -527,7 +483,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
     }
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, assignSet: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
     Column {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -545,7 +501,7 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                     }
                 }
             } else {
-                IconButton(star, Modifier.align(Alignment.TopEnd).padding(2.dp)) {
+                IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(2.dp), shapes = IconButtonDefaults.shapes()) {
                     Icon(
                         if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         if (note.starred) "Remove from favorites" else "Add to favorites",
@@ -560,21 +516,20 @@ enum class ReviewTab { SETS, REDO, BOOKMARKS }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: libraryDateFormat.get()!!.format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, assignSet, pageCover, onCoverToggle)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle)
         }
         ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, assignSet: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
+        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Record a mark") }, { menu = false; recordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
-            DropdownMenuItem({ Text("Exam set") }, { menu = false; assignSet() }, leadingIcon = { Icon(Icons.Rounded.Workspaces, null) })
             DropdownMenuItem(
                 { Text(if (pageCover) "Use default cover" else "Use first page as cover") },
                 { menu = false; onCoverToggle() },

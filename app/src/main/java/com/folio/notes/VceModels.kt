@@ -132,31 +132,6 @@ data class ExamAttempt(
     val share: Float? get() = total?.takeIf { it > 0 }?.let { (score.toFloat() / it).coerceIn(0f, 1f) }
 }
 
-/** A group of notebooks that belong to one paper: attempts, solutions, a summary of corrections. */
-data class ExamSet(
-    val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val subject: VceSubject? = null,
-    val year: Int? = null,
-    val company: String = "",
-    /** Legacy paper metadata retained when reading existing sets. New sets span both papers. */
-    val type: ExamType? = null,
-    /** Legacy duration retained for backup compatibility. */
-    val durationSeconds: Int? = null
-) {
-    /** Short cover line, matching the notebook tags' format. */
-    fun summaryLine(): String = listOfNotNull(
-        subject?.label, company.ifBlank { null }, year?.toString()
-    ).joinToString(" · ")
-
-    /** Only pair papers with a complete, matching subject/year/company identity. */
-    fun matchesPaper(note: Notebook): Boolean =
-        subject != null && year != null && company.isNotBlank() &&
-            note.exam.subject == subject && note.exam.year == year &&
-            note.exam.company.trim().equals(company.trim(), ignoreCase = true) &&
-            note.exam.type in listOf(ExamType.EXAM_1, ExamType.EXAM_2)
-}
-
 // ---- Codec ---------------------------------------------------------------------------------------
 
 /** JSON round-trips for exam metadata, shared by the index codec and the portable codec. */
@@ -218,53 +193,7 @@ object ExamTagsCodec {
         }
     }
 
-    fun encodeSets(sets: List<ExamSet>): JSONArray = JSONArray().apply {
-        sets.forEach { s -> put(JSONObject().apply {
-            put("id", s.id); put("name", s.name)
-            s.subject?.let { put("subject", it.name) }
-            s.year?.let { put("year", it) }
-            if (s.company.isNotBlank()) put("company", s.company)
-            s.type?.let { put("type", it.name) }
-            s.durationSeconds?.let { put("durationSeconds", it) }
-        }) }
-    }
-
-    fun decodeSets(array: JSONArray?): List<ExamSet> {
-        if (array == null) return emptyList()
-        return (0 until array.length()).map { i ->
-            val s = array.getJSONObject(i)
-            ExamSet(
-                id = s.getString("id"),
-                name = s.getString("name"),
-                subject = if (s.has("subject") && !s.isNull("subject")) VceSubject.safeValueOf(s.optString("subject")) else null,
-                year = if (s.has("year") && !s.isNull("year")) s.optInt("year") else null,
-                company = s.optString("company", ""),
-                type = if (s.has("type") && !s.isNull("type")) ExamType.safeValueOf(s.optString("type")) else null,
-                durationSeconds = if (s.has("durationSeconds") && !s.isNull("durationSeconds")) s.optInt("durationSeconds") else null
-            )
-        }
-    }
 }
-
-// ---- Exam sets -----------------------------------------------------------------------------------
-
-/** Pairs a set with the notebooks that link to it, which is everything the set screens need. */
-data class ExamSetGroup(val set: ExamSet, val notes: List<Notebook>) {
-    // Computed once per group instance; papers()/bestShare() are called repeatedly per card.
-    private val byType: Map<ExamType?, List<Notebook>> by lazy { notes.groupBy { it.exam.type } }
-    fun papers(type: ExamType): List<Notebook> = byType[type].orEmpty()
-    fun bestShare(type: ExamType): Float? = papers(type).asSequence().mapNotNull { it.bestScore }.maxOrNull()
-    val pairedPaperCount: Int get() = listOf(ExamType.EXAM_1, ExamType.EXAM_2).count { papers(it).isNotEmpty() }
-    /** Number of distinct sitting records across the whole set. */
-    val attemptCount: Int get() = notes.sumOf { it.attempts.size }
-}
-
-fun groupExamSets(sets: List<ExamSet>, notes: List<Notebook>): List<ExamSetGroup> =
-    sets.map { set -> ExamSetGroup(set, notes.filter { it.setId == set.id }) }
-
-/** Builds a set's name from its tags when the student has not typed one, e.g. "Maths Methods · VCAA · 2022". */
-fun ExamSet.autoName(): String =
-    name.ifBlank { summaryLine().ifBlank { "Exam set" } }
 
 // ---- Progress ------------------------------------------------------------------------------------
 
@@ -355,9 +284,9 @@ data class ExamFilter(
  * without leaving the search line behind: the query still matches titles and, now, tag text.
  */
 fun organizeExams(
-    notes: List<Notebook>, exam: ExamFilter = ExamFilter(), query: String = "", setId: String? = null
+    notes: List<Notebook>, exam: ExamFilter = ExamFilter(), query: String = ""
 ): List<Notebook> = notes.filter { note ->
-    exam.matches(note) && (setId == null || note.setId == setId) &&
+    exam.matches(note) &&
         (query.isBlank() || matchesQuery(note, query))
 }
 

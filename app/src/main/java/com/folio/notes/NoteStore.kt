@@ -79,7 +79,7 @@ object InkCodec {
  *
  * Version 1 kept every page inline in `note.json`, which is also the portable shape a `.folio`
  * archive carries, so [NoteCodec] still reads and writes that. Version 2 was the split index
- * before exam metadata existed; version 3 adds exam tags, attempts, the exam-set link and the
+ * before exam metadata existed; version 3 adds exam tags, attempts and the
  * per-page redo flag. Version 4 adds the first-page-versus-default cover choice. Version 5 previously added
  * behavioural telemetry, which readers now ignore while retaining scores and durations.
  * An older file is migrated the first time it is opened.
@@ -106,7 +106,6 @@ object NoteMetaCodec {
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
         put("exam", ExamTagsCodec.encode(note.exam))
-        put("set", note.setId ?: JSONObject.NULL)
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pageCover", note.pageCover)
         put("mistakePractice", note.mistakePractice)
@@ -148,7 +147,6 @@ object NoteMetaCodec {
                     title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
-            setId = if (o.isNull("set")) null else o.optString("set"),
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
             mistakeReviews = decodeMistakeReviews(o))

@@ -379,11 +379,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         topBar = {
             TopAppBar(
                 title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }) {
+                navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (detail != null) "Back to mistakes" else "Back to library")
                 } },
                 actions = {
-                    if (state.userId != null) IconButton({ showAccount = true }) {
+                    if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
                         Icon(if (state.status.startsWith("Offline")) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
                     }
                 }
@@ -428,7 +428,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     headlineContent = { Text(note.title) },
                                     supportingContent = { Text("${note.pages.size} pages · open or export in Folio") },
                                     leadingContent = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) },
-                                    trailingContent = { IconButton({ folio.open(note.id); onBack() }) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${note.title}") } }
+                                    trailingContent = { IconButton({ folio.open(note.id); onBack() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${note.title}") } }
                                 )
                             }
                         } else if (state.userId == null) {
@@ -463,7 +463,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     fullWidthItem {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("Next to review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                                            TextButton({ destination = "Library"; filter = "Due" }) { Text("See all ${due.size}") }
+                                            TextButton({ destination = "Library"; filter = "Due" }, shapes = ButtonDefaults.shapes()) { Text("See all ${due.size}") }
                                         }
                                     }
                                     items(due.take(5), key = { "due-${it.id}" }) { m ->
@@ -475,7 +475,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 fullWidthItem {
                                     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
                                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                        trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                        trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
                                         singleLine = true, shape = RoundedCornerShape(16.dp))
                                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         listOf("All" to mistakes.size, "Due" to due.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
@@ -484,11 +484,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                        TextButton({ showFilters = true }) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
-                                        if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters) { Text("Reset") }
+                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                        if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                                     }
                                     if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
+                                    if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                                         Text("Review ${minOf(reviewCandidates.size, sessionLimit)} matching due questions")
                                     }
                                 }
@@ -532,8 +532,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             MistakeFilterOptions("Subject", subjects, subject) { subject = it }
             MistakeFilterOptions("Paper", papers, paper) { paper = it }
             MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
-            Button({ showFilters = false }, Modifier.fillMaxWidth()) { Text("Show ${visible.size} questions") }
-            TextButton({ subject = ""; paper = ""; category = "" }) { Text("Reset filters") }
+            Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${visible.size} questions") }
+            TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
         }
     }
     if (confirmSignOut) {
@@ -542,7 +542,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
             title = { Text("Sign out of ExamTrack?") },
             text = { Text("Your cloud list hides until the next sign-in. Handwriting on this device and the offline cache stay put.") },
-            dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
+            dismissButton = { TextButton({ confirmSignOut = false }, shapes = ButtonDefaults.shapes()) { Text("Stay signed in") } },
             confirmButton = {
                 Button({
                     confirmSignOut = false
@@ -593,7 +593,7 @@ private fun LoginCard(
                 label = { Text("Email") },
                 placeholder = { Text("you@example.com") },
                 leadingIcon = { Icon(Icons.Rounded.AlternateEmail, null) },
-                trailingIcon = { if (email.isNotEmpty()) IconButton({ onEmail("") }) { Icon(Icons.Rounded.Close, "Clear email") } },
+                trailingIcon = { if (email.isNotEmpty()) IconButton({ onEmail("") }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear email") } },
                 singleLine = true,
                 isError = emailTouched && !emailValid,
                 supportingText = {
@@ -609,7 +609,7 @@ private fun LoginCard(
                 label = { Text("Password") },
                 leadingIcon = { Icon(Icons.Rounded.Lock, null) },
                 trailingIcon = {
-                    IconButton({ onShowPassword(!showPassword) }) {
+                    IconButton({ onShowPassword(!showPassword) }, shapes = IconButtonDefaults.shapes()) {
                         Icon(if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (showPassword) "Hide password" else "Show password")
                     }
                 },
@@ -642,7 +642,7 @@ private fun LoginCard(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
                 if (state.busy) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    LoadingIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(10.dp))
                     Text("Signing in…")
                 } else {
@@ -698,8 +698,8 @@ private fun AccountCard(
                     )
                 }
                 if (syncing) LoadingIndicator(Modifier.size(22.dp))
-                else IconButton(onSync) { Icon(Icons.Rounded.Sync, "Sync now") }
-                IconButton(onSignOut) { Icon(Icons.AutoMirrored.Rounded.Logout, "Sign out") }
+                else IconButton(onSync, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Sync, "Sync now") }
+                IconButton(onSignOut, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Logout, "Sign out") }
             }
             SyncStatusRow(status, pending)
             if (syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -749,7 +749,7 @@ private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
-            if (hasCards) TextButton(onClear) { Text("Clear filters") }
+            if (hasCards) TextButton(onClear, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
         }
     }
 }

@@ -310,12 +310,12 @@ import java.io.File
                     else -> Text(updateMessage ?: "No update information available.")
                 }
             },
-            dismissButton = { if (!updateChecking && !updateDownloading) TextButton({ updateDialog = false }) { Text("Later") } },
+            dismissButton = { if (!updateChecking && !updateDownloading) TextButton({ updateDialog = false }, shapes = ButtonDefaults.shapes()) { Text("Later") } },
             confirmButton = {
                 when {
                     updateReady != null && !updateDownloading -> Button({ installUpdate(updateReady!!) }, shapes = ButtonDefaults.shapes()) { Text("Install update") }
                     updateInfo != null && !updateDownloading -> Button({ downloadUpdate(updateInfo!!) }, shapes = ButtonDefaults.shapes()) { Text("Download & install") }
-                    updateFailure && !updateChecking -> TextButton({ checkForUpdates(showDialog = true) }) { Text("Retry") }
+                    updateFailure && !updateChecking -> TextButton({ checkForUpdates(showDialog = true) }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                 }
             }
         )
@@ -336,7 +336,7 @@ import java.io.File
     var text by rememberSaveable { mutableStateOf(initial) }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { Text(subtitle); OutlinedTextField(text, { text = it.take(120) }, singleLine = true, label = { Text("Name") }) }
-    }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank()) { Text(action) } })
+    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
 @Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
@@ -375,7 +375,7 @@ import java.io.File
             Text("Cover color", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 CoverColors.forEachIndexed { index, color ->
-                    IconButton({ cover = index }) {
+                    IconButton({ cover = index }, shapes = IconButtonDefaults.shapes()) {
                         Surface(Modifier.size(34.dp), shape = RoundedCornerShape(12.dp), color = color, border = if (index == cover) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
                             if (index == cover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
                             else Box(Modifier.semanticsLabel("Cover ${index + 1}"))
@@ -410,7 +410,7 @@ import java.io.File
             if (paper == Paper.TIAN_GRID) Text("田字格 — one character per square with a dashed cross", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (paper == Paper.MI_GRID) Text("米字格 — cross plus diagonals in each square", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } }, confirmButton = {
+    }, dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = {
         val chosen = NotebookTemplate.byId(template)
         Button(
             { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
@@ -444,7 +444,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                 }
             }
         },
-        confirmButton = { Button(onClick = { onImport(validDestination) }) { Text("Import") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { Button(onClick = { onImport(validDestination) }, shapes = ButtonDefaults.shapes()) { Text("Import") } },
+        dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
 }

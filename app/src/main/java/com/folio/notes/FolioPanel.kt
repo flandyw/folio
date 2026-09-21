@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import androidx.compose.foundation.layout.*
@@ -43,7 +44,7 @@ import androidx.core.view.WindowInsetsControllerCompat
                 Column {
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        IconButton(onDismissRequest) { Icon(Icons.Rounded.Close, "Close $title") }
+                        IconButton(onDismissRequest, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close $title") }
                     }
                     Column(Modifier.weight(1f, fill = false), content = content)
                 }
