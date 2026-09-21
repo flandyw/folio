@@ -30,6 +30,9 @@ import com.folio.notes.*
     onRate: (ReviewRating) -> Unit) {
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
+    var adjustLayout by rememberSaveable { mutableStateOf(false) }
+    var landscapeShare by rememberSaveable { mutableFloatStateOf(.36f) }
+    var portraitShare by rememberSaveable { mutableFloatStateOf(.30f) }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
@@ -128,14 +131,22 @@ import com.folio.notes.*
         }
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val wide = maxWidth >= 840.dp
-            val referenceHeight = maxHeight * .4f
+            val wide = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
+            val referenceHeight = maxHeight * portraitShare
             @Composable fun ReferencePane(modifier: Modifier) {
                 Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxSize()) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            IconButton({ adjustLayout = !adjustLayout }) { Icon(Icons.Rounded.Tune, "Adjust question panel size") }
                             if (!wide) TextButton({ questionExpanded = !questionExpanded }) { Text(if (questionExpanded) "Collapse" else "Expand") }
+                        }
+                        if (adjustLayout && (wide || questionExpanded)) {
+                            Column(Modifier.padding(horizontal = 16.dp)) {
+                                Text("Question space · ${((if (wide) landscapeShare else portraitShare) * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                                Slider(value = if (wide) landscapeShare else portraitShare,
+                                    onValueChange = { if (wide) landscapeShare = it else portraitShare = it }, valueRange = .2f.. .55f)
+                            }
                         }
                         if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             QuestionContent(m, context, attempt.userId, model.attachments)
@@ -151,9 +162,9 @@ import com.folio.notes.*
                 }
             }
             if (wide) Row(Modifier.fillMaxSize()) {
-                ReferencePane(Modifier.widthIn(max = 420.dp).fillMaxWidth(.36f).fillMaxHeight())
+                ReferencePane(Modifier.weight(landscapeShare).fillMaxHeight())
                 VerticalDivider()
-                Box(Modifier.weight(1f).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
             } else Column(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
                 Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }

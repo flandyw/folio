@@ -3,6 +3,11 @@ package com.folio.notes
 
 import android.content.SharedPreferences
 import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -25,102 +30,153 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 @Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}) {
+    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    val close: () -> Unit = { if (category != null) category = null else onBack() }
+    BackHandler(onBack = close)
     val context = LocalContext.current
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     val dynamicAvailable = Build.VERSION.SDK_INT >= 31
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close settings") }
-            Text("Settings", style = MaterialTheme.typography.headlineSmall)
+            IconButton(close) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (category == null) "Close settings" else "Back to settings") }
+            Text(category?.title ?: "Settings", style = MaterialTheme.typography.headlineSmall)
         }
         HorizontalDivider()
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).widthIn(max = 680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text("Account", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onExamTrack) { Text("ExamTrack · Sign in and manage mistake sync") }
-            HorizontalDivider()
-            Text("Your writing space", style = MaterialTheme.typography.headlineMedium)
-            Text("Make room for your ideas. These preferences apply to all notebooks.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Stylus", style = MaterialTheme.typography.titleMedium)
-            Text("On a OnePlus or OPPO device, double-tapping the Pencil starts the action you pick here. Other styli keep their own system shortcut. Palm touches are ignored while the stylus is writing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup().padding(8.dp)) {
-                    StylusShortcut.entries.forEach { option ->
-                        Row(Modifier.fillMaxWidth().selectable(stylus == option, role = Role.RadioButton, onClick = { onStylus(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(stylus == option, onClick = null)
-                            Spacer(Modifier.width(12.dp))
-                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                    }
-                }
-            }
-            PreferenceSwitch("Pen haptics", if (hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Changing tools by hand stays silent. The one-shot pulse is confirmed on the OnePlus Pencil Pro; it needs Bluetooth, and it is not the pen's soft writing feedback." else "Needs Android 12 or newer and a Bluetooth LE pencil.", haptics, onHaptics, hapticsSupported)
-            HorizontalDivider()
-            Text("Writing & appearance", style = MaterialTheme.typography.titleMedium)
-            PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
-            PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
-            ScribbleSettingsSection()
-            HorizontalDivider()
-            LibraryDefaultsSection()
-            HorizontalDivider()
-            EditorDefaultsSection()
-            HorizontalDivider()
-            InputGesturesSection()
-            HorizontalDivider()
-            WritingFollowDefaultsSection()
-            HorizontalDivider()
-            WorkflowSection(onCheckForUpdates, updateChecking)
-            HorizontalDivider()
-            Text("Appearance", style = MaterialTheme.typography.titleSmall)
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup().padding(8.dp)) {
-                    ThemeMode.entries.forEach { option ->
-                        Row(Modifier.fillMaxWidth().selectable(option == themeMode, role = Role.RadioButton, onClick = { onThemeMode(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(option == themeMode, onClick = null)
-                            Spacer(Modifier.width(12.dp))
-                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                    }
-                }
-            }
-            Text("Color theme", style = MaterialTheme.typography.titleSmall)
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup().padding(8.dp)) {
-                    ThemePalette.entries.forEach { option ->
-                        val enabled = option != ThemePalette.DYNAMIC || dynamicAvailable
-                        Row(Modifier.fillMaxWidth().selectable(option == themePalette, enabled = enabled, role = Role.RadioButton, onClick = { onThemePalette(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(option == themePalette, onClick = null, enabled = enabled)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(option.label, style = MaterialTheme.typography.titleSmall, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    if (!enabled) "Needs Android 12 or newer" else option.description,
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+        key(category) {
+            Column(
+                Modifier.weight(1f).widthIn(max = 680.dp).fillMaxWidth()
+                    .align(Alignment.CenterHorizontally).verticalScroll(rememberScrollState()).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                if (category == null) {
+                    Text("Make Folio your own", style = MaterialTheme.typography.headlineSmall)
+                    SectionHint("Choose a category to adjust your writing space. Changes are saved automatically.")
+                    SettingsCategory.entries.forEach { item ->
+                        Surface(onClick = { category = item }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(item.title, style = MaterialTheme.typography.titleMedium)
+                                    SectionHint(item.description)
+                                }
+                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
                             }
                         }
                     }
+                } else {
+                    SectionHint(category!!.description)
+                    when (category) {
+                        SettingsCategory.APPEARANCE -> {
+                            SectionTitle("Theme mode")
+                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                                    ThemeMode.entries.forEach { option ->
+                                        Row(Modifier.fillMaxWidth().selectable(option == themeMode, role = Role.RadioButton, onClick = { onThemeMode(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(option == themeMode, onClick = null)
+                                            Spacer(Modifier.width(12.dp))
+                                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                        }
+                                    }
+                                }
+                            }
+                            Text("Color theme", style = MaterialTheme.typography.titleSmall)
+                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                                    ThemePalette.entries.forEach { option ->
+                                        val enabled = option != ThemePalette.DYNAMIC || dynamicAvailable
+                                        Row(Modifier.fillMaxWidth().selectable(option == themePalette, enabled = enabled, role = Role.RadioButton, onClick = { onThemePalette(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(option == themePalette, onClick = null, enabled = enabled)
+                                            Spacer(Modifier.width(12.dp))
+                                            Column {
+                                                Text(option.label, style = MaterialTheme.typography.titleSmall, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text(
+                                                    if (!enabled) "Needs Android 12 or newer" else option.description,
+                                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            PreferenceSwitch("Pure black dark", "Use true black backgrounds whenever the dark theme is active. Accents and ink colors stay the same.", amoled, onAmoled)
+                            PrefsSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
+                        }
+                        SettingsCategory.LIBRARY -> LibraryDefaultsSection()
+                        SettingsCategory.WRITING -> {
+                            PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
+                            PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
+                            HorizontalDivider()
+                            EditorDefaultsSection()
+                            HorizontalDivider()
+                            SectionTitle("Shapes")
+                            PrefsSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live shape measurements", "Shows length/angle or width×height while drawing a shape.")
+                            PrefsSwitch("mathSnap", true, "Snap shapes to grid & 15°", "Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle any time in the editor.")
+                        }
+                        SettingsCategory.STYLUS -> {
+                            SectionTitle("Double-tap shortcut")
+                            Text("On a OnePlus or OPPO device, double-tapping the Pencil starts the action you pick here. Other styli keep their own system shortcut. Palm touches are ignored while the stylus is writing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                                    StylusShortcut.entries.forEach { option ->
+                                        Row(Modifier.fillMaxWidth().selectable(stylus == option, role = Role.RadioButton, onClick = { onStylus(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(stylus == option, onClick = null)
+                                            Spacer(Modifier.width(12.dp))
+                                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                        }
+                                    }
+                                }
+                            }
+                            PreferenceSwitch("Pen haptics", if (hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Changing tools by hand stays silent. The one-shot pulse is confirmed on the OnePlus Pencil Pro; it needs Bluetooth, and it is not the pen's soft writing feedback." else "Needs Android 12 or newer and a Bluetooth LE pencil.", haptics, onHaptics, hapticsSupported)
+                            HorizontalDivider()
+                            InputGesturesSection()
+                        }
+                        SettingsCategory.ERASING -> {
+                            PrefsSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive eraser", "Slightly grows with stronger pressure (about ±12%).")
+                            PrefsSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Single-stroke eraser", "Return to the previous tool after one eraser stroke.")
+                            PrefsSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Whole-stroke eraser", "Remove an entire stroke when touching any part of it.")
+                            HorizontalDivider()
+                            ScribbleSettingsSection(showPracticeInitially = false)
+                        }
+                        SettingsCategory.FOLLOW -> WritingFollowDefaultsSection()
+                        SettingsCategory.WORKFLOW -> WorkflowSection()
+                        SettingsCategory.ACCOUNT -> {
+                            SectionTitle("ExamTrack")
+                            SectionHint("Sign in to manage mistake sync with ExamTrack.")
+                            OutlinedButton(onExamTrack) { Text("Open ExamTrack") }
+                            HorizontalDivider()
+                            SectionTitle("App updates")
+                            PrefsSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check for updates on launch", "Folio checks GitHub Releases for a newer signed build.")
+                            OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
+                                if (updateChecking) {
+                                    LoadingIndicator(Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Checking…")
+                                } else Text("Check for updates")
+                            }
+                            SectionHint("Your notebooks stay on this device. Export a PDF to share your work, or a .folio backup to keep an editable copy.")
+                        }
+                        null -> Unit
+                    }
                 }
             }
-            PreferenceSwitch("Pure black dark", "Use true black backgrounds whenever the dark theme is active. Accents and ink colors stay the same.", amoled, onAmoled)
-            HorizontalDivider()
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("App updates", style = MaterialTheme.typography.titleSmall)
-                    Text("Check GitHub for a newer signed Folio release.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
-                    if (updateChecking) LoadingIndicator(Modifier.size(18.dp)) else Text("Check")
-                }
-            }
-            Text("Your notebooks stay on this device. Export a PDF to keep a copy or share your work.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
+private enum class SettingsCategory(val title: String, val description: String) {
+    APPEARANCE("Appearance", "Theme, colors, pure black backgrounds and fullscreen"),
+    LIBRARY("Library & notebooks", "Shelf layout, sorting, default paper and covers"),
+    WRITING("Writing & tools", "Finger drawing, shapes, default tool and typed text"),
+    STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures"),
+    ERASING("Erasing", "Eraser behavior and scribble-to-erase"),
+    FOLLOW("Writing follow", "Page movement, writing direction and line return"),
+    WORKFLOW("Timer & workspace", "Exam timer defaults, PNG export and split view"),
+    ACCOUNT("Account & updates", "ExamTrack sync and Folio updates")
+}
+
 @Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Row(Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Switch(checked, onChange, enabled = enabled)
+        Switch(checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
@@ -148,18 +204,17 @@ import kotlin.math.roundToInt
 }
 
 @Composable private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium)
+    Text(text, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
 }
 
 @Composable private fun SectionHint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-// ---- Library & appearance ----------------------------------------------------------------------
+// ---- Library & notebooks ----------------------------------------------------------------------
 
 @Composable private fun LibraryDefaultsSection() {
     val p = prefs()
-    var fullscreen by remember { mutableStateOf(p.getBoolean(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN)) }
     var sort by remember { mutableStateOf(AppPrefs.librarySort(p.getString(AppPrefs.LIB_SORT, null))) }
     var kind by remember { mutableStateOf(AppPrefs.libraryKind(p.getString(AppPrefs.LIB_KIND, null))) }
     var listView by remember { mutableStateOf(p.getBoolean(AppPrefs.LIB_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
@@ -169,7 +224,6 @@ import kotlin.math.roundToInt
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
             when (k) {
-                AppPrefs.FULLSCREEN -> fullscreen = p.getBoolean(k, AppPrefs.DEFAULT_FULLSCREEN)
                 AppPrefs.LIB_SORT -> sort = AppPrefs.librarySort(p.getString(k, null))
                 AppPrefs.LIB_KIND -> kind = AppPrefs.libraryKind(p.getString(k, null))
                 AppPrefs.LIB_LIST -> listView = p.getBoolean(k, AppPrefs.DEFAULT_LIST_VIEW)
@@ -181,12 +235,8 @@ import kotlin.math.roundToInt
         p.registerOnSharedPreferenceChangeListener(listener)
         onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    SectionTitle("Library & appearance")
+    SectionTitle("Library")
     SectionHint("How the shelf opens and what a fresh notebook looks like. Library sorting and view are also saved whenever you change them on the shelf itself.")
-    PreferenceSwitch("Fullscreen", "Hide the status bar and gesture pill across the whole app. They slide back on a swipe from their edge.", fullscreen, {
-        fullscreen = it
-        p.edit().putBoolean(AppPrefs.FULLSCREEN, it).apply()
-    })
     Text("Library sort", style = MaterialTheme.typography.titleSmall)
     Column(Modifier.selectableGroup()) {
         LibrarySort.entries.forEach { option ->
@@ -220,6 +270,8 @@ import kotlin.math.roundToInt
             p.edit().putBoolean(AppPrefs.LIB_LIST, true).apply()
         }, { Text("Compact list") })
     }
+    HorizontalDivider()
+    SectionTitle("New notebooks")
     Text("Default paper for new notebooks", style = MaterialTheme.typography.titleSmall)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Paper.entries.forEach { item ->
@@ -325,11 +377,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     }, valueRange = AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat())
     SectionHint("How long a finger still counts as a resting palm after stylus activity. 0 turns palm filtering off; 500 ms is the balanced default.")
     PrefsSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap undo", "Two fingers: undo, three fingers: redo — on the page canvas (not the toolbar). Stylus and palm input never trigger it.")
-    PrefsSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive eraser", "Slightly grows with stronger pressure (about ±12%).")
-    PrefsSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Single-stroke eraser", "When on, one eraser stroke then returns to the previous tool.")
-    PrefsSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Whole-stroke eraser", "When on, touching any part of a stroke removes the entire stroke instead of cutting it.")
-    PrefsSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live shape measurements", "Shows length/angle or width×height while drawing a shape.")
-    PrefsSwitch("mathSnap", true, "Snap shapes to grid & 15°", "Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle any time in the editor.")
+
 }
 
 // ---- Writing follow defaults -------------------------------------------------------------------
@@ -399,11 +447,10 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     })
 }
 
-// ---- Workflow: updates, timer, export, split ---------------------------------------------------
+// ---- Workflow: timer, export, split ---------------------------------------------------
 
-@Composable private fun WorkflowSection(onCheckForUpdates: () -> Unit, updateChecking: Boolean) {
+@Composable private fun WorkflowSection() {
     val p = prefs()
-    var autoUpdate by remember { mutableStateOf(p.getBoolean(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE)) }
     var customMinutes by remember { mutableStateOf(AppPrefs.timerCustomMinutes(p.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { p.contains(AppPrefs.TIMER_CUSTOM_MIN) }).toString()) }
     var readingMinutes by remember { mutableStateOf(AppPrefs.timerReadingMinutes(p.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { p.contains(AppPrefs.TIMER_READING_MIN) }).toFloat()) }
     var pngScale by remember { mutableStateOf(AppPrefs.pngScale(p.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { p.contains(AppPrefs.EXPORT_PNG_SCALE) })) }
@@ -412,7 +459,6 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
             when (k) {
-                AppPrefs.AUTO_UPDATE -> autoUpdate = p.getBoolean(k, AppPrefs.DEFAULT_AUTO_UPDATE)
                 AppPrefs.TIMER_CUSTOM_MIN -> customMinutes = AppPrefs.timerCustomMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN)).toString()
                 AppPrefs.TIMER_READING_MIN -> readingMinutes = AppPrefs.timerReadingMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_READING_MIN)).toFloat()
                 AppPrefs.EXPORT_PNG_SCALE -> pngScale = AppPrefs.pngScale(p.getFloat(k, AppPrefs.DEFAULT_PNG_SCALE))
@@ -422,21 +468,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         p.registerOnSharedPreferenceChangeListener(listener)
         onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    SectionTitle("Timer, export & updates")
-    SectionHint("Exam presets, PNG sharpness and the split-view balance. PDF exports keep vector ink; PNG scale only affects page images.")
-    PreferenceSwitch("Check for updates on launch", "After a short delay, Folio checks GitHub Releases for a newer signed build.", autoUpdate, {
-        autoUpdate = it
-        p.edit().putBoolean(AppPrefs.AUTO_UPDATE, it).apply()
-    })
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text("App updates", style = MaterialTheme.typography.titleSmall)
-            Text("Manual check any time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        OutlinedButton(onCheckForUpdates, enabled = !updateChecking) {
-            if (updateChecking) LoadingIndicator(Modifier.size(18.dp)) else Text("Check")
-        }
-    }
+    SectionTitle("Exam timer")
     Text("Custom timer writing minutes", style = MaterialTheme.typography.titleSmall)
     OutlinedTextField(customMinutes, {
         customMinutes = it.filter(Char::isDigit).take(3)
@@ -454,12 +486,17 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         readingMinutes = it
         p.edit().putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()).apply()
     }, valueRange = AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(), steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1)
+    HorizontalDivider()
+    SectionTitle("Export")
+    SectionHint("PDF exports keep vector ink. PNG sharpness only affects page images.")
     Text("Page image (PNG) sharpness: ${"%.1f".format(pngScale)}×", style = MaterialTheme.typography.titleSmall)
     Slider(pngScale, {
         pngScale = AppPrefs.pngScale(it)
         p.edit().putFloat(AppPrefs.EXPORT_PNG_SCALE, pngScale).apply()
     }, valueRange = AppPrefs.PNG_SCALE_MIN..AppPrefs.PNG_SCALE_MAX)
     SectionHint("Higher is crisper on large pages and larger to share. 2.0× is the balanced default.")
+    HorizontalDivider()
+    SectionTitle("Split view")
     Text("Split view balance: ${(split * 100).roundToInt()}% editor", style = MaterialTheme.typography.titleSmall)
     Slider(split, {
         split = AppPrefs.splitFraction(it)

@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,28 +19,43 @@ import androidx.compose.ui.unit.dp
     due: Int, total: Int, limit: Int, onLimit: (Int) -> Unit, shuffle: Boolean,
     onShuffle: () -> Unit, working: Boolean, onReview: () -> Unit, onBrowse: () -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("YOUR NEXT STEP", style = MaterialTheme.typography.labelMedium)
-            Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "A clear desk.\nA little more confidence."; else -> "A fresh attempt.\nA stronger understanding." },
-                style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
-            Text(when { total == 0 -> "Log a mistake in ExamTrack, then sync to bring your questions here."; due == 0 -> "Nothing is due right now. Browse your library to revisit a question at your own pace."; else -> "$due questions ready to revisit. Read, work it out, then compare your answer." }, style = MaterialTheme.typography.bodyLarge)
-            if (due > 0) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .15f))
-                Text("Make room for a short session", style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(5, 10, Int.MAX_VALUE).forEach { count ->
-                        FilterChip(limit == count, { onLimit(count) }, { Text(if (count == Int.MAX_VALUE) "All due" else "$count questions") })
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val horizontal = maxWidth >= 700.dp
+        @Composable fun Introduction(modifier: Modifier) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("YOUR NEXT STEP", style = MaterialTheme.typography.labelMedium)
+                Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "You're caught up."; else -> "$due questions. A fresh start." },
+                    style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
+                Text(when { total == 0 -> "Log a mistake in ExamTrack, then sync to bring your questions here."; due == 0 -> "Revisit a question at your own pace, or return when your next review is due."; else -> "Read, work it out, then compare. Your handwriting is saved as you go." }, style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+        @Composable fun SessionControls(modifier: Modifier) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (due > 0) {
+                    Text("Choose your session", style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(5, 10, Int.MAX_VALUE).forEach { count ->
+                            FilterChip(limit == count, { onLimit(count) }, { Text(if (count == Int.MAX_VALUE) "All due" else "$count questions") })
+                        }
+                        FilterChip(shuffle, onShuffle, { Text("Shuffle") }, leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
                     }
-                    FilterChip(shuffle, onShuffle, { Text("Shuffle") }, leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
-                }
-                Button(onReview, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.PlayArrow, null)
-                    Spacer(Modifier.width(8.dp)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
-                }
-                Text(if (shuffle) "Random order · your handwriting is saved as you go" else "Oldest due first · your handwriting is saved as you go", style = MaterialTheme.typography.bodySmall)
-            } else OutlinedButton(onBrowse) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
+                    Button(onReview, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                        if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.PlayArrow, null)
+                        Spacer(Modifier.width(8.dp)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
+                    }
+                    Text(if (shuffle) "Random order" else "Oldest due first", style = MaterialTheme.typography.bodySmall)
+                } else OutlinedButton(onBrowse) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
+            }
+        }
+        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+            if (horizontal) Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
+                Introduction(Modifier.weight(1f))
+                SessionControls(Modifier.weight(1f))
+            } else Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Introduction(Modifier.fillMaxWidth())
+                SessionControls(Modifier.fillMaxWidth())
+            }
         }
     }
 }
@@ -67,9 +83,11 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun MistakeLibraryRow(
     mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?, resume: Boolean,
-    attempts: Int, onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean,
+    attempts: Int, onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean, selected: Boolean = false,
 ) {
-    OutlinedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp)) {
+    OutlinedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "ExamTrack question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
