@@ -528,7 +528,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         // so switching between tools with/without a quick row glides instead of jumping.
         val showQuickBar = tool == Tool.PEN || tool == Tool.LINE || tool == Tool.RECTANGLE ||
             tool == Tool.ELLIPSE || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER || tool == Tool.TEXT
-        val floatingToolbarTop by animateDpAsState(if (showQuickBar) 122.dp else 68.dp, label = "toolbarOffset")
+        val floatingToolbarTop by animateDpAsState(if (showQuickBar) 112.dp else 64.dp, label = "toolbarOffset")
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -1733,18 +1733,20 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         }
     }
     @Composable fun ShapesSlot() {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(contentAlignment = Alignment.Center) {
             val shapeIcon = when (tool) {
                 Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
                 Tool.ELLIPSE -> Icons.Rounded.Circle
                 else -> Icons.Rounded.CropSquare
             }
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (isShape) "Shapes, ${tool.name.lowercase()} — tap for options" else "Shapes — tap for ${lastShape.name.lowercase()}") } }, state = rememberTooltipState()) {
-                FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
-                    if (isShape) "Shapes, ${tool.name.lowercase()}" else "Shapes")
-            }
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Choose shape") } }, state = rememberTooltipState()) {
-                IconButton({ shapePicker = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.ArrowDropDown, "Choose shape", Modifier.size(20.dp)) }
+                Box {
+                    FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
+                        if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes")
+                    Icon(Icons.Rounded.ArrowDropDown, null,
+                        Modifier.align(Alignment.BottomEnd).size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             DropdownMenu(shapePicker, { shapePicker = false }, modifier = Modifier.guardUiTouches()) {
                 listOf(
@@ -1770,7 +1772,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom") { pick(it) }
         }
     }
-    val controls: @Composable () -> Unit = {
+    val controls: @Composable RowScope.() -> Unit = {
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
         }
@@ -1778,23 +1780,31 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         }
         ToolbarDivider()
-        toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
-        pinnedPresets.forEach { preset ->
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
-                FilterChip(
-                    selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
-                    onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
-                    label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
-                    leadingIcon = {
-                        Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
-                    },
-                    modifier = Modifier.height(32.dp)
-                )
+        // Only the tool tray scrolls; history and overflow always remain reachable.
+        Row(
+            Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
+            pinnedPresets.forEach { preset ->
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
+                    FilterChip(
+                        selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
+                        onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
+                        label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
+                        leadingIcon = {
+                            Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
+                        },
+                        modifier = Modifier.widthIn(max = 112.dp).height(32.dp)
+                    )
+                }
             }
         }
+        ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
-            IconButton({ shapes = true }) { Icon(Icons.Rounded.MoreHoriz, "More options") }
+            IconButton({ shapes = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
@@ -1851,12 +1861,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
         }
     }
-    // The bar hugs its content: capped width fits narrow phones without clipping, and the
-    // quick row only takes space when the active tool has quick settings. Each row scrolls.
+    // Both surfaces hug their content within the available viewport. Only the tool tray
+    // and contextual settings scroll, leaving history and More fixed at either end.
     // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
-    Column(modifier.guardUiTouches().widthIn(max = 560.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.guardUiTouches().widthIn(max = 520.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
-            Modifier.fillMaxWidth().height(54.dp).combinedClickable(
+            Modifier.height(50.dp).combinedClickable(
                 onClick = {},
                 onLongClick = {
                     feedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1864,9 +1874,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 },
                 onLongClickLabel = "Edit toolbar"
             ),
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 6.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         ) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
+            Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
         AnimatedVisibility(
             visible = showQuickBar,
@@ -1874,15 +1884,15 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
         ) {
             Column {
-                Spacer(Modifier.height(6.dp))
-                Surface(Modifier.widthIn(max = 560.dp).height(50.dp), shape = RoundedCornerShape(25.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+                Spacer(Modifier.height(4.dp))
+                Surface(Modifier.widthIn(max = 520.dp).height(44.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
                             quick.colors(colorGroup).forEachIndexed { index, c ->
                                 InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}")
                             }
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                            Text("New text uses this colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         } else {
                             if (tool != Tool.ERASER) QuickColors()
                             if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
