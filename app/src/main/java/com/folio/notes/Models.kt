@@ -1290,33 +1290,6 @@ object InkGeometry {
         // Angle snap only for lines — rectangles/ellipses keep their grid corners.
         return sa to sb
     }
-
-    /**
-     * Two LINE strokes that form coordinate axes centred on [page]. Uses the page's own
-     * width/height so axes always span most of the sheet. Arrowheads are separate short
-     * strokes so they export and erase as expected.
-     */
-    fun mathAxes(page: NotePage, color: Int = 0xFF5A646E.toInt(), width: Float = 1.7f): List<Stroke> {
-        val cx = page.width / 2f; val cy = page.height / 2f
-        val pad = 22f
-        val axis = listOf(
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(pad, cy), InkPoint(page.width - pad, cy))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(cx, pad), InkPoint(cx, page.height - pad)))
-        )
-        // Small V arrowheads — four 9 px ticks so the graph reads at a glance.
-        val ah = 9f
-        val arrows = listOf(
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(page.width - pad - ah, cy - ah / 1.9f), InkPoint(page.width - pad, cy))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(page.width - pad - ah, cy + ah / 1.9f), InkPoint(page.width - pad, cy))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(pad + ah, cy - ah / 1.9f), InkPoint(pad, cy))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(pad + ah, cy + ah / 1.9f), InkPoint(pad, cy))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(cx - ah / 1.9f, pad + ah), InkPoint(cx, pad))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(cx + ah / 1.9f, pad + ah), InkPoint(cx, pad))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(cx - ah / 1.9f, page.height - pad - ah), InkPoint(cx, page.height - pad))),
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(cx + ah / 1.9f, page.height - pad - ah), InkPoint(cx, page.height - pad)))
-        )
-        return axis + arrows
-    }
 }
 
 internal fun decodeMistakeReviews(o: JSONObject): List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> =

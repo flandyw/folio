@@ -321,6 +321,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var paperMenu by remember { mutableStateOf(false) }
     var timerPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
+    var markDialog by remember { mutableStateOf(false) }
     var pdfSearchOpen by remember { mutableStateOf(false) }
     var pdfQuery by remember { mutableStateOf("") }
     var pdfContentsOpen by remember { mutableStateOf(false) }
@@ -508,10 +509,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Box {
                     IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Page options") }
                     PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onAxes = model::insertAxes, onPaper = { paperMenu = true },
+                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                         onClear = { clear = true }, onRetry = model::retrySave,
-                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onTimer = { timerPanel = true },
+                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                         onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                         onContents = { pdfContentsOpen = true; loadOutline() },
@@ -957,7 +958,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                     palette = palette,
                     snapEnabled = snapEnabled,
                     onSnap = ::setSnap,
-                    onAxes = model::insertAxes,
                     onPalette = { palette = it },
                     eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
                     scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
@@ -1153,6 +1153,15 @@ private fun paperLabel(p: Paper): String = when (p) {
         onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
         suggestedSeconds = state.lastTimedSeconds
+    )
+    if (markDialog) ScoreDialog(
+        total = note.exam.marksTotal,
+        defaultSeconds = state.lastTimedSeconds,
+        onDismiss = { markDialog = false },
+        onRecord = { score, total, seconds, timed ->
+            model.recordAttempt(note.id, ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
+            markDialog = false
+        }
     )
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(
@@ -1622,7 +1631,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun FloatingInkToolbar(
     modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState,
-    canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onAxes: () -> Unit, onPalette: (Boolean) -> Unit,
+    canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onPalette: (Boolean) -> Unit,
     eraserSingleStroke: Boolean = false, onEraserSingleStroke: ((Boolean) -> Unit)? = null,
     scribbleToErase: Boolean = true, onScribbleToErase: ((Boolean) -> Unit)? = null,
     eraserPressureEnabled: Boolean = true, onEraserPressure: ((Boolean) -> Unit)? = null,
@@ -1855,7 +1864,6 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                     HorizontalDivider()
                 }
-                DropdownMenuItem({ Text("Insert graph axes") }, { onAxes(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
                 DropdownMenuItem({ Text("Tool settings") }, { onPalette(true); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                 if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             }
@@ -1933,11 +1941,6 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                                             StrokeStyle.DOTTED -> StrokeStyle.SOLID
                                         }))
                                     }, label = { Text(styleLabel, style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (snapEnabled) "Snap to grid on — lines lock to grid & 15°" else "Snap to grid off") } }, state = rememberTooltipState()) {
-                                IconButton({ onSnap(!snapEnabled) }, modifier = Modifier.size(36.dp)) {
-                                    Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, if (snapEnabled) "Snap on" else "Snap off", tint = if (snapEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                                 }
                             }
                         }
@@ -2108,9 +2111,9 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
 @Composable private fun PageOptionsMenu(
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
-    canPaste: Boolean, onResetZoom: () -> Unit, onAxes: () -> Unit, onPaper: () -> Unit,
+    canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
@@ -2127,6 +2130,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
         )
         DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
+        DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
         DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         HorizontalDivider()
         DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
@@ -2140,7 +2144,6 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         } else {
             DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
         }
-        DropdownMenuItem({ Text("Add maths axes") }, { onDismiss(); onAxes() }, leadingIcon = { Icon(Icons.Rounded.AddChart, null) })
         DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
         DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onDismiss(); onSnap() }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })

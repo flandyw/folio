@@ -578,10 +578,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         replacePage(page.copy(redoFlag = !page.redoFlag))
     }
 
-    /** Records a marked sitting on a notebook, newest last; a first mark also marks it sat. */
+    /**
+     * Records a marked sitting on a notebook, newest last; a first mark also marks it sat.
+     * The paper's total is filled in from the attempt when it is still unknown, so the next
+     * mark dialog opens pre-filled instead of asking for the total again.
+     */
     fun recordAttempt(noteId: String, attempt: ExamAttempt) {
         val note = _state.value.notes.find { it.id == noteId } ?: return
-        val exam = if (note.exam.status == ExamStatus.TO_DO) note.exam.copy(status = ExamStatus.MARKED) else note.exam
+        var exam = if (note.exam.status == ExamStatus.TO_DO) note.exam.copy(status = ExamStatus.MARKED) else note.exam
+        if (exam.marksTotal == null && attempt.total != null && attempt.total > 0) {
+            exam = exam.copy(marksTotal = attempt.total)
+        }
         updateNote(note.withAttempt(attempt).copy(exam = exam))
         // A timed sitting is spent on the mark it belongs to, not offered to the next one.
         if (attempt.timed) {
@@ -826,12 +833,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     fun setPaper(paper: Paper) { val p = _state.value.page ?: return; replacePage(p.copy(paper = paper)) }
-    /** Inserts centred graph axes as editable LINE strokes so students can annotate immediately. */
-    fun insertAxes() {
-        val page = _state.value.page ?: return
-        val axes = InkGeometry.mathAxes(page)
-        strokes(page.id, page.strokes + axes)
-    }
     /** Stores a page's new content, bumping its revision so caches and exports know it changed. */
     private fun replacePage(page: NotePage) {
         val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
