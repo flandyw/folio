@@ -5,8 +5,10 @@ package com.folio.notes.mistakes
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -94,6 +97,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val snackbar = remember { SnackbarHostState() }
     var activeReview by rememberSaveable { mutableStateOf<String?>(null) }
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
+    var actionMessage by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -110,12 +114,22 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         debouncedQuery = query
     }
     var shuffle by rememberSaveable { mutableStateOf(false) }
-    var reviewQueue by remember { mutableStateOf(listOf<String>()) }
+    var reviewQueue by rememberSaveable { mutableStateOf(listOf<String>()) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
-    var showPractice by rememberSaveable { mutableStateOf(false) }
+    var destination by rememberSaveable { mutableStateOf("Today") }
+    var showAccount by rememberSaveable { mutableStateOf(false) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
+    var sessionTotal by rememberSaveable { mutableIntStateOf(0) }
+    var sessionCompleted by rememberSaveable { mutableIntStateOf(0) }
+    var showSummary by rememberSaveable { mutableStateOf(false) }
+    var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
+    }
     var confirmSignOut by remember { mutableStateOf(false) }
     val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
-    val due = remember(mistakes) { MistakeScheduler.getDueMistakes(mistakes) }
+    val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
@@ -127,12 +141,20 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             if (stored != null && stored != a) folio.completeMistakePractice(a)
         }
     }
-    LaunchedEffect(state.userId) { activeReview = null; detail = null; password = ""; reviewQueue = emptyList() }
+    var previousUser by rememberSaveable { mutableStateOf(state.userId) }
+    LaunchedEffect(state.userId) {
+        if (previousUser != state.userId) {
+            activeReview = null; detail = null; reviewQueue = emptyList(); showSummary = false
+            sessionCompleted = 0; sessionTotal = 0; previousUser = state.userId
+        }
+        password = ""
+    }
     LaunchedEffect(state.error) {
         state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long) }
     }
     fun showTransient(message: String) {
-        scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
+        actionMessage = message
+        if (activeReview == null) scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
     }
     BackHandler {
         if (activeReview != null) { activeReview = null; reviewQueue = emptyList(); folio.close() }
@@ -165,7 +187,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 else -> true
             }
             val matchesQuery = q.isBlank() || listOfNotNull(
-                m.question, m.questionText, m.category, m.explanation,
+                m.question, m.questionText, m.category, m.explanation, m.correction, m.areaOfStudy, m.criterion,
                 ctx?.subject, ctx?.title, ctx?.paper
             ).any { it.lowercase().contains(q) }
             matchesSubject && matchesPaper && matchesCategory && matchesFilter && matchesQuery
@@ -175,10 +197,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val reviewCandidates = remember(visible, due) { val dueSet = due.toSet(); visible.filter { it in dueSet } }
     // Attempt counts hoisted out of the card list: one O(notes) pass instead of one per card.
     val dueSet = remember(due) { due.toSet() }
-    val attemptCountMap = remember(folioState.notes) {
+    val attemptCountMap = remember(folioState.notes, state.userId) {
         buildMap<String, Int> {
             folioState.notes.forEach { n ->
-                n.mistakeReviews.forEach { r -> put(r.mistakeId, (get(r.mistakeId) ?: 0) + 1) }
+                n.mistakeReviews.filter { it.userId == state.userId }.forEach { r -> put(r.mistakeId, (get(r.mistakeId) ?: 0) + 1) }
             }
         }
     }
@@ -186,16 +208,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     fun start(mistake: ExamTrackMistake) {
         val user = state.userId ?: return
         if (working) return
-        // Keep the session queue so ratings/skips advance in shuffle order.
         if (reviewQueue.isEmpty() || mistake.id !in reviewQueue) {
-            val rest = reviewCandidates.filterNot { it.id == mistake.id }
-            val restIds = if (shuffle) rest.shuffled().map { it.id } else rest.map { it.id }
-            reviewQueue = listOf(mistake.id) + restIds
+            reviewQueue = listOf(mistake.id)
+            sessionTotal = 1; sessionCompleted = 0
         }
+        showSummary = false
+        actionMessage = null
         working = true
         scope.launch {
             try {
-                val attempt = folio.createMistakePractice(user, mistake)
+                val unfinished = unfinishedAttempt(folioState.notes, user, mistake.id)
+                val attempt = if (unfinished != null) {
+                    val note = folioState.notes.first { it.id == unfinished.practiceNotebookId }
+                    folio.openAt(note.id, note.pages.indexOfFirst { it.id == unfinished.practicePageId }.coerceAtLeast(0))
+                    unfinished
+                } else folio.createMistakePractice(user, mistake)
                 model.addAttempt(attempt)
                 activeReview = attempt.reviewId
                 detail = null
@@ -206,7 +233,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     fun startSession(candidates: List<ExamTrackMistake>) {
         if (candidates.isEmpty() || working) return
-        val ids = if (shuffle) candidates.shuffled().map { it.id } else candidates.map { it.id }
+        val ids = (if (shuffle) candidates.shuffled() else candidates).take(sessionLimit).map { it.id }
+        sessionTotal = ids.size; sessionCompleted = 0
         reviewQueue = ids
         ids.firstOrNull()?.let { id -> candidates.find { it.id == id }?.let(::start) }
     }
@@ -227,6 +255,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             showTransient("Only one card in this session — rate it to finish.")
             return
         }
+        actionMessage = null
         // Push the skipped card to the end; its unfinished page stays saved for later.
         reviewQueue = remaining + current.mistakeId
         val user = state.userId ?: return
@@ -236,7 +265,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 val next = state.cache.mistakes[remaining.first()]
                     ?: model.state.value.cache.mistakes[remaining.first()]
                 if (next != null) {
-                    val attempt = folio.createMistakePractice(user, next)
+                    val unfinished = unfinishedAttempt(folioState.notes, user, next.id)
+                    val attempt = if (unfinished != null) {
+                        val note = folioState.notes.first { it.id == unfinished.practiceNotebookId }
+                        folio.openAt(note.id, note.pages.indexOfFirst { it.id == unfinished.practicePageId }.coerceAtLeast(0))
+                        unfinished
+                    } else folio.createMistakePractice(user, next)
                     model.addAttempt(attempt)
                     activeReview = attempt.reviewId
                     showTransient("Skipped for now — your page is kept and the card moves to the end.")
@@ -247,19 +281,22 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     if (active != null && card != null && folioState.activeId == active.practiceNotebookId) {
-        val queuePos = reviewQueue.indexOf(active.mistakeId).takeIf { it >= 0 }?.plus(1)
-        val queueSize = reviewQueue.size.takeIf { it > 0 }
+        val queuePos = sessionCompleted + 1
+        val queueSize = sessionTotal.takeIf { it > 0 }
         MistakeReviewScreen(card, state.cache.contexts[card.attemptId], active, model, folio, folioState,
             finger, haptics, shapes, working, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
             dueLeft = queueSize ?: due.size, queuePos = queuePos, queueSize = queueSize,
             shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
-            canSkip = (queueSize ?: 0) > 1, onSkip = ::skipCurrent) { rating ->
+            canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage) onRate@{ rating ->
+            if (working || folioState.pendingSaves > 0 || folioState.saveFailed) return@onRate
+            actionMessage = null
             working = true
             scope.launch {
                 try {
                     val finishedId = active.mistakeId
                     val completed = model.rate(active, rating)
                     folio.completeMistakePractice(completed)
+                    sessionCompleted++
                     val remainingIds = reviewQueue.filterNot { it == finishedId }
                     // Leave first so the editor closes even when the session is done.
                     activeReview = null; folio.close()
@@ -279,6 +316,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         start(validNext.first())
                     } else {
                         reviewQueue = emptyList()
+                        showSummary = true
+                        destination = "Today"
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) {
@@ -289,102 +328,43 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
         return
     }
+    fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
+    val scopeCount = listOf(subject, paper, category).count { it.isNotBlank() }
+    val localNotes = remember(folioState.notes) { folioState.notes.filter { it.mistakePractice }.sortedByDescending { it.updated } }
+    val unfinishedByMistake = remember(folioState.notes, state.userId) {
+        state.userId?.let { unfinishedAttempts(folioState.notes, it) }.orEmpty()
+    }
+    val listState = rememberSaveable(destination, detail, saver = LazyListState.Saver) { LazyListState() }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Mistakes", style = MaterialTheme.typography.titleLarge)
-                        if (state.userId != null) {
-                            Text(
-                                if (due.isEmpty()) "${mistakes.size} cards · all caught up"
-                                else "${due.size} due · ${mistakes.size} total",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") }
-                },
+                title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (detail != null) "Back to mistakes" else "Back to library")
+                } },
                 actions = {
-                    if (state.userId != null) {
-                        val syncing = state.status == "Syncing…"
-                        IconButton(
-                            { model.requestSync(force = true) },
-                            enabled = !syncing
-                        ) {
-                            if (syncing) LoadingIndicator(Modifier.size(20.dp))
-                            else Icon(Icons.Rounded.Sync, "Sync now")
-                        }
+                    if (state.userId != null) IconButton({ showAccount = true }) {
+                        Icon(if (state.status.startsWith("Offline")) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (state.userId == null) {
-                item { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
-                item { OfflineNoteCard() }
-            } else {
-                item {
-                    AccountCard(
-                        email = state.email, status = state.status,
-                        lastSyncedAt = state.cache.lastSyncedAt, pending = state.cache.pending.size,
-                        syncing = state.status == "Syncing…",
-                        onSync = { model.requestSync(force = true) },
-                        onSignOut = { confirmSignOut = true }
-                    )
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (selected == null) {
+                val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
+                val tab = destination.takeIf { it in tabs } ?: tabs.first()
+                PrimaryTabRow(selectedTabIndex = tabs.indexOf(tab)) {
+                    tabs.forEach { title -> Tab(selected = tab == title, onClick = { destination = title }, text = { Text(title) }) }
                 }
-                if (state.cache.pending.isNotEmpty()) {
-                    item {
-                        PendingCard(
-                            count = state.cache.pending.size,
-                            offline = state.status.startsWith("Offline"),
-                            onSync = { model.requestSync(force = true) }
-                        )
-                    }
-                }
-                if (state.status.startsWith("Offline")) {
-                    item { OfflineBannerCard(state.status) }
-                }
-                item {
-                    val filtersActive = query.isNotBlank() || filter != "All" || subject.isNotBlank() ||
-                        paper.isNotBlank() || category.isNotBlank()
-                    ReviewHeroCard(
-                        due = due.size, total = mistakes.size,
-                        filteredDue = if (filtersActive) reviewCandidates.size else null,
-                        upcoming = mistakes.count { !it.suspended && schedules[it.id]?.let { s -> runCatching { timestamp(s.dueAt) }.getOrDefault(0L) > System.currentTimeMillis() } == true },
-                        working = working,
-                        shuffle = shuffle, onToggleShuffle = { shuffle = !shuffle },
-                        reviewEnabled = reviewCandidates.isNotEmpty(),
-                        onReview = { startSession(reviewCandidates) }
-                    )
-                }
-                item {
-                    FilterCard(
-                        query = query, onQuery = { query = it },
-                        filter = filter, onFilter = { filter = it },
-                        all = mistakes.size, dueCount = due.size,
-                        upcomingCount = mistakes.count { m -> !m.suspended && m !in due },
-                        suspendedCount = mistakes.count { it.suspended },
-                        subject = subject, onSubject = { subject = it },
-                        subjects = subjects,
-                        paper = paper, onPaper = { paper = it },
-                        papers = papers,
-                        category = category, onCategory = { category = it },
-                        categories = mistakes.map { it.category }.distinct().sorted(),
-                        onClear = { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
-                    )
-                }
-                if (selected != null) {
-                    item {
+            }
+            LazyColumn(
+                Modifier.widthIn(max = 1000.dp).fillMaxSize().align(Alignment.CenterHorizontally), state = listState, contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (selected != null && state.userId != null) {
+                    item(key = selected.id) {
                         MistakeDetailCard(
                             mistake = selected,
                             context = state.cache.contexts[selected.attemptId],
@@ -395,7 +375,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             attachments = model.attachments,
                             attempts = folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
                                 .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id },
-                            onBackToList = { detail = null },
                             onPractice = { start(selected) },
                             onOpenAttempt = { noteId, pageId, reviewId, completed ->
                                 if (completed) {
@@ -409,6 +388,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                         model.addAttempt(attempt)
                                         val idx = note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0)
                                         folio.openAt(note.id, idx)
+                                        reviewQueue = listOf(attempt.mistakeId)
+                                        sessionTotal = 1; sessionCompleted = 0; showSummary = false
+                                        detail = null
                                         activeReview = attempt.reviewId
                                     } catch (e: CancellationException) { throw e }
                                     catch (_: Exception) { showTransient("Could not resume this review. Your page is kept.") }
@@ -416,45 +398,113 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             }
                         )
                     }
+                } else if (destination == "Handwriting") {
+                    item {
+                        Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
+                        Text("Every practice page saved on this device, including unfinished reviews and pages from previous accounts.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (localNotes.isEmpty()) item { Text("Your first handwritten review will appear here.") }
+                    items(localNotes, key = { it.id }) { note ->
+                        ListItem(
+                            headlineContent = { Text(note.title) },
+                            supportingContent = { Text("${note.pages.size} pages · open or export in Folio") },
+                            leadingContent = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) },
+                            trailingContent = { IconButton({ folio.open(note.id); onBack() }) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${note.title}") } }
+                        )
+                    }
+                } else if (state.userId == null) {
+                    item { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
+                    item { OfflineNoteCard() }
                 } else {
-                    if (visible.isEmpty()) {
+                    if (state.status.startsWith("Offline") || state.cache.pending.isNotEmpty()) item {
+                        Surface(onClick = { showAccount = true }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp))
+                                Text(if (state.cache.pending.isNotEmpty()) "${state.cache.pending.size} reviews saved locally · view sync" else "Offline · saved questions are ready to practise", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    if (destination != "Library") {
+                        if (showSummary) item {
+                            SessionSummary(sessionCompleted, state.cache.pending.size) { showSummary = false; destination = "Library" }
+                        }
                         item {
-                            EmptyMistakesCard(
-                                hasCards = mistakes.isNotEmpty(),
-                                onClear = { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
-                            )
+                            ReviewDashboard(due.size, mistakes.size, sessionLimit, { sessionLimit = it }, shuffle, { shuffle = !shuffle }, working,
+                                onReview = { startSession(due) }, onBrowse = { destination = "Library" })
+                        }
+                        val unfinished = mistakes.filter { it.id in unfinishedByMistake && !it.suspended }
+                        if (unfinished.isNotEmpty()) {
+                            item { Text("Pick up where you left off", style = MaterialTheme.typography.titleLarge) }
+                            items(unfinished.take(3), key = { "resume-${it.id}" }) { m ->
+                                MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], true, attemptCountMap[m.id] ?: 0,
+                                    { detail = m.id }, { reviewQueue = emptyList(); start(m) }, working)
+                            }
+                        }
+                        if (due.isNotEmpty()) {
+                            item {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Next to review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                    TextButton({ destination = "Library"; filter = "Due" }) { Text("See all ${due.size}") }
+                                }
+                            }
+                            items(due.take(5), key = { "due-${it.id}" }) { m ->
+                                MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
+                                    { detail = m.id }, { reviewQueue = emptyList(); start(m) }, working)
+                            }
                         }
                     } else {
+                        item {
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
+                                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                singleLine = true, shape = RoundedCornerShape(16.dp))
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("All" to mistakes.size, "Due" to due.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
+                                    FilterChipWithCount(label, count, filter == label) { filter = label }
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                                TextButton({ showFilters = true }) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters) { Text("Reset") }
+                            }
+                            if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
+                                Text("Review ${minOf(reviewCandidates.size, sessionLimit)} matching due questions")
+                            }
+                        }
+                        if (visible.isEmpty()) item { EmptyMistakesCard(mistakes.isNotEmpty(), ::clearFilters) }
                         items(visible, key = { it.id }) { m ->
-                            MistakeCard(
-                                mistake = m,
-                                context = state.cache.contexts[m.attemptId],
-                                schedule = schedules[m.id],
-                                due = m in dueSet,
-                                attachmentCount = m.attachments.size,
-                                attemptCount = attemptCountMap[m.id] ?: 0,
-                                onOpen = { detail = m.id },
-                                onPractice = { start(m) },
-                                working = working
-                            )
+                            MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
+                                attemptCountMap[m.id] ?: 0, { detail = m.id }, { reviewQueue = emptyList(); start(m) }, working)
                         }
                     }
                 }
-                item {
-                    PracticeNotebookCard(
-                        expanded = showPractice,
-                        onToggle = { showPractice = !showPractice },
-                        titles = folioState.notes.filter { it.mistakePractice }.map { it.id to it.title },
-                        onOpen = { folio.open(it); onBack() }
-                    )
-                }
             }
+        }
+    }
+    if (showAccount && state.userId != null) ModalBottomSheet(onDismissRequest = { showAccount = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("ExamTrack connection", style = MaterialTheme.typography.headlineSmall)
+            AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
+                { model.requestSync(force = true) }, { showAccount = false; confirmSignOut = true })
+            Text("Questions and ratings sync with ExamTrack. Handwriting stays in Folio.", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Focus your library", style = MaterialTheme.typography.headlineSmall)
+            MistakeFilterOptions("Subject", subjects, subject) { subject = it }
+            MistakeFilterOptions("Paper", papers, paper) { paper = it }
+            MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
+            Button({ showFilters = false }, Modifier.fillMaxWidth()) { Text("Show ${visible.size} questions") }
+            TextButton({ subject = ""; paper = ""; category = "" }) { Text("Reset filters") }
         }
     }
     if (confirmSignOut) {
         AlertDialog(
             onDismissRequest = { confirmSignOut = false },
-            icon = { Icon(Icons.Rounded.Logout, null) },
+            icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
             title = { Text("Sign out of ExamTrack?") },
             text = { Text("Your cloud list hides until the next sign-in. Handwriting on this device and the offline cache stay put.") },
             dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
@@ -614,7 +664,7 @@ private fun AccountCard(
                 }
                 if (syncing) LoadingIndicator(Modifier.size(22.dp))
                 else IconButton(onSync) { Icon(Icons.Rounded.Sync, "Sync now") }
-                IconButton(onSignOut) { Icon(Icons.Rounded.Logout, "Sign out") }
+                IconButton(onSignOut) { Icon(Icons.AutoMirrored.Rounded.Logout, "Sign out") }
             }
             SyncStatusRow(status, pending)
             if (syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -641,241 +691,8 @@ private fun SyncStatusRow(status: String, pending: Int) {
 }
 
 @Composable
-private fun PendingCard(count: Int, offline: Boolean, onSync: () -> Unit) {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Rounded.CloudUpload, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("$count review${if (count == 1) "" else "s"} waiting to sync", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text(
-                    if (offline) "Saved safely on this device — they will upload when you reconnect."
-                    else "Saved on this device. Sync to finish uploading.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            }
-            if (!offline) FilledTonalButton(onSync) { Text("Sync") }
-        }
-    }
-}
-
-@Composable
-private fun OfflineBannerCard(status: String) {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-            Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("You are offline", style = MaterialTheme.typography.titleSmall)
-                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-// ---- Home ----------------------------------------------------------------------------
-
-@Composable
-private fun ReviewHeroCard(
-    due: Int, total: Int, filteredDue: Int?, upcoming: Int, working: Boolean,
-    shuffle: Boolean, onToggleShuffle: () -> Unit, reviewEnabled: Boolean, onReview: () -> Unit,
-) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        if (due == 0 && total > 0) "All caught up"
-                        else if (total == 0) "No mistakes yet"
-                        else if (filteredDue != null && filteredDue != due) "$filteredDue due in filter"
-                        else "$due due",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        when {
-                            total == 0 -> "Mistakes you log in ExamTrack will appear here for review."
-                            due == 0 -> "$total cards · $upcoming upcoming — enjoy the clear desk."
-                            filteredDue != null && filteredDue == 0 -> "$due due total · none match the current filters."
-                            filteredDue != null -> "$filteredDue of $due due match the filters · $upcoming upcoming."
-                            else -> "$total cards · $upcoming upcoming — one page at a time."
-                        },
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-                Button(
-                    onReview, enabled = reviewEnabled && !working,
-                    shapes = ButtonDefaults.shapes()
-                ) {
-                    if (working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    else Icon(Icons.Rounded.PlayArrow, "Review due mistakes")
-                    Spacer(Modifier.width(6.dp))
-                    Text("Review")
-                }
-            }
-            if (total > 0) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        shuffle, onToggleShuffle,
-                        { Text(if (shuffle) "Shuffled" else "In order") },
-                        leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) }
-                    )
-                    Text(
-                        if (shuffle) "Random order" else "Oldest due first",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FilterCard(
-    query: String, onQuery: (String) -> Unit,
-    filter: String, onFilter: (String) -> Unit,
-    all: Int, dueCount: Int, upcomingCount: Int, suspendedCount: Int,
-    subject: String, onSubject: (String) -> Unit, subjects: List<String>,
-    paper: String, onPaper: (String) -> Unit, papers: List<String>,
-    category: String, onCategory: (String) -> Unit, categories: List<String>,
-    onClear: () -> Unit,
-) {
-    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(
-                query, onQuery, Modifier.fillMaxWidth(),
-                placeholder = { Text("Search questions, subjects, categories…") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery("") }) { Icon(Icons.Rounded.Close, "Clear search") } },
-                singleLine = true, shape = RoundedCornerShape(20.dp),
-                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
-            )
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChipWithCount("All", all, filter == "All", { onFilter("All") })
-                FilterChipWithCount("Due", dueCount, filter == "Due", { onFilter("Due") })
-                FilterChipWithCount("Upcoming", upcomingCount, filter == "Upcoming", { onFilter("Upcoming") })
-                FilterChipWithCount("Suspended", suspendedCount, filter == "Suspended", { onFilter("Suspended") })
-            }
-            if (subjects.isNotEmpty()) {
-                Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(subject.isBlank(), { onSubject("") }, { Text("All subjects") })
-                    subjects.forEach { s -> FilterChip(subject == s, { onSubject(if (subject == s) "" else s) }, { Text(s) }) }
-                }
-            }
-            if (papers.isNotEmpty()) {
-                Text("Paper", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(paper.isBlank(), { onPaper("") }, { Text("All papers") })
-                    papers.forEach { p -> FilterChip(paper == p, { onPaper(if (paper == p) "" else p) }, { Text(p) }) }
-                }
-            }
-            if (categories.isNotEmpty()) {
-                Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(category.isBlank(), { onCategory("") }, { Text("All categories") })
-                    categories.forEach { c ->
-                        FilterChip(category == c, { onCategory(if (category == c) "" else c) }, { Text(c.ifBlank { "Uncategorised" }) })
-                    }
-                }
-            }
-            if (query.isNotBlank() || filter != "All" || subject.isNotBlank() || paper.isNotBlank() || category.isNotBlank()) {
-                TextButton(onClear, Modifier.align(Alignment.End)) { Text("Clear filters") }
-            }
-        }
-    }
-}
-
-@Composable
 private fun FilterChipWithCount(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
     FilterChip(selected, onClick, { Text("$label · $count") })
-}
-
-@Composable
-private fun StatusPill(text: String, due: Boolean, suspended: Boolean) {
-    val container = when {
-        suspended -> MaterialTheme.colorScheme.surfaceContainerHigh
-        due -> MaterialTheme.colorScheme.errorContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
-    }
-    val content = when {
-        suspended -> MaterialTheme.colorScheme.onSurfaceVariant
-        due -> MaterialTheme.colorScheme.onErrorContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
-    }
-    Surface(shape = RoundedCornerShape(8.dp), color = container, contentColor = content) {
-        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun MistakeCard(
-    mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?,
-    due: Boolean, attachmentCount: Int, attemptCount: Int,
-    onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean,
-) {
-    ElevatedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                StatusPill(
-                    when {
-                        mistake.suspended -> "Suspended"
-                        due -> if (schedule != null) dueLabel(schedule.dueAt) else "Due"
-                        else -> if (schedule != null) dueLabel(schedule.dueAt) else "Upcoming"
-                    },
-                    due = due && !mistake.suspended, suspended = mistake.suspended
-                )
-                listOfNotNull(
-                    context?.subject?.takeIf { it.isNotBlank() },
-                    context?.paper?.takeIf { it.isNotBlank() }
-                ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let {
-                    Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                mistake.category.takeIf { it.isNotBlank() }?.let {
-                    Text("· $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            Text(mistake.question, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (!mistake.questionText.isNullOrBlank()) {
-                RichText(
-                    mistake.questionText!!, style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-                    maxLines = 2, overflow = TextOverflow.Ellipsis
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (mistake.totalMarks != null && mistake.marksLost != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Rounded.Grade, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("−${trimMark(mistake.marksLost)} / ${trimMark(mistake.totalMarks)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (attachmentCount > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Rounded.Image, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("$attachmentCount", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (attemptCount > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Rounded.History, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("$attemptCount ${if (attemptCount == 1) "try" else "tries"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (RichTextParser.containsMath(mistake.question + " " + (mistake.questionText ?: ""))) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Rounded.Functions, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Maths", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                if (!mistake.suspended) {
-                    FilledTonalButton({ onPractice() }, enabled = !working, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text("Practise")
-                    }
-                }
-            }
-        }
-    }
 }
 
 internal fun trimMark(value: Double): String = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
@@ -888,7 +705,7 @@ private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
                 Icon(if (hasCards) Icons.Rounded.SearchOff else Icons.Rounded.School, null, Modifier.padding(16.dp).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Text(
-                if (hasCards) "No mistakes match" else "Nothing due right now",
+                if (hasCards) "No mistakes match" else "Your library starts here",
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
@@ -898,42 +715,6 @@ private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             if (hasCards) TextButton(onClear) { Text("Clear filters") }
-        }
-    }
-}
-
-@Composable
-private fun PracticeNotebookCard(
-    expanded: Boolean, onToggle: () -> Unit,
-    titles: List<Pair<String, String>>, onOpen: (String) -> Unit,
-) {
-    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Saved handwriting on this device", style = MaterialTheme.typography.titleSmall)
-                    Text("${titles.size} page${if (titles.size == 1) "" else "s"} · stays after sign-out", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onToggle) { Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Hide handwriting" else "Show handwriting") }
-            }
-            if (expanded) {
-                if (titles.isEmpty()) {
-                    Text("No practice pages yet. Review a card and your workings are kept here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Text("These Folio pages stay on this device when you sign out. Open one to export a backup.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    titles.take(20).forEach { (id, title) ->
-                        Surface(onClick = { onOpen(id) }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open $title", Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                    if (titles.size > 20) Text("+ ${titles.size - 20} more", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
         }
     }
 }

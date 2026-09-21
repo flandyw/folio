@@ -25,11 +25,13 @@ The native library is [supabase-kt 3.0.3](https://github.com/supabase-community/
 
 1. Open **Mistakes** from the library, or **Settings → Account → ExamTrack**.
 2. Sign in with the same email/password as ExamTrack's sync account. Account creation and password recovery remain in ExamTrack.
-3. Open **Review**, read the question and saved images, and write in the normal Folio editor. Review follows the current list filters, so subject "Methods" + paper "Exam 1" reviews only those due cards. Toggle **Shuffle** for random order.
-4. Tap **Reveal answer**, compare the correction, and choose Again, Hard, Good or Easy — each shows its next interval before you commit. **Skip** pushes the card to the end of the session; its unfinished page stays saved.
-5. The rating and page reference are saved locally, the rating upload is queued, and the next due mistake opens.
+3. **Today** opens a focused dashboard. Choose 5, 10 or all due questions, optionally shuffle, then start a session. Unfinished questions have a **Continue** action that reuses their existing handwriting page.
+4. **Library** searches question text, corrections, explanations, topics, subjects, titles and categories. Due/upcoming/suspended tabs and the **Filters** sheet narrow the list. **Review matching due questions** starts a session within those filters; Today always reviews the complete due queue.
+5. Open a question for separate **Question**, **Solution**, and **Attempts** tabs. Images open in a full-screen viewer with pinch, pan, zoom buttons and reset. Unfinished attempts can be resumed; completed attempts open their saved notebook.
+6. During review, tablets place the reference beside the handwriting canvas. Phones have an expandable question panel. Tap **Compare answer**, then choose Again, Hard, Good or Easy — each shows its next interval. **Skip** moves the question to the end and reuses its saved page when it returns.
+7. Ratings save locally and queue for sync. Session progress counts completed questions, and the final rating opens a completion summary. Due counts refresh while the screen is open.
 
-The overview searches questions, subjects, titles, papers and categories and filters by subject, paper (e.g. Exam 1 / Exam 2), category, due/upcoming and suspended state, with counts on every chip. A mistake's detail renders its full question, attachments, marks/category metadata, an expandable correction, and a timeline of handwritten attempts. Unfinished attempts can be resumed. **Saved handwriting on this device** exposes practice notebooks for viewing and `.folio`/PDF export, including after sign-out or a cloud deletion. This is deliberately device-owned work, separate from the signed-in account's cloud list.
+**Handwriting** lists every practice notebook on this device, with no 20-page cap, and remains accessible when signed out. Open a notebook to view or export it. These device-owned pages include work from previous accounts; the question list and attempt counts remain scoped to the signed-in account. **Account and sync** in the top bar opens connection information, manual sync and sign-out. Offline or pending-upload notices remain visible without pushing account controls ahead of study content.
 
 ## Text and maths rendering
 

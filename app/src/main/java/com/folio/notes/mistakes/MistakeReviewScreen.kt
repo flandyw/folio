@@ -26,9 +26,12 @@ import com.folio.notes.*
     queuePos: Int? = null, queueSize: Int? = null,
     shuffle: Boolean = false, onToggleShuffle: () -> Unit = {},
     canSkip: Boolean = false, onSkip: () -> Unit = {},
+    actionMessage: String? = null,
     onRate: (ReviewRating) -> Unit) {
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
+    var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
     val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(actionMessage) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
         if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry from the page status before rating.", duration = SnackbarDuration.Long)
     }
@@ -44,7 +47,7 @@ import com.folio.notes.*
                                 state.pendingSaves > 0 -> "Saving your ink…"
                                 queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize"
                                 dueLeft > 1 -> "${dueLeft - 1} more due after this"
-                                else -> "Last one due — nice"
+                                else -> "Practise at your own pace"
                             },
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -67,13 +70,13 @@ import com.folio.notes.*
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             Surface(tonalElevation = 2.dp) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (!revealed) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button({ revealed = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                            Button({ revealed = true; questionExpanded = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                                 Icon(Icons.Rounded.Visibility, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Reveal answer")
+                                Text("Compare answer")
                             }
                             if (canSkip) {
                                 OutlinedButton(onSkip, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp)) {
@@ -114,7 +117,7 @@ import com.folio.notes.*
                                 state.saveFailed -> "Save failed — retry from the editor status, then rate."
                                 state.pendingSaves > 0 -> "Saving your ink… ratings unlock when it says Saved."
                                 busy -> "Saving your review…"
-                                else -> "How well did you recall it? The interval previews above."
+                                else -> "Again: missed it · Hard: needed help · Good: recalled it · Easy: confident"
                             },
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth()
@@ -124,26 +127,37 @@ import com.folio.notes.*
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(max = 250.dp), shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuestionContent(m, context, attempt.userId, model.attachments)
-                    if (revealed) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Text("Correction", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                        RichText(m.correction.ifBlank { "No correction saved." }, style = MaterialTheme.typography.bodyLarge)
-                        Text("Why this was wrong", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                        RichText(m.explanation.ifBlank { "No explanation saved." }, style = MaterialTheme.typography.bodyMedium)
-                        if (m.category.isNotBlank()) Text("Category: ${m.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (m.totalMarks != null && m.marksLost != null) {
-                            Text("Marks lost: ${trimMark(m.marksLost)} / ${trimMark(m.totalMarks)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val wide = maxWidth >= 840.dp
+            val referenceHeight = maxHeight * .4f
+            @Composable fun ReferencePane(modifier: Modifier) {
+                Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxSize()) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            if (!wide) TextButton({ questionExpanded = !questionExpanded }) { Text(if (questionExpanded) "Collapse" else "Expand") }
                         }
-                    } else {
-                        Text("Cover the answer in your head — reveal when your page is done.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            QuestionContent(m, context, attempt.userId, model.attachments)
+                            if (revealed) {
+                                HorizontalDivider()
+                                Text("Correction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                RichText(m.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge)
+                                Text("What went wrong", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                RichText(m.explanation.ifBlank { "No explanation saved in ExamTrack." }, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
                     }
                 }
             }
-            Box(Modifier.weight(1f).padding(top = 8.dp)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+            if (wide) Row(Modifier.fillMaxSize()) {
+                ReferencePane(Modifier.widthIn(max = 420.dp).fillMaxWidth(.36f).fillMaxHeight())
+                VerticalDivider()
+                Box(Modifier.weight(1f).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+            } else Column(Modifier.fillMaxSize()) {
+                ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
+                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+            }
         }
     }
 }
