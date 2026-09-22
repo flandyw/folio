@@ -16,9 +16,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.folio.notes.math.KaTeXMath
+import com.folio.notes.math.KaTeXPool
 import com.folio.notes.math.rememberKaTeXInlineContent
 
 internal fun TextStyle.scaledBy(scale: Float): TextStyle = copy(
@@ -48,6 +51,10 @@ fun RichText(
     overflow: TextOverflow = TextOverflow.Clip,
 ) {
     if (source.isBlank()) return
+    // Warm one renderer while the native text lays out, so the first formula
+    // usually finds a loaded shell instead of paying for WebView + page load.
+    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(source) { runCatching { KaTeXPool.prewarm(appContext) } }
     val blocks = remember(source) {
         runCatching { RichTextParser.parse(source) }.getOrDefault(emptyList())
             .ifEmpty { listOf(RichBlock.Para(listOf(RichInline.Run(source)))) }

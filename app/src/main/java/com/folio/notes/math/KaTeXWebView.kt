@@ -12,9 +12,12 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
@@ -22,10 +25,63 @@ import kotlin.math.ceil
 
 internal const val MATH_ORIGIN = "https://folio-math.invalid/"
 
+/**
+ * A tiny pool of pre-warmed renderers. Creating a WebView plus loading the local
+ * KaTeX shell costs hundreds of milliseconds; reusing two warm instances makes
+ * every cache miss after the first pay only for layout + capture.
+ * All pool entry points must run on the Main thread that owns the WebViews.
+ */
+internal object KaTeXPool {
+    private const val MAX_RENDERERS = 2
+    private val slots = Semaphore(MAX_RENDERERS)
+    private val idle = ArrayDeque<KaTeXWebView>()
+    private var active = 0
+
+    private fun isMain(): Boolean = Looper.myLooper() == Looper.getMainLooper()
+
+    suspend fun <T> use(appContext: Context, block: suspend (KaTeXWebView) -> T): T {
+        return slots.withPermit {
+            val renderer = acquire(appContext)
+            active++
+            try {
+                block(renderer)
+            } finally {
+                active--
+                if (renderer.dead) runCatching { renderer.stopLoading(); renderer.destroy() }
+                else release(renderer)
+            }
+        }
+    }
+
+    private fun acquire(context: Context): KaTeXWebView {
+        while (idle.isNotEmpty()) {
+            val candidate = idle.removeFirst()
+            if (!candidate.dead) return candidate
+            runCatching { candidate.destroy() }
+        }
+        return KaTeXWebView(context.applicationContext)
+    }
+
+    private fun release(view: KaTeXWebView) {
+        if (view.dead || idle.size >= MAX_RENDERERS) runCatching { view.stopLoading(); view.destroy() }
+        else idle.addLast(view)
+    }
+
+    /** Start loading one shell early so the first formula finds a warm renderer. */
+    fun prewarm(appContext: Context) {
+        if (!isMain() || idle.isNotEmpty() || active + idle.size >= MAX_RENDERERS) return
+        runCatching { idle.addLast(KaTeXWebView(appContext.applicationContext)) }
+    }
+}
+
 /** An exact local asset allowlist; no file/content access, network, navigation or JS bridge. */
 @SuppressLint("SetJavaScriptEnabled") // Required by the bundled KaTeX shell only.
 internal class KaTeXWebView(context: Context) : WebView(context.applicationContext) {
     private val loaded = CompletableDeferred<Unit>()
+
+    @Volatile
+    internal var dead: Boolean = false
+        private set
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
@@ -69,11 +125,15 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
                 }
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) loaded.completeExceptionally(IllegalStateException("Local math shell unavailable"))
+                if (request.isForMainFrame) {
+                    dead = true
+                    loaded.completeExceptionally(IllegalStateException("Local math shell unavailable"))
+                }
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                dead = true
                 loaded.completeExceptionally(IllegalStateException("Math renderer stopped"))
-                // The render timeout/finally releases this view; never terminate Folio with Chromium.
+                // The pool destroys this view; never terminate Folio with Chromium.
                 return true
             }
             override fun onPageFinished(view: WebView, url: String) {
@@ -93,11 +153,12 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
         val request = JSONObject().put("latex", latex).put("displayMode", display)
             .put("fontSize", fontSize).put("color", color)
         evaluate("window.renderMath($request); null")
-        var result: String
-        do {
-            delay(32)
+        // Check immediately, then poll tightly: the shell usually answers within one frame.
+        var result = evaluate("window.folioResult")
+        while (result == "null") {
+            delay(8)
             result = evaluate("window.folioResult")
-        } while (result == "null")
+        }
         val bounds = JSONObject(result)
         val width = ceil(bounds.getDouble("width") * density).toInt().coerceAtLeast(1)
         val height = ceil(bounds.getDouble("height") * density).toInt().coerceAtLeast(1)
