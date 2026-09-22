@@ -213,6 +213,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                     companion = state.companion?.takeIf { tab -> notes.any { it.id == tab.notebookId } }) }
                 captureTab()
                 ready.complete(Unit)
+                // Empty practice pages from older versions never reach the shelf again.
+                viewModelScope.launch {
+                    try { purgeEmptyMistakeNotebooks() } catch (_: Exception) { }
+                }
                 val search = _state.value.pdfSearch
                 if (search.query.isNotBlank() && !search.searched) searchPdf(search.query)
             }
@@ -308,7 +312,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         captureTab()
         enqueue { repository.saveAll(note) }
     }
-    /** Saves the new page before opening the normal editor; no ink is kept in the cloud cache. */
+    /**
+     * Starts a practice notebook in memory only. The first stroke, text or picture
+     * persists it through the normal page save; an untouched page never reaches disk,
+     * so abandoned reviews leave no empty notebook behind. No ink is kept in the cloud cache.
+     */
     suspend fun createMistakePractice(user: String, mistake: com.folio.notes.mistakes.ExamTrackMistake, openWhenReady: Boolean = true): com.folio.notes.mistakes.LocalMistakeReviewAttempt {
         ready.await()
         val page = NotePage(paper = Paper.MATH_GRID, infinite = true, title = mistake.question)
@@ -316,7 +324,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val attempt = com.folio.notes.mistakes.LocalMistakeReviewAttempt(user, mistake.id, UUID.randomUUID().toString(), noteId, page.id)
         val note = Notebook(id = noteId, title = "${mistake.question} · Mistake practice", pages = listOf(page),
             mistakePractice = true, mistakeReviews = listOf(attempt))
-        repository.saveAll(note)
         _state.update { it.copy(notes = it.notes + note) }
         if (openWhenReady) open(note.id)
         return attempt
@@ -324,7 +331,39 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     fun completeMistakePractice(attempt: com.folio.notes.mistakes.LocalMistakeReviewAttempt) {
         val note = _state.value.notes.find { it.id == attempt.practiceNotebookId } ?: return
-        updateNote(note.copy(mistakeReviews = note.mistakeReviews.filterNot { it.reviewId == attempt.reviewId } + attempt))
+        val updated = note.copy(mistakeReviews = note.mistakeReviews.filterNot { it.reviewId == attempt.reviewId } + attempt)
+        // Rating an untouched page must not materialise an empty notebook on disk.
+        if (updated.pages.all { it.strokes.isEmpty() && it.images.isEmpty() && it.texts.all { t -> t.text.isBlank() } }) {
+            delete(updated)
+            return
+        }
+        updateNote(updated)
+    }
+
+    /** Bytes used on device per notebook id; missing notebooks report 0. */
+    suspend fun practiceSizes(noteIds: Collection<String>): Map<String, Long> {
+        if (noteIds.isEmpty()) return emptyMap()
+        ready.await()
+        return repository.notebookSizes(noteIds)
+    }
+
+    /**
+     * Deletes every mistake-practice notebook with no ink, text or pictures, whether it
+     * lives only in memory or already reached disk. Returns how many were removed.
+     * Unreadable pages count as non-empty so cleanup never deletes work it could not inspect.
+     */
+    suspend fun purgeEmptyMistakeNotebooks(): Int {
+        ready.await()
+        val candidates = _state.value.notes.filter { it.mistakePractice }
+        if (candidates.isEmpty()) return 0
+        val emptyIds = mutableSetOf<String>()
+        for (note in candidates) {
+            val empty = try { repository.isNotebookEmpty(note) } catch (_: Exception) { false }
+            if (empty) emptyIds += note.id
+        }
+        if (emptyIds.isEmpty()) return 0
+        deleteNotebooks(emptyIds)
+        return emptyIds.size
     }
 
     private fun captureTab() {

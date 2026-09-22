@@ -18,13 +18,80 @@ data class FolioUpdate(
     val releaseUrl: String
 )
 
+/** Thrown for non-2xx GitHub responses so callers can distinguish "no release" from errors. */
+internal class GithubHttpException(val code: Int, message: String) : IOException(message)
+
+/**
+ * User-facing message for a GitHub update failure. Never includes response bodies:
+ * they can contain IPs or request IDs.
+ */
+internal fun githubUpdateErrorMessage(
+    responseCode: Int,
+    rateRemaining: String?,
+    rateResetEpochSeconds: Long?,
+    retryAfterSeconds: Long?,
+    rateLimitedBody: Boolean,
+    nowEpochSeconds: Long
+): String {
+    val rateLimited = rateLimitedBody || rateRemaining?.trim() == "0"
+    if (responseCode == 403 && rateLimited || responseCode == 429) {
+        val resetInMinutes = rateResetEpochSeconds
+            ?.takeIf { it > nowEpochSeconds }
+            ?.let { ((it - nowEpochSeconds) + 59) / 60 }
+        val retryInMinutes = retryAfterSeconds
+            ?.takeIf { it > 0 }
+            ?.let { ((it) + 59) / 60 }
+        val waitMinutes = resetInMinutes ?: retryInMinutes
+        return if (waitMinutes != null && waitMinutes > 0) {
+            "GitHub update limit reached · try again in $waitMinutes min"
+        } else {
+            "GitHub update limit reached · try again later"
+        }
+    }
+    return when (responseCode) {
+        403 -> "GitHub refused the update · try again later"
+        404 -> "GitHub update not found · try again later"
+        in 500..599 -> "GitHub update check failed (HTTP $responseCode) · try again later"
+        else -> "GitHub update failed (HTTP $responseCode) · try again later"
+    }
+}
+
+/** True when the last automatic check is old enough to check again. Manual checks bypass this. */
+internal fun shouldAutoUpdateCheck(nowMillis: Long, lastCheckMillis: Long): Boolean {
+    if (lastCheckMillis <= 0L) return true
+    if (nowMillis < lastCheckMillis) return true // Clock moved backwards: don't block updates.
+    return nowMillis - lastCheckMillis >= AUTO_UPDATE_CHECK_INTERVAL_MILLIS
+}
+
+internal const val AUTO_UPDATE_CHECK_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
+
+/** Hosts GitHub uses for the releases API, release pages and redirected asset bytes. */
+internal val TRUSTED_UPDATE_HOSTS = setOf(
+    "api.github.com",
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "github-releases.githubusercontent.com"
+)
+
+internal fun isTrustedUpdateUrl(url: String): Boolean {
+    val parsed = runCatching { URL(url) }.getOrNull() ?: return false
+    return parsed.protocol == "https" && parsed.host.lowercase() in TRUSTED_UPDATE_HOSTS
+}
+
 /** Checks and downloads signed Folio releases from the project's official GitHub repository. */
 class FolioUpdateChecker(private val context: Context) {
     private val apiUrl = "https://api.github.com/repos/flandyw/folio/releases/latest"
 
     fun check(): FolioUpdate? {
         val installedVersion = installedVersionCode()
-        val release = getJson(apiUrl)
+        val release = try {
+            getJson(apiUrl)
+        } catch (error: GithubHttpException) {
+            // No published releases yet: not an error, just nothing to install.
+            if (error.code == 404) return null
+            throw error
+        }
         if (release.optBoolean("draft") || release.optBoolean("prerelease")) return null
 
         val versionName = release.optString("tag_name").removePrefix("v")
@@ -134,28 +201,73 @@ class FolioUpdateChecker(private val context: Context) {
 
     private fun open(url: String): HttpURLConnection {
         requireTrustedDownload(url)
-        return (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            requestMethod = "GET"
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "Folio/${installedVersionName()}")
-            connect()
-            if (responseCode !in 200..299) {
-                disconnect()
-                throw IOException("GitHub returned HTTP $responseCode")
+        var current = url
+        var redirects = 0
+        while (true) {
+            val connection = (URL(current).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 60_000
+                // Follow redirects manually so every hop stays on GitHub-owned hosts.
+                instanceFollowRedirects = false
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                setRequestProperty("User-Agent", "Folio/${installedVersionName()}")
             }
+            connection.connect()
+            val code = connection.responseCode
+            if (code in 300..399 && redirects < MAX_REDIRECTS) {
+                val location = connection.getHeaderField("Location")
+                connection.disconnect()
+                val next = location?.let { runCatching { URL(URL(current), it).toString() }.getOrNull() }
+                if (next != null && isTrustedUpdateUrl(next)) {
+                    current = next
+                    redirects++
+                    continue
+                }
+                throw GithubHttpException(code, "GitHub update failed (HTTP $code) · try again later")
+            }
+            if (code in 200..299) return connection
+            val message = readGithubError(connection, code)
+            connection.disconnect()
+            throw GithubHttpException(code, message)
         }
     }
 
+    private fun readGithubError(connection: HttpURLConnection, code: Int): String {
+        val remaining = connection.getHeaderField("X-RateLimit-Remaining")
+        val reset = connection.getHeaderField("X-RateLimit-Reset")?.trim()?.toLongOrNull()
+            ?: connection.getHeaderField("X-Ratelimit-Reset")?.trim()?.toLongOrNull()
+        val retryAfter = connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull()
+        val body = try {
+            connection.errorStream?.bufferedReader()?.use { reader ->
+                val buffer = CharArray(ERROR_BODY_LIMIT)
+                val read = reader.read(buffer)
+                if (read > 0) String(buffer, 0, read) else ""
+            }.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        val rateLimitedBody = body.contains("rate limit", ignoreCase = true) ||
+            body.contains("abuse", ignoreCase = true)
+        return githubUpdateErrorMessage(
+            responseCode = code,
+            rateRemaining = remaining,
+            rateResetEpochSeconds = reset,
+            retryAfterSeconds = retryAfter,
+            rateLimitedBody = rateLimitedBody,
+            nowEpochSeconds = System.currentTimeMillis() / 1000
+        )
+    }
+
     private fun requireTrustedDownload(url: String) {
-        val parsed = URL(url)
-        require(parsed.protocol == "https" && parsed.host in setOf("api.github.com", "github.com")) { "Untrusted update URL" }
+        require(isTrustedUpdateUrl(url)) { "Untrusted update URL" }
     }
 
     private companion object {
         private const val MAX_APK_BYTES = 100L * 1024 * 1024
+        private const val MAX_REDIRECTS = 5
+        private const val ERROR_BODY_LIMIT = 4096
     }
 
     private fun sha256(file: File): String {

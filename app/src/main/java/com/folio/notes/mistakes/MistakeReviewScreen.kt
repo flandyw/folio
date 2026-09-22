@@ -37,6 +37,12 @@ import com.folio.notes.*
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
     var landscapeShare by rememberSaveable { mutableFloatStateOf(.36f) }
     var portraitShare by rememberSaveable { mutableFloatStateOf(.30f) }
+    var showPrevious by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
+    // Earlier handwriting for the same question, newest first. The current page is excluded
+    // so "compare" always means looking back, never at the page being written now.
+    val previousAttempts = remember(state.notes, attempt.userId, m.id, attempt.reviewId) {
+        previousPracticeAttempts(state.notes, attempt.userId, m.id, attempt.reviewId)
+    }
     val androidContext = LocalContext.current
     val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
     var textScale by remember { mutableFloatStateOf(preferences.getFloat("mistakeTextScale", 1f).coerceIn(.75f, 2f)) }
@@ -90,6 +96,11 @@ import com.folio.notes.*
                 },
                 navigationIcon = { IconButton(onBack, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
                 actions = {
+                    if (previousAttempts.isNotEmpty()) {
+                        IconButton({ showPrevious = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.History, "Compare with your last attempt (${previousAttempts.size})")
+                        }
+                    }
                     IconButton(onToggleShuffle, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                         Icon(
                             Icons.Rounded.Shuffle, if (shuffle) "Shuffled order · tap for due order" else "Due order · tap to shuffle",
@@ -194,6 +205,30 @@ import com.folio.notes.*
                         }
                         if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             QuestionContent(m, context, attempt.userId, model.attachments, textScale)
+                            if (previousAttempts.isNotEmpty()) {
+                                Surface(
+                                    onClick = { showPrevious = true },
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                ) {
+                                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                "Stuck? Compare with your last attempt",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            )
+                                            Text(
+                                                "${previousAttempts.size} earlier attempt${if (previousAttempts.size == 1) "" else "s"} kept · read-only, your current ink stays",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            )
+                                        }
+                                        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                }
+                            }
                             if (revealed) {
                                 HorizontalDivider()
                                 Text("Correction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -214,5 +249,8 @@ import com.folio.notes.*
                 Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
             }
         }
+    }
+    if (showPrevious && previousAttempts.isNotEmpty()) {
+        PreviousAttemptDialog(attempts = previousAttempts, folio = folio, onClose = { showPrevious = false })
     }
 }

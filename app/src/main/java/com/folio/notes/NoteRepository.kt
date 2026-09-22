@@ -200,12 +200,43 @@ class NoteRepository(private val context: Context) {
         closePdf(id)
         pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfOutlineCache.remove(id) }
         lock.withLock {
+            val dir = storedDirectory(id)
+            if (!dir.exists()) return@withLock
             val deleted = File(context.cacheDir, "deleted-$id-${System.currentTimeMillis()}")
-            check(directory(id).renameTo(deleted)) { "Couldn't delete notebook" }
+            check(dir.renameTo(deleted)) { "Couldn't delete notebook" }
             // The library stops seeing the notebook atomically; interrupted cleanup is safe.
             deleted.deleteRecursively()
         }
         Unit
+    }
+
+    /** Bytes used on device by one notebook directory, or 0 when it was never saved. */
+    suspend fun notebookSize(noteId: String): Long = withContext(Dispatchers.IO) {
+        val dir = storedDirectory(noteId)
+        if (!dir.exists()) return@withContext 0L
+        runCatching { dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }.getOrDefault(0L)
+    }
+
+    /** Bytes per notebook for [noteIds]; missing directories report 0 without touching disk. */
+    suspend fun notebookSizes(noteIds: Collection<String>): Map<String, Long> = withContext(Dispatchers.IO) {
+        noteIds.distinct().associateWith { notebookSize(it) }
+    }
+
+    /**
+     * True when every page of [note] carries no ink, typed text or pictures.
+     * Pages still only on disk are read for the check; an unreadable page counts as
+     * non-empty so cleanup never deletes work it could not inspect.
+     */
+    suspend fun isNotebookEmpty(note: Notebook): Boolean = withContext(Dispatchers.IO) {
+        for (page in note.pages) {
+            val loaded = if (page.loaded) page else try {
+                loadPage(note.id, page)
+            } catch (_: Exception) { return@withContext false }
+            val hasInk = loaded.strokes.isNotEmpty() || loaded.images.isNotEmpty() ||
+                loaded.texts.any { it.text.isNotBlank() }
+            if (hasInk) return@withContext false
+        }
+        true
     }
 
     suspend fun importPdf(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {

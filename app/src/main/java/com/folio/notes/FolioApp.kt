@@ -188,6 +188,13 @@ import java.io.File
     }
     fun checkForUpdates(showDialog: Boolean) {
         if (updateChecking || updateDownloading) return
+        // Unauthenticated GitHub API checks share 60 req/hour per IP: throttle background
+        // checks to once per day so restarts can't burn the quota and surface 403s.
+        // Manual checks always run; both record success/rate-limit to delay the next auto check.
+        if (!showDialog) {
+            val last = prefs.getLong(AppPrefs.LAST_UPDATE_CHECK, 0L)
+            if (!shouldAutoUpdateCheck(System.currentTimeMillis(), last)) return
+        }
         updateChecking = true
         updateInfo = null
         updateReady = null
@@ -197,10 +204,14 @@ import java.io.File
         updateScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { updateChecker.check() }
+                prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
                 updateInfo = result
                 if (result != null) updateDialog = true
                 else if (showDialog) updateMessage = "You’re up to date."
             } catch (error: Exception) {
+                if (error is GithubHttpException && (error.code == 403 || error.code == 429)) {
+                    prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                }
                 if (showDialog) {
                     updateMessage = error.message ?: "Could not check for updates."
                     updateFailure = true

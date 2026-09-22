@@ -437,19 +437,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 DetailContent()
                             }
                         } else if (destination == "Handwriting") {
-                            fullWidthItem {
-                                Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
-                                Text("Every practice page saved on this device, including unfinished reviews and pages from previous accounts.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (localNotes.isEmpty()) fullWidthItem { Text("Your first handwritten review will appear here.") }
-                            items(localNotes, key = { it.id }) { note ->
-                                ListItem(
-                                    headlineContent = { Text(note.title) },
-                                    supportingContent = { Text("${note.pages.size} pages · open or export in Folio") },
-                                    leadingContent = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) },
-                                    trailingContent = { IconButton({ folio.open(note.id); onBack() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${note.title}") } }
-                                )
-                            }
+                            handwritingTab(
+                                notes = localNotes,
+                                mistakes = state.cache.mistakes,
+                                userId = state.userId,
+                                folio = folio,
+                                model = model,
+                                scope = scope,
+                                onOpenNotebook = { id -> folio.open(id); onBack() },
+                                onShowMessage = ::showTransient,
+                            )
                         } else if (state.userId == null) {
                             fullWidthItem { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
                             fullWidthItem { OfflineNoteCard() }

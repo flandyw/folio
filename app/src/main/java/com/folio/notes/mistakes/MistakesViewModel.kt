@@ -130,6 +130,18 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         requestSync(force = true)
         return result
     }
+    /** Forgets cached reviews whose practice notebooks were deleted from this device. */
+    suspend fun removeAttemptsForNotebooks(notebookIds: Set<String>) {
+        val user = _state.value.userId ?: return
+        if (notebookIds.isEmpty()) return
+        syncJob?.cancelAndJoin()
+        try {
+            repository.removeAttemptsForNotebooks(user, notebookIds)
+            reload(user)
+        } finally {
+            requestSync(force = true)
+        }
+    }
     override fun onCleared() {
         connectivity.unregisterNetworkCallback(callback)
         (getApplication<Application>() as com.folio.notes.FolioApplication).storageScope.launch { auth.close() }

@@ -181,4 +181,14 @@ class MistakeTests {
         assertFalse(loaded.mistakePractice); assertTrue(loaded.mistakeReviews.isEmpty())
         assertEquals(note, NoteCodec.decode(NoteCodec.encode(note)))
     }
+    @Test fun purgedNotebooksDropTheirCachedAttempts() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(store, remote)
+        repo.sync("u")
+        repo.addAttempt("u", attempt("r1").copy(practiceNotebookId = "n-keep"))
+        repo.addAttempt("u", attempt("r2").copy(practiceNotebookId = "n-gone"))
+        repo.removeAttemptsForNotebooks("u", setOf("n-gone"))
+        assertEquals(listOf("n-keep"), repo.cache("u").attempts.map { it.practiceNotebookId })
+        repo.removeAttemptsForNotebooks("u", emptySet())
+        assertEquals(1, repo.cache("u").attempts.size)
+    }
 }

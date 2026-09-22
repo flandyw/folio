@@ -38,6 +38,13 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         val c = store.load(user)
         store.save(user, c.copy(attempts = c.attempts.filterNot { it.reviewId == attempt.reviewId } + attempt))
     }
+    /** Drops cached review references whose notebooks were purged; handwriting is already gone. */
+    suspend fun removeAttemptsForNotebooks(user: String, notebookIds: Set<String>) = lock.withLock {
+        if (notebookIds.isEmpty()) return@withLock
+        val c = store.load(user)
+        val kept = c.attempts.filterNot { it.practiceNotebookId in notebookIds }
+        if (kept.size != c.attempts.size) store.save(user, c.copy(attempts = kept))
+    }
     suspend fun rate(user: String, attempt: LocalMistakeReviewAttempt, rating: ReviewRating, at: String): LocalMistakeReviewAttempt = lock.withLock {
         require(attempt.userId == user)
         val c = store.load(user)
