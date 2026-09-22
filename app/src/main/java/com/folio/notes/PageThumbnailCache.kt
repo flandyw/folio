@@ -45,10 +45,57 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         preview?.also { memory.put(key, it) }
     }
 
+    /**
+     * Full-resolution page image for read-only review (e.g. previous mistake working).
+     * Unlike [thumbnail] this is not bucketed to 420px and never goes through lossy
+     * disk JPEG: the bitmap is rendered at the requested width so handwriting stays
+     * crisp when shown full-width or pinch-zoomed. Memory-cached only; callers should
+     * request display width × density (× supersample for zoom headroom).
+     */
+    suspend fun fullPage(noteId: String, page: NotePage, widthPx: Int): Bitmap? = withContext(Dispatchers.IO) {
+        val width = widthPx.coerceIn(1, FULL_MAX_WIDTH)
+        val key = "$noteId/${page.id}r${page.revision}w$width"
+        memory.get(key)?.let { return@withContext it }
+        val bitmap = renderCrisp(noteId, page, width) ?: return@withContext null
+        memory.put(key, bitmap)
+        bitmap
+    }
+
     /** Forgets a notebook's previews and their in-memory copies, used when a notebook is deleted. */
     fun clear(noteId: String) {
         memory.snapshot().keys.filter { it.startsWith("$noteId/") }.forEach { memory.remove(it) }
         File(root, noteId).deleteRecursively()
+    }
+
+    private suspend fun renderCrisp(noteId: String, page: NotePage, widthPx: Int): Bitmap? {
+        currentCoroutineContext().ensureActive()
+        val loaded = if (page.loaded) page else try { repository.loadPage(noteId, page) } catch (_: Exception) { return null }
+        currentCoroutineContext().ensureActive()
+        val content = InkRenderer.exportPage(loaded)
+        if (content.width <= 0f || content.height <= 0f) return null
+        return try {
+            // Keep zoomed ink sharp without risking a huge allocation on infinite canvases.
+            var heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, FULL_MAX_HEIGHT)
+            var width = widthPx
+            if (width.toLong() * heightPx > FULL_MAX_PIXELS) {
+                heightPx = (FULL_MAX_PIXELS / width).coerceAtLeast(1)
+            }
+            val bitmap = Bitmap.createBitmap(width, heightPx, Bitmap.Config.ARGB_8888)
+            val background = if (content.pdfIndex != null) repository.pdfBackground(noteId, content, width) else null
+            currentCoroutineContext().ensureActive()
+            val images = repository.loadImages(noteId, content)
+            try {
+                val canvas = Canvas(bitmap)
+                // Exact scale (no aspect distortion): letterbox if height was clamped.
+                val scale = minOf(width / content.width, heightPx / content.height)
+                val dx = (width - content.width * scale) / 2f
+                val dy = (heightPx - content.height * scale) / 2f
+                canvas.translate(dx, dy)
+                canvas.scale(scale, scale)
+                InkRenderer.page(canvas, content, background, images = images)
+            } finally { background?.recycle(); images.values.forEach { it.recycle() } }
+            bitmap
+        } catch (_: Exception) { null }
     }
 
     private suspend fun render(noteId: String, page: NotePage, widthPx: Int): Bitmap? {
@@ -99,6 +146,11 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         const val SMALL = 80
         const val MEDIUM = 200
         const val LARGE = 420
+
+        /** Crisp review renders: wide enough for 2x supersampled phones/tablets, bounded for safety. */
+        const val FULL_MAX_WIDTH = 2560
+        const val FULL_MAX_HEIGHT = 4096
+        const val FULL_MAX_PIXELS = 10_000_000
 
         /** Skip full directory pruning until this many previews accumulate. */
         const val PRUNE_THRESHOLD = 50
