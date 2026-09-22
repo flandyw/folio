@@ -31,13 +31,15 @@ import com.folio.notes.*
     shuffle: Boolean = false, onToggleShuffle: () -> Unit = {},
     canSkip: Boolean = false, onSkip: () -> Unit = {},
     actionMessage: String? = null,
-    onRate: (ReviewRating) -> Unit) {
+    onRate: (ReviewRating) -> Unit,
+    onDelete: () -> Unit = {}) {
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
     var landscapeShare by rememberSaveable { mutableFloatStateOf(.36f) }
     var portraitShare by rememberSaveable { mutableFloatStateOf(.30f) }
     var showPrevious by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
+    var showDelete by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     // Earlier handwriting for the same question, newest first. The current page is excluded
     // so "compare" always means looking back, never at the page being written now.
     val previousAttempts = remember(state.notes, attempt.userId, m.id, attempt.reviewId) {
@@ -109,6 +111,9 @@ import com.folio.notes.*
                     }
                     IconButton({ confirmDoubleTap("skipTop", onSkip) }, enabled = canSkip && !busy, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card")
+                    }
+                    IconButton({ showDelete = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.DeleteOutline, "Delete this card")
                     }
                 }
             )
@@ -252,5 +257,22 @@ import com.folio.notes.*
     }
     if (showPrevious && previousAttempts.isNotEmpty()) {
         PreviousAttemptDialog(attempts = previousAttempts, folio = folio, onClose = { showPrevious = false })
+    }
+    if (showDelete) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) showDelete = false },
+            icon = { Icon(Icons.Rounded.DeleteOutline, null) },
+            title = { Text("Delete this card?") },
+            text = { Text("“${m.question}” leaves your review list on all devices. Your handwriting on this device is kept.") },
+            dismissButton = { TextButton({ showDelete = false }, enabled = !busy, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
+            confirmButton = {
+                Button(
+                    { showDelete = false; onDelete() },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("Delete card") }
+            },
+        )
     }
 }

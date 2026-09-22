@@ -294,6 +294,38 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
+    fun deleteCurrentCard() {
+        val current = active ?: return
+        if (working) return
+        actionMessage = null
+        working = true
+        scope.launch {
+            try {
+                val deletedId = current.mistakeId
+                model.deleteMistake(deletedId)
+                sessionTotal = maxOf(sessionCompleted, sessionTotal - 1)
+                if (detail == deletedId) detail = null
+                val remainingIds = reviewQueue.filterNot { it == deletedId }
+                showTransient("Card deleted · handwriting kept on this device.")
+                val fresh = model.state.value.cache.mistakes
+                val validNext = remainingIds.mapNotNull { fresh[it] }.filterNot { it.suspended }
+                working = false
+                if (validNext.isNotEmpty()) {
+                    reviewQueue = validNext.map { it.id }
+                    start(validNext.first())
+                } else {
+                    activeReview = null; folio.close()
+                    reviewQueue = emptyList()
+                    showSummary = sessionCompleted > 0
+                    destination = "Today"
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                showTransient("Could not delete this card. Please try again.")
+                working = false
+            }
+        }
+    }
     // The two ViewModels can be collected on different frames. Keep the last coherent
     // question/editor pair during that handoff instead of briefly rendering the library.
     var previousFrame by remember(state.userId, activeReview == null) { mutableStateOf<ReviewFrame?>(null) }
@@ -310,7 +342,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finger, haptics, shapes, working || currentFrame == null, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
             dueLeft = queueSize ?: due.size, queuePos = queuePos, queueSize = queueSize,
             shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
-            canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage) onRate@{ rating ->
+            canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage,
+            onDelete = ::deleteCurrentCard,
+            onRate = onRate@{ rating ->
             if (working || currentFrame == null || folioState.pendingSaves > 0 || folioState.saveFailed) return@onRate
             actionMessage = null
             working = true
@@ -347,7 +381,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     working = false
                 }
             }
-        }
+            }
+        )
         return
     }
     fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
@@ -371,6 +406,22 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 attempts = folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
                     .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id },
                 onPractice = { start(selected) },
+                onDelete = {
+                    val id = selected.id
+                    if (!working) {
+                        working = true
+                        scope.launch {
+                            try {
+                                model.deleteMistake(id)
+                                if (detail == id) detail = null
+                                reviewQueue = reviewQueue.filterNot { it == id }
+                                showTransient("Card deleted · handwriting kept on this device.")
+                            } catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { showTransient("Could not delete this card. Please try again.") }
+                            finally { working = false }
+                        }
+                    }
+                },
                 onOpenAttempt = { noteId, pageId, reviewId, completed ->
                     if (completed) {
                         val idx = folioState.notes.find { it.id == noteId }

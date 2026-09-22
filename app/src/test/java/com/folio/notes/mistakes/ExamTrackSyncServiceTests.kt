@@ -86,6 +86,25 @@ class ExamTrackSyncServiceTests {
         assertTrue(ExamTrackSyncService(client).update("u", RemoteMistakeRow("m", payload, at, null), reviewed))
         client.close()
     }
+    @Test fun deleteWriteUsesAuthenticatedCompareAndSet() = runBlocking {
+        val at = "2026-09-01T00:00:00.000Z"
+        val deletedAt = "2026-09-18T00:00:00.000Z"
+        val payload = """{"id":"m","attemptId":"a","question":"Q1","category":"Reasoning","explanation":"why","correction":"answer","resolved":false,"createdAt":"$at","updatedAt":"$at"}"""
+        val client = client(MockEngine { request ->
+            assertEquals(HttpMethod.Patch, request.method)
+            assertEquals("eq.u", request.url.parameters["user_id"])
+            assertEquals("eq.m", request.url.parameters["id"])
+            assertEquals("eq.$at", request.url.parameters["updated_at"])
+            assertEquals("is.null", request.url.parameters["deleted_at"])
+            val body = JSONObject((request.body as TextContent).text)
+            assertEquals(deletedAt, body.getString("deleted_at"))
+            assertEquals(deletedAt, body.getString("updated_at"))
+            respond("[{\"id\":\"m\"}]", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        })
+        client.auth.importSession(session("u"), autoRefresh = false)
+        assertTrue(ExamTrackSyncService(client).delete("u", RemoteMistakeRow("m", payload, at, null), deletedAt))
+        client.close()
+    }
     @Test fun offlineExpiredStartupRetainsIdentityAndSignOutCancelsRetries() = runBlocking {
         val expired = session("u").copy(expiresAt = kotlinx.datetime.Instant.parse("2020-01-01T00:00:00Z"))
         val saved = MemorySessionManager(expired)

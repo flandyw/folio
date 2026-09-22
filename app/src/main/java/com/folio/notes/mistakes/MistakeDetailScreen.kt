@@ -43,9 +43,11 @@ internal fun MistakeDetailCard(
     attempts: List<Pair<com.folio.notes.Notebook, LocalMistakeReviewAttempt>>,
     onPractice: () -> Unit,
     onOpenAttempt: (noteId: String, pageId: String, reviewId: String, completed: Boolean) -> Unit,
+    onDelete: () -> Unit = {},
 ) {
     var tab by rememberSaveable(mistake.id) { mutableIntStateOf(0) }
     var showMetadata by rememberSaveable(mistake.id) { mutableStateOf(false) }
+    var showDelete by rememberSaveable(mistake.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         context?.let {
             Text(listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · "),
@@ -59,6 +61,11 @@ internal fun MistakeDetailCard(
             else Icon(Icons.Rounded.Edit, null)
             Spacer(Modifier.width(8.dp))
             Text(if (mistake.suspended) "Unsuspend in ExamTrack to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
+        }
+        TextButton({ showDelete = true }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+            Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Delete this card")
         }
         PrimaryTabRow(selectedTabIndex = tab) {
             listOf("Question", "Solution", "Attempts").forEachIndexed { index, title ->
@@ -104,6 +111,23 @@ internal fun MistakeDetailCard(
                 }
             }
         }
+    }
+    if (showDelete) {
+        AlertDialog(
+            onDismissRequest = { if (!working) showDelete = false },
+            icon = { Icon(Icons.Rounded.DeleteOutline, null) },
+            title = { Text("Delete this card?") },
+            text = { Text("“${mistake.question}” leaves your review list on all devices. Your handwriting on this device is kept.") },
+            dismissButton = { TextButton({ showDelete = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
+            confirmButton = {
+                Button(
+                    { showDelete = false; onDelete() },
+                    enabled = !working,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text("Delete card") }
+            },
+        )
     }
 }
 

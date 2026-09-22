@@ -44,6 +44,18 @@ class ExamTrackSyncService(private val client: SupabaseClient) : ExamTrackRemote
         }.data
         return JSONArray(data).length() == 1
     }
+    override suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean {
+        checkUser(userId)
+        val patch = JSONObject().put("deleted_at", deletedAt).put("updated_at", deletedAt)
+        val data = client.from("mistakes").update(Json.parseToJsonElement(patch.toString()).jsonObject) {
+            filter {
+                eq("user_id", userId); eq("id", expected.id); eq("updated_at", expected.updatedAt)
+                exact("deleted_at", null)
+            }
+            select()
+        }.data
+        return JSONArray(data).length() == 1
+    }
     override suspend fun contexts(userId: String): Map<String, ExamContext> = rows("attempts", userId)
         .filter { it.isNull("deleted_at") }.mapNotNull { r ->
             val p = r.optJSONObject("payload") ?: return@mapNotNull null

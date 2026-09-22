@@ -130,6 +130,20 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         requestSync(force = true)
         return result
     }
+    /**
+     * Deletes a card: local removal now, remote soft-delete on the next sync.
+     * Handwriting stays on this device, as with web-side deletions.
+     */
+    suspend fun deleteMistake(mistakeId: String) {
+        val user = _state.value.userId ?: return
+        syncJob?.cancelAndJoin()
+        try {
+            repository.delete(user, mistakeId, isoTime())
+            reload(user)
+        } finally {
+            requestSync(force = true)
+        }
+    }
     /** Forgets cached reviews whose practice notebooks were deleted from this device. */
     suspend fun removeAttemptsForNotebooks(notebookIds: Set<String>) {
         val user = _state.value.userId ?: return

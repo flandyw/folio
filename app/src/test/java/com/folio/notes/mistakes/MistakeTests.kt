@@ -30,12 +30,20 @@ class MistakeTests {
         var conflict = false
         var calls = 0
         val writes = mutableListOf<ExamTrackMistake>()
+        val deletes = mutableListOf<String>()
         override suspend fun fetch(userId: String): List<RemoteMistakeRow> { calls++; check(!offline); return rows }
         override suspend fun update(userId: String, expected: RemoteMistakeRow, payload: ExamTrackMistake): Boolean {
             check(!offline)
             if (conflict) return false
             writes += payload
             rows = rows.map { if (it.id == payload.id) RemoteMistakeRow(payload.id, payload.originalJson, payload.updatedAt, null) else it }
+            return true
+        }
+        override suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean {
+            check(!offline)
+            if (conflict) return false
+            deletes += expected.id
+            rows = rows.map { if (it.id == expected.id) it.copy(payload = it.payload, updatedAt = deletedAt, deletedAt = deletedAt) else it }
             return true
         }
         override suspend fun contexts(userId: String) = emptyMap<String, ExamContext>()
@@ -127,6 +135,63 @@ class MistakeTests {
         repo.sync("u"); repo.sync("u")
         assertTrue(repo.cache("u").mistakes.isEmpty()); assertTrue(repo.cache("u").pending.isEmpty())
         assertEquals(1, repo.cache("u").attempts.size); assertTrue(remote.writes.isEmpty())
+    }
+    @Test fun localDeleteRemovesCardQueuesUploadAndKeepsHandwriting() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(store, remote)
+        repo.sync("u"); repo.addAttempt("u", attempt())
+        repo.delete("u", "m", "2026-09-18T00:00:00.000Z")
+        val cache = repo.cache("u")
+        assertTrue(cache.mistakes.isEmpty())
+        assertTrue(cache.pending.isEmpty())
+        assertEquals(setOf("m"), cache.pendingDeletes)
+        assertEquals("2026-09-18T00:00:00.000Z", cache.tombstones["m"])
+        assertEquals(1, cache.attempts.size)
+        repo.sync("u")
+        assertEquals(listOf("m"), remote.deletes)
+        assertTrue(repo.cache("u").pendingDeletes.isEmpty())
+        assertTrue(repo.cache("u").mistakes.isEmpty())
+        repo.sync("u")
+        assertTrue(repo.cache("u").mistakes.isEmpty())
+    }
+    @Test fun deletedCardNeverResurrectsBeforeUpload() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(store, remote)
+        repo.sync("u"); repo.delete("u", "m", at)
+        repo.sync("u") // Remote row still active here; the queued delete must win, not re-add.
+        assertTrue(repo.cache("u").mistakes.isEmpty())
+        assertEquals(listOf("m"), remote.deletes)
+    }
+    @Test fun deleteConflictStaysQueued() = runBlocking {
+        val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)
+        repo.sync("u"); repo.delete("u", "m", at); remote.conflict = true
+        assertEquals(1, repo.sync("u").pending)
+        assertTrue(remote.deletes.isEmpty())
+        assertEquals(setOf("m"), repo.cache("u").pendingDeletes)
+    }
+    @Test fun offlineDeletePersistsAcrossRestartAndUploadsLater() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(store, remote)
+        repo.sync("u"); repo.delete("u", "m", at)
+        val restored = MistakeRepository(store, remote)
+        assertEquals(setOf("m"), restored.cache("u").pendingDeletes)
+        restored.sync("u")
+        assertEquals(listOf("m"), remote.deletes)
+        assertTrue(restored.cache("u").pendingDeletes.isEmpty())
+    }
+    @Test fun deleteDropsQueuedRating() = runBlocking {
+        val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)
+        repo.sync("u"); repo.rate("u", attempt(), ReviewRating.GOOD, at)
+        repo.delete("u", "m", "2026-09-18T00:00:00.000Z")
+        assertTrue(repo.cache("u").pending.isEmpty())
+        repo.sync("u")
+        assertTrue(remote.writes.isEmpty()) // The rating never uploads for a deleted card.
+        assertEquals(listOf("m"), remote.deletes)
+    }
+    @Test fun versionOneCacheStillLoadsWithoutPendingDeletes() {
+        val encoded = JSONObject(MistakeCacheCodec.encode(MistakeCache(mistakes = mapOf("m" to mistake()))))
+        encoded.put("version", 1).remove("pendingDeletes")
+        val loaded = MistakeCacheCodec.decode(encoded.toString())
+        assertTrue(loaded.pendingDeletes.isEmpty())
+        assertEquals("Q8c", loaded.mistakes["m"]!!.question)
+        assertEquals(2, MistakeCacheCodec.VERSION)
     }
     @Test fun newerRemoteWinsOverQueuedLocalReviewButKeepsHandwriting() = runBlocking {
         val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)

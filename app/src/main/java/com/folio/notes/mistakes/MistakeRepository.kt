@@ -12,7 +12,9 @@ data class MistakeCache(
     val tombstones: Map<String, String> = emptyMap(),
     val attempts: List<LocalMistakeReviewAttempt> = emptyList(),
     val contexts: Map<String, ExamContext> = emptyMap(),
-    val lastSyncedAt: String? = null
+    val lastSyncedAt: String? = null,
+    /** Local soft-deletes still waiting for their remote `deleted_at` write. */
+    val pendingDeletes: Set<String> = emptySet()
 )
 data class ExamContext(val subject: String, val title: String, val paper: String)
 data class RemoteMistakeRow(val id: String, val payload: String?, val updatedAt: String, val deletedAt: String?)
@@ -27,6 +29,8 @@ interface ExamTrackRemote {
     suspend fun fetch(userId: String): List<RemoteMistakeRow>
     /** Compare-and-set an existing active row. False means a concurrent web change: retry later. */
     suspend fun update(userId: String, expected: RemoteMistakeRow, payload: ExamTrackMistake): Boolean
+    /** Soft-delete an existing active row via `deleted_at`. False means retry later, like [update]. */
+    suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean
     suspend fun contexts(userId: String): Map<String, ExamContext>
 }
 
@@ -56,11 +60,28 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             attempts = c.attempts.filterNot { it.reviewId == attempt.reviewId } + completed))
         completed
     }
+    /**
+     * Soft-deletes a card: it leaves the local list immediately, drops any queued rating,
+     * and queues a remote `deleted_at` write. Handwriting and cached attempts are kept,
+     * exactly as when ExamTrack deletes the card on the web. Idempotent.
+     */
+    suspend fun delete(user: String, mistakeId: String, at: String) = lock.withLock {
+        runCatching { timestamp(at) }.getOrElse { throw IllegalArgumentException("Bad delete time") }
+        val c = store.load(user)
+        if (c.mistakes[mistakeId] == null && c.tombstones[mistakeId] == null && mistakeId !in c.pendingDeletes) return@withLock
+        store.save(user, c.copy(
+            mistakes = c.mistakes - mistakeId,
+            pending = c.pending - mistakeId,
+            tombstones = c.tombstones + (mistakeId to at),
+            pendingDeletes = c.pendingDeletes + mistakeId,
+        ))
+    }
     suspend fun sync(user: String): SyncResult = lock.withLock {
         val initial = store.load(user)
         val mistakes = initial.mistakes.toMutableMap()
         val pending = initial.pending.toMutableSet()
         val tombstones = initial.tombstones.toMutableMap()
+        val pendingDeletes = initial.pendingDeletes.toMutableSet()
         var invalid = 0
         var updated = 0
         val rows = remote.fetch(user)
@@ -70,20 +91,23 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             if (row.deletedAt != null) {
                 // Native reviews never undelete cards, even if an offline review is newer.
                 if (mistakes.remove(row.id) != null) updated++
-                pending.remove(row.id); tombstones[row.id] = row.deletedAt
+                pending.remove(row.id); pendingDeletes.remove(row.id); tombstones[row.id] = row.deletedAt
                 continue
             }
             val m = row.payload?.let { ExamTrackMistakeCodec.decode(it, row.id) }
             if (m == null) { invalid++; continue }
+            usable[row.id] = row
+            // A queued local delete wins over the still-active remote row: never resurrect it here.
+            if (row.id in pendingDeletes) continue
             if (tombstones[row.id]?.let { timestamp(it) >= timestamp(row.updatedAt) } == true) continue
             tombstones.remove(row.id)
-            usable[row.id] = row
             val local = mistakes[row.id]
             if (local == null || timestamp(row.updatedAt) > timestamp(local.updatedAt)) {
                 mistakes[row.id] = m; pending.remove(row.id); updated++
             }
         }
-        var c = initial.copy(mistakes = mistakes.toMap(), pending = pending.toSet(), tombstones = tombstones.toMap())
+        var c = initial.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
+            tombstones = tombstones.toMap(), pendingDeletes = pendingDeletes.toSet())
         // Persist downloads/tombstones before uploading. An interrupted upload stays queued.
         store.save(user, c)
         for (id in pending.toList()) {
@@ -96,9 +120,26 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 store.save(user, c)
             }
         }
+        for (id in pendingDeletes.toList()) {
+            val expected = usable[id]
+            if (expected == null) {
+                // Already gone remotely (or never existed): locally consistent, nothing to write.
+                pendingDeletes.remove(id)
+                c = c.copy(pendingDeletes = pendingDeletes.toSet())
+                store.save(user, c)
+                continue
+            }
+            val deletedAt = tombstones[id] ?: continue
+            if (remote.delete(user, expected, deletedAt)) {
+                pendingDeletes.remove(id)
+                tombstones[id] = deletedAt
+                c = c.copy(pendingDeletes = pendingDeletes.toSet(), tombstones = tombstones.toMap())
+                store.save(user, c)
+            }
+        }
         val contexts = remote.contexts(user)
         store.save(user, c.copy(contexts = contexts, lastSyncedAt = isoTime()))
-        SyncResult(mistakes.size, updated, invalid, pending.size)
+        SyncResult(mistakes.size, updated, invalid, pending.size + pendingDeletes.size)
     }
     private fun preserveRemoteFields(remote: RemoteMistakeRow, local: ExamTrackMistake): ExamTrackMistake {
         val output = JSONObject(requireNotNull(remote.payload))
@@ -113,11 +154,12 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
 }
 
 object MistakeCacheCodec {
-    const val VERSION = 1
+    const val VERSION = 2
     fun encode(c: MistakeCache): String = JSONObject().put("version", VERSION).apply {
         put("mistakes", JSONArray(c.mistakes.values.map { JSONObject(it.originalJson) }))
         put("pending", JSONArray(c.pending.toList()))
         put("tombstones", JSONObject(c.tombstones))
+        put("pendingDeletes", JSONArray(c.pendingDeletes.toList()))
         put("attempts", JSONArray(c.attempts.map { it.encode() }))
         put("contexts", JSONObject().apply { c.contexts.forEach { (id, v) -> put(id,
             JSONObject().put("subject", v.subject).put("title", v.title).put("paper", v.paper)) } })
@@ -125,7 +167,8 @@ object MistakeCacheCodec {
     }.toString()
     fun decode(raw: String): MistakeCache {
         val o = JSONObject(raw)
-        require(o.getInt("version") == VERSION) { "Unsupported mistake cache version" }
+        val version = o.getInt("version")
+        require(version == 1 || version == VERSION) { "Unsupported mistake cache version" }
         val mistakes = o.getJSONArray("mistakes").let { a -> (0 until a.length()).mapNotNull {
             ExamTrackMistakeCodec.decode(a.getJSONObject(it).toString())
         } }.associateBy { it.id }
@@ -135,6 +178,7 @@ object MistakeCacheCodec {
         val contexts = o.optJSONObject("contexts")?.let { c -> c.keys().asSequence().associateWith {
             val v = c.getJSONObject(it); ExamContext(v.getString("subject"), v.getString("title"), v.getString("paper"))
         } }.orEmpty()
-        return MistakeCache(mistakes, pending, tombstones, attempts, contexts, o.opt("lastSyncedAt") as? String)
+        val pendingDeletes = o.optJSONArray("pendingDeletes")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty()
+        return MistakeCache(mistakes, pending, tombstones, attempts, contexts, o.opt("lastSyncedAt") as? String, pendingDeletes)
     }
 }
