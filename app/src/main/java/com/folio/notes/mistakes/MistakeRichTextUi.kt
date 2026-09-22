@@ -33,6 +33,11 @@ import androidx.compose.ui.unit.sp
 import com.folio.notes.math.KaTeXMath
 import com.folio.notes.math.rememberKaTeXInlineContent
 
+internal fun TextStyle.scaledBy(scale: Float): TextStyle = copy(
+    fontSize = fontSize * scale,
+    lineHeight = lineHeight * scale,
+)
+
 /** Native Markdown text with opaque math fragments rendered by bundled offline KaTeX. */
 @Composable
 fun RichText(

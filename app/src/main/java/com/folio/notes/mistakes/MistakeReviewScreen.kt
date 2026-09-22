@@ -14,6 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.*
@@ -33,12 +37,40 @@ import com.folio.notes.*
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
     var landscapeShare by rememberSaveable { mutableFloatStateOf(.36f) }
     var portraitShare by rememberSaveable { mutableFloatStateOf(.30f) }
+    val androidContext = LocalContext.current
+    val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
+    var textScale by remember { mutableFloatStateOf(preferences.getFloat("mistakeTextScale", 1f).coerceIn(.75f, 2f)) }
+    var pendingAction by remember(attempt.reviewId, busy, revealed) { mutableStateOf<String?>(null) }
+    var firstTapAt by remember(attempt.reviewId) { mutableLongStateOf(0L) }
+    LaunchedEffect(pendingAction, firstTapAt) {
+        if (pendingAction != null) {
+            delay(1000)
+            pendingAction = null
+        }
+    }
+    fun confirmDoubleTap(action: String, confirmed: () -> Unit) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (pendingAction == action && now - firstTapAt <= 1000) {
+            pendingAction = null
+            confirmed()
+        } else {
+            pendingAction = action
+            firstTapAt = now
+        }
+    }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
         if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry from the page status before rating.", duration = SnackbarDuration.Long)
     }
     Scaffold(
+        // Keep the editor mounted while the next page is prepared, but do not let
+        // a stray stroke or tap edit a notebook during the handoff.
+        modifier = Modifier.pointerInput(busy) {
+            if (busy) awaitPointerEventScope {
+                while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -56,7 +88,7 @@ import com.folio.notes.*
                         )
                     }
                 },
-                navigationIcon = { IconButton(onBack, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
+                navigationIcon = { IconButton(onBack, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
                 actions = {
                     IconButton(onToggleShuffle, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                         Icon(
@@ -64,8 +96,8 @@ import com.folio.notes.*
                             tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onSkip, enabled = canSkip && !busy, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.SkipNext, "Skip this card for now")
+                    IconButton({ confirmDoubleTap("skipTop", onSkip) }, enabled = canSkip && !busy, shapes = IconButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card")
                     }
                 }
             )
@@ -76,20 +108,20 @@ import com.folio.notes.*
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (!revealed) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button({ revealed = true; questionExpanded = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                            Button({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                                 Icon(Icons.Rounded.Visibility, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Compare answer")
+                                Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
                             }
                             if (canSkip) {
-                                OutlinedButton(onSkip, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
+                                OutlinedButton({ confirmDoubleTap("skipBottom", onSkip) }, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.SkipNext, "Skip this card for now")
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Skip")
+                                    Text(if (pendingAction == "skipBottom") "Tap again" else "Skip")
                                 }
                             }
                         }
-                        Text("Write first, then compare — honest ratings build the schedule.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Text(if (pendingAction == "skipTop") "Tap the top Skip button again to confirm." else "Double-tap Compare answer or Skip to confirm.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     } else {
                         val now = remember(revealed) { isoTime() }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -117,6 +149,7 @@ import com.folio.notes.*
                         }
                         Text(
                             when {
+                                pendingAction == "skipTop" -> "Tap the top Skip button again to confirm."
                                 state.saveFailed -> "Save failed — retry from the editor status, then rate."
                                 state.pendingSaves > 0 -> "Saving your ink… ratings unlock when it says Saved."
                                 busy -> "Saving your review…"
@@ -138,24 +171,35 @@ import com.folio.notes.*
                     Column(Modifier.fillMaxSize()) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel size") }
+                            IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel and text size") }
                             if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
                         }
-                        if (adjustLayout && (wide || questionExpanded)) {
-                            Column(Modifier.padding(horizontal = 16.dp)) {
-                                Text("Question space · ${((if (wide) landscapeShare else portraitShare) * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
-                                Slider(value = if (wide) landscapeShare else portraitShare,
-                                    onValueChange = { if (wide) landscapeShare = it else portraitShare = it }, valueRange = .2f.. .55f)
-                            }
+                        if (adjustLayout) {
+                            AlertDialog(
+                                onDismissRequest = { adjustLayout = false },
+                                title = { Text("Question display") },
+                                text = {
+                                    Column {
+                                        Text("Question space · ${((if (wide) landscapeShare else portraitShare) * 100).toInt()}%")
+                                        Slider(value = if (wide) landscapeShare else portraitShare,
+                                            onValueChange = { if (wide) landscapeShare = it else portraitShare = it }, valueRange = .2f.. .55f)
+                                        Text("Text size · ${(textScale * 100).toInt()}%")
+                                        Slider(value = textScale, onValueChange = { textScale = it },
+                                            onValueChangeFinished = { preferences.edit().putFloat("mistakeTextScale", textScale).apply() },
+                                            valueRange = .75f..2f, steps = 4)
+                                    }
+                                },
+                                confirmButton = { TextButton({ adjustLayout = false }) { Text("Done") } }
+                            )
                         }
                         if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            QuestionContent(m, context, attempt.userId, model.attachments)
+                            QuestionContent(m, context, attempt.userId, model.attachments, textScale)
                             if (revealed) {
                                 HorizontalDivider()
                                 Text("Correction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                RichText(m.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge)
+                                RichText(m.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
                                 Text("What went wrong", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                RichText(m.explanation.ifBlank { "No explanation saved in ExamTrack." }, style = MaterialTheme.typography.bodyMedium)
+                                RichText(m.explanation.ifBlank { "No explanation saved in ExamTrack." }, style = MaterialTheme.typography.bodyMedium.scaledBy(textScale))
                             }
                         }
                     }

@@ -49,6 +49,13 @@ import java.util.concurrent.TimeUnit
 private val syncDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()) }
 private val dueDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
 
+private data class ReviewFrame(
+    val attempt: LocalMistakeReviewAttempt,
+    val card: ExamTrackMistake,
+    val context: ExamContext?,
+    val editor: FolioState,
+)
+
 private fun formatSyncedAt(iso: String?): String {
     if (iso == null) return "Never synced"
     return runCatching {
@@ -160,6 +167,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         if (activeReview == null) scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
     }
     BackHandler {
+        if (working) return@BackHandler
         if (activeReview != null) { activeReview = null; reviewQueue = emptyList(); folio.close() }
         else if (detail != null) detail = null else onBack()
     }
@@ -208,6 +216,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     fun leaveReview() { activeReview = null; reviewQueue = emptyList(); folio.close() }
+    suspend fun openReview(mistake: ExamTrackMistake, user: String): LocalMistakeReviewAttempt {
+        val attempt = unfinishedAttempt(folioState.notes, user, mistake.id)
+            ?: folio.createMistakePractice(user, mistake, openWhenReady = false)
+        // Finish disk/cache work before changing the displayed notebook. No suspension
+        // between opening the editor and selecting its corresponding question.
+        model.addAttempt(attempt)
+        val note = folio.state.value.notes.first { it.id == attempt.practiceNotebookId }
+        folio.openAt(note.id, note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0))
+        return attempt
+    }
     fun start(mistake: ExamTrackMistake) {
         val user = state.userId ?: return
         if (working) return
@@ -220,17 +238,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         working = true
         scope.launch {
             try {
-                val unfinished = unfinishedAttempt(folioState.notes, user, mistake.id)
-                val attempt = if (unfinished != null) {
-                    val note = folioState.notes.first { it.id == unfinished.practiceNotebookId }
-                    folio.openAt(note.id, note.pages.indexOfFirst { it.id == unfinished.practicePageId }.coerceAtLeast(0))
-                    unfinished
-                } else folio.createMistakePractice(user, mistake)
-                model.addAttempt(attempt)
+                val attempt = openReview(mistake, user)
                 activeReview = attempt.reviewId
                 detail = null
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { showTransient("Could not start a practice page. Please try again.") }
+            catch (_: Exception) {
+                // A successfully rated card must not become rateable again if preparing
+                // the next notebook fails. Its completed review is already durable.
+                if (model.state.value.cache.attempts.any { it.reviewId == activeReview && it.completedAt != null }) leaveReview()
+                showTransient("Could not start a practice page. Please try again.")
+            }
             finally { working = false }
         }
     }
@@ -260,7 +277,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
         actionMessage = null
         // Push the skipped card to the end; its unfinished page stays saved for later.
-        reviewQueue = remaining + current.mistakeId
         val user = state.userId ?: return
         working = true
         scope.launch {
@@ -268,13 +284,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 val next = state.cache.mistakes[remaining.first()]
                     ?: model.state.value.cache.mistakes[remaining.first()]
                 if (next != null) {
-                    val unfinished = unfinishedAttempt(folioState.notes, user, next.id)
-                    val attempt = if (unfinished != null) {
-                        val note = folioState.notes.first { it.id == unfinished.practiceNotebookId }
-                        folio.openAt(note.id, note.pages.indexOfFirst { it.id == unfinished.practicePageId }.coerceAtLeast(0))
-                        unfinished
-                    } else folio.createMistakePractice(user, next)
-                    model.addAttempt(attempt)
+                    val attempt = openReview(next, user)
+                    reviewQueue = remaining + current.mistakeId
                     activeReview = attempt.reviewId
                     showTransient("Skipped for now — your page is kept and the card moves to the end.")
                 }
@@ -283,15 +294,24 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
-    if (active != null && card != null && folioState.activeId == active.practiceNotebookId) {
+    // The two ViewModels can be collected on different frames. Keep the last coherent
+    // question/editor pair during that handoff instead of briefly rendering the library.
+    var previousFrame by remember(state.userId, activeReview == null) { mutableStateOf<ReviewFrame?>(null) }
+    val currentFrame = if (active != null && card != null && folioState.activeId == active.practiceNotebookId)
+        ReviewFrame(active, card, state.cache.contexts[card.attemptId], folioState) else null
+    SideEffect { if (currentFrame != null) previousFrame = currentFrame }
+    val reviewFrame = currentFrame ?: previousFrame?.takeIf { activeReview != null && (working || (active != null && card != null)) }
+    if (reviewFrame != null) {
+        val active = reviewFrame.attempt
+        val card = reviewFrame.card
         val queuePos = sessionCompleted + 1
         val queueSize = sessionTotal.takeIf { it > 0 }
-        MistakeReviewScreen(card, state.cache.contexts[card.attemptId], active, model, folio, folioState,
-            finger, haptics, shapes, working, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
+        MistakeReviewScreen(card, reviewFrame.context, active, model, folio, reviewFrame.editor,
+            finger, haptics, shapes, working || currentFrame == null, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
             dueLeft = queueSize ?: due.size, queuePos = queuePos, queueSize = queueSize,
             shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
             canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage) onRate@{ rating ->
-            if (working || folioState.pendingSaves > 0 || folioState.saveFailed) return@onRate
+            if (working || currentFrame == null || folioState.pendingSaves > 0 || folioState.saveFailed) return@onRate
             actionMessage = null
             working = true
             scope.launch {
@@ -301,8 +321,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     folio.completeMistakePractice(completed)
                     sessionCompleted++
                     val remainingIds = reviewQueue.filterNot { it == finishedId }
-                    // Leave first so the editor closes even when the session is done.
-                    activeReview = null; folio.close()
                     showTransient(
                         when (rating) {
                             ReviewRating.AGAIN -> "Saved · this card returns in about 10 minutes"
@@ -318,6 +336,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         reviewQueue = validNext.map { it.id }
                         start(validNext.first())
                     } else {
+                        activeReview = null; folio.close()
                         reviewQueue = emptyList()
                         showSummary = true
                         destination = "Today"

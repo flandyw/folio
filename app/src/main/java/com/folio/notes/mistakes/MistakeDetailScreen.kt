@@ -140,15 +140,15 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
 
 // ---- Question + attachments (LaTeX aware) ----------------------------------------------------
 
-@Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository) {
+@Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository, textScale: Float = 1f) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         context?.let {
             val crumb = listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")
             if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
-        Text(m.question, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Serif)
+        Text(m.question, style = MaterialTheme.typography.headlineSmall.scaledBy(textScale), fontFamily = FontFamily.Serif)
         if (!m.questionText.isNullOrBlank()) {
-            RichText(m.questionText!!, style = MaterialTheme.typography.bodyLarge)
+            RichText(m.questionText!!, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
         }
         AttachmentGallery(m, user, attachments)
     }

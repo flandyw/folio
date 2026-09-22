@@ -309,7 +309,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         enqueue { repository.saveAll(note) }
     }
     /** Saves the new page before opening the normal editor; no ink is kept in the cloud cache. */
-    suspend fun createMistakePractice(user: String, mistake: com.folio.notes.mistakes.ExamTrackMistake): com.folio.notes.mistakes.LocalMistakeReviewAttempt {
+    suspend fun createMistakePractice(user: String, mistake: com.folio.notes.mistakes.ExamTrackMistake, openWhenReady: Boolean = true): com.folio.notes.mistakes.LocalMistakeReviewAttempt {
         ready.await()
         val page = NotePage(paper = Paper.MATH_GRID, infinite = true, title = mistake.question)
         val noteId = UUID.randomUUID().toString()
@@ -318,7 +318,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             mistakePractice = true, mistakeReviews = listOf(attempt))
         repository.saveAll(note)
         _state.update { it.copy(notes = it.notes + note) }
-        open(note.id)
+        if (openWhenReady) open(note.id)
         return attempt
     }
 
