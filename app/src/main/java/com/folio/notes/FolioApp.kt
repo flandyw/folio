@@ -153,6 +153,65 @@ import java.io.File
                 else savePngZip.launch(selectiveExportFilename(request.note, request.indices, request.format))
         }
     }
+    fun shareExport(request: PageExportRequest) {
+        val indices = normalizeExportIndices(request.indices, request.note.pages.size)
+        if (indices.isEmpty()) return
+        val scoped = request.copy(indices = indices)
+        val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
+        model.export {
+            try {
+                if (exportShareUsesMultipleUris(scoped.format, scoped.indices.size)) {
+                    val files = withContext(Dispatchers.IO) {
+                        val parent = exportCacheDir(context.cacheDir)
+                        pruneExportCache(parent)
+                        val dir = File(parent, "share-${System.currentTimeMillis()}").apply { mkdirs() }
+                        exporter.writeSeparatePngs(dir, scoped.note, scoped.indices, pngScale)
+                    }
+                    if (files.isEmpty()) error("Nothing to share")
+                    val uris = ArrayList(files.map { FileProvider.getUriForFile(context, "${context.packageName}.files", it) })
+                    val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = exportShareMimeType(scoped.format)
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                        clipData = ClipData.newRawUri("Pages", uris.first()).apply {
+                            uris.drop(1).forEach { addItem(ClipData.Item(it)) }
+                        }
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.applicationContext.startActivity(
+                        Intent.createChooser(send, shareExportChooserTitle(scoped.indices, scoped.format))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } else {
+                    val file = withContext(Dispatchers.IO) {
+                        val dir = exportCacheDir(context.cacheDir)
+                        pruneExportCache(dir)
+                        val name = uniqueShareFilename(selectiveShareFilenames(scoped.note, scoped.indices, scoped.format).first())
+                        File(dir, name).also { out ->
+                            out.outputStream().use { stream ->
+                                when (scoped.format) {
+                                    PageExportFormat.PDF -> exporter.writePdf(stream, scoped.note, scoped.indices)
+                                    PageExportFormat.PNG -> exporter.write(stream, scoped, pngScale)
+                                }
+                            }
+                        }
+                    }
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = exportShareMimeType(scoped.format)
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newRawUri("Pages", uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.applicationContext.startActivity(
+                        Intent.createChooser(send, shareExportChooserTitle(scoped.indices, scoped.format))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            } catch (_: ActivityNotFoundException) {
+                model.reportError("No app can share these pages")
+            }
+        }
+    }
     // Bluetooth is only ever asked for while the editor is open and the user has opted in.
     val hapticPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         val allowed = granted.values.all { it }
@@ -324,14 +383,18 @@ import java.io.File
                     exportMenu = false
                     val note = state.active ?: return@ExportOption
                     model.export {
+                        try {
                             val file = withContext(Dispatchers.IO) {
-                                val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-                                dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }?.forEach { it.delete() }
+                                val dir = exportCacheDir(context.cacheDir)
+                                pruneExportCache(dir)
                                 File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file -> file.outputStream().use { exporter.writePdf(it, note, note.pages.indices.toList()) } }
                             }
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
                             val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); clipData = ClipData.newRawUri("Notebook", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                             context.applicationContext.startActivity(Intent.createChooser(send, "Share notebook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (_: ActivityNotFoundException) {
+                            model.reportError("No app can share this notebook")
+                        }
                     }
                 }
             }
@@ -343,7 +406,8 @@ import java.io.File
                 note = note,
                 initialIndex = state.pageIndex,
                 onDismiss = { pageExportDialog = false },
-                onExport = { request -> pageExportDialog = false; launchExport(request) }
+                onExport = { request -> pageExportDialog = false; launchExport(request) },
+                onShare = { request -> pageExportDialog = false; shareExport(request) }
             )
         }
         if (updateDialog) AlertDialog(

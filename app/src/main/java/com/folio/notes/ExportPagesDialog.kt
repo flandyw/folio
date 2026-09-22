@@ -19,9 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +44,8 @@ import androidx.compose.ui.unit.dp
     note: Notebook,
     initialIndex: Int,
     onDismiss: () -> Unit,
-    onExport: (PageExportRequest) -> Unit
+    onExport: (PageExportRequest) -> Unit,
+    onShare: (PageExportRequest) -> Unit
 ) {
     var selected by remember(note.id, initialIndex) {
         mutableStateOf(if (note.pages.isEmpty()) emptySet() else setOf(initialIndex.coerceIn(0, note.pages.lastIndex)))
@@ -57,7 +61,7 @@ import androidx.compose.ui.unit.dp
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Choose which pages to export. A PDF keeps them in order; PNG saves one image per page.",
+                "Choose which pages to save or share. A PDF keeps them in order; PNG saves one image per page.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -76,7 +80,7 @@ import androidx.compose.ui.unit.dp
             }
             if (format == PageExportFormat.PNG && selected.size > 1) {
                 Text(
-                    "Several PNGs arrive as one .zip file, so they still need a single save.",
+                    "Saving several PNGs makes one .zip file; sharing sends each image separately.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -191,25 +195,46 @@ import androidx.compose.ui.unit.dp
                     }
                 }
             }
-            Button(
-                onClick = {
-                    val indices = normalizeExportIndices(selected, note.pages.size)
-                    if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format))
-                },
-                enabled = selected.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-                shapes = ButtonDefaults.shapes()
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val count = selected.size
-                Text(
-                    when {
-                        count == 0 -> "Select pages to export"
-                        format == PageExportFormat.PDF && count == 1 -> "Export page ${selected.sorted().first() + 1} as PDF"
-                        format == PageExportFormat.PDF -> "Export $count pages as PDF"
-                        count == 1 -> "Export page ${selected.sorted().first() + 1} as PNG"
-                        else -> "Export $count pages as PNG (.zip)"
-                    }
-                )
+                val indices = normalizeExportIndices(selected, note.pages.size)
+                Button(
+                    onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format)) },
+                    enabled = selected.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            count == 0 -> "Save"
+                            format == PageExportFormat.PDF -> "Save PDF"
+                            count == 1 -> "Save PNG"
+                            else -> "Save ZIP"
+                        }
+                    )
+                }
+                FilledTonalButton(
+                    onClick = { if (indices.isNotEmpty()) onShare(PageExportRequest(note, indices, format)) },
+                    enabled = selected.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                    shapes = ButtonDefaults.shapes()
+                ) {
+                    Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            count == 0 -> "Share"
+                            format == PageExportFormat.PDF -> "Share PDF"
+                            count == 1 -> "Share PNG"
+                            else -> "Share PNGs"
+                        }
+                    )
+                }
             }
         }
     }

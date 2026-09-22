@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.OutputStream
 
 class NoteExporter(private val repository: NoteRepository) {
@@ -76,6 +77,26 @@ class NoteExporter(private val repository: NoteRepository) {
                         zip.closeEntry()
                     } finally { bitmap.recycle() }
                 }
+            }
+        }
+    }
+
+    /** One PNG file per selected page, so a native share can send images instead of a zip. */
+    suspend fun writeSeparatePngs(dir: File, note: Notebook, indices: List<Int>, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): List<File> = withContext(Dispatchers.IO) {
+        val selected = normalizeExportIndices(indices, note.pages.size)
+        require(selected.isNotEmpty()) { "Select at least one page to export" }
+        dir.mkdirs()
+        repository.openPdf(note.id).use { source ->
+            selected.mapNotNull { pageIndex ->
+                val page = note.pages.getOrNull(pageIndex) ?: return@mapNotNull null
+                val bitmap = renderPng(note, page, source, pngScale)
+                try {
+                    val file = File(dir, "${NotebookFilename.sanitize(note.title)}-p${pageIndex + 1}.png")
+                    file.outputStream().use { out ->
+                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Image export failed" }
+                    }
+                    file
+                } finally { bitmap.recycle() }
             }
         }
     }

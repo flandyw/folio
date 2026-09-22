@@ -71,6 +71,70 @@ fun selectiveExportFilename(note: Notebook, indices: List<Int>, format: PageExpo
     }
 }
 
+/** MIME type used when natively sharing a selective export. Multi-PNG shares as images, not a zip. */
+fun exportShareMimeType(format: PageExportFormat): String = when (format) {
+    PageExportFormat.PDF -> "application/pdf"
+    PageExportFormat.PNG -> "image/png"
+}
+
+/** True when sharing produces several files (one PNG per page) needing ACTION_SEND_MULTIPLE. */
+fun exportShareUsesMultipleUris(format: PageExportFormat, pageCount: Int): Boolean =
+    format == PageExportFormat.PNG && pageCount > 1
+
+/**
+ * File names for a native share, without a directory. A PDF or single PNG shares as one file;
+ * several PNGs share as one image per page so receiving apps get pictures, not a zip.
+ */
+fun selectiveShareFilenames(note: Notebook, indices: List<Int>, format: PageExportFormat): List<String> {
+    val normalized = normalizeExportIndices(indices, note.pages.size)
+    if (normalized.isEmpty()) return emptyList()
+    val base = NotebookFilename.sanitize(note.title)
+    return when (format) {
+        PageExportFormat.PDF -> listOf(
+            if (normalized.size == 1) "$base-p${normalized.first() + 1}.pdf" else "$base-pages.pdf"
+        )
+        PageExportFormat.PNG -> normalized.map { "$base-p${it + 1}.png" }
+    }
+}
+
+/** Inserts a timestamp before the extension so repeated shares never collide in the cache dir. */
+fun uniqueShareFilename(filename: String, timestamp: Long = System.currentTimeMillis()): String {
+    val dot = filename.lastIndexOf('.')
+    return if (dot <= 0) "$filename-$timestamp"
+    else "${filename.substring(0, dot)}-$timestamp${filename.substring(dot)}"
+}
+
+/** Title for the Android sharesheet, describing what is being sent. */
+fun shareExportChooserTitle(indices: List<Int>, format: PageExportFormat): String {
+    val count = indices.distinct().size
+    return when (format) {
+        PageExportFormat.PDF -> if (count == 1) "Share page as PDF" else "Share $count pages as PDF"
+        PageExportFormat.PNG -> if (count == 1) "Share page as image" else "Share $count images"
+    }
+}
+
+/** Cache dir holding temporary share files, created on demand. */
+fun exportCacheDir(cacheDir: java.io.File): java.io.File =
+    java.io.File(cacheDir, "exports").apply { mkdirs() }
+
+/**
+ * Deletes cached share files (and share sub-folders) older than [maxAgeMs].
+ * Returns how many entries were removed so callers can ignore the result.
+ */
+fun pruneExportCache(dir: java.io.File, now: Long = System.currentTimeMillis(), maxAgeMs: Long = 86_400_000): Int {
+    val entries = dir.listFiles() ?: return 0
+    var removed = 0
+    entries.forEach { entry ->
+        if (now - entry.lastModified() > maxAgeMs) {
+            if (entry.isDirectory) {
+                entry.listFiles()?.forEach { it.delete() }
+                if (entry.delete()) removed++
+            } else if (entry.delete()) removed++
+        }
+    }
+    return removed
+}
+
 /** File-name sanitising shared with the single-page export path. */
 object NotebookFilename {
     private val unsafe = Regex("[^\\p{L}\\p{N} ._-]")
