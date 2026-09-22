@@ -454,11 +454,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
                             fullWidthItem { OfflineNoteCard() }
                         } else {
-                            if (state.status.startsWith("Offline") || state.cache.pending.isNotEmpty()) fullWidthItem {
+                            if (state.status.startsWith("Offline") || state.status.startsWith("ExamTrack") || state.cache.pending.isNotEmpty()) fullWidthItem {
                                 Surface(onClick = { showAccount = true }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                                     Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp))
-                                        Text(if (state.cache.pending.isNotEmpty()) "${state.cache.pending.size} reviews saved locally · view sync" else "Offline · saved questions are ready to practise", style = MaterialTheme.typography.bodySmall)
+                                        Text(if (state.status.startsWith("ExamTrack") || state.status.startsWith("Offline")) state.status
+                                            else "${state.cache.pending.size} reviews saved locally · view sync", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -731,6 +732,7 @@ private fun SyncStatusRow(status: String, pending: Int) {
     val (icon, container, content) = when {
         status == "Syncing…" -> Triple(Icons.Rounded.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         status.startsWith("Offline") -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        status.startsWith("ExamTrack") -> Triple(Icons.Rounded.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         status.startsWith("Synced") && pending == 0 -> Triple(Icons.Rounded.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)

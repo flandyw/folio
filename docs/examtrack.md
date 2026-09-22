@@ -61,6 +61,8 @@ Every table request includes a `user_id` filter and checks the SDK's current use
 
 ## Downloads, offline storage and conflicts
 
+Sync runs on resume, reconnect and every 30 seconds while Folio is in the foreground. Starting the next practice page resumes any sync cancelled for its local write, so queued ratings are not stranded. Account and sync, and the mistakes list, distinguish authentication, permission, backend, timeout and connection failures; raw SDK messages and request headers are never displayed. Local builds must provide the same public Supabase URL/key as ExamTrack in ignored `local.properties` (mapped from its `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`); placeholder builds cannot connect to a real account.
+
 `MistakeRepository` has a versioned, atomic cache at `files/examtrack/<user-id>/cache.json`. It contains original mistake payloads, pending IDs, tombstones, source-attempt context, local page references and last sync time. It contains no tokens. `mistakes` and `attempts` downloads are paginated in stable ID order. Only attempt subject/title/paper context is retained; no unrelated tables are accessed. Invalid individual mistake payloads are counted and skipped.
 
 The codec tolerates absent older scheduling fields and retains the entire original payload. Pure Kotlin scheduling ports `getMistakeSchedule`, `previewMistakeReview`, `recordMistakeReview` and `getDueMistakes`, including legacy incorrect/assisted/correct history. TypeScript-generated fixtures verify exact parity.

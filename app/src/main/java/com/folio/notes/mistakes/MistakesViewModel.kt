@@ -102,8 +102,8 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                 val result = repository.sync(user)
                 if (_state.value.userId == user) _state.update { it.copy(status = result.toString()) }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
-                if (_state.value.userId == user) _state.update { it.copy(status = "Offline / sync error · changes saved on this device") }
+            catch (e: Exception) {
+                if (_state.value.userId == user) _state.update { it.copy(status = examTrackSyncError(e)) }
             } finally {
                 withContext(NonCancellable) { reload(user) }
             }
@@ -112,8 +112,14 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     suspend fun addAttempt(attempt: LocalMistakeReviewAttempt) {
         check(_state.value.userId == attempt.userId)
         syncJob?.cancelAndJoin()
-        repository.addAttempt(attempt.userId, attempt)
-        reload(attempt.userId)
+        try {
+            repository.addAttempt(attempt.userId, attempt)
+            reload(attempt.userId)
+        } finally {
+            // Advancing immediately after rating cancels the debounced upload above.
+            // Resume even if this page write fails so earlier ratings are not stranded.
+            requestSync(force = true)
+        }
     }
     suspend fun rate(attempt: LocalMistakeReviewAttempt, rating: ReviewRating): LocalMistakeReviewAttempt {
         check(_state.value.userId == attempt.userId)
