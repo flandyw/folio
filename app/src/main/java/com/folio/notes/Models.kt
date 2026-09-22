@@ -175,6 +175,43 @@ fun Notebook.withDuplicatedPage(index: Int): Notebook {
     return copy(pages = pages.toMutableList().apply { add(index + 1, duplicate) })
 }
 
+/**
+ * Title for a notebook copy that never collides with [existingTitles]:
+ * "Copy of X", then "Copy of X (2)", "Copy of X (3)", and so on.
+ */
+fun duplicateNotebookTitle(base: String, existingTitles: Set<String>): String {
+    val trimmed = base.trim().ifEmpty { "Notebook" }
+    val first = "Copy of $trimmed"
+    if (first !in existingTitles) return first
+    var n = 2
+    while ("$first ($n)" in existingTitles) n++
+    return "$first ($n)"
+}
+
+/**
+ * A copy of this notebook with a fresh notebook id and fresh page ids, ready to save
+ * beside the original. Exam tags, cover, folder and page content travel along; marked
+ * attempts and mistake-review links do not, so the copy starts unmarked. Peek anchors
+ * are remapped onto the copied pages.
+ */
+fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMillis()): Notebook {
+    val pageIds = pages.associate { it.id to UUID.randomUUID().toString() }
+    return copy(
+        id = UUID.randomUUID().toString(),
+        title = newTitle,
+        updated = now,
+        starred = false,
+        attempts = emptyList(),
+        mistakeReviews = emptyList(),
+        pages = pages.map { page ->
+            val anchor = page.peekAnchor?.let { anchor ->
+                anchor.copy(pageId = pageIds[anchor.pageId] ?: anchor.pageId)
+            }
+            page.copy(id = pageIds[page.id] ?: UUID.randomUUID().toString(), peekAnchor = anchor)
+        }
+    )
+}
+
 /** Reorders one page, clamped to the notebook; a bad index leaves the notebook untouched. */
 fun Notebook.withMovedPage(from: Int, to: Int): Notebook {
     if (from !in pages.indices) return this

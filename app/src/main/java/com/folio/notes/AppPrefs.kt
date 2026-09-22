@@ -10,6 +10,7 @@ package com.folio.notes
  */
 object AppPrefs {
     const val FULLSCREEN = "fullscreen"
+    const val KEEP_SCREEN_ON = "editor.keepScreenOn"
     const val AUTO_UPDATE = "updates.auto"
     const val LAST_UPDATE_CHECK = "updates.lastCheck"
     const val LIB_SORT = "library.sort"
@@ -27,6 +28,7 @@ object AppPrefs {
     const val TEXT_SIZE_KEY = "text.size"
 
     const val DEFAULT_FULLSCREEN = true
+    const val DEFAULT_KEEP_SCREEN_ON = false
     const val DEFAULT_AUTO_UPDATE = true
     const val DEFAULT_LIST_VIEW = false
     const val DEFAULT_PAGE_COVER_ENABLED = true

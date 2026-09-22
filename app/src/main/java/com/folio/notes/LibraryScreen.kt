@@ -34,13 +34,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
-
-private val libraryDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
 
 /** Top-level destinations in the Library sidebar: notebooks, study review, or score progress. */
 enum class LibrarySection { LIBRARY, REVIEW, PROGRESS }
@@ -310,11 +305,11 @@ enum class ReviewTab { REDO, BOOKMARKS }
                                 NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                                    Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", style = MaterialTheme.typography.bodySmall)
+                                    Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
                                 }
                                 if (!selecting) {
                                     IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
-                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) })
+                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) })
                                 }
                             }
                         } else NotebookCard(
@@ -322,7 +317,8 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note },
                             selecting, note.pages.count { it.redoFlag },
                             selected = note.id in selection, onLongPress = longPress,
-                            pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) }
+                            pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
+                            duplicate = { model.duplicateNotebook(note) }
                         )
                 }
 
@@ -483,7 +479,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
     }
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}) {
     Column {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -514,20 +510,21 @@ enum class ReviewTab { REDO, BOOKMARKS }
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: libraryDateFormat.get()!!.format(Date(note.updated))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: "Unfiled"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate)
         }
         ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            DropdownMenuItem({ Text("Duplicate") }, { menu = false; duplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Record a mark") }, { menu = false; recordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
             DropdownMenuItem(

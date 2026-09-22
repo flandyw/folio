@@ -646,6 +646,23 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (changed.isEmpty()) return
         enqueue { changed.forEach { repository.saveMeta(it) } }
     }
+    /**
+     * Copies a notebook beside itself ("Copy of X") with its pages, pictures and imported
+     * PDF. The copy starts unstarred and unmarked so progress is never double-counted.
+     */
+    fun duplicateNotebook(note: Notebook) {
+        viewModelScope.launch {
+            try {
+                ready.await()
+                val live = _state.value.notes.find { it.id == note.id } ?: return@launch
+                val title = duplicateNotebookTitle(live.title, _state.value.notes.map { it.title }.toSet())
+                val copy = repository.duplicateNotebook(live, title)
+                _state.update { it.copy(notes = it.notes + copy) }
+            } catch (e: Exception) {
+                reportError("Couldn't duplicate notebook: ${e.message}")
+            }
+        }
+    }
     fun delete(note: Notebook) {
         if (_state.value.activeId == note.id) selectNotebookTimer(null)
         _state.update {

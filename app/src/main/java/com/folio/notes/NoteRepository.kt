@@ -210,6 +210,39 @@ class NoteRepository(private val context: Context) {
         Unit
     }
 
+    /**
+     * Copies [note] beside itself under [title] with fresh notebook/page ids. Page files are
+     * written before the new index, like migration, so an interruption leaves no half index
+     * behind; placed pictures (same image ids, new notebook directory) and the imported PDF
+     * travel along. Pages still only on disk are read first, so duplicating never drops ink.
+     */
+    suspend fun duplicateNotebook(note: Notebook, title: String): Notebook = withContext(Dispatchers.IO) {
+        val full = loadPages(note)
+        val copy = full.duplicatedAsCopy(title)
+        lock.withLock {
+            val dir = directory(copy.id)
+            try {
+                val pagesDir = File(dir, "pages").apply { mkdirs() }
+                copy.pages.filter { it.loaded }.forEach { page ->
+                    atomicWrite(File(pagesDir, "${checked(page.id)}.json"), NotePageCodec.encode(page))
+                }
+                full.pages.flatMap { it.images }.distinctBy { it.id }.forEach { image ->
+                    storedImageFile(note.id, image.id).takeIf { it.exists() }?.let { src ->
+                        src.copyTo(imageFile(copy.id, image.id), overwrite = true)
+                    }
+                }
+                File(storedDirectory(note.id), "source.pdf").takeIf { it.exists() }?.let { src ->
+                    src.copyTo(File(dir, "source.pdf"), overwrite = true)
+                }
+                atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(copy))
+            } catch (e: Exception) {
+                File(root, copy.id).takeIf { it.exists() }?.deleteRecursively()
+                throw e
+            }
+        }
+        copy
+    }
+
     /** Bytes used on device by one notebook directory, or 0 when it was never saved. */
     suspend fun notebookSize(noteId: String): Long = withContext(Dispatchers.IO) {
         val dir = storedDirectory(noteId)

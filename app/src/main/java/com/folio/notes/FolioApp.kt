@@ -75,6 +75,7 @@ import java.io.File
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
     var shapeRecognition by rememberSaveable { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
     var fullscreen by remember { mutableStateOf(prefs.getBoolean(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN)) }
+    var keepScreenOn by remember { mutableStateOf(prefs.getBoolean(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON)) }
     var autoUpdate by remember { mutableStateOf(prefs.getBoolean(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE)) }
     // Fullscreen is applied here (not only in MainActivity) so turning it off in Settings
     // brings the status bar and gesture pill back without restarting the app.
@@ -85,10 +86,17 @@ import java.io.File
         if (fullscreen) controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         else controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     }
+    // Long writing and exam-timer sessions should not go dark mid-thought.
+    LaunchedEffect(keepScreenOn) {
+        val activity = context as? android.app.Activity ?: return@LaunchedEffect
+        if (keepScreenOn) activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
                 AppPrefs.FULLSCREEN -> fullscreen = prefs.getBoolean(key, AppPrefs.DEFAULT_FULLSCREEN)
+                AppPrefs.KEEP_SCREEN_ON -> keepScreenOn = prefs.getBoolean(key, AppPrefs.DEFAULT_KEEP_SCREEN_ON)
                 AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
             }
         }

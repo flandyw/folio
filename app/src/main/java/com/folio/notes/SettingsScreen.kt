@@ -504,4 +504,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         p.edit().putFloat(AppPrefs.SPLIT_FRACTION, split).apply()
     }, valueRange = SplitPanes.MIN_FRACTION..SplitPanes.MAX_FRACTION)
     SectionHint("Default share of the split given to the editor pane. Drag the divider any time; the last position is remembered.")
+    HorizontalDivider()
+    SectionTitle("Display")
+    PrefsSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "The display never sleeps while Folio is open. Handy for long writing sessions and timed papers.")
 }
