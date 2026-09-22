@@ -56,7 +56,7 @@ fun FollowSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "The page stays still while the pen is down and glides only after you lift it. " +
+                    "The page stays still while you write. Near the visible edge, it glides after a pause of at least half a second. The pause adapts to your writing rhythm. Touch down to stop it immediately. " +
                         "Use Next line whenever you finish a short line early.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -223,11 +223,11 @@ fun FollowSettingsDialog(
                         onCheckedChange = { onPreferences(preferences.copy(automaticReturn = it)) },
                     )
                 }
-                if (preferences.automaticReturn) {
+                run {
                     FollowSliderRow(
-                        label = "Wait before gliding",
+                        label = "Pause before following",
                         valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                        hint = "Example: 0.7 s is enough to dot an “i” and cancel the glide by touching down.",
+                        hint = "Line return uses this delay. Same-line follow waits at least 0.5 s and learns longer word gaps as you write.",
                         value = preferences.returnDelayMs / 1000f,
                         onValueChange = {
                             onPreferences(

@@ -9,12 +9,57 @@ data class WritingFollowState(
     val baselineY: Float? = null,
     val recent: List<WritingLane> = emptyList(),
     val suspendedUntil: Long = 0L,
-    val completedGuide: WritingGuide? = null
+    val completedGuide: WritingGuide? = null,
+    val frontierLeft: Float? = null,
+    val frontierRight: Float? = null,
+    val candidateLane: WritingLane? = null,
+    val liftedAt: Long? = null,
+    val pendingGap: Long? = null,
+    val writingGaps: List<Long> = emptyList()
 )
 enum class WritingHand(val direction: Float) { RIGHT(1f), LEFT(-1f) }
 
 class WritingFollow {
     var state = WritingFollowState()
+    /** Corrections behind the writing frontier must not move the page. */
+    fun progresses(points: List<InkPoint>, direction: WritingDirection): Boolean {
+        if (points.isEmpty()) return false
+        val baseline = state.baselineY ?: return true
+        val bottom = points.maxOf { it.y }
+        // A confirmed new lane is handled by completed(); an isolated descender is not progress.
+        if (abs(bottom - baseline) > maxOf(28f, laneHeight() * 1.5f)) return false
+        // Keep the whole lane's frontier even after old strokes leave the median window.
+        return if (direction == WritingDirection.LTR)
+            state.frontierRight?.let { points.maxOf { p -> p.x } > it + 2f } ?: true
+        else state.frontierLeft?.let { points.minOf { p -> p.x } < it - 2f } ?: true
+    }
+
+    /** Every touchdown cancels the request; every completed stroke starts a fresh quiet period. */
+    fun penDown(now: Long) {
+        state = state.copy(pendingGap = state.liftedAt?.let { now - it }?.takeIf { it in 1..2000 })
+    }
+
+    fun sameLineDelayMs(returnDelayMs: Int): Int {
+        val gaps = state.writingGaps.sorted()
+        // Learn normal pen-up gaps, not stroke duration or long thinking breaks. A high
+        // percentile protects word spaces; a small buffer leaves time to touch down again.
+        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 200).toInt() else 500
+        return maxOf(returnDelayMs.coerceIn(500, 2000), learned.coerceIn(500, 1400))
+    }
+
+    /** Keep a real dead band even when the preferred writing column is near an edge. */
+    fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection): Float {
+        if (!fraction.isFinite() || !target.isFinite()) return 0f
+        val destination = target.coerceIn(.1f, .9f)
+        return if (direction == WritingDirection.LTR) {
+            if (fraction > maxOf(.72f, destination + .15f).coerceAtMost(.95f))
+                (destination - fraction).coerceAtMost(0f) else 0f
+        } else {
+            if (fraction < minOf(.28f, destination - .15f).coerceAtLeast(.05f))
+                (destination - fraction).coerceAtLeast(0f) else 0f
+        }
+    }
+
     fun suspend(now: Long) { state = WritingFollowState(suspendedUntil = now + 1500) }
     fun completed(points: List<InkPoint>, now: Long) {
         if (now < state.suspendedUntil || points.isEmpty()) return
@@ -25,15 +70,26 @@ class WritingFollow {
         if (box.bottom - box.top > maxOf(90f, height * 3f) || box.right - box.left > 240f) return
         val baseline = state.baselineY
         val threshold = maxOf(28f, height * 1.5f)
-        val recent = if (baseline != null && abs(box.bottom - baseline) > threshold) {
-            // Two completed strokes in the new cluster establish a new line, never one descender.
-            val last = state.recent.lastOrNull()
-            if (last != null && abs(last.bottom - box.bottom) < threshold / 2 && abs(last.bottom - baseline) > threshold)
+        val changedLane = baseline != null && box.bottom - baseline > threshold
+        val recent = if (changedLane) {
+            val last = state.candidateLane
+            if (last != null && abs(last.bottom - box.bottom) < threshold / 2)
                 listOf(last, box)
-            else { state = state.copy(recent = (state.recent + box).takeLast(12)); return }
-        } else (state.recent + box).takeLast(12)
+            else { state = state.copy(candidateLane = box); return }
+        } else {
+            // Dots, revisiting earlier lines and isolated marks cannot contaminate the lane.
+            if (baseline != null && baseline - box.bottom > threshold) return
+            (state.recent + box).takeLast(12)
+        }
         val ys = recent.map { it.bottom }.sorted()
-        state = state.copy(baselineY = ys[ys.size / 2], recent = recent)
+        val gap = state.pendingGap
+        state = state.copy(
+            baselineY = ys[ys.size / 2], recent = recent, candidateLane = null,
+            frontierLeft = if (changedLane) recent.minOf { it.left } else minOf(state.frontierLeft ?: box.left, box.left),
+            frontierRight = if (changedLane) recent.maxOf { it.right } else maxOf(state.frontierRight ?: box.right, box.right),
+            liftedAt = now, pendingGap = null,
+            writingGaps = if (gap != null) (state.writingGaps + gap).takeLast(12) else state.writingGaps
+        )
     }
     fun horizontalVelocity(xFraction: Float, zoom: Float, hand: WritingHand, progressing: Boolean, now: Long): Float {
         if (zoom < 1.4f || !progressing || now < state.suspendedUntil || state.baselineY == null) return 0f
@@ -69,7 +125,8 @@ class WritingFollow {
     }
 
     fun arrived(advance: WritingAdvance) {
-        state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from)
+        state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from,
+            frontierLeft = null, frontierRight = null, candidateLane = null, liftedAt = null, pendingGap = null)
     }
 
     fun lineAdvanceProgress(liftedAt: Long, now: Long, durationMs: Int = DEFAULT_GLIDE_MS): Float =
@@ -93,7 +150,7 @@ data class FollowPreferences(
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
     val spacing: Float = 32f,
-    /** Pause after pen lift before an automatic return fires. 300..2000 ms. */
+    /** Pause after pen lift before an automatic return fires. Same-line follow uses at least 500 ms. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** Carriage-return glide length. 120..800 ms. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,

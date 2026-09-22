@@ -5,6 +5,83 @@ import org.junit.Test
 
 class WritingFollowTests {
     private fun stroke(x: Float, y: Float) = listOf(InkPoint(x, y - 12), InkPoint(x + 8, y))
+    @Test fun edgeColumnsKeepADeadBandAndMirrorExactly() {
+        val follow = WritingFollow()
+        assertEquals(0f, follow.horizontalShift(.78f, .75f, WritingDirection.LTR), 0f)
+        val shift = follow.horizontalShift(.94f, .75f, WritingDirection.LTR)
+        assertTrue(shift < 0f)
+        assertEquals(-shift, follow.horizontalShift(.06f, .25f, WritingDirection.RTL), .001f)
+        assertEquals(0f, follow.horizontalShift(.7f, .5f, WritingDirection.LTR), 0f)
+        assertEquals(0f, follow.horizontalShift(Float.NaN, .5f, WritingDirection.LTR), 0f)
+    }
+    @Test fun learnsPenUpRhythmWithoutCountingTimeSpentDrawing() {
+        val follow = WritingFollow()
+        var now = 0L
+        follow.completed(stroke(20f, 100f), now)
+        repeat(6) {
+            now += 800
+            follow.penDown(now)
+            now += 3000 // A long stroke is not a long pen-up pause.
+            follow.completed(stroke(40f + it * 20, 100f), now)
+        }
+        assertEquals(1000, follow.sameLineDelayMs(650))
+        assertEquals(1800, follow.sameLineDelayMs(1800))
+        follow.penDown(now + 10000)
+        follow.completed(stroke(200f, 100f), now + 11000)
+        assertEquals(1000, follow.sameLineDelayMs(650))
+        follow.suspend(now + 12000)
+        assertEquals(650, follow.sameLineDelayMs(650))
+    }
+    @Test fun correctionsCannotEraseTheFrontierFromMemory() {
+        val follow = WritingFollow()
+        follow.completed(stroke(300f, 100f), 0)
+        repeat(20) { follow.completed(stroke(20f + it, 100f), it.toLong()) }
+        assertFalse(follow.progresses(stroke(200f, 100f), WritingDirection.LTR))
+        assertTrue(follow.progresses(stroke(320f, 100f), WritingDirection.LTR))
+    }
+    @Test fun unrelatedLowerMarksDoNotEnterTheBaselineMedian() {
+        val follow = WritingFollow()
+        follow.completed(stroke(20f, 100f), 0)
+        repeat(10) {
+            follow.completed(stroke(30f, 160f), 0)
+            follow.completed(stroke(40f, 100f), 0)
+        }
+        assertEquals(100f, follow.state.baselineY!!, 0f)
+        assertTrue(follow.state.recent.all { it.bottom == 100f })
+    }
+    @Test fun revisitingEarlierLineDoesNotUndoAnAutomaticReturn() {
+        val follow = WritingFollow()
+        follow.arrived(WritingAdvance(WritingGuide(20f, 400f, 100f), WritingGuide(20f, 400f, 140f)))
+        repeat(4) { follow.completed(stroke(380f, 100f), 0) }
+        assertEquals(140f, follow.state.baselineY!!, 0f)
+        assertFalse(follow.progresses(stroke(390f, 100f), WritingDirection.LTR))
+        assertTrue(follow.progresses(stroke(20f, 140f), WritingDirection.LTR))
+    }
+    @Test fun sameLineFollowWaitsThroughWordGapsAndRespectsLongerPause() {
+        val follow = WritingFollow()
+        assertEquals(500, follow.sameLineDelayMs(300))
+        assertEquals(650, follow.sameLineDelayMs(650))
+        assertEquals(1500, follow.sameLineDelayMs(1500))
+        assertEquals(2000, follow.sameLineDelayMs(Int.MAX_VALUE))
+    }
+    @Test fun correctionsDoNotCountAsForwardWritingInEitherDirection() {
+        val follow = WritingFollow()
+        follow.completed(stroke(100f, 100f), 0)
+        assertTrue(follow.progresses(stroke(115f, 100f), WritingDirection.LTR))
+        assertFalse(follow.progresses(stroke(90f, 100f), WritingDirection.LTR))
+        assertFalse(follow.progresses(stroke(101f, 100f), WritingDirection.LTR))
+        assertTrue(follow.progresses(stroke(80f, 100f), WritingDirection.RTL))
+        assertFalse(follow.progresses(stroke(115f, 100f), WritingDirection.RTL))
+        assertFalse(follow.progresses(emptyList(), WritingDirection.LTR))
+    }
+    @Test fun isolatedLowerStrokeDoesNotTriggerFollowButNewLaneCanProgress() {
+        val follow = WritingFollow()
+        follow.completed(stroke(100f, 100f), 0)
+        assertFalse(follow.progresses(stroke(120f, 150f), WritingDirection.LTR))
+        follow.completed(stroke(20f, 150f), 1)
+        follow.completed(stroke(35f, 152f), 2)
+        assertTrue(follow.progresses(stroke(50f, 152f), WritingDirection.LTR))
+    }
     @Test fun medianBaselineRejectsTallOutliers() {
         val follow = WritingFollow()
         listOf(100f, 102f, 101f).forEach { follow.completed(stroke(20f, it), 0) }
