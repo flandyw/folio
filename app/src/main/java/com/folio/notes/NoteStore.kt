@@ -37,6 +37,7 @@ object InkCodec {
             put("size", t.size); put("color", t.color); put("bold", t.bold); put("italic", t.italic)
             if (t.align != TextAlignMode.LEFT) put("align", t.align.name)
             if (t.underline) put("underline", true)
+            if (t.opacity != TextBox.DEFAULT_OPACITY) put("opacity", t.opacity.toDouble())
         }) }
     }
 
@@ -48,7 +49,9 @@ object InkCodec {
                 t.getDouble("w").toFloat(), t.getString("text"), t.getDouble("size").toFloat(),
                 t.getInt("color"), t.optBoolean("bold", false), t.optBoolean("italic", false),
                 if (t.isNull("align")) TextAlignMode.LEFT else TextAlignMode.safeValueOf(t.optString("align", "LEFT")),
-                t.optBoolean("underline", false))
+                t.optBoolean("underline", false),
+                t.optDouble("opacity", TextBox.DEFAULT_OPACITY.toDouble()).toFloat()
+                    .coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
         }
     }
 
@@ -56,6 +59,13 @@ object InkCodec {
         images.forEach { image -> put(JSONObject().apply {
             put("id", image.id); put("x", image.x); put("y", image.y)
             put("w", image.width); put("h", image.height)
+            if (image.normalizedRotation() != 0) put("rotation", image.normalizedRotation())
+            if (image.isCropped()) {
+                put("cropLeft", image.cropLeft.toDouble())
+                put("cropTop", image.cropTop.toDouble())
+                put("cropRight", image.cropRight.toDouble())
+                put("cropBottom", image.cropBottom.toDouble())
+            }
         }) }
     }
 
@@ -63,8 +73,17 @@ object InkCodec {
         if (array == null) return emptyList()
         return (0 until array.length()).map { index ->
             val o = array.getJSONObject(index)
+            val rotation = PageImage.normalizeRotation(o.optInt("rotation", 0))
+            val cropLeft = o.optDouble("cropLeft", 0.0).toFloat()
+            val cropTop = o.optDouble("cropTop", 0.0).toFloat()
+            val cropRight = o.optDouble("cropRight", 1.0).toFloat()
+            val cropBottom = o.optDouble("cropBottom", 1.0).toFloat()
+            val crop = if (PageImage.isValidCrop(cropLeft, cropTop, cropRight, cropBottom))
+                floatArrayOf(cropLeft, cropTop, cropRight, cropBottom)
+            else floatArrayOf(0f, 0f, 1f, 1f)
             PageImage(o.getString("id"), o.getDouble("x").toFloat(), o.getDouble("y").toFloat(),
-                o.getDouble("w").toFloat(), o.getDouble("h").toFloat())
+                o.getDouble("w").toFloat(), o.getDouble("h").toFloat(),
+                rotation, crop[0], crop[1], crop[2], crop[3])
         }
     }
 }

@@ -513,9 +513,34 @@ object InkRenderer {
     /** A placed photo drawn into its box, scaled to fill while keeping the bitmap filtered. */
     fun image(canvas: Canvas, bitmap: Bitmap, box: PageImage) {
         if (box.width <= 0f || box.height <= 0f) return
-        val dst = bitmapRectPool.get()!!.apply { set(box.x, box.y, box.x + box.width, box.y + box.height) }
-        canvas.drawBitmap(bitmap, null, dst,
-            bitmapPaintPool.get()!!)
+        if (bitmap.width <= 0 || bitmap.height <= 0) return
+        val pixels = ImageTransforms.sourcePixels(bitmap.width, bitmap.height, box)
+        val src = android.graphics.Rect(
+            pixels[0].toInt().coerceIn(0, bitmap.width - 1),
+            pixels[1].toInt().coerceIn(0, bitmap.height - 1),
+            pixels[2].toInt().coerceIn(1, bitmap.width),
+            pixels[3].toInt().coerceIn(1, bitmap.height)
+        )
+        if (src.right <= src.left || src.bottom <= src.top) return
+        val rotation = box.normalizedRotation()
+        if (rotation == 0) {
+            val dst = bitmapRectPool.get()!!.apply { set(box.x, box.y, box.x + box.width, box.y + box.height) }
+            canvas.drawBitmap(bitmap, src, dst, bitmapPaintPool.get()!!)
+            return
+        }
+        // Non-destructive content turn: the frame stays axis-aligned for hit-testing while the
+        // cropped source is drawn through a centre rotation. Sideways turns draw through the
+        // transposed frame so the visible photo keeps its aspect instead of stretching.
+        val cx = box.x + box.width / 2f
+        val cy = box.y + box.height / 2f
+        val dstBounds = ImageTransforms.rotatedDrawRect(box)
+        canvas.save()
+        canvas.translate(cx, cy)
+        canvas.rotate(rotation.toFloat())
+        canvas.translate(-cx, -cy)
+        val dst = bitmapRectPool.get()!!.apply { set(dstBounds[0], dstBounds[1], dstBounds[2], dstBounds[3]) }
+        canvas.drawBitmap(bitmap, src, dst, bitmapPaintPool.get()!!)
+        canvas.restore()
     }
 
     /** Only the visible lattice is drawn, even when the camera is far from the origin. */
@@ -589,6 +614,8 @@ object InkRenderer {
         val value = box.text.ifEmpty { " " }
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = box.color
+            alpha = (Color.alpha(box.color) * box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
+                .toInt().coerceIn(0, 255)
             textSize = box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
             typeface = if (box.bold) serifBold else serifNormal
             isFakeBoldText = box.bold

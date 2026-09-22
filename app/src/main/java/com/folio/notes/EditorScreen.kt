@@ -273,6 +273,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var textItalic by rememberSaveable { mutableStateOf(appPrefs.getBoolean("text.italic", false)) }
     var textAlign by rememberSaveable { mutableStateOf(try { TextAlignMode.valueOf(appPrefs.getString("text.align", "LEFT") ?: "LEFT") } catch (_: Exception) { TextAlignMode.LEFT }) }
     var textUnderline by rememberSaveable { mutableStateOf(appPrefs.getBoolean("text.underline", false)) }
+    var textOpacity by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.opacity", TextBox.DEFAULT_OPACITY)) }
     var textEditor by remember { mutableStateOf<TextBox?>(null) }
     var textEditorNew by remember { mutableStateOf(false) }
     // Notebook-wide typed-text search and reusable diagram elements.
@@ -284,12 +285,17 @@ private fun paperLabel(p: Paper): String = when (p) {
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
     var selectedImage by remember { mutableStateOf<Pair<String, PageImage>?>(null) }
     LaunchedEffect(page.id) { if (selectedImage?.first != page.id) selectedImage = null }
+    // The picture being cropped; separate from the selection so the panel stays put underneath.
+    var croppingImage by remember { mutableStateOf<PageImage?>(null) }
+    LaunchedEffect(page.id) { croppingImage = null }
     fun rememberTextLook(box: TextBox) {
         textSize = box.size; textColor = box.color; textBold = box.bold; textItalic = box.italic
         textAlign = box.align; textUnderline = box.underline
+        textOpacity = box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY)
         appPrefs.edit().putFloat("text.size", box.size).putInt("text.color", box.color)
             .putBoolean("text.bold", box.bold).putBoolean("text.italic", box.italic)
-            .putString("text.align", box.align.name).putBoolean("text.underline", box.underline).apply()
+            .putString("text.align", box.align.name).putBoolean("text.underline", box.underline)
+            .putFloat("text.opacity", textOpacity).apply()
     }
     /** A toolbar quick colour: boxes created after this start with it. */
     fun setTextColor(value: Int) {
@@ -299,7 +305,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
     fun placeTextBox(at: InkPoint) {
         val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
-        textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline)
+        textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline, opacity = textOpacity)
         textEditorNew = true
     }
     var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.zoom ?: 1f) }
@@ -1183,7 +1189,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             onDismiss = { textEditor = null },
             onCreate = { created -> model.addText(created); rememberTextLook(created); textEditor = null },
             onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
-            onDelete = { model.removeText(box.id); textEditor = null }
+            onDelete = { model.removeText(box.id); textEditor = null },
+            onDuplicate = { source -> model.duplicateText(source.id); rememberTextLook(source); textEditor = null }
         )
     }
     selectedImage?.let { (ownerId, image) ->
@@ -1191,8 +1198,38 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (live != null && ownerId == page.id) {
             FolioPanel(title = "Picture", onDismissRequest = { selectedImage = null }) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Drag with the hand tool to move. Drag the blue dot to resize. Ink draws over the picture.",
+                    Text("Drag with the hand tool to move. Drag the blue dot to resize. Rotating turns the photo itself; cropping keeps only the selected part. Ink draws over the picture.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (live.isCropped() || live.normalizedRotation() != 0) {
+                        Text(
+                            buildString {
+                                if (live.normalizedRotation() != 0) append("Rotated ${live.normalizedRotation()}°")
+                                if (live.isCropped()) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("Cropped")
+                                }
+                            },
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton({ model.rotateImageCounterClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Rounded.RotateLeft, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Left 90°")
+                        }
+                        OutlinedButton({ model.rotateImageClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Rounded.RotateRight, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Right 90°")
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FilledTonalButton({ croppingImage = live }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Crop, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Crop")
+                        }
+                        if (live.isCropped()) {
+                            OutlinedButton({ model.resetImageCrop(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Full photo")
+                            }
+                        }
+                    }
                     FilledTonalButton({ model.bringImageToFront(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Bring to front")
                     }
@@ -1209,6 +1246,18 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
         }
+    }
+    croppingImage?.let { target ->
+        val live = note.pages.find { it.id == page.id }?.images?.find { it.id == target.id } ?: target
+        ImageCropDialog(
+            image = live,
+            onDismiss = { croppingImage = null },
+            onReset = { model.resetImageCrop(live.id); croppingImage = null },
+            onApply = { left, top, right, bottom ->
+                model.cropImage(live.id, left, top, right, bottom)
+                croppingImage = null
+            }
+        )
     }
     if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
         // Search runs off the main thread with a debounce so typing never janks composition.
@@ -2352,19 +2401,28 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     }
 }
 
-/** Creates or edits a typed text box: wording, size, weight, italics, alignment and colour. */
+/** Creates or edits a typed text box: wording, size, wrap width, opacity, style and colour. */
 @Composable private fun TextBoxDialog(
     box: TextBox, isNew: Boolean, colors: List<Int>,
-    onDismiss: () -> Unit, onCreate: (TextBox) -> Unit, onUpdate: (TextBox) -> Unit, onDelete: () -> Unit
+    onDismiss: () -> Unit, onCreate: (TextBox) -> Unit, onUpdate: (TextBox) -> Unit, onDelete: () -> Unit,
+    onDuplicate: (TextBox) -> Unit
 ) {
     val textFocus = remember(box.id) { FocusRequester() }
     var text by remember(box.id) { mutableStateOf(box.text) }
     var size by remember(box.id) { mutableFloatStateOf(box.size) }
+    var width by remember(box.id) { mutableFloatStateOf(box.width) }
+    var opacity by remember(box.id) { mutableFloatStateOf(box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY)) }
     var color by remember(box.id) { mutableIntStateOf(box.color) }
     var bold by remember(box.id) { mutableStateOf(box.bold) }
     var italic by remember(box.id) { mutableStateOf(box.italic) }
     var align by remember(box.id) { mutableStateOf(box.align) }
     var underline by remember(box.id) { mutableStateOf(box.underline) }
+    fun edited() = box.copy(
+        text = text.trimEnd(), size = size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
+        width = width.coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
+        opacity = opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
+        color = color, bold = bold, italic = italic, align = align, underline = underline
+    )
     AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
@@ -2376,16 +2434,29 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus),
                     label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") },
                     shape = RoundedCornerShape(16.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
+                    supportingText = {
+                        Text(
+                            if (text.isBlank()) "Empty boxes are not added."
+                            else "${text.trimEnd().length} characters · wraps at ${width.toInt()} pt",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (text.isNotBlank()) {
+                            val done = edited()
+                            if (isNew) onCreate(done) else onUpdate(done)
+                        }
+                    }))
                 LaunchedEffect(box.id) { textFocus.requestFocus() }
-                // Live preview so size/weight/colour choices read before they land on the page.
+                // Live preview so size, width, fade and colour choices read before they land on the page.
                 if (text.isNotBlank()) {
                     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
                         Text(
                             text.trimEnd().take(220),
                             Modifier.fillMaxWidth().padding(12.dp),
-                            color = Color(color),
+                            color = Color(color).copy(alpha = opacity.coerceIn(0f, 1f)),
                             fontSize = size.coerceIn(10f, 48f).sp,
                             fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
                             fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
@@ -2399,6 +2470,18 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                     Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f))
                     Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f))
+                    Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                }
+                Text("Wrap width · the box grows downwards as it wraps.",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f))
+                    Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(bold, { bold = !bold }, { Text("Bold") })
@@ -2417,15 +2500,72 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             }
         },
         dismissButton = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!isNew) TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!isNew) {
+                    TextButton({ onDuplicate(box) }, shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
+                    TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
+                }
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
             }
         },
         confirmButton = {
-            Button({ val edited = box.copy(text = text.trimEnd(), size = size, color = color, bold = bold, italic = italic, align = align, underline = underline); if (isNew) onCreate(edited) else onUpdate(edited) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) {
+            Button({ val done = edited(); if (isNew) onCreate(done) else onUpdate(done) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) {
                 Text(if (isNew) "Add text" else "Save")
             }
         }
     )
+}
+
+/**
+ * Trims a picture to part of its photo. Edges are shares of the original (0–100%); the frame
+ * rescales about its centre so the visible photo never stretches. Nothing is rewritten on disk,
+ * so every crop undoes cleanly and the full photo returns with one tap.
+ */
+@Composable private fun ImageCropDialog(
+    image: PageImage,
+    onDismiss: () -> Unit,
+    onReset: () -> Unit,
+    onApply: (Float, Float, Float, Float) -> Unit
+) {
+    var left by remember(image.id, image.cropLeft) { mutableFloatStateOf(image.cropLeft) }
+    var top by remember(image.id, image.cropTop) { mutableFloatStateOf(image.cropTop) }
+    var right by remember(image.id, image.cropRight) { mutableFloatStateOf(image.cropRight) }
+    var bottom by remember(image.id, image.cropBottom) { mutableFloatStateOf(image.cropBottom) }
+    val valid = PageImage.isValidCrop(left, top, right, bottom)
+    val changed = left != image.cropLeft || top != image.cropTop || right != image.cropRight || bottom != image.cropBottom
+    FolioPanel(title = "Crop picture", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Drag each edge inward to keep only that part. The picture on the page shrinks about its centre to match.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (image.normalizedRotation() != 0) {
+                Text("Rotated ${image.normalizedRotation()}° · edges refer to the unrotated photo.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            @Composable fun edgeRow(label: String, value: Float, onValue: (Float) -> Unit) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+                    Slider(value, onValue, valueRange = 0f..1f, modifier = Modifier.weight(1f))
+                    Text("${(value * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                }
+            }
+            edgeRow("Left", left) { left = it.coerceIn(0f, (right - PageImage.MIN_CROP_SPAN).coerceAtLeast(0f)) }
+            edgeRow("Top", top) { top = it.coerceIn(0f, (bottom - PageImage.MIN_CROP_SPAN).coerceAtLeast(0f)) }
+            edgeRow("Right", right) { right = it.coerceIn((left + PageImage.MIN_CROP_SPAN).coerceAtMost(1f), 1f) }
+            edgeRow("Bottom", bottom) { bottom = it.coerceIn((top + PageImage.MIN_CROP_SPAN).coerceAtMost(1f), 1f) }
+            if (valid) {
+                val visibleW = ((right - left) * 100).roundToInt()
+                val visibleH = ((bottom - top) * 100).roundToInt()
+                Text("Visible $visibleW% × $visibleH% of the photo.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("That rectangle is too small — keep at least 5% visible each way.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                if (image.isCropped()) TextButton(onReset, shapes = ButtonDefaults.shapes()) { Text("Full photo") }
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                Button({ onApply(left, top, right, bottom) }, enabled = valid && changed, shapes = ButtonDefaults.shapes()) { Text("Crop") }
+            }
+        }
+    }
 }

@@ -887,6 +887,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box) }
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
     fun removeText(id: String) { val page = _state.value.page ?: return; texts(page.id, page.texts.filterNot { it.id == id }) }
+    /** Duplicates one typed box nudged along so the copy never hides under its source. */
+    fun duplicateText(id: String) {
+        val page = _state.value.page ?: return
+        val source = page.texts.find { it.id == id } ?: return
+        val copy = source.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f)
+        texts(page.id, page.texts + copy)
+    }
     /** Wipes the open page's ink, text and pictures in one undoable step, leaving its paper or PDF in place. */
     fun clearPage() {
         val page = _state.value.page ?: return
@@ -947,6 +954,41 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = _state.value.page ?: return
         val target = page.images.find { it.id == id } ?: return
         images(page.id, listOf(target) + page.images.filterNot { it.id == id })
+    }
+
+    /** Turns a picture's content 90° clockwise, swapping its frame so it never stretches. */
+    fun rotateImageClockwise(id: String) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        updateImage(target.rotatedClockwise())
+    }
+
+    /** Turns a picture's content 90° counter-clockwise, swapping its frame so it never stretches. */
+    fun rotateImageCounterClockwise(id: String) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        updateImage(target.rotatedCounterClockwise())
+    }
+
+    /**
+     * Crops a picture to the [left]/[top]/[right]/[bottom] source rectangle, rescaling its frame
+     * about its centre so the visible photo keeps its aspect. Invalid rectangles are ignored, so
+     * the dialog's Apply button can simply stay disabled until the crop is valid.
+     */
+    fun cropImage(id: String, left: Float, top: Float, right: Float, bottom: Float) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        val cropped = target.withCrop(left, top, right, bottom)
+        if (cropped == target) return
+        updateImage(cropped)
+    }
+
+    /** Shows the full photo again, growing its frame back about its centre. */
+    fun resetImageCrop(id: String) {
+        val page = _state.value.page ?: return
+        val target = page.images.find { it.id == id } ?: return
+        if (!target.isCropped()) return
+        updateImage(target.withResetCrop())
     }
     /**
      * Stores one page's new ink, text and pictures together, bumping its revision so caches and
