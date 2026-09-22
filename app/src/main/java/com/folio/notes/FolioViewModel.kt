@@ -170,7 +170,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         restoreNotebookTimer()
     }
 
-    var pendingExport: Pair<Notebook, Int>? = null
+    var pendingExport: PageExportRequest? = null
     init {
         (application as FolioApplication).storageScope.launch {
             for (write in writes) {

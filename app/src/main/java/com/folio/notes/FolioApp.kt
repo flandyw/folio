@@ -118,18 +118,33 @@ import java.io.File
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { target -> state.active?.let { model.exportArchive(it, target) } }
     }
-    fun exportTo(uri: android.net.Uri?, png: Boolean) {
+    fun exportTo(uri: android.net.Uri?) {
         val request = model.pendingExport ?: return
         model.pendingExport = null
         if (uri == null) return
         val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
         model.export {
-            exporter.write(context.applicationContext, uri, request.first, request.second, png, pngScale)
-            model.reportError(if (png) "Page saved as PNG" else "Notebook saved as PDF")
+            exporter.write(context.applicationContext, uri, request, pngScale)
+            val message = when (request.format) {
+                PageExportFormat.PDF -> if (request.indices.size == request.note.pages.size) "Notebook saved as PDF"
+                    else if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PDF" else "${request.indices.size} pages saved as PDF"
+                PageExportFormat.PNG -> if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PNG" else "${request.indices.size} pages saved as images"
+            }
+            model.reportError(message)
         }
     }
-    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { exportTo(it, false) }
-    val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { exportTo(it, true) }
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { exportTo(it) }
+    val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { exportTo(it) }
+    val savePngZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { exportTo(it) }
+    var pageExportDialog by remember { mutableStateOf(false) }
+    fun launchExport(request: PageExportRequest) {
+        model.pendingExport = request
+        when (request.format) {
+            PageExportFormat.PDF -> savePdf.launch(selectiveExportFilename(request.note, request.indices, request.format))
+            PageExportFormat.PNG -> if (request.indices.size == 1) savePng.launch(selectiveExportFilename(request.note, request.indices, request.format))
+                else savePngZip.launch(selectiveExportFilename(request.note, request.indices, request.format))
+        }
+    }
     // Bluetooth is only ever asked for while the editor is open and the user has opted in.
     val hapticPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         val allowed = granted.values.all { it }
@@ -286,10 +301,13 @@ import java.io.File
                 Text("Export a notebook or just this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
-                    state.active?.let { model.pendingExport = it to state.pageIndex; savePdf.launch("${exporter.filename(it)}.pdf") }; exportMenu = false
+                    state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF)) }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.Image, "Save page as image", "A crisp PNG of the current page") {
-                    state.active?.let { model.pendingExport = it to state.pageIndex; savePng.launch("${exporter.filename(it)}-${state.pageIndex + 1}.png") }; exportMenu = false
+                    state.active?.let { launchExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
+                }
+                ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
+                    exportMenu = false; pageExportDialog = true
                 }
                 ExportOption(Icons.Rounded.FolderZip, "Save as Folio backup", "A file holding the notebook and its PDF, to open again in Folio") {
                     state.active?.let { saveArchive.launch("${exporter.filename(it)}.folio") }; exportMenu = false
@@ -301,7 +319,7 @@ import java.io.File
                             val file = withContext(Dispatchers.IO) {
                                 val dir = File(context.cacheDir, "exports").apply { mkdirs() }
                                 dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }?.forEach { it.delete() }
-                                File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file -> file.outputStream().use { exporter.write(it, note, state.pageIndex, false) } }
+                                File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file -> file.outputStream().use { exporter.writePdf(it, note, note.pages.indices.toList()) } }
                             }
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
                             val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); clipData = ClipData.newRawUri("Notebook", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -309,6 +327,16 @@ import java.io.File
                     }
                 }
             }
+        }
+        if (pageExportDialog) {
+            val note = state.active
+            if (note == null) pageExportDialog = false
+            else ExportPagesDialog(
+                note = note,
+                initialIndex = state.pageIndex,
+                onDismiss = { pageExportDialog = false },
+                onExport = { request -> pageExportDialog = false; launchExport(request) }
+            )
         }
         if (updateDialog) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
