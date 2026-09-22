@@ -174,15 +174,20 @@ object NoteMetaCodec {
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }
 
-/** One page's ink and text, written and read on its own so a long notebook stays lazy. */
+/**
+ * One page's ink and text, written and read on its own so a long notebook stays lazy. The optional
+ * `journalSeq` is the highest append-only journal record folded into this snapshot; a page with no
+ * journal skips the field, so files written before the journal existed still read unchanged.
+ */
 object NotePageCodec {
     const val VERSION = 1
 
-    fun encode(page: NotePage): String = JSONObject().apply {
+    fun encode(page: NotePage, journalSeq: Int = 0): String = JSONObject().apply {
         put("version", VERSION)
         put("strokes", InkCodec.encodeStrokes(page.strokes))
         put("texts", InkCodec.encodeTexts(page.texts))
         put("images", InkCodec.encodeImages(page.images))
+        if (journalSeq > 0) put("journalSeq", journalSeq)
     }.toString()
 
     /**
@@ -200,6 +205,9 @@ object NotePageCodec {
             loaded = true
         )
     }
+
+    /** The journal record folded into a snapshot, or 0 for a file written before the journal. */
+    fun journalSeq(value: String): Int = try { JSONObject(value).optInt("journalSeq", 0) } catch (_: Exception) { 0 }
 }
 
 /**

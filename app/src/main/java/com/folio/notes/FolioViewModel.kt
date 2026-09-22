@@ -75,9 +75,6 @@ data class FolioState(
     }
 }
 
-/** One page's ink, text and placed pictures together, so undo restores whichever the last edit touched. */
-private typealias PageContent = Triple<List<Stroke>, List<TextBox>, List<PageImage>>
-
 class FolioViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("preferences", 0)
     private val positionPrefs = application.getSharedPreferences("notebook_positions", 0)
@@ -95,8 +92,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
-    private val undo = mutableMapOf<String, MutableList<PageContent>>()
-    private val redo = mutableMapOf<String, MutableList<PageContent>>()
+    /**
+     * Per-page undo/redo stacks of edits, not whole page copies: a pen stroke's inverse is the few
+     * indices it added, so history stays small and can be written to disk on every edit.
+     */
+    private val undo = mutableMapOf<String, MutableList<PageEdit>>()
+    private val redo = mutableMapOf<String, MutableList<PageEdit>>()
     private var ready = CompletableDeferred<Unit>()
     /** Offsets each paste a little further, so repeated pastes stack instead of hiding each other. */
     private var pasteGeneration = 0
@@ -754,6 +755,15 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                     if (current == null || current.id != note.id || target == null || target.loaded) state
                     else state.copy(notes = state.notes.map { if (it.id == current.id) current.withPage(target.withLoadedContent(loaded)) else it })
                 }
+                // Undo/redo come back with the page. An edit that slipped in while the file was being
+                // read bumped the revision, so its in-memory stacks are left alone.
+                val history = runCatching { repository.loadHistory(note.id, pageId) }.getOrDefault(PageJournal.History.EMPTY)
+                val current = _state.value.notes.find { it.id == note.id }?.pages?.find { it.id == pageId }
+                if (current?.revision == loaded.revision) {
+                    undo[pageId] = history.undo.toMutableList()
+                    redo[pageId] = history.redo.toMutableList()
+                    historyState()
+                }
             } catch (e: Exception) {
                 reportError("Couldn't open this page: ${e.message.orEmpty()}")
             } finally { loadingPages.remove(pageId) }
@@ -818,6 +828,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val removed = note.pages[index]
         val updated = note.withDeletedPage(index)
         updateNote(updated)
+        undo.remove(removed.id)
+        redo.remove(removed.id)
         enqueue { repository.deletePage(note.id, removed.id) }
         val current = if (index < state.pageIndex) state.pageIndex - 1 else state.pageIndex
         _state.update { it.copy(pageIndex = current.coerceIn(0, updated.pages.lastIndex)) }
@@ -854,15 +866,47 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     fun setPaper(paper: Paper) { val p = _state.value.page ?: return; replacePage(p.copy(paper = paper)) }
-    /** Stores a page's new content, bumping its revision so caches and exports know it changed. */
+    /** Stores a page's new content, journaling the smallest edit and remembering how to undo it. */
     private fun replacePage(page: NotePage) {
         val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
         // A page still on disk is never rewritten from an empty in-memory copy.
         if (!page.loaded) return
-        val revised = page.revised()
-        val updated = note.copy(pages = note.pages.map { if (it.id == page.id) revised else it }, updated = System.currentTimeMillis())
+        val before = note.pages.first { it.id == page.id }
+        commitEdit(note, before, page)
+    }
+
+    /**
+     * Applies one content change: derives the journal edit, pushes its inverse onto the undo stack,
+     * clears redo, updates state, and queues the durable append. A change with no content effect (a
+     * redo flag, a paper choice) only rewrites the small index. [beforeSave] lets the picture path
+     * store the new image bytes ahead of the page edit in the same queue slot.
+     */
+    private fun commitEdit(note: Notebook, before: NotePage, after: NotePage, beforeSave: suspend () -> Unit = {}) {
+        val beforeContent = before.content()
+        val afterContent = after.content()
+        val forward = PageJournal.diff(beforeContent, afterContent)
+        val revised = after.revised()
+        val updated = note.copy(pages = note.pages.map { if (it.id == after.id) revised else it }, updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
-        enqueue { repository.savePage(updated, revised) }
+        if (forward == null) {
+            enqueue { beforeSave(); repository.saveMeta(updated) }
+            return
+        }
+        val inverse = PageJournal.diff(afterContent, beforeContent)!!
+        undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
+        redo.remove(after.id)
+        historyState()
+        enqueue {
+            // Any bytes the edit names land first, so a crash cannot leave a placement without its file.
+            beforeSave()
+            repository.appendPageEdit(updated, revised, forward)
+            persistHistory(updated.id, after.id)
+        }
+    }
+
+    /** Writes one page's bounded undo/redo stacks so undo survives a restart. */
+    private suspend fun persistHistory(noteId: String, pageId: String) {
+        repository.saveHistory(noteId, pageId, PageJournal.History(undo[pageId].orEmpty(), redo[pageId].orEmpty()))
     }
     fun strokes(strokes: List<Stroke>) {
         val page = _state.value.page ?: return
@@ -873,7 +917,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         // Ink cannot be changed on a page whose own ink has not been read yet.
         // Reference check first avoids a deep walk over every InkPoint for identical lists.
         if (!page.loaded || page.strokes === strokes || page.strokes == strokes) return
-        record(page); replacePage(page.copy(strokes = strokes)); historyState()
+        replacePage(page.copy(strokes = strokes))
     }
     fun texts(texts: List<TextBox>) {
         val page = _state.value.page ?: return
@@ -882,7 +926,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun texts(pageId: String, texts: List<TextBox>) {
         val page = findPageContent(pageId) ?: return
         if (!page.loaded || page.texts === texts || page.texts == texts) return
-        record(page); replacePage(page.copy(texts = texts)); historyState()
+        replacePage(page.copy(texts = texts))
     }
     fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box) }
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
@@ -898,7 +942,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun clearPage() {
         val page = _state.value.page ?: return
         if (!page.loaded || (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty())) return
-        record(page); replacePage(page.copy(strokes = emptyList(), texts = emptyList(), images = emptyList())); historyState()
+        replacePage(page.copy(strokes = emptyList(), texts = emptyList(), images = emptyList()))
     }
 
     // ---- Placed images ------------------------------------------------------------------
@@ -907,7 +951,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = findPageContent(pageId) ?: return
         // Pictures cannot be changed on a page whose own content has not been read yet.
         if (!page.loaded || page.images === images || page.images == images) return
-        record(page); replacePage(page.copy(images = images)); historyState()
+        replacePage(page.copy(images = images))
     }
 
     /** Adds a picture whose bytes are already on disk, or stores [bytes] first when provided. */
@@ -916,19 +960,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = state.notes.find { note -> note.pages.any { it.id == pageId } } ?: return
         val page = note.pages.find { it.id == pageId } ?: return
         if (!page.loaded) return
-        record(page)
-        val updated = note.copy(
-            pages = note.pages.map { if (it.id == page.id) it.revised().copy(images = it.images + image) else it },
-            updated = System.currentTimeMillis()
-        )
-        val revised = updated.pages.first { it.id == page.id }
-        _state.update { current ->
-            current.copy(notes = current.notes.map { if (it.id == updated.id) updated else it })
-        }
-        historyState()
-        enqueue {
+        commitEdit(note, page, page.copy(images = page.images + image)) {
             if (bytes != null) repository.saveImage(note.id, image.id, bytes)
-            repository.savePage(updated, revised)
         }
     }
 
@@ -1000,7 +1033,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (!page.loaded) return
         if (page.strokes === strokes && page.texts === texts && page.images === images) return
         if (page.strokes == strokes && page.texts == texts && page.images == images) return
-        record(page); replacePage(page.copy(strokes = strokes, texts = texts, images = images)); historyState()
+        replacePage(page.copy(strokes = strokes, texts = texts, images = images))
     }
     /** Remembers a lasso selection for pasting, on this page or another one. */
     fun copyToClipboard(selection: CanvasSelection) {
@@ -1239,16 +1272,30 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         clearSitting()
         _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
     }
-    private fun record(page: NotePage) {
-        undo.getOrPut(page.id) { mutableListOf() }.apply { add(Triple(page.strokes, page.texts, page.images)); if (size > 60) removeAt(0) }
-        redo.remove(page.id)
-    }
-    private fun history(from: MutableMap<String, MutableList<PageContent>>, to: MutableMap<String, MutableList<PageContent>>) {
+    /**
+     * Pops one edit off [from] and replays it, pushing the inverse onto [to]. Undo and redo are the
+     * same move in opposite directions, so both travel through here; the replayed edit is journaled
+     * exactly like a fresh one, which is what keeps the on-disk page in step with the visible state.
+     */
+    private fun history(from: MutableMap<String, MutableList<PageEdit>>, to: MutableMap<String, MutableList<PageEdit>>) {
         val page = _state.value.page ?: return
         if (!page.loaded) return
-        val previous = from[page.id]?.removeLastOrNull() ?: return
-        to.getOrPut(page.id) { mutableListOf() }.add(Triple(page.strokes, page.texts, page.images))
-        replacePage(page.copy(strokes = previous.first, texts = previous.second, images = previous.third)); historyState()
+        val op = from[page.id]?.removeLastOrNull() ?: return
+        val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
+        val before = page.content()
+        val afterContent = PageJournal.apply(before, op)
+        val back = PageJournal.diff(afterContent, before)
+        if (back == null) { historyState(); return }
+        to.getOrPut(page.id) { mutableListOf() }.add(back)
+        val after = page.copy(strokes = afterContent.strokes, texts = afterContent.texts, images = afterContent.images)
+        val revised = after.revised()
+        val updated = note.copy(pages = note.pages.map { if (it.id == page.id) revised else it }, updated = System.currentTimeMillis())
+        _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
+        enqueue {
+            repository.appendPageEdit(updated, revised, op)
+            persistHistory(updated.id, page.id)
+        }
+        historyState()
     }
     private fun historyState() { _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) } }
     fun retrySave() {
@@ -1348,6 +1395,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     override fun onCleared() { writes.close(); super.onCleared() }
 
     private companion object {
+        /** How many per-page undo states are kept before the oldest is dropped. */
+        const val MAX_UNDO = 60
         /** How far each paste is nudged from the last, in page units. */
         const val PASTE_OFFSET = 22f
         const val TIMER_START_KEY = "examTimer.startedAt"

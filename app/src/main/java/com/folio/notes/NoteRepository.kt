@@ -32,25 +32,42 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
 /**
  * On-device storage, one directory per notebook:
  *
  * ```
- * note.json        the notebook's fields plus one summary per page, deliberately holding no ink
- * pages/<id>.json  one page's ink and typed text, read only when that page is needed
- * source.pdf       an imported PDF, when the notebook has one
+ * note.json          the notebook's fields plus one summary per page, deliberately holding no ink
+ * pages/<id>.json    one page's compacted snapshot, read only when that page is needed
+ * pages/<id>.journal append-only records of edits since that snapshot, fsynced as they happen
+ * pages/<id>.history small undo/redo stacks, so undo survives a restart
+ * source.pdf         an imported PDF, when the notebook has one
  * ```
  *
  * Keeping the index free of ink is what lets a library of long notebooks list instantly and a page's
- * content be fetched only when it is shown. A notebook saved by an older version, which kept every
- * page inline, is split into this layout the first time it is read.
+ * content be fetched only when it is shown. A committed edit is appended to the page's journal
+ * instead of rewriting its whole snapshot, so a page carrying thousands of strokes pays for the
+ * strokes that changed rather than for the page; the snapshot is rewritten in the background once
+ * the journal grows past a bound. A torn tail is discarded on read, and a snapshot records the last
+ * journal record it contains, so compaction can never double-apply a record when a crash lands
+ * between the snapshot landing and the journal being cleared. A notebook saved by an older version,
+ * which kept every page inline, is split into this layout the first time it is read.
  */
 class NoteRepository(private val context: Context) {
     private val root = File(context.filesDir, "notebooks").apply { mkdirs() }
     private val lock = Mutex()
+    /**
+     * The next journal sequence number and last known-good byte length per `<note>/<page>`. Parallel
+     * page reads (an export, a duplicate) touch this from several IO threads, so it is concurrent;
+     * writes are guarded by [lock] and these simple assignments are idempotent.
+     */
+    private val journalSeqs = ConcurrentHashMap<String, Int>()
+    private val journalLengths = ConcurrentHashMap<String, Long>()
     /** A single `PdfRenderer` is not safe to use from two threads at once, so renders are serialized. */
     private val pdfLock = Mutex()
     private var pdfNoteId: String? = null
@@ -73,8 +90,14 @@ class NoteRepository(private val context: Context) {
     /** The same directory without touching the disk, for reads that must not create anything. */
     private fun storedDirectory(id: String) = File(root, checked(id))
     private fun noteFile(noteId: String) = File(directory(noteId), "note.json")
+    private fun pagesDirectory(noteId: String): File = File(directory(noteId), "pages").apply { mkdirs() }
     private fun pageFile(noteId: String, pageId: String): File =
-        File(File(directory(noteId), "pages").apply { mkdirs() }, "${checked(pageId)}.json")
+        File(pagesDirectory(noteId), "${checked(pageId)}.json")
+    private fun pageJournalFile(noteId: String, pageId: String): File =
+        File(pagesDirectory(noteId), "${checked(pageId)}.journal")
+    private fun pageHistoryFile(noteId: String, pageId: String): File =
+        File(pagesDirectory(noteId), "${checked(pageId)}.history")
+    private fun pageKey(noteId: String, pageId: String) = "$noteId/$pageId"
     private fun imageFile(noteId: String, imageId: String): File =
         File(File(directory(noteId), "images").apply { mkdirs() }, "${checked(imageId)}.jpg")
     private fun storedImageFile(noteId: String, imageId: String): File =
@@ -139,12 +162,23 @@ class NoteRepository(private val context: Context) {
     /**
      * Reads one page's ink and text, or an empty page when nothing has ever been written for it.
      * A read never creates a directory, so listing or drawing a notebook cannot leave one behind.
+     * The compacted snapshot is the base and the journal is replayed on top; a torn final record
+     * from a process death is ignored, and the rest of the page is still exactly what was saved.
      */
     suspend fun loadPage(noteId: String, summary: NotePage): NotePage = withContext(Dispatchers.IO) {
         if (summary.loaded) return@withContext summary
-        val file = File(File(storedDirectory(noteId), "pages"), "${checked(summary.id)}.json")
-        if (!file.exists()) return@withContext summary.copy(loaded = true)
-        NotePageCodec.decode(AtomicFile(file).openRead().bufferedReader().use { it.readText() }, summary)
+        val pages = File(storedDirectory(noteId), "pages")
+        val file = File(pages, "${checked(summary.id)}.json")
+        val journal = File(pages, "${checked(summary.id)}.journal")
+        if (!file.exists() && !journal.exists()) return@withContext summary.copy(loaded = true)
+        val snapshot = file.takeIf { it.exists() }?.let { AtomicFile(it).openRead().bufferedReader().use { reader -> reader.readText() } }
+        val base = snapshot?.let { NotePageCodec.decode(it, summary) }
+            ?.let { PageContent(it.strokes, it.texts, it.images) } ?: PageContent.EMPTY
+        val baseSeq = snapshot?.let { NotePageCodec.journalSeq(it) } ?: 0
+        val records = readJournal(journal)
+        journalSeqs[pageKey(noteId, summary.id)] = maxOf(baseSeq, PageJournal.lastSeq(records))
+        val content = PageJournal.replay(base, baseSeq, records)
+        summary.copy(strokes = content.strokes, texts = content.texts, images = content.images, loaded = true)
     }
 
     /** Fetches every page still on disk; exports and backups need the whole notebook at once. */
@@ -166,27 +200,66 @@ class NoteRepository(private val context: Context) {
     }
 
     /**
-     * Writes one page's content together with the index that carries its revision, so a preview or
-     * an export can never believe a page is newer or older than it really is.
+     * Writes one page's content as a fresh snapshot together with the index that carries its
+     * revision, so a preview or an export can never believe a page is newer or older than it really
+     * is. Used where a page is born whole — a duplicated page or an imported archive — rather than
+     * edited, so there is no journal to append to and any journal left over is cleared with it.
      */
     suspend fun savePage(note: Notebook, page: NotePage) = withContext(Dispatchers.IO) {
         if (!page.loaded) return@withContext
         lock.withLock {
-            atomicWrite(pageFile(note.id, page.id), NotePageCodec.encode(page))
+            writeSnapshot(note.id, page)
             atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note))
         }
+    }
+
+    /**
+     * Durably appends one edit to a page's journal and rewrites the small index. It does not rewrite
+     * the page snapshot: the journal is fsynced as it is appended, so a pen stroke is on disk before
+     * the next one begins, and the snapshot is compacted later once the log grows past a bound.
+     */
+    suspend fun appendPageEdit(note: Notebook, page: NotePage, edit: PageEdit) = withContext(Dispatchers.IO) {
+        if (!page.loaded || edit.isEmpty) return@withContext
+        lock.withLock {
+            val key = pageKey(note.id, page.id)
+            val seq = (journalSeqs[key] ?: storedMaxSeq(note.id, page.id)) + 1
+            journalSeqs[key] = seq
+            appendJournal(key, pageJournalFile(note.id, page.id), PageJournal.encode(seq, edit))
+            atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note))
+            if (pageJournalFile(note.id, page.id).length() > MAX_JOURNAL_BYTES) writeSnapshot(note.id, page, seq)
+        }
+    }
+
+    /** One page's persisted undo/redo stacks; an absent file is an empty history. Never creates one. */
+    suspend fun loadHistory(noteId: String, pageId: String): PageJournal.History = withContext(Dispatchers.IO) {
+        val file = File(File(storedDirectory(noteId), "pages"), "${checked(pageId)}.history")
+        if (!file.exists()) return@withContext PageJournal.History.EMPTY
+        PageJournal.decodeHistory(runCatching {
+            AtomicFile(file).openRead().bufferedReader().use { it.readText() }
+        }.getOrNull())
+    }
+
+    /** Persists the bounded undo/redo stacks so undo survives a restart. */
+    suspend fun saveHistory(noteId: String, pageId: String, history: PageJournal.History) = withContext(Dispatchers.IO) {
+        lock.withLock { atomicWrite(pageHistoryFile(noteId, pageId), PageJournal.encodeHistory(history)) }
     }
 
     /** The index plus the content of every page held in memory; pages still on disk are left alone. */
     suspend fun saveAll(note: Notebook) = withContext(Dispatchers.IO) {
         lock.withLock {
-            note.pages.filter { it.loaded }.forEach { atomicWrite(pageFile(note.id, it.id), NotePageCodec.encode(it)) }
+            note.pages.filter { it.loaded }.forEach { writeSnapshot(note.id, it) }
             atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note))
         }
     }
 
     suspend fun deletePage(noteId: String, pageId: String) = withContext(Dispatchers.IO) {
-        lock.withLock { pageFile(noteId, pageId).delete() }
+        lock.withLock {
+            journalSeqs.remove(pageKey(noteId, pageId))
+            journalLengths.remove(pageKey(noteId, pageId))
+            pageFile(noteId, pageId).delete()
+            pageJournalFile(noteId, pageId).delete()
+            pageHistoryFile(noteId, pageId).delete()
+        }
         Unit
     }
 
@@ -629,8 +702,90 @@ class NoteRepository(private val context: Context) {
         catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
 
+    /**
+     * Folds every journal record into a fresh snapshot. The snapshot records [seq], and only then is
+     * the journal cleared, so a crash in between leaves both copies of the records and the next read
+     * simply skips the ones the snapshot already contains.
+     */
+    private fun writeSnapshot(noteId: String, page: NotePage, seq: Int? = null) {
+        val key = pageKey(noteId, page.id)
+        val effective = seq ?: journalSeqs[key] ?: storedMaxSeq(noteId, page.id)
+        atomicWrite(pageFile(noteId, page.id), NotePageCodec.encode(page, effective))
+        atomicWrite(pageJournalFile(noteId, page.id), "")
+        journalSeqs[key] = effective
+        journalLengths[key] = 0L
+    }
+
+    /**
+     * Appends one JSONL record and forces it to disk before returning. A tail left torn by an earlier
+     * crash is trimmed first, so a new record can never hide behind it; a failed append is rolled
+     * back to the length it started from. Both keep the log readable from the front, which is what
+     * replay relies on.
+     */
+    private fun appendJournal(key: String, file: File, line: String) {
+        file.parentFile?.mkdirs()
+        val known = journalLengths[key]
+        if (known == null || known != file.length()) journalLengths[key] = repairJournalTail(file)
+        val start = file.length()
+        try {
+            FileOutputStream(file, true).use { out ->
+                out.write((line + "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
+            journalLengths[key] = file.length()
+        } catch (e: Exception) {
+            runCatching { RandomAccessFile(file, "rw").use { it.setLength(start) } }
+            journalLengths[key] = start
+            throw e
+        }
+    }
+
+    /** Trims a journal to its complete records and returns the byte length that remains. */
+    private fun repairJournalTail(file: File): Long {
+        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return 0L
+        val validEnd = PageJournal.completePrefixLength(bytes)
+        if (validEnd < bytes.size) runCatching { RandomAccessFile(file, "rw").use { it.setLength(validEnd.toLong()) } }
+        return validEnd.toLong()
+    }
+
+    /**
+     * Reads a journal in order, stopping at the first unreadable line. A process killed mid-append
+     * leaves at most a torn final line, which is discarded; the records before it are intact.
+     */
+    private fun readJournal(file: File): List<JournalRecord> {
+        if (!file.exists()) return emptyList()
+        val records = mutableListOf<JournalRecord>()
+        try {
+            file.bufferedReader(Charsets.UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isBlank()) continue
+                    val record = PageJournal.decode(line) ?: break
+                    records += record
+                }
+            }
+        } catch (_: Exception) { /* unreadable tail: the snapshot still stands on its own */ }
+        return records
+    }
+
+    /** The highest record folded into a page's snapshot or still sitting in its journal. */
+    private fun storedMaxSeq(noteId: String, pageId: String): Int = maxOf(
+        snapshotSeq(pageFile(noteId, pageId)),
+        PageJournal.lastSeq(readJournal(pageJournalFile(noteId, pageId)))
+    )
+
+    private fun snapshotSeq(file: File): Int {
+        if (!file.exists()) return 0
+        return try {
+            NotePageCodec.journalSeq(AtomicFile(file).openRead().bufferedReader().use { it.readText() })
+        } catch (_: Exception) { 0 }
+    }
+
     private companion object {
         /** Extracted PDF texts kept in memory; the oldest goes when another notebook is searched. */
         const val MAX_CACHED_TEXTS = 8
+        /** A page journal is compacted into its snapshot once it grows past this many bytes. */
+        const val MAX_JOURNAL_BYTES = 256L * 1024L
     }
 }
