@@ -748,6 +748,8 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
     val timerPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     val defaultCustom = AppPrefs.timerCustomMinutes(timerPrefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_CUSTOM_MIN) })
     val defaultReading = AppPrefs.timerReadingMinutes(timerPrefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_READING_MIN) })
+    val autoStart = timerPrefs.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START)
+    val idleMinutes = AppPrefs.timerIdleMinutes(timerPrefs.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_IDLE_MIN) })
     var customMinutes by rememberSaveable { mutableStateOf("$defaultCustom") }
     var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
     LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
@@ -760,6 +762,7 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
             when (timer.phase) {
                 ExamTimerPhase.IDLE -> {
                     Text("Sit the paper under exam conditions: reading time first, then writing time, counted down live.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (autoStart) Text("Put the pen down and a Custom sitting ($defaultCustom min writing, $defaultReading min reading) starts by itself.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ExamTimerPreset.PRESETS.filter { it != ExamTimerPreset.CUSTOM }.forEach { preset ->
                         Surface(
                             onClick = { onStart(preset) },
@@ -817,7 +820,16 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                if (timer.paused) "Paused — resume when ready" else if (active) "The clock is running" else "No pens yet — read the paper",
+                                when {
+                                    timer.paused && timer.autoParked -> "Stopped on its own — resume, or just keep writing"
+                                    timer.paused -> "Paused — resume when ready"
+                                    active -> "The clock is running"
+                                    else -> "No pens yet — read the paper"
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            if (!timer.paused && idleMinutes > 0) Text(
+                                "Stops on its own after $idleMinutes min without writing",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }

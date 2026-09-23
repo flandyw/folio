@@ -23,6 +23,8 @@ object AppPrefs {
     const val PALM_MS = "input.palmMs"
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"
     const val TIMER_READING_MIN = "timer.readingMinutes"
+    const val TIMER_AUTO_START = "timer.autoStart"
+    const val TIMER_IDLE_MIN = "timer.idleMinutes"
     const val EXPORT_PNG_SCALE = "export.pngScale"
     const val EXPORT_PDF_MODE = "export.pdfMode"
     const val SPLIT_FRACTION = "workspace.splitFraction"
@@ -43,6 +45,10 @@ object AppPrefs {
     const val DEFAULT_TIMER_READING_MIN = 15
     const val TIMER_READING_MIN_RANGE = 0
     const val TIMER_READING_MAX = 60
+    const val DEFAULT_TIMER_AUTO_START = true
+    const val DEFAULT_TIMER_IDLE_MIN = 5
+    const val TIMER_IDLE_MIN_RANGE = 0
+    const val TIMER_IDLE_MAX = 60
     const val DEFAULT_PNG_SCALE = 2f
     const val PNG_SCALE_MIN = 1f
     const val PNG_SCALE_MAX = 3f
@@ -74,6 +80,16 @@ object AppPrefs {
 
     fun timerReadingMinutes(value: Int?): Int =
         (value ?: DEFAULT_TIMER_READING_MIN).coerceIn(TIMER_READING_MIN_RANGE, TIMER_READING_MAX)
+
+    /** Minutes of pen idleness before the clock stops itself; 0 keeps it running until stopped. */
+    fun timerIdleMinutes(value: Int?): Int =
+        (value ?: DEFAULT_TIMER_IDLE_MIN).coerceIn(TIMER_IDLE_MIN_RANGE, TIMER_IDLE_MAX)
+
+    /** The sitting the smart timer starts on a first pen stroke: the Custom timer's own settings. */
+    fun autoStartPreset(writingMinutes: Int?, readingMinutes: Int?): ExamTimerPreset {
+        val writing = timerCustomMinutes(writingMinutes)
+        return ExamTimerPreset("Auto · $writing min", writing * 60, timerReadingMinutes(readingMinutes) * 60)
+    }
 
     fun pngScale(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_PNG_SCALE

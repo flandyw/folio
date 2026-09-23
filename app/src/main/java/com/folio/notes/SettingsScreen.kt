@@ -171,7 +171,7 @@ private enum class SettingsCategory(val title: String, val description: String) 
     STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures"),
     ERASING("Erasing", "Eraser behavior and scribble-to-erase"),
     FOLLOW("Writing follow", "Page movement, writing direction and line return"),
-    WORKFLOW("Timer & workspace", "Exam timer defaults, PNG export and split view"),
+    WORKFLOW("Timer & workspace", "Exam timer, smart start/stop, PNG export and split view"),
     ACCOUNT("Account & updates", "ExamTrack sync and Folio updates")
 }
 
@@ -456,6 +456,8 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val p = prefs()
     var customMinutes by remember { mutableStateOf(AppPrefs.timerCustomMinutes(p.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { p.contains(AppPrefs.TIMER_CUSTOM_MIN) }).toString()) }
     var readingMinutes by remember { mutableFloatStateOf(AppPrefs.timerReadingMinutes(p.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { p.contains(AppPrefs.TIMER_READING_MIN) }).toFloat()) }
+    var autoStart by remember { mutableStateOf(p.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START)) }
+    var idleMinutes by remember { mutableFloatStateOf(AppPrefs.timerIdleMinutes(p.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { p.contains(AppPrefs.TIMER_IDLE_MIN) }).toFloat()) }
     var pngScale by remember { mutableFloatStateOf(AppPrefs.pngScale(p.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { p.contains(AppPrefs.EXPORT_PNG_SCALE) })) }
     var split by remember { mutableFloatStateOf(AppPrefs.splitFraction(p.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { p.contains(AppPrefs.SPLIT_FRACTION) })) }
     var customError by rememberSaveable { mutableStateOf(false) }
@@ -464,6 +466,8 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             when (k) {
                 AppPrefs.TIMER_CUSTOM_MIN -> customMinutes = AppPrefs.timerCustomMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN)).toString()
                 AppPrefs.TIMER_READING_MIN -> readingMinutes = AppPrefs.timerReadingMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_READING_MIN)).toFloat()
+                AppPrefs.TIMER_AUTO_START -> autoStart = p.getBoolean(k, AppPrefs.DEFAULT_TIMER_AUTO_START)
+                AppPrefs.TIMER_IDLE_MIN -> idleMinutes = AppPrefs.timerIdleMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_IDLE_MIN)).toFloat()
                 AppPrefs.EXPORT_PNG_SCALE -> pngScale = AppPrefs.pngScale(p.getFloat(k, AppPrefs.DEFAULT_PNG_SCALE))
                 AppPrefs.SPLIT_FRACTION -> split = AppPrefs.splitFraction(p.getFloat(k, AppPrefs.DEFAULT_SPLIT))
             }
@@ -489,6 +493,16 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         readingMinutes = it
         p.edit().putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()).apply()
     }, valueRange = AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(), steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1)
+    PreferenceSwitch("Start the timer on pen down", "Put the pen on the page and the exam clock starts by itself, using the Custom timer settings above. A clock that stopped for idleness starts again on the next stroke; one you paused by hand stays paused.", autoStart, {
+        autoStart = it
+        p.edit().putBoolean(AppPrefs.TIMER_AUTO_START, it).apply()
+    })
+    Text(if (idleMinutes <= 0f) "Stop after inactivity: never" else "Stop after ${idleMinutes.roundToInt()} min without writing", style = MaterialTheme.typography.titleSmall)
+    Slider(idleMinutes, {
+        idleMinutes = it
+        p.edit().putInt(AppPrefs.TIMER_IDLE_MIN, it.roundToInt()).apply()
+    }, valueRange = AppPrefs.TIMER_IDLE_MIN_RANGE.toFloat()..AppPrefs.TIMER_IDLE_MAX.toFloat(), steps = AppPrefs.TIMER_IDLE_MAX - AppPrefs.TIMER_IDLE_MIN_RANGE - 1)
+    SectionHint("The clock stops itself once the pen has been idle this long, and your next stroke starts it again. Set 0 to keep it running until you stop it. Leaving the editor, backgrounding the app or the screen going off parks it as before.")
     HorizontalDivider()
     SectionTitle("Export")
     SectionHint("PDF exports keep vector ink. PNG sharpness only affects page images.")

@@ -63,6 +63,11 @@ class InkView(context: Context) : View(context) {
     var onDocumentPanEnd: (Float) -> Unit = {}
     private val panVelocity = VelocityTracker()
     var onStrokesChanged: (List<Stroke>) -> Unit = {}
+    /**
+     * Ink under the pen: true when a fresh stroke begins, false while one grows or the eraser
+     * works. Lets the exam timer start on a pen-down and measure idleness from real writing.
+     */
+    var onPenInput: (beginsStroke: Boolean) -> Unit = {}
     /** Reports the ink, text and pictures inside the lasso loop so the editor can offer actions. */
     var onSelectionChanged: (CanvasSelection) -> Unit = {}
     /**
@@ -877,6 +882,8 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
+                // A stroke or eraser still in progress is work, even when the pen never lifts.
+                if (draft != null || erasing != null) onPenInput(false)
                 if (pendingLink != null) {
                     val at = point(event, index)
                     if (hypot(at.x - linkFromX, at.y - linkFromY) > LINK_SLOP) {
@@ -1619,10 +1626,12 @@ class InkView(context: Context) : View(context) {
                 InkGeometry.erase(it, start, radius)
             }
             eraserMark = start
+            onPenInput(false)
         } else {
             if (followEnabled && tool == Tool.PEN) writingFollow.penDown(SystemClock.uptimeMillis())
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
                 style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
+            onPenInput(true)
         }
     }
     private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER

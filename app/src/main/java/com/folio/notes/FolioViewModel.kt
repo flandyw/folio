@@ -107,6 +107,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private val notebookSittings = NotebookSittings()
     /** Last moment the running timer's heartbeat was written to preferences. */
     private var lastSeenPersistedAt: Long = 0L
+    /** Last moment the pen or an edit touched the open notebook; drives the idle auto-stop. */
+    @Volatile private var lastTimerActivityAt: Long = 0L
 
     private fun timerKey(key: String): String = "$key.notebook.${requireNotNull(timerNotebookId)}"
 
@@ -121,7 +123,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val pageIds = visits.toSet()
         val owner = notes.filter { note -> note.pages.any { it.id in pageIds } }.singleOrNull() ?: return
         val keys = listOf(TIMER_START_KEY, TIMER_PAUSED_AT_KEY, TIMER_PAUSED_MILLIS_KEY,
-            TIMER_WRITING_KEY, TIMER_READING_KEY, TIMER_LABEL_KEY)
+            TIMER_WRITING_KEY, TIMER_READING_KEY, TIMER_LABEL_KEY, TIMER_PARK_AUTO_KEY)
         val editor = prefs.edit()
         if (!prefs.contains("$TIMER_START_KEY.notebook.${owner.id}")) {
             keys.forEach { key ->
@@ -148,21 +150,27 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val timer = cached?.timer
             ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L),
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
-                pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L))
+                pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L),
+                parkAuto = prefs.getInt(timerKey(TIMER_PARK_AUTO_KEY), 0) != 0)
             ?: ExamTimerState()
         // A crash or kill while foregrounded leaves a running sitting with no recorded pause;
         // anything past the last confirmed-visible moment never counts.
         val clamped = timer.clampUnseenGap(prefs.getLong(timerKey(TIMER_LAST_SEEN_KEY), 0L).takeIf { it > 0L }, now)
         if (clamped != timer) saveSitting(clamped, clamped.pausedAt ?: now)
+        // The idle stop measures pen work, not wall time, and a fresh clock is never idle yet.
+        lastTimerActivityAt = now
         _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds) }
     }
 
-    /** Leaving a notebook pauses its clock, so time away never counts; returning stays paused until resumed. */
+    /**
+     * Leaving a notebook parks its clock, so time away never counts. The park is the app's own, so
+     * writing in that notebook again starts it back up unless it was parked by hand.
+     */
     private fun selectNotebookTimer(id: String?, now: Long = System.currentTimeMillis()) {
         if (id == timerNotebookId) return
         timerNotebookId?.let { previous ->
             val current = _state.value.timer
-            val paused = if (current.running) current.pause(now) else current
+            val paused = if (current.running) current.pause(now, auto = true) else current
             if (paused != current) saveSitting(paused)
             val state = _state.value
             notebookSittings.save(previous, paused, state.lastTimedSeconds)
@@ -882,6 +890,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * store the new image bytes ahead of the page edit in the same queue slot.
      */
     private fun commitEdit(note: Notebook, before: NotePage, after: NotePage, beforeSave: suspend () -> Unit = {}) {
+        touchTimerActivity()
         val beforeContent = before.content()
         val afterContent = after.content()
         val forward = PageJournal.diff(beforeContent, afterContent)
@@ -1181,6 +1190,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             .putLong(timerKey(TIMER_PAUSED_AT_KEY), timer.pausedAt ?: 0L)
             .putLong(timerKey(TIMER_PAUSED_MILLIS_KEY), timer.pausedMillis)
             .putLong(timerKey(TIMER_LAST_SEEN_KEY), lastSeen)
+            .putInt(timerKey(TIMER_PARK_AUTO_KEY), if (timer.autoParked) 1 else 0)
             .putInt(timerKey(TIMER_WRITING_KEY), timer.preset.writingSeconds)
             .putInt(timerKey(TIMER_READING_KEY), timer.preset.readingSeconds)
             .putString(timerKey(TIMER_LABEL_KEY), timer.preset.label)
@@ -1190,7 +1200,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun clearSitting() {
         prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
             .remove(timerKey(TIMER_PAUSED_AT_KEY)).remove(timerKey(TIMER_PAUSED_MILLIS_KEY))
-            .remove(timerKey(TIMER_LAST_SEEN_KEY))
+            .remove(timerKey(TIMER_LAST_SEEN_KEY)).remove(timerKey(TIMER_PARK_AUTO_KEY))
             .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY))
             .remove(timerKey(TIMER_VISITS_KEY)).apply()
     }
@@ -1220,26 +1230,66 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             lastSeenPersistedAt = now
             saveSitting(next, lastSeen = now)
         }
+        // The smart timer's inactivity stop: a clock left running with the pen idle for the
+        // configured stretch parks itself, exactly like leaving the pages, and the next stroke
+        // starts it again.
+        if (next.idleExpired(lastTimerActivityAt, now, idleStopMinutes())) {
+            val parked = next.pause(now, auto = true)
+            saveSitting(parked, lastSeen = now)
+            _state.update { it.copy(timer = parked) }
+        }
     }
+    /**
+     * The smart timer's pen hook. A first stroke starts the clock by itself — a fresh sitting with
+     * the Custom timer settings, or an app-parked sitting back where it stopped — while erasing and
+     * the rest of a stroke only count as activity, so idleness never stops a clock in use. A sitting
+     * parked by hand waits for its owner.
+     */
+    fun onPenActivity(beginsStroke: Boolean, now: Long = System.currentTimeMillis()) {
+        if (_state.value.active == null) return
+        lastTimerActivityAt = now
+        when (_state.value.timer.autoActionOnPenDown(
+                prefs.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START), beginsStroke)) {
+            TimerAutoAction.NONE -> Unit
+            TimerAutoAction.START -> startTimer(autoStartPreset(), now)
+            TimerAutoAction.RESUME -> {
+                val resumed = _state.value.timer.unpause(now)
+                saveSitting(resumed, lastSeen = now)
+                _state.update { it.copy(timer = resumed) }
+            }
+        }
+    }
+    /** Marks the pen or an edit as busy, so the idle stop measures writing rather than waiting. */
+    private fun touchTimerActivity(now: Long = System.currentTimeMillis()) {
+        lastTimerActivityAt = now
+    }
+    /** The sitting a first pen stroke starts by itself: the Custom timer's own settings. */
+    private fun autoStartPreset(): ExamTimerPreset = AppPrefs.autoStartPreset(
+        prefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { prefs.contains(AppPrefs.TIMER_CUSTOM_MIN) },
+        prefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { prefs.contains(AppPrefs.TIMER_READING_MIN) })
+    private fun idleStopMinutes(): Int = AppPrefs.timerIdleMinutes(
+        prefs.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { prefs.contains(AppPrefs.TIMER_IDLE_MIN) })
     /**
      * Parks the clock the moment the user stops looking at the pages — app backgrounded, screen
      * off, or the editor left for the library or mistakes. Parked time never counts, the parked
      * state is saved immediately so a kill still restores it parked, and it stays parked until
-     * the user explicitly resumes it. A timer that is not running is untouched.
+     * the user explicitly resumes it or the pen starts it again. A timer that is not running is
+     * untouched.
      */
     fun autoPauseTimer(now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
         val current = _state.value.timer
         if (!current.running) return
-        val parked = current.pause(now)
+        val parked = current.pause(now, auto = true)
         if (parked == current) return
         saveSitting(parked, lastSeen = now)
         _state.update { it.copy(timer = parked) }
     }
-    fun startTimer(preset: ExamTimerPreset) {
+    fun startTimer(preset: ExamTimerPreset, now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
-        val started = ExamTimerState().start(preset)
-        saveSitting(started)
+        val started = ExamTimerState().start(preset, now)
+        lastTimerActivityAt = now
+        saveSitting(started, lastSeen = now)
         _state.update { it.copy(timer = started) }
     }
     fun adjustTimer(seconds: Int) {
@@ -1248,6 +1298,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
     }
+    /** Pauses by hand, which the pen never undoes by itself; only Resume does. */
     fun toggleTimerPause() {
         if (_state.value.active == null) return
         val current = _state.value.timer
@@ -1281,6 +1332,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = _state.value.page ?: return
         if (!page.loaded) return
         val op = from[page.id]?.removeLastOrNull() ?: return
+        touchTimerActivity()
         val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
         val before = page.content()
         val afterContent = PageJournal.apply(before, op)
@@ -1406,6 +1458,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         const val TIMER_PAUSED_AT_KEY = "examTimer.pausedAt"
         const val TIMER_PAUSED_MILLIS_KEY = "examTimer.pausedMillis"
         const val TIMER_LAST_SEEN_KEY = "examTimer.lastSeen"
+        const val TIMER_PARK_AUTO_KEY = "examTimer.parkAuto"
         const val TIMER_VISITS_KEY = "examTimer.visits"
         /** The running timer's visible-heartbeat is written at most this often. */
         const val LAST_SEEN_THROTTLE_MS = 5_000L

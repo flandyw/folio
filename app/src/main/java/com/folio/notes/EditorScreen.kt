@@ -1488,7 +1488,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         null, Modifier.size(15.dp)
                     )
                     Text(
-                        if (timer.paused) "Paused · ${timer.clockText()}"
+                        if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
                         else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
                         else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
                         else "Pens down",
@@ -1658,6 +1658,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 view.shapeRecognition = shapeRecognition
                 view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
                 view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
+                view.onPenInput = { beginsStroke -> if (!readOnly) model.onPenActivity(beginsStroke) }
                 view.onSelectionChanged = onSelection
                 view.onSelectionViewBounds = onSelectionAnchor
                 view.onContentChanged = { strokes, texts, images -> if (!readOnly) model.updateContent(page.id, strokes, texts, images) }

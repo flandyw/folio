@@ -430,6 +430,9 @@ data class ExamTimerPreset(val label: String, val writingSeconds: Int, val readi
 /** Phases of a timed sitting; a timer that is not running is simply [IDLE]. */
 enum class ExamTimerPhase { IDLE, READING, WRITING, DONE }
 
+/** What touching the pen to the page should do to the exam clock by itself. */
+enum class TimerAutoAction { NONE, START, RESUME }
+
 /**
  * The timer's pure state machine, so every transition is unit-testable without a clock.
  * [remaining] counts down in the current phase; when it reaches zero the phase advances and the
@@ -442,7 +445,13 @@ data class ExamTimerState(
     val preset: ExamTimerPreset = ExamTimerPreset.CUSTOM,
     val startedAt: Long? = null,
     val pausedAt: Long? = null,
-    val pausedMillis: Long = 0L
+    val pausedMillis: Long = 0L,
+    /**
+     * True when the clock was parked by the app itself — pen idleness, a hidden editor, an unseen
+     * gap — rather than by hand. A pen stroke starts an auto-parked sitting again; one parked by
+     * the Pause button waits for its owner.
+     */
+    val autoParked: Boolean = false
 ) {
     val active: Boolean get() = phase == ExamTimerPhase.READING || phase == ExamTimerPhase.WRITING
     val paused: Boolean get() = pausedAt != null
@@ -472,11 +481,12 @@ data class ExamTimerState(
                 copy(phase = ExamTimerPhase.READING, remaining = reading - elapsed)
             elapsed < reading + writing ->
                 copy(phase = ExamTimerPhase.WRITING, remaining = reading + writing - elapsed)
-            else -> copy(phase = ExamTimerPhase.DONE, remaining = 0, pausedAt = null)
+            else -> copy(phase = ExamTimerPhase.DONE, remaining = 0, pausedAt = null, autoParked = false)
         }
     }
     fun start(preset: ExamTimerPreset, now: Long = System.currentTimeMillis()): ExamTimerState =
-        copy(preset = preset, startedAt = now, pausedAt = null, pausedMillis = 0L, phase = if (preset.readingSeconds > 0) ExamTimerPhase.READING else ExamTimerPhase.WRITING,
+        copy(preset = preset, startedAt = now, pausedAt = null, pausedMillis = 0L, autoParked = false,
+            phase = if (preset.readingSeconds > 0) ExamTimerPhase.READING else ExamTimerPhase.WRITING,
             remaining = if (preset.readingSeconds > 0) preset.readingSeconds else preset.writingSeconds)
     /** Adjust the active phase without changing time already spent writing. */
     fun adjust(seconds: Int, now: Long = System.currentTimeMillis()): ExamTimerState {
@@ -499,17 +509,18 @@ data class ExamTimerState(
         return current.adjust(-current.remaining, now)
     }
 
-    fun pause(now: Long = System.currentTimeMillis()): ExamTimerState {
+    /** Parks the clock. [auto] marks a park the pen can undo by itself, as opposed to the Pause button. */
+    fun pause(now: Long = System.currentTimeMillis(), auto: Boolean = false): ExamTimerState {
         val current = tick(now)
-        return if (current.running) current.copy(pausedAt = now) else current
+        return if (current.running) current.copy(pausedAt = now, autoParked = auto) else current
     }
 
     fun unpause(now: Long = System.currentTimeMillis()): ExamTimerState {
         val pausedSince = pausedAt ?: return this
-        return copy(pausedAt = null, pausedMillis = pausedMillis + (now - pausedSince).coerceAtLeast(0L)).tick(now)
+        return copy(pausedAt = null, autoParked = false, pausedMillis = pausedMillis + (now - pausedSince).coerceAtLeast(0L)).tick(now)
     }
 
-    fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null, pausedAt = null, pausedMillis = 0L)
+    fun stop(): ExamTimerState = copy(phase = ExamTimerPhase.IDLE, remaining = 0, startedAt = null, pausedAt = null, pausedMillis = 0L, autoParked = false)
     /**
      * Parks a sitting that came back running after the user stopped looking at the pages — a
      * crash or kill while it was foregrounded, so no background pause was ever recorded. Time
@@ -521,8 +532,26 @@ data class ExamTimerState(
     fun clampUnseenGap(lastSeen: Long?, now: Long, graceMs: Long = UNSEEN_GAP_GRACE_MS): ExamTimerState {
         if (!running || lastSeen == null || lastSeen <= 0L) return this
         if (now - lastSeen <= graceMs) return this
-        return pause(lastSeen.coerceAtLeast(startedAt ?: lastSeen))
+        return pause(lastSeen.coerceAtLeast(startedAt ?: lastSeen), auto = true)
     }
+    /**
+     * What a pen stroke on the page should do to this sitting by itself: a first stroke starts a
+     * fresh sitting or starts an app-parked one again, while a sitting parked by hand and a clock
+     * already running or finished are left alone. Erasing and other edits only count as activity.
+     */
+    fun autoActionOnPenDown(autoStart: Boolean, beginsStroke: Boolean): TimerAutoAction = when {
+        !autoStart || !beginsStroke -> TimerAutoAction.NONE
+        phase == ExamTimerPhase.IDLE -> TimerAutoAction.START
+        paused && autoParked -> TimerAutoAction.RESUME
+        else -> TimerAutoAction.NONE
+    }
+    /**
+     * True once the pen has left the page idle for [idleMinutes] while the clock ran through it:
+     * the smart timer's inactivity stop. Zero minutes keeps the clock running until something else
+     * parks it, and [lastActivityAt] must name a real moment before it counts.
+     */
+    fun idleExpired(lastActivityAt: Long, now: Long, idleMinutes: Int): Boolean =
+        idleMinutes > 0 && running && lastActivityAt > 0L && now - lastActivityAt >= idleMinutes * 60_000L
     /** "1:28:03" style, used by the countdown chip and the timer panel. */
     fun clockText(): String {
         val total = remaining.coerceAtLeast(0)
@@ -550,17 +579,19 @@ data class ExamTimerState(
          * is derived from the start moment, and a deadline that passed while the app was closed
          * comes back as Pens down rather than being silently discarded. Callers clamp unseen gaps
          * first ([clampUnseenGap]), so this catch-up only ever covers moments the user was
-         * confirmed to be looking. Returns null when there is nothing sane to restore: no preset,
+         * confirmed to be looking. [parkAuto] restores whether the park was the app's own, so a
+         * sitting parked by idleness still starts again on the next pen stroke after a restart.
+         * Returns null when there is nothing sane to restore: no preset,
          * a missing or future start moment, or a record older than [MAX_RESUME_AGE_MS].
          */
         fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis(),
-                   pausedAt: Long? = null, pausedMillis: Long = 0L): ExamTimerState? {
+                   pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false): ExamTimerState? {
             if (preset == null || startedAt == null || startedAt <= 0 || startedAt > now) return null
             if (pausedAt != null && (pausedAt < startedAt || pausedAt > now)) return null
             val elapsed = (pausedAt ?: now) - startedAt - pausedMillis
             if (pausedMillis < 0L || elapsed < 0L || elapsed > MAX_RESUME_AGE_MS) return null
             return ExamTimerState().start(preset, now = startedAt)
-                .copy(pausedAt = pausedAt, pausedMillis = pausedMillis).tick(now)
+                .copy(pausedAt = pausedAt, pausedMillis = pausedMillis, autoParked = parkAuto).tick(now)
         }
     }
 }
