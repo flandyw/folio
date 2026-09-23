@@ -1,21 +1,38 @@
 import java.util.Properties
 import java.util.Base64
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Derive every local and release build from the same full Git commit count.
-fun gitOutput(vararg args: String): String? = runCatching {
-    val process = ProcessBuilder(listOf("git", "-C", rootProject.projectDir.absolutePath) + args)
-        .redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-    if (process.waitFor() == 0) output else null
-}.getOrNull()
+abstract class PrintReleaseVersionTask : DefaultTask() {
+    @get:Input
+    abstract val versionCode: Property<Int>
 
-val automaticVersionCode = gitOutput("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+    @get:Input
+    abstract val versionName: Property<String>
+
+    @get:Input
+    abstract val releaseTag: Property<String>
+
+    @TaskAction
+    fun printReleaseVersion() {
+        println("VERSION_CODE=${versionCode.get()}")
+        println("VERSION_NAME=${versionName.get()}")
+        println("RELEASE_TAG=${releaseTag.get()}")
+    }
+}
+
+// Derive every local and release build from the same full Git commit count.
+val automaticVersionCode = providers.exec {
+    commandLine("git", "-C", rootProject.projectDir.absolutePath, "rev-list", "--count", "HEAD")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { it.trim().toIntOrNull() ?: 1 }.get()
 require(automaticVersionCode in 1..2_100_000_000) { "Generated Android versionCode is out of range" }
 val automaticVersionName = "${automaticVersionCode / 100}.${(automaticVersionCode / 10) % 10}.${automaticVersionCode % 10}"
 // The updater in already-installed builds reads the final number in a v0.2.N
@@ -94,12 +111,10 @@ android {
     // compileOptions.targetCompatibility (Java 17, see above).
 }
 
-tasks.register("printReleaseVersion") {
-    doLast {
-        println("VERSION_CODE=$automaticVersionCode")
-        println("VERSION_NAME=$automaticVersionName")
-        println("RELEASE_TAG=$automaticReleaseTag")
-    }
+tasks.register<PrintReleaseVersionTask>("printReleaseVersion") {
+    versionCode.set(automaticVersionCode)
+    versionName.set(automaticVersionName)
+    releaseTag.set(automaticReleaseTag)
 }
 
 // AGP 9 puts android.jar first on the unit-test *compile* classpath, while the
