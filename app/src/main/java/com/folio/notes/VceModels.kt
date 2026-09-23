@@ -448,8 +448,8 @@ data class ExamTimerState(
     val pausedMillis: Long = 0L,
     /**
      * True when the clock was parked by the app itself — pen idleness, a hidden editor, an unseen
-     * gap — rather than by hand. A pen stroke starts an auto-parked sitting again; one parked by
-     * the Pause button waits for its owner.
+     * gap — rather than by hand. Kept for display (Stopped vs Paused); a pen stroke starts any
+     * paused sitting again while the auto-start setting is on.
      */
     val autoParked: Boolean = false
 ) {
@@ -536,13 +536,13 @@ data class ExamTimerState(
     }
     /**
      * What a pen stroke on the page should do to this sitting by itself: a first stroke starts a
-     * fresh sitting or starts an app-parked one again, while a sitting parked by hand and a clock
-     * already running or finished are left alone. Erasing and other edits only count as activity.
+     * fresh sitting, and a stroke on any paused sitting starts it again where it stopped. A clock
+     * already running or finished is left alone. Erasing and other edits only count as activity.
      */
     fun autoActionOnPenDown(autoStart: Boolean, beginsStroke: Boolean): TimerAutoAction = when {
         !autoStart || !beginsStroke -> TimerAutoAction.NONE
         phase == ExamTimerPhase.IDLE -> TimerAutoAction.START
-        paused && autoParked -> TimerAutoAction.RESUME
+        paused -> TimerAutoAction.RESUME
         else -> TimerAutoAction.NONE
     }
     /**
@@ -579,8 +579,8 @@ data class ExamTimerState(
          * is derived from the start moment, and a deadline that passed while the app was closed
          * comes back as Pens down rather than being silently discarded. Callers clamp unseen gaps
          * first ([clampUnseenGap]), so this catch-up only ever covers moments the user was
-         * confirmed to be looking. [parkAuto] restores whether the park was the app's own, so a
-         * sitting parked by idleness still starts again on the next pen stroke after a restart.
+         * confirmed to be looking. [parkAuto] restores whether the park was the app's own, only
+         * used for display (Stopped vs Paused).
          * Returns null when there is nothing sane to restore: no preset,
          * a missing or future start moment, or a record older than [MAX_RESUME_AGE_MS].
          */

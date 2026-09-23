@@ -386,6 +386,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         return
     }
     fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
+    /** Deletes one card from a list row's long-press menu — same flow as the detail screen. */
+    fun deleteCard(id: String) {
+        if (working) return
+        working = true
+        scope.launch {
+            try {
+                model.deleteMistake(id)
+                if (detail == id) detail = null
+                reviewQueue = reviewQueue.filterNot { it == id }
+                showTransient("Card deleted · handwriting kept on this device.")
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { showTransient("Could not delete this card. Please try again.") }
+            finally { working = false }
+        }
+    }
     val scopeCount = listOf(subject, paper, category).count { it.isNotBlank() }
     val localNotes = remember(folioState.notes) { folioState.notes.filter { it.mistakePractice }.sortedByDescending { it.updated } }
     val unfinishedByMistake = remember(folioState.notes, state.userId) {
@@ -524,7 +539,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     fullWidthItem { Text("Pick up where you left off", style = MaterialTheme.typography.titleLarge) }
                                     items(unfinished.take(3), key = { "resume-${it.id}" }) { m ->
                                         MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], true, attemptCountMap[m.id] ?: 0,
-                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working)
+                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
                                     }
                                 }
                                 if (due.isNotEmpty()) {
@@ -536,7 +551,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     }
                                     items(due.take(5), key = { "due-${it.id}" }) { m ->
                                         MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
-                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working)
+                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
                                     }
                                 }
                             } else {
@@ -563,7 +578,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), ::clearFilters) }
                                 items(visible, key = { it.id }) { m ->
                                     MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
-                                        attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail)
+                                        attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
+                                        onDelete = { deleteCard(m.id) })
                                 }
                             }
                         }

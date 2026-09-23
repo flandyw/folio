@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
 import android.content.SharedPreferences
@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -193,10 +195,14 @@ object EditorQuickPrefs {
 /**
  * A round ink swatch, shared by the toolbar quick colours and the colour sheet so every colour in
  * the app is the same circle. The check mark flips to black on light colours so it stays readable.
+ * A long-press runs [onLongClick] (usually "more colours") beside the tap that picks the colour.
  */
-@Composable fun InkColorDot(color: Int, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, touch: Dp = 40.dp, dot: Dp = 26.dp, label: String = "Ink colour") {
+@Composable fun InkColorDot(color: Int, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, touch: Dp = 40.dp, dot: Dp = 26.dp, label: String = "Ink colour", onLongClick: (() -> Unit)? = null) {
+    val haptics = LocalHapticFeedback.current
     Box(
-        modifier.size(touch).clip(CircleShape).clickable(onClick = onClick).semanticsLabel("$label #${InkColors.hex(color)}${if (selected) ", selected" else ""}"),
+        modifier.size(touch).clip(CircleShape)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick?.let { action -> { haptics.performHapticFeedback(HapticFeedbackType.LongPress); action() } })
+            .semanticsLabel("$label #${InkColors.hex(color)}${if (selected) ", selected" else ""}"),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -288,6 +294,7 @@ object EditorQuickPrefs {
                     selected = preset.colors == quickColors,
                     onClick = { quick.applyPreset(group, preset); load(quick.colors(group)) },
                     label = { Text(preset.name) },
+                    modifier = Modifier.longPressAction { quick.deletePreset(group, preset) },
                     trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { quick.deletePreset(group, preset) }) }
                 )
             }
@@ -332,6 +339,7 @@ object EditorQuickPrefs {
                 selected = preset.tool == tool && preset.color == options.color && preset.width == options.width,
                 onClick = { },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
+                modifier = Modifier.longPressAction { presets.delete(preset.id) },
                 trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { presets.delete(preset.id) }) }
             )
         }

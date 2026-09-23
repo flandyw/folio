@@ -18,7 +18,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
-/** Keep one toggle mounted so press and selection changes morph between Expressive shapes. */
+/**
+ * Keep one toggle mounted so press and selection changes morph between Expressive shapes.
+ * A long-press runs [onLongClick] (the tool's secondary action) without stealing the tap.
+ */
 @Composable internal fun FolioToolToggle(
     selected: Boolean,
     onClick: () -> Unit,
@@ -26,8 +29,9 @@ import androidx.compose.ui.unit.dp
     label: String,
     /** Current ink colour shown as a dot, so the pen reads its colour without opening options. */
     indicatorColor: Color? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
-    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(44.dp).then(if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier), contentAlignment = Alignment.Center) {
         FilledTonalIconToggleButton(
             checked = selected,
             // Tapping the active pen still opens its options rather than deselecting the tool.

@@ -19,6 +19,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.FolioViewModel
 import com.folio.notes.Notebook
+import com.folio.notes.guardUiTouches
+import com.folio.notes.longPressAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -248,6 +250,7 @@ private fun HandwritingNotebookRow(
 ) {
     var size by remember(note.id, note.updated) { mutableStateOf<Long?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var rowMenu by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
     LaunchedEffect(note.id, note.updated, note.pages.size) {
         size = try { folio.repository.notebookSize(note.id) } catch (_: Exception) { null }
@@ -264,7 +267,9 @@ private fun HandwritingNotebookRow(
     val date = remember(note.updated) {
         runCatching { handwritingDateFormat.get()!!.format(Date(note.updated)) }.getOrDefault("")
     }
-    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+    // Long-pressing the card offers the same open/delete pair as its buttons.
+    Box {
+    ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.longPressAction { rowMenu = true }) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -299,6 +304,11 @@ private fun HandwritingNotebookRow(
                 }
             }
         }
+    }
+    DropdownMenu(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches()) {
+        DropdownMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+        DropdownMenuItem({ Text("Delete practice page") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+    }
     }
     if (confirmDelete) {
         AlertDialog(

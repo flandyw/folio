@@ -53,7 +53,7 @@ import kotlin.math.roundToInt
                 val selected = category
                 if (selected == null) {
                     Text("Make Folio your own", style = MaterialTheme.typography.headlineSmall)
-                    SectionHint("Choose a category to adjust your writing space. Changes are saved automatically.")
+                    SectionHint("Choose a category to adjust your writing space. Changes are saved automatically. Hold a switch to put it back to its default.")
                     SettingsCategory.entries.forEach { item ->
                         Surface(onClick = { category = item }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -175,8 +175,10 @@ private enum class SettingsCategory(val title: String, val description: String) 
     ACCOUNT("Account & updates", "ExamTrack sync and Folio updates")
 }
 
-@Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+@Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true, onReset: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth()
+        .then(if (onReset != null) Modifier.longPressAction(onReset) else Modifier)
+        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Switch(checked, onCheckedChange = null, enabled = enabled)
     }
@@ -202,6 +204,9 @@ private enum class SettingsCategory(val title: String, val description: String) 
     PreferenceSwitch(title, subtitle, checked, {
         checked = it
         p.edit().putBoolean(key, it).apply()
+    }, onReset = {
+        checked = default
+        p.edit().putBoolean(key, default).apply()
     })
 }
 
@@ -493,7 +498,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         readingMinutes = it
         p.edit().putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()).apply()
     }, valueRange = AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(), steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1)
-    PreferenceSwitch("Start the timer on pen down", "Put the pen on the page and the exam clock starts by itself, using the Custom timer settings above. A clock that stopped for idleness starts again on the next stroke; one you paused by hand stays paused.", autoStart, {
+    PreferenceSwitch("Start the timer on pen down", "Put the pen on the page and the exam clock starts by itself, using the Custom timer settings above. A paused clock starts again on the next stroke.", autoStart, {
         autoStart = it
         p.edit().putBoolean(AppPrefs.TIMER_AUTO_START, it).apply()
     })

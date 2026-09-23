@@ -332,6 +332,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var pageFilter by rememberSaveable(note.id) { mutableStateOf(PageFilter.ALL) }
     var namedPage by remember { mutableStateOf<NotePage?>(null) }
     var pageTitle by remember { mutableStateOf("") }
+    var pageMenuFor by remember { mutableStateOf<String?>(null) }
     var movingPage by remember { mutableStateOf<String?>(null) }
     var destinationPage by remember { mutableStateOf("") }
     var deletingPage by remember { mutableStateOf<String?>(null) }
@@ -421,6 +422,17 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (page.infinite) return
         scope.launch {
             snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it > index + 1 }
+            pages.scrollToItem(index)
+            model.selectPage(index)
+        }
+    }
+    /** Waits for the lazy list to grow, then lands on a page created mid-notebook. */
+    fun revealNewPage(index: Int) {
+        motion.reset()
+        if (page.infinite) return
+        val expected = note.pages.size + 2 // the fresh page plus the trailing Add button
+        scope.launch {
+            snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it >= expected }
             pages.scrollToItem(index)
             model.selectPage(index)
         }
@@ -517,15 +529,20 @@ private fun paperLabel(p: Paper): String = when (p) {
             onRename = { renameTitle = note.title; rename = true },
             onRetrySave = model::retrySave,
             onClose = model::close,
-            timer = { ExamTimerChip(state.timer, 48.dp) { timerPanel = true } },
+            timer = { ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true } },
             pageIndex = state.pageIndex,
             pageCount = note.pages.size,
             onPrevious = { jumpTo(state.pageIndex - 1) },
             onNext = { jumpTo(state.pageIndex + 1) },
             onPages = { pageBrowser = true },
+            onFirstPage = { jumpTo(0) },
+            onLastPage = { jumpTo(note.pages.size - 1) },
             zoomPercent = (documentZoom * 100).roundToInt(),
             onFit = ::resetZoom,
+            onFitAll = if (page.infinite) ::fitAllContent else null,
             onAdd = ::addPage,
+            onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
+            onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
             actions = {
                 IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Editor settings") }
                 IconButton(onExport, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Export or share") }
@@ -753,18 +770,31 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                                 selectionPill = if (item.id == page.id && selected.isNotEmpty()) selectionPill else null)
                             // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                                if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
-                                Text(
-                                    item.title.ifBlank { "Page ${index + 1}" } + " · ${index + 1} / ${note.pages.size}",
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
+                            Box {
+                                Row(Modifier.longPressAction { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                    if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                    Text(
+                                        item.title.ifBlank { "Page ${index + 1}" } + " · ${index + 1} / ${note.pages.size}",
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(pageMenuFor == item.id, { pageMenuFor = null }, modifier = Modifier.guardUiTouches()) {
+                                    DropdownMenuItem({ Text("Name page") }, { pageMenuFor = null; namedPage = item; pageTitle = item.title }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                    DropdownMenuItem({ Text(if (item.bookmarked) "Remove bookmark" else "Bookmark page") }, { pageMenuFor = null; model.togglePageBookmark(item.id) }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
+                                    DropdownMenuItem({ Text(if (item.redoFlag) "Clear redo flag" else "Flag to redo") }, { pageMenuFor = null; model.setPageRedoFlag(note.id, item.id, !item.redoFlag) }, leadingIcon = { Icon(Icons.Rounded.OutlinedFlag, null) })
+                                    HorizontalDivider()
+                                    DropdownMenuItem({ Text("Insert page after") }, { pageMenuFor = null; revealNewPage(model.insertPage(index + 1)) }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                                    DropdownMenuItem({ Text("Duplicate page") }, { pageMenuFor = null; model.duplicatePage(index)?.let { revealNewPage(it) } }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                    DropdownMenuItem({ Text("Move page…") }, { pageMenuFor = null; movingPage = item.id; destinationPage = (index + 1).toString() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
+                                    if (note.pages.size > 1) DropdownMenuItem({ Text("Delete page") }, { pageMenuFor = null; deletingPage = item.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                                }
                             }
                         }
                     }
                     item {
-                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp), shapes = ButtonDefaults.shapes()) {
+                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp).longPressAction { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
                         }
                     }
@@ -840,17 +870,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Box {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (writingFollowEnabled) "Writing follow on" else "Writing follow off") } }, state = rememberTooltipState()) {
-                                IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Rounded.SwipeRight, "Writing follow options",
-                                            tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                                        if (writingFollowEnabled) Box(
-                                            Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(7.dp)
-                                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                        )
-                                    }
-                                }
+                            // Tap opens the follow menu; a hold flips writing follow on and off at once.
+                            IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp).longPressAction {
+                                writingFollowEnabled = !writingFollowEnabled
+                                appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
+                                followView?.suspendWritingFollow(clearBack = false)
+                            }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.SwipeRight, "Writing follow options — hold to toggle",
+                                    tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                             }
                             DropdownMenu(followMenu, { followMenu = false }, modifier = Modifier.guardUiTouches()) {
                                 DropdownMenuItem(
@@ -909,33 +936,20 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                         }
                         if (writingFollowEnabled) {
-                            TooltipBox(
-                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                                tooltip = {
-                                    PlainTooltip {
-                                        Text(
-                                            if (followPreferences.mode == FollowMode.TEXT) "Text follow — tap for Maths"
-                                            else "Maths follow — tap for Text"
-                                        )
-                                    }
-                                },
-                                state = rememberTooltipState()
-                            ) {
-                                IconButton(
-                                    {
-                                        followPreferences = followPreferences.copy(
-                                            mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
-                                        )
-                                    },
-                                    enabled = !peekHeld,
-                                    modifier = Modifier.size(40.dp),
-                                    shapes = IconButtonDefaults.shapes()) {
-                                    Icon(
-                                        if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
-                                        if (followPreferences.mode == FollowMode.TEXT) "Text follow — switch to Maths" else "Maths follow — switch to Text",
-                                        tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                            IconButton(
+                                {
+                                    followPreferences = followPreferences.copy(
+                                        mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
                                     )
-                                }
+                                },
+                                enabled = !peekHeld,
+                                modifier = Modifier.size(40.dp).longPressAction { followSettingsOpen = true },
+                                shapes = IconButtonDefaults.shapes()) {
+                                Icon(
+                                    if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
+                                    if (followPreferences.mode == FollowMode.TEXT) "Text follow — switch to Maths, hold for follow settings" else "Maths follow — switch to Text, hold for follow settings",
+                                    tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                )
                             }
                             TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Next line") }
                             TextButton({ followView?.backWritingView() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Back") }
@@ -1464,7 +1478,7 @@ private fun paperLabel(p: Paper): String = when (p) {
  * The exam timer's place in the editor chrome: an icon while idle, the live clock while a sitting
  * is running, so the countdown stays visible without covering any of the page.
  */
-@Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+@Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
     Crossfade(targetState = active, label = "timerChip") { isActive ->
         if (!isActive) {
@@ -1481,6 +1495,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 tonalElevation = 1.dp,
                 shadowElevation = 1.dp,
                 modifier = Modifier.height(36.dp)
+                    .then(if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier)
             ) {
                 Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(
@@ -1546,11 +1561,9 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, indicatorColor: Color? = null, change: (Tool) -> Unit) {
-
-    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        FolioToolToggle(value == selected, { change(value) }, icon, label, indicatorColor = indicatorColor)
-    }
+@Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, indicatorColor: Color? = null, onLongPress: () -> Unit, change: (Tool) -> Unit) {
+    // The tooltip yields to the long-press: holding a tool opens its settings instead.
+    FolioToolToggle(value == selected, { change(value) }, icon, label, indicatorColor = indicatorColor, onLongClick = onLongPress)
 }
 
 private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
@@ -1725,7 +1738,16 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
     var showWidth by remember { mutableStateOf(false) }
+    var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
+    // The strip's own long-press opens Edit toolbar. A tool or pinned preset claims the
+    // gesture first (and cancels the strip menu again if the strip handler ran first), so
+    // a hold over a button only ever opens that button's own action.
+    var childLongPressAt by remember { mutableLongStateOf(0L) }
+    fun claimStripLongPress() {
+        childLongPressAt = System.currentTimeMillis()
+        editToolbar = false
+    }
     var lastShape by rememberSaveable { mutableStateOf(Tool.LINE) }
     val toolbarLayout = toolbarLayoutState?.layout ?: ToolbarLayouts.default()
     val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
@@ -1756,7 +1778,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     @Composable fun QuickColors() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(horizontal = 2.dp)) {
             quick.colors(colorGroup).forEachIndexed { index, c ->
-                InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}")
+                InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}", onLongClick = { onPalette(true) })
             }
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
                 IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
@@ -1767,14 +1789,13 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     @Composable fun WidthControl() {
         Box {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Stroke width ${String.format(java.util.Locale.ROOT, "%.1f", options.width)} pt — tap to adjust") } }, state = rememberTooltipState()) {
-                AssistChip(
-                    onClick = { showWidth = true },
-                    label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp)) },
-                    modifier = Modifier.height(32.dp)
-                )
-            }
+            // Long-press jumps past the width slider straight to the tool's full settings.
+            AssistChip(
+                onClick = { showWidth = true },
+                label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
+                leadingIcon = { Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp)) },
+                modifier = Modifier.height(32.dp).longPressAction { onPalette(true) }
+            )
             DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
                 Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Stroke width", style = MaterialTheme.typography.titleSmall)
@@ -1826,14 +1847,13 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 Tool.ELLIPSE -> Icons.Rounded.Circle
                 else -> Icons.Rounded.CropSquare
             }
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (isShape) "Shapes, ${tool.name.lowercase()} — tap for options" else "Shapes — tap for ${lastShape.name.lowercase()}") } }, state = rememberTooltipState()) {
-                Box {
-                    FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
-                        if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes")
-                    Icon(Icons.Rounded.ArrowDropDown, null,
-                        Modifier.align(Alignment.BottomEnd).size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            Box {
+                FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
+                    if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes",
+                    onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
+                Icon(Icons.Rounded.ArrowDropDown, null,
+                    Modifier.align(Alignment.BottomEnd).size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(shapePicker, { shapePicker = false }, modifier = Modifier.guardUiTouches()) {
                 listOf(
@@ -1850,13 +1870,13 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
         when (slot) {
-            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot)) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot), onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.SHAPES -> ShapesSlot()
-            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot)) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser") { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text") { pick(it) }
-            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select") { pick(it) }
-            ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom") { pick(it) }
+            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot), onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { pick(it) }
+            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
+            ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
         }
     }
     val controls: @Composable RowScope.() -> Unit = {
@@ -1875,7 +1895,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ) {
             toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
             pinnedPresets.forEach { preset ->
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
+                Box {
                     FilterChip(
                         selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
                         onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
@@ -1883,8 +1903,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                         leadingIcon = {
                             Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
                         },
-                        modifier = Modifier.widthIn(max = 112.dp).height(32.dp)
+                        modifier = Modifier.widthIn(max = 112.dp).height(32.dp).longPressAction { claimStripLongPress(); presetMenu = preset.id }
                     )
+                    DropdownMenu(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches()) {
+                        DropdownMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(Icons.Rounded.PushPin, null) })
+                        DropdownMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                    }
                 }
             }
         }
@@ -1950,13 +1974,16 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // Both surfaces hug their content within the available viewport. Only the tool tray
     // and contextual settings scroll, leaving history and More fixed at either end.
     // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
+    // A tool or preset's own long-press claims the gesture instead (see claimStripLongPress).
     Column(modifier.guardUiTouches().widthIn(max = 520.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             Modifier.height(50.dp).combinedClickable(
                 onClick = {},
                 onLongClick = {
-                    feedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (toolbarLayoutState != null) editToolbar = true
+                    if (System.currentTimeMillis() - childLongPressAt > 400) {
+                        feedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (toolbarLayoutState != null) editToolbar = true
+                    }
                 },
                 onLongClickLabel = "Edit toolbar"
             ),
@@ -1975,7 +2002,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
                             quick.colors(colorGroup).forEachIndexed { index, c ->
-                                InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}")
+                                InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}", onLongClick = { onPalette(true) })
                             }
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)

@@ -163,8 +163,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     /**
-     * Leaving a notebook parks its clock, so time away never counts. The park is the app's own, so
-     * writing in that notebook again starts it back up unless it was parked by hand.
+     * Leaving a notebook parks its clock, so time away never counts. Writing in that notebook
+     * again starts the parked clock back up while the auto-start setting is on.
      */
     private fun selectNotebookTimer(id: String?, now: Long = System.currentTimeMillis()) {
         if (id == timerNotebookId) return
@@ -487,6 +487,25 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                         selectNotebookTimer(null)
                         _state.update { it.copy(activeId = null) }
                         adjacent?.let { open(it.notebookId) }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Closes every open document except [keepId] — the tab strip's long-press shortcut. */
+    fun closeOtherTabs(keepId: String) {
+        captureTab()
+        enqueue {
+            withContext(Dispatchers.Main.immediate) {
+                if (_state.value.saveFailed) {
+                    reportError("Couldn't close the documents. Retry save first.")
+                } else {
+                    _state.update { state ->
+                        state.copy(
+                            tabs = state.tabs.filter { it.id == keepId || it.notebookId == keepId },
+                            companion = state.companion?.takeUnless { it.notebookId != keepId }
+                        )
                     }
                 }
             }
@@ -873,6 +892,22 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(note.withPage(page.copy(bookmarked = !page.bookmarked)))
     }
 
+    /** Bookmarks or unbookmarks a page in any notebook — the review lists span the library. */
+    fun setPageBookmarked(noteId: String, pageId: String, bookmarked: Boolean) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        if (page.bookmarked == bookmarked) return
+        updateNote(note.withPage(page.copy(bookmarked = bookmarked)))
+    }
+
+    /** Sets or clears any page's redo flag from the library's redo queue. */
+    fun setPageRedoFlag(noteId: String, pageId: String, flagged: Boolean) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        if (page.redoFlag == flagged) return
+        updateNote(note.withPage(page.copy(redoFlag = flagged)))
+    }
+
     fun setPaper(paper: Paper) { val p = _state.value.page ?: return; replacePage(p.copy(paper = paper)) }
     /** Stores a page's new content, journaling the smallest edit and remembering how to undo it. */
     private fun replacePage(page: NotePage) {
@@ -1241,9 +1276,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     /**
      * The smart timer's pen hook. A first stroke starts the clock by itself — a fresh sitting with
-     * the Custom timer settings, or an app-parked sitting back where it stopped — while erasing and
-     * the rest of a stroke only count as activity, so idleness never stops a clock in use. A sitting
-     * parked by hand waits for its owner.
+     * the Custom timer settings — and a stroke on a paused sitting starts it again where it
+     * stopped, while erasing and the rest of a stroke only count as activity, so idleness never
+     * stops a clock in use.
      */
     fun onPenActivity(beginsStroke: Boolean, now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
@@ -1298,7 +1333,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
     }
-    /** Pauses by hand, which the pen never undoes by itself; only Resume does. */
+    /** Pauses the clock; the next pen stroke starts it again while the auto-start setting is on. */
     fun toggleTimerPause() {
         if (_state.value.active == null) return
         val current = _state.value.timer

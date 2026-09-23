@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.dp
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Choose which pages to save or share. A PDF keeps them in order; PNG saves one image per page.",
+                "Choose which pages to save or share. A PDF keeps them in order; PNG saves one image per page. Long-press a page to pick only that one.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -151,7 +151,7 @@ import androidx.compose.ui.unit.dp
                     val page = note.pages[index]
                     val checked = index in selected
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier.fillMaxWidth().longPressAction { selected = setOf(index); rangeError = null },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(

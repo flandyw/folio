@@ -70,6 +70,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
     var reviewTab by rememberSaveable { mutableStateOf(ReviewTab.REDO) }
     var sortMenu by remember { mutableStateOf(false) }
     var sidebarImportMenu by remember { mutableStateOf(false) }
+    var newButtonMenu by remember { mutableStateOf(false) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var bulkMove by remember { mutableStateOf(false) }
@@ -80,6 +81,8 @@ enum class ReviewTab { REDO, BOOKMARKS }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
     var folderMenu by remember { mutableStateOf(false) }
+    var menuFolder by remember { mutableStateOf<Folder?>(null) }
+    var sidebarNewMenu by remember { mutableStateOf(false) }
     var renameFolder by remember { mutableStateOf<Folder?>(null) }
     var deleteFolder by remember { mutableStateOf<Folder?>(null) }
     val examFilter = state.examFilter
@@ -111,10 +114,18 @@ enum class ReviewTab { REDO, BOOKMARKS }
             if (wide) Surface(Modifier.width(200.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Brand(); Spacer(Modifier.height(16.dp))
-                    FilledTonalButton(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
+                    Box {
+                        FilledTonalButton(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).longPressAction { sidebarNewMenu = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
+                        DropdownMenu(sidebarNewMenu, { sidebarNewMenu = false }, modifier = Modifier.guardUiTouches()) {
+                            DropdownMenuItem({ Text("New notebook") }, { sidebarNewMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text("Import PDF document") }, { sidebarNewMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
+                            DropdownMenuItem({ Text("Import Folio backup") }, { sidebarNewMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
+                            DropdownMenuItem({ Text("New folder") }, { sidebarNewMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
+                        }
+                    }
                     Spacer(Modifier.height(12.dp))
                     NavItem("Library", Icons.Rounded.GridView, section == LibrarySection.LIBRARY && !starred && state.folderId == null, state.notes.size) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) }
-                    NavItem("Mistakes", Icons.Rounded.School, false, null, onMistakes)
+                    NavItem("Mistakes", Icons.Rounded.School, false, null) { onMistakes() }
                     NavItem("Review", Icons.AutoMirrored.Rounded.FactCheck, section == LibrarySection.REVIEW, reviewCount.takeIf { it > 0 }) { section = LibrarySection.REVIEW }
                     if (section == LibrarySection.REVIEW) {
                         Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -137,10 +148,16 @@ enum class ReviewTab { REDO, BOOKMARKS }
                         IconButton(onFolder, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        state.folders.forEach { folder -> NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) } }
+                        state.folders.forEach { folder -> Box {
+                            NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }, onLongClick = { menuFolder = folder }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) }
+                            DropdownMenu(menuFolder?.id == folder.id, { menuFolder = null }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("Rename folder") }, { menuFolder = null; renameFolder = folder }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                            }
+                        } }
                         if (state.folders.isEmpty()) Text("A place for every project.\nCreate your first folder.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    HorizontalDivider(); NavItem("Settings", Icons.Rounded.Tune, false, null, onSettings)
+                    HorizontalDivider(); NavItem("Settings", Icons.Rounded.Tune, false, null) { onSettings() }
                     Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.OfflinePin, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
                         Text("On your device. Always yours.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -154,7 +171,15 @@ enum class ReviewTab { REDO, BOOKMARKS }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                             if (!wide) Spacer(Modifier.weight(1f))
-                            if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
+                            if (!wide) Box {
+                                FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes(), modifier = Modifier.longPressAction { newButtonMenu = true }) { Icon(Icons.Rounded.Add, "New notebook") }
+                                DropdownMenu(newButtonMenu, { newButtonMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                    DropdownMenuItem({ Text("New notebook") }, { newButtonMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                                    DropdownMenuItem({ Text("Import PDF document") }, { newButtonMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
+                                    DropdownMenuItem({ Text("Import Folio backup") }, { newButtonMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
+                                    DropdownMenuItem({ Text("New folder") }, { newButtonMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
+                                }
+                            }
                             if (!wide) Box {
                                 var importMenu by remember { mutableStateOf(false) }
                                 IconButton({ importMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
@@ -202,9 +227,12 @@ enum class ReviewTab { REDO, BOOKMARKS }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             FilterChip(filtersExpanded || filtersActive, { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
+                                modifier = Modifier.longPressAction { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                 leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
                                 trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-                            TextButton({ selecting = !selecting; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
+                            TextButton({ selecting = !selecting; selectedIds = emptyList() },
+                                modifier = Modifier.longPressAction { selecting = true; selectedIds = notes.map { it.id } },
+                                shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                         }
                         if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -345,13 +373,15 @@ enum class ReviewTab { REDO, BOOKMARKS }
                     ReviewTab.REDO -> {
                         Text("Redo queue", style = MaterialTheme.typography.titleMedium)
                         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            RedoReviewContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(), scrollEnabled = false)
+                            RedoReviewContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(), scrollEnabled = false,
+                                onClearFlag = { noteId, pageId -> model.setPageRedoFlag(noteId, pageId, false) })
                         }
                     }
                     ReviewTab.BOOKMARKS -> {
                         Text("Bookmarks", style = MaterialTheme.typography.titleMedium)
                         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            BookmarkListContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth())
+                            BookmarkListContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(),
+                                onUnbookmark = { noteId, pageId -> model.setPageBookmarked(noteId, pageId, false) })
                         }
                     }
                 }
@@ -470,8 +500,8 @@ enum class ReviewTab { REDO, BOOKMARKS }
         Text("folio", fontFamily = FontFamily.Serif, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
     }
 }
-@Composable private fun NavItem(title: String, icon: ImageVector, selected: Boolean, count: Int?, action: () -> Unit) {
-    Surface(onClick = action, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
+@Composable private fun NavItem(title: String, icon: ImageVector, selected: Boolean, count: Int?, onLongClick: (() -> Unit)? = null, action: () -> Unit) {
+    Surface(onClick = action, modifier = if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(icon, null, Modifier.size(20.dp)); Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             count?.let { Text("$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

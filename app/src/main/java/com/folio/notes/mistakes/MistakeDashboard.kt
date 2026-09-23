@@ -9,11 +9,17 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.guardUiTouches
+import com.folio.notes.longPressAction
 
 @Composable internal fun ReviewDashboard(
     due: Int, total: Int, limit: Int, onLimit: (Int) -> Unit, shuffle: Boolean,
@@ -84,10 +90,15 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun MistakeLibraryRow(
     mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?, resume: Boolean,
     attempts: Int, onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean, selected: Boolean = false,
+    onDelete: (() -> Unit)? = null,
 ) {
+    // Long-pressing a card opens its context menu; the tap still opens the details.
+    var menu by remember { mutableStateOf(false) }
+    Box {
     OutlinedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp),
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+        modifier = Modifier.longPressAction { menu = true }) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "ExamTrack question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -106,6 +117,16 @@ import androidx.compose.ui.unit.dp
                 }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!mistake.suspended) FilledTonalButton(onPractice, enabled = !working, shapes = ButtonDefaults.shapes()) { Text(if (resume) "Continue" else "Practise") }
             }
+        }
+    }
+        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+            DropdownMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+            if (!mistake.suspended) DropdownMenuItem(
+                { Text(if (resume) "Continue handwritten review" else "Practise this question") },
+                { menu = false; onPractice() },
+                leadingIcon = { Icon(Icons.Rounded.Edit, null) }
+            )
+            if (onDelete != null) DropdownMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
         }
     }
 }

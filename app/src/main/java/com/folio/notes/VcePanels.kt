@@ -694,7 +694,7 @@ fun RedoReviewPanel(notes: List<Notebook>, onDismiss: () -> Unit, onOpen: (Strin
 
 /** The same redo queue without the dialog wrapper, for the Library's Review destination. */
 @Composable
-fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier, scrollEnabled: Boolean = true) {
+fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modifier: Modifier = Modifier, scrollEnabled: Boolean = true, onClearFlag: ((String, String) -> Unit)? = null) {
     // O(totalPages) scan memoized: recomputing per recomposition janked the redo list.
     val flagged = remember(notes) {
         notes.flatMap { note -> note.pages.mapIndexed { index, page -> Triple(note, index, page) }.filter { it.third.redoFlag } }
@@ -705,7 +705,7 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
             .padding(horizontal = 24.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-            Text("Pages you marked to try again, across every notebook. Clear a flag from the page's own menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Pages you marked to try again, across every notebook. Long-press a page to clear its flag, or use the page's own menu in the editor.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (flagged.isEmpty()) {
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Text(
@@ -719,17 +719,29 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         pages.forEach { (target, index, page) ->
-                            Surface(
-                                onClick = { onOpen(target.id, index) },
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Page ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                    if (page.paper == Paper.MC_SHEET) {
-                                        Icon(Icons.AutoMirrored.Rounded.FactCheck, "Multiple-choice answer sheet", Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            var menu by remember { mutableStateOf(false) }
+                            Box {
+                                Surface(
+                                    onClick = { onOpen(target.id, index) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = if (onClearFlag != null) Modifier.longPressAction { menu = true } else Modifier
+                                ) {
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Page ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                        if (page.paper == Paper.MC_SHEET) {
+                                            Icon(Icons.AutoMirrored.Rounded.FactCheck, "Multiple-choice answer sheet", Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${index + 1}", Modifier.size(16.dp))
                                     }
-                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${index + 1}", Modifier.size(16.dp))
+                                }
+                                DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+                                    DropdownMenuItem({ Text("Open page") }, { menu = false; onOpen(target.id, index) })
+                                    if (onClearFlag != null) DropdownMenuItem(
+                                        { Text("Clear redo flag") },
+                                        { menu = false; onClearFlag(target.id, page.id) },
+                                        leadingIcon = { Icon(Icons.Rounded.OutlinedFlag, null) }
+                                    )
                                 }
                             }
                         }
@@ -822,7 +834,7 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
                             Text(
                                 when {
                                     timer.paused && timer.autoParked -> "Stopped on its own — resume, or just keep writing"
-                                    timer.paused -> "Paused — resume when ready"
+                                    timer.paused -> "Paused — resume, or just keep writing"
                                     active -> "The clock is running"
                                     else -> "No pens yet — read the paper"
                                 },

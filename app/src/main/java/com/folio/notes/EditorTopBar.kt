@@ -44,9 +44,14 @@ import androidx.compose.ui.unit.dp
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPages: () -> Unit,
+    onFirstPage: () -> Unit,
+    onLastPage: () -> Unit,
     zoomPercent: Int,
     onFit: () -> Unit,
+    onFitAll: (() -> Unit)? = null,
     onAdd: () -> Unit,
+    onInsertPage: () -> Unit,
+    onDuplicatePage: () -> Unit,
     actions: @Composable RowScope.() -> Unit
 ) {
     Surface(modifier = Modifier.guardUiTouches(), color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp, shadowElevation = 1.dp) {
@@ -58,6 +63,9 @@ import androidx.compose.ui.unit.dp
                     // vertical page space on phones. Everything stays reachable via
                     // horizontal scroll; nothing is dropped or moved into menus.
                     var notebookMenu by remember { mutableStateOf(false) }
+                    var pageMenu by remember { mutableStateOf(false) }
+                    var zoomMenu by remember { mutableStateOf(false) }
+                    var addMenu by remember { mutableStateOf(false) }
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                             .padding(horizontal = 2.dp, vertical = 1.dp),
@@ -66,7 +74,7 @@ import androidx.compose.ui.unit.dp
                     ) {
                         IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 160.dp))
+                            modifier = Modifier.widthIn(max = 160.dp).longPressAction(onRename))
                         val statusColor = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                         Icon(when {
                             saveFailed -> Icons.Rounded.ErrorOutline
@@ -92,18 +100,40 @@ import androidx.compose.ui.unit.dp
                         IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page", Modifier.size(20.dp))
                         }
-                        TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }, contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
-                            Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                        Box {
+                            TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }
+                                .longPressAction { pageMenu = true }, contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
+                                Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                            }
+                            DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
+                                DropdownMenuItem({ Text("Last page") }, { pageMenu = false; onLastPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
+                                DropdownMenuItem({ Text("Browse pages") }, { pageMenu = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
+                            }
                         }
                         IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page", Modifier.size(20.dp))
                         }
-                        TextButton(onFit, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes(),
-                            modifier = Modifier.semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }) {
-                            Text("$zoomPercent%", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                        Box {
+                            TextButton(onFit, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes(),
+                                modifier = Modifier.semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }
+                                    .then(if (onFitAll != null) Modifier.longPressAction { zoomMenu = true } else Modifier)) {
+                                Text("$zoomPercent%", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                            }
+                            DropdownMenu(zoomMenu, { zoomMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("Reset zoom to 100%") }, { zoomMenu = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                                if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { zoomMenu = false; onFitAll() }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
+                            }
                         }
-                        FilledTonalIconButton(onAdd, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Add, "Add page", Modifier.size(20.dp))
+                        Box {
+                            FilledTonalIconButton(onAdd, modifier = Modifier.size(36.dp).longPressAction { addMenu = true }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.Add, "Add page", Modifier.size(20.dp))
+                            }
+                            DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("Add page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                                DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                            }
                         }
                         Box {
                             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
@@ -142,9 +172,14 @@ import androidx.compose.ui.unit.dp
                             onPrevious = onPrevious,
                             onNext = onNext,
                             onPages = onPages,
+                            onFirstPage = onFirstPage,
+                            onLastPage = onLastPage,
                             zoomPercent = zoomPercent,
                             onFit = onFit,
+                            onFitAll = onFitAll,
                             onAdd = onAdd,
+                            onInsertPage = onInsertPage,
+                            onDuplicatePage = onDuplicatePage,
                             modifier = Modifier
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) { actions() }
@@ -171,7 +206,8 @@ import androidx.compose.ui.unit.dp
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
         Column(Modifier.weight(1f).padding(vertical = 1.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.longPressAction(onRename))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 val statusColor = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 androidx.compose.animation.Crossfade(targetState = saveFailed to (pendingSaves > 0), label = "saveStatus") { (failed, saving) ->
@@ -222,34 +258,60 @@ import androidx.compose.ui.unit.dp
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPages: () -> Unit,
+    onFirstPage: () -> Unit,
+    onLastPage: () -> Unit,
     zoomPercent: Int,
     onFit: () -> Unit,
+    onFitAll: (() -> Unit)?,
     onAdd: () -> Unit,
+    onInsertPage: () -> Unit,
+    onDuplicatePage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var pageMenu by remember { mutableStateOf(false) }
+    var zoomMenu by remember { mutableStateOf(false) }
+    var addMenu by remember { mutableStateOf(false) }
     Row(modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(40.dp)) {
                 IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
-                TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
-                    Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                Box {
+                    TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }
+                        .longPressAction { pageMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
+                        Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                    }
+                    DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
+                        DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
+                        DropdownMenuItem({ Text("Last page") }, { pageMenu = false; onLastPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
+                        DropdownMenuItem({ Text("Browse pages") }, { pageMenu = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
+                    }
                 }
                 IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
             }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Zoom $zoomPercent% — tap to reset") } }, state = rememberTooltipState()) {
+        Box {
             Surface(onClick = onFit, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-                modifier = Modifier.height(40.dp).semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }) {
+                modifier = Modifier.height(40.dp).semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }
+                    .then(if (onFitAll != null) Modifier.longPressAction { zoomMenu = true } else Modifier)) {
                 Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.FitScreen, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("$zoomPercent%", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
+            DropdownMenu(zoomMenu, { zoomMenu = false }, modifier = Modifier.guardUiTouches()) {
+                DropdownMenuItem({ Text("Reset zoom to 100%") }, { zoomMenu = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { zoomMenu = false; onFitAll() }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
+            }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Add page") } }, state = rememberTooltipState()) {
-            FilledTonalIconButton(onAdd, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add page") }
+        Box {
+            FilledTonalIconButton(onAdd, modifier = Modifier.size(40.dp).longPressAction { addMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add page") }
+            DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
+                DropdownMenuItem({ Text("Add page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+            }
         }
     }
 }
