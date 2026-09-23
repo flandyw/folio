@@ -27,13 +27,36 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     val close: () -> Unit = { if (category != null) category = null else onBack() }
     BackHandler(onBack = close)
     val context = LocalContext.current
+    val backupPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    var backupTree by remember { mutableStateOf(backupPrefs.getString(LibraryAutoBackup.TREE_URI, null)) }
+    var backupFolderName by remember { mutableStateOf<String?>(null) }
+    var backupLastSuccess by remember { mutableLongStateOf(backupPrefs.getLong(LibraryAutoBackup.LAST_SUCCESS, 0L)) }
+    var backupLastError by remember { mutableStateOf(backupPrefs.getString(LibraryAutoBackup.LAST_ERROR, null)) }
+    DisposableEffect(backupPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                LibraryAutoBackup.TREE_URI -> backupTree = backupPrefs.getString(key, null)
+                LibraryAutoBackup.LAST_SUCCESS -> backupLastSuccess = backupPrefs.getLong(key, 0L)
+                LibraryAutoBackup.LAST_ERROR -> backupLastError = backupPrefs.getString(key, null)
+            }
+        }
+        backupPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { backupPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    LaunchedEffect(context, backupTree) {
+        backupFolderName = backupTree?.let { raw ->
+            withContext(Dispatchers.IO) { LibraryAutoBackup.folderName(context, android.net.Uri.parse(raw)) }
+        }
+    }
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     val dynamicAvailable = Build.VERSION.SDK_INT >= 31
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -103,7 +126,37 @@ import kotlin.math.roundToInt
                             PreferenceSwitch("Pure black dark", "Use true black backgrounds whenever the dark theme is active. Accents and ink colors stay the same.", amoled, onAmoled)
                             PrefsSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
                         }
-                        SettingsCategory.LIBRARY -> LibraryDefaultsSection()
+                        SettingsCategory.LIBRARY -> {
+                            LibraryDefaultsSection()
+                            HorizontalDivider()
+                            SectionTitle("Automatic library backup")
+                            SectionHint("Folio backs up after saved changes and once a day. It keeps one current backup in a subfolder of the location you choose.")
+                            backupTree?.let {
+                                Text("Folder: ${backupFolderName ?: "Selected location"}", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (backupLastSuccess > 0L) {
+                                Text("Last backup: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(backupLastSuccess))}",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (backupTree != null) {
+                                Text("No automatic backup has completed yet.", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            backupLastError?.let { Text("Backup issue: $it", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error) }
+                            OutlinedButton(onChooseBackupFolder, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) {
+                                Text(if (backupTree == null) "Choose backup folder" else "Change backup folder")
+                            }
+                            if (backupTree != null) {
+                                OutlinedButton(onBackupNow, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Back up now") }
+                                TextButton(onDisableAutoBackup, enabled = !backupBusy) { Text("Turn off automatic backup") }
+                            }
+                            HorizontalDivider()
+                            SectionTitle("Manual library backup")
+                            SectionHint("Save a separate file wherever you like, or restore a backup alongside your current notebooks.")
+                            OutlinedButton(onBackupLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Save library backup") }
+                            OutlinedButton(onRestoreLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Restore library backup") }
+                        }
                         SettingsCategory.WRITING -> {
                             PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
                             PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
@@ -155,7 +208,7 @@ import kotlin.math.roundToInt
                                     Text("Checking…")
                                 } else Text("Check for updates")
                             }
-                            SectionHint("Your notebooks stay on this device. Export a PDF to share your work, or a .folio backup to keep an editable copy.")
+                            SectionHint("Your notebooks stay on this device. Use Library & notebooks to save or restore the entire library.")
                         }
                     }
                 }

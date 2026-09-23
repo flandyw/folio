@@ -2,6 +2,7 @@ package com.folio.notes
 
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -23,6 +24,7 @@ object NotebookArchive {
     const val MAX_PDF_BYTES = 256L * 1024 * 1024
     /** The same bound for a single placed image; phone photos are far smaller than this. */
     const val MAX_IMAGE_BYTES = 48L * 1024 * 1024
+    const val MAX_NOTE_BYTES = 64L * 1024 * 1024
 
     private val imageIdPattern = Regex("[a-zA-Z0-9-]+")
 
@@ -67,18 +69,20 @@ object NotebookArchive {
             while (true) {
                 val entry = zip.nextEntry ?: break
                 when {
-                    entry.name == ENTRY_NOTE -> json = zip.readBytes().toString(Charsets.UTF_8)
+                    entry.name == ENTRY_NOTE -> {
+                        require(json == null) { "Duplicate notebook entry" }
+                        json = readBounded(zip, MAX_NOTE_BYTES).toString(Charsets.UTF_8)
+                    }
                     entry.name == ENTRY_PDF -> {
-                        val bytes = zip.readBytes()
-                        require(bytes.size.toLong() <= MAX_PDF_BYTES) { "This backup's PDF is too large to import" }
+                        require(pdf == null) { "Duplicate PDF entry" }
+                        val bytes = readBounded(zip, MAX_PDF_BYTES)
                         pdf = bytes
                     }
                     entry.name.startsWith(ENTRY_IMAGE_PREFIX) && entry.name.length > ENTRY_IMAGE_PREFIX.length -> {
-                        val id = entry.name.removePrefix(ENTRY_IMAGE_PREFIX).take(64)
+                        val id = entry.name.removePrefix(ENTRY_IMAGE_PREFIX)
                         if (imageIdPattern.matches(id)) {
-                            if (entry.size > MAX_IMAGE_BYTES) error("This backup's image is too large to import")
-                            val bytes = zip.readBytes()
-                            require(bytes.size.toLong() <= MAX_IMAGE_BYTES) { "This backup's image is too large to import" }
+                            require(id.length <= 64 && id !in images) { "Invalid image entry" }
+                            val bytes = readBounded(zip, MAX_IMAGE_BYTES)
                             images[id] = bytes
                         }
                     }
@@ -88,5 +92,19 @@ object NotebookArchive {
         }
         val note = json?.let(NoteCodec::decode) ?: error("This file is not a Folio backup")
         return ArchivedNotebook(note, pdf, images)
+    }
+
+    private fun readBounded(input: InputStream, max: Long): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            total += n
+            require(total <= max) { "Backup entry is too large" }
+            output.write(buffer, 0, n)
+        }
+        return output.toByteArray()
     }
 }

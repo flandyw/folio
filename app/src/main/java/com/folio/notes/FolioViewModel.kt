@@ -11,14 +11,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 class FolioApplication : Application() {
     val repository by lazy { NoteRepository(this) }
     val thumbnails by lazy { PageThumbnailCache(this, repository) }
     val storageScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Serializes library backup reads against the app's persisted write queue. */
+    val storageGate = Mutex()
     /** App-scoped so a pen connection survives configuration changes but is still editor-bound. */
     val penHaptics by lazy { PenHapticsManager(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        LibraryAutoBackup.ensureScheduled(this)
+    }
 }
 /** Text search over the open notebook's imported PDF: what was asked and what matched. */
 data class PdfSearchState(
@@ -92,6 +101,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+    @Volatile private var autoBackupDirty = false
     /**
      * Per-page undo/redo stacks of edits, not whole page copies: a pen stroke's inverse is the few
      * indices it added, so history stays small and can be written to disk on every edit.
@@ -183,8 +193,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     init {
         (application as FolioApplication).storageScope.launch {
             for (write in writes) {
-                try { write() } catch (e: Exception) { _state.update { it.copy(saveFailed = true, error = "Couldn't save changes: ${e.message}. Use Retry save before closing.") } }
-                finally { _state.update { it.copy(pendingSaves = (it.pendingSaves - 1).coerceAtLeast(0)) } }
+                try { (application as FolioApplication).storageGate.withLock { write() } }
+                catch (e: Exception) { _state.update { it.copy(saveFailed = true, error = "Couldn't save changes: ${e.message}. Use Retry save before closing.") } }
+                finally {
+                    var runAutoBackup = false
+                    _state.update { state ->
+                        val pending = (state.pendingSaves - 1).coerceAtLeast(0)
+                        runAutoBackup = pending == 0 && !state.saveFailed && autoBackupDirty
+                        if (runAutoBackup) autoBackupDirty = false
+                        state.copy(pendingSaves = pending)
+                    }
+                    if (runAutoBackup) LibraryAutoBackup.requestAfterSave(application)
+                }
             }
         }
         loadLibrary()
@@ -232,7 +252,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message}") }; ready.completeExceptionally(e) }
         }
     }
-    private fun enqueue(block: suspend () -> Unit) { _state.update { it.copy(pendingSaves = it.pendingSaves + 1) }; writes.trySend(block) }
+    private fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit) {
+        if (scheduleAutoBackup) autoBackupDirty = true
+        _state.update { it.copy(pendingSaves = it.pendingSaves + 1) }
+        writes.trySend(block)
+    }
     /** Records a change to the notebook itself — title, folder, star, or the order of pages. */
     private fun updateNote(note: Notebook) {
         val updated = note.copy(updated = System.currentTimeMillis())
@@ -684,8 +708,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 ready.await()
                 val live = _state.value.notes.find { it.id == note.id } ?: return@launch
                 val title = duplicateNotebookTitle(live.title, _state.value.notes.map { it.title }.toSet())
-                val copy = repository.duplicateNotebook(live, title)
+                val copy = getApplication<FolioApplication>().storageGate.withLock {
+                    repository.duplicateNotebook(live, title)
+                }
                 _state.update { it.copy(notes = it.notes + copy) }
+                LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
             } catch (e: Exception) {
                 reportError("Couldn't duplicate notebook: ${e.message}")
             }
@@ -1428,7 +1455,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             try {
                 ready.await()
                 importBatch(uris,
-                    importItem = { repository.importPdf(it, folderId) },
+                    importItem = { uri ->
+                        getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(uri, folderId) }
+                    },
                     onSuccess = { note ->
                         imported += note
                         _state.update { it.copy(notes = it.notes + note) }
@@ -1440,6 +1469,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                         _state.update { it.copy(importProgress = "Importing PDF $current of $total…") }
                     })
                 if (imported.isNotEmpty()) {
+                    LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                     captureTab()
                     selectNotebookTimer(if (uris.size == 1) imported.single().id else null)
                     _state.update { it.copy(activeId = if (uris.size == 1) imported.single().id else null,
@@ -1463,7 +1493,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         viewModelScope.launch {
             try {
                 ready.await()
-                val note = repository.importArchive(uri, _state.value.folderId)
+                val note = getApplication<FolioApplication>().storageGate.withLock {
+                    repository.importArchive(uri, _state.value.folderId)
+                }
+                LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                 captureTab()
                 selectNotebookTimer(note.id)
                 _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
@@ -1477,6 +1510,50 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         export {
             repository.exportArchive(note, uri)
             reportError("Notebook saved as a Folio backup")
+        }
+    }
+
+    /** Waits for the serialized save queue so the archive includes every committed edit. */
+    private suspend fun awaitSaved() {
+        ready.await()
+        val barrier = CompletableDeferred<Unit>()
+        enqueue(scheduleAutoBackup = false) { barrier.complete(Unit) }
+        barrier.await()
+        check(!_state.value.saveFailed) { "Some changes have not been saved. Use Retry save first." }
+    }
+
+    fun backupLibrary(uri: Uri) {
+        if (_state.value.busy || _state.value.exporting || _state.value.loadFailed) return
+        _state.update { it.copy(exporting = true) }
+        viewModelScope.launch {
+            try {
+                awaitSaved()
+                val count = getApplication<FolioApplication>().storageGate.withLock {
+                    val (notes, folders) = repository.load()
+                    repository.exportLibrary(uri, notes, folders)
+                    notes.size
+                }
+                reportError("Library backup saved ($count notebooks)")
+            } catch (e: Exception) { reportError("Library backup failed: ${e.message}") }
+            finally { _state.update { it.copy(exporting = false) } }
+        }
+    }
+
+    fun restoreLibrary(uri: Uri) {
+        if (_state.value.busy || _state.value.exporting || _state.value.loadFailed) return
+        _state.update { it.copy(busy = true, importProgress = "Checking library backup…") }
+        viewModelScope.launch {
+            try {
+                awaitSaved()
+                val snapshot = _state.value
+                val (notes, folders) = getApplication<FolioApplication>().storageGate.withLock {
+                    repository.importLibrary(uri, snapshot.folders)
+                }
+                _state.update { it.copy(notes = it.notes + notes, folders = it.folders + folders) }
+                LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
+                reportError("Restored ${notes.size} notebooks and ${folders.size} folders")
+            } catch (e: Exception) { reportError("Library restore failed: ${e.message}") }
+            finally { _state.update { it.copy(busy = false, importProgress = null) } }
         }
     }
     override fun onCleared() { writes.close(); super.onCleared() }

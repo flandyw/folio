@@ -34,6 +34,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.zip.ZipInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -383,9 +384,8 @@ class NoteRepository(private val context: Context) {
     suspend fun exportArchive(note: Notebook, uri: Uri) = withContext(Dispatchers.IO) {
         val full = loadPages(note)
         val pdf = File(storedDirectory(note.id), "source.pdf").takeIf { it.exists() }?.readBytes()
-        val images = full.pages.flatMap { it.images }.distinctBy { it.id }.mapNotNull { image ->
-            storedImageFile(note.id, image.id).takeIf { it.exists() }?.readBytes()?.let { image.id to it }
-        }.toMap()
+        require(full.pages.none { it.pdfIndex != null } || pdf != null) { "Source PDF is missing from ${note.title}" }
+        val images = archiveImages(full)
         context.contentResolver.openOutputStream(uri, "wt")?.use { NotebookArchive.write(full, pdf, images, it) }
             ?: error("Couldn't open the backup destination")
     }
@@ -397,6 +397,12 @@ class NoteRepository(private val context: Context) {
     suspend fun importArchive(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {
         val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it) }
             ?: error("This backup could not be opened")
+        importArchived(archived, folder)
+    }
+
+    private suspend fun importArchived(archived: ArchivedNotebook, folder: String?): Notebook {
+        require(archived.note.pages.none { it.pdfIndex != null } || archived.pdf != null) { "Backup is missing its source PDF" }
+        require(archived.note.pages.flatMap { it.images }.all { it.id in archived.images }) { "Backup is missing an image" }
         val newId = UUID.randomUUID().toString()
         val note = archived.note.copy(id = newId, folderId = folder, updated = System.currentTimeMillis(),
             mistakeReviews = archived.note.mistakeReviews.map { it.copy(practiceNotebookId = newId) })
@@ -408,7 +414,232 @@ class NoteRepository(private val context: Context) {
             }
             saveAll(note)
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
-        note
+        return note
+    }
+
+    /** Save the entire shelf through a SAF document, including folder organization. */
+    suspend fun exportLibrary(uri: Uri, notes: List<Notebook>, folders: List<Folder>) = withContext(Dispatchers.IO) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            val staging = File(context.cacheDir, "backup-${UUID.randomUUID()}").apply { mkdirs() }
+            try {
+                val payloads = mutableListOf<LibraryBackup.NotebookPayload>()
+                val assets = linkedMapOf<String, File>()
+                notes.forEach { summary ->
+                    val note = loadPages(summary)
+                    val pdfFile = File(storedDirectory(note.id), "source.pdf").takeIf { it.isFile }
+                    require(note.pages.none { it.pdfIndex != null } || pdfFile != null) {
+                        "Source PDF is missing from ${note.title}"
+                    }
+                    val pdfHash = pdfFile?.let { registerBackupAsset(it, assets) }
+                    val imageHashes = note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
+                        val file = storedImageFile(note.id, image.id).takeIf { it.isFile }
+                            ?: error("Image is missing from ${note.title}")
+                        image.id to registerBackupAsset(file, assets)
+                    }
+                    val noteFile = File(staging, "note-${checked(note.id)}.json")
+                    noteFile.writeText(NoteCodec.encode(note), Charsets.UTF_8)
+                    payloads += LibraryBackup.NotebookPayload(note.id, noteFile, pdfHash, imageHashes)
+                }
+                LibraryBackup.write(output, folders, payloads, assets)
+            } finally {
+                staging.deleteRecursively()
+            }
+        } ?: error("Couldn't open the backup destination")
+    }
+
+    private fun registerBackupAsset(file: File, assets: MutableMap<String, File>): String {
+        require(file.length() <= LibraryBackup.MAX_ENTRY_BYTES) { "Backup asset is too large" }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val hash = digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+        assets.putIfAbsent(hash, file)
+        return hash
+    }
+
+    private fun archiveImages(note: Notebook): Map<String, ByteArray> =
+        note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
+            image.id to (storedImageFile(note.id, image.id).takeIf { it.exists() }?.readBytes()
+                ?: error("Image is missing from ${note.title}"))
+        }
+
+    /** Validate every archive entry before adding anything to the existing library. */
+    suspend fun importLibrary(uri: Uri, existingFolders: List<Folder>): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
+        val staged = File(context.cacheDir, "restore-${UUID.randomUUID()}").apply { mkdirs() }
+        val added = mutableListOf<Notebook>()
+        try {
+            var manifest: LibraryBackup.Manifest? = null
+            val legacyFiles = mutableMapOf<String, File>()
+            val noteFiles = mutableMapOf<String, File>()
+            val assets = mutableMapOf<String, File>()
+            context.contentResolver.openInputStream(uri)?.use { source ->
+                ZipInputStream(source).use { zip ->
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        if (entry.name == LibraryBackup.MANIFEST) {
+                            require(manifest == null) { "Duplicate backup manifest" }
+                            val bytes = readBounded(zip, LibraryBackup.MAX_MANIFEST_BYTES)
+                            manifest = LibraryBackup.parseManifest(bytes.toString(Charsets.UTF_8))
+                        } else {
+                            val info = manifest ?: error("The library manifest must come first")
+                            when {
+                                info.version == 1 && entry.name.startsWith(LibraryBackup.NOTE_PREFIX) && entry.name.endsWith(".folio") -> {
+                                    val id = entry.name.removePrefix(LibraryBackup.NOTE_PREFIX).removeSuffix(".folio")
+                                    require(entry.name == LibraryBackup.entryName(id) && id !in legacyFiles) { "Invalid notebook entry" }
+                                    require(legacyFiles.size < LibraryBackup.MAX_NOTEBOOKS) { "Backup is too large" }
+                                    val file = File(staged, "legacy-$id.folio")
+                                    file.outputStream().use { out -> copyBounded(zip, out, LibraryBackup.MAX_ENTRY_BYTES) }
+                                    legacyFiles[id] = file
+                                }
+                                info.version == 2 && entry.name.startsWith(LibraryBackup.NOTE_PREFIX) -> {
+                                    val id = entry.name.removePrefix(LibraryBackup.NOTE_PREFIX).substringBefore('/')
+                                    require(LibraryBackup.validId(id) && entry.name == LibraryBackup.noteEntryName(id) && id !in noteFiles) {
+                                        "Invalid notebook entry"
+                                    }
+                                    require(noteFiles.size < LibraryBackup.MAX_NOTEBOOKS) { "Backup is too large" }
+                                    val file = File(staged, "notes/$id.json").apply { parentFile?.mkdirs() }
+                                    file.outputStream().use { out -> copyBounded(zip, out, NotebookArchive.MAX_NOTE_BYTES) }
+                                    noteFiles[id] = file
+                                }
+                                info.version == 2 && entry.name.startsWith(LibraryBackup.ASSET_PREFIX) -> {
+                                    val hash = entry.name.removePrefix(LibraryBackup.ASSET_PREFIX)
+                                    require(LibraryBackup.isHash(hash) && hash !in assets) { "Invalid backup asset" }
+                                    require(assets.size < LibraryBackup.MAX_ASSETS) { "Backup has too many assets" }
+                                    val file = File(staged, "assets/$hash").apply { parentFile?.mkdirs() }
+                                    file.outputStream().use { out -> copyBounded(zip, out, LibraryBackup.MAX_ENTRY_BYTES) }
+                                    assets[hash] = file
+                                }
+                                else -> error("Unexpected file in Folio library backup")
+                            }
+                        }
+                        zip.closeEntry()
+                    }
+                }
+            } ?: error("This backup could not be opened")
+            val info = manifest ?: error("This file is not a Folio library backup")
+            val foundNotebookIds = if (info.version == 1) legacyFiles.keys else noteFiles.keys
+            require(foundNotebookIds == info.notebookIds.toSet()) { "Backup is missing a notebook" }
+            val folderIds = info.folders.map { it.id }.toSet()
+            val legacyFolders = mutableMapOf<String, String?>()
+            val notebookFolders = mutableMapOf<String, String?>()
+            if (info.version == 1) {
+                // Decode every nested archive before the first write, catching damaged backups.
+                info.notebookIds.forEach { id ->
+                    val archived = legacyFiles.getValue(id).inputStream().use(NotebookArchive::read)
+                    require(archived.note.id == id &&
+                        (archived.note.folderId == null || archived.note.folderId in folderIds)) {
+                        "Notebook does not match the backup manifest"
+                    }
+                    require(archived.note.pages.flatMap { it.images }.all { it.id in archived.images }) {
+                        "Backup is missing an image"
+                    }
+                    require(archived.note.pages.none { it.pdfIndex != null } || archived.pdf != null) {
+                        "Backup is missing its source PDF"
+                    }
+                    legacyFolders[id] = archived.note.folderId
+                }
+            } else {
+                val refs = info.assetsByNotebook
+                val referencedHashes = refs.values.flatMap { listOfNotNull(it.pdfHash) + it.imageHashes.values }.toSet()
+                require(assets.keys == referencedHashes) { "Backup is missing an asset" }
+                require(referencedHashes.all { hash -> sha256(assets.getValue(hash)) == hash }) { "Backup asset checksum failed" }
+                refs.values.forEach { reference ->
+                    reference.pdfHash?.let { require(assets.getValue(it).length() <= NotebookArchive.MAX_PDF_BYTES) {
+                        "This backup's PDF is too large to import"
+                    } }
+                    reference.imageHashes.values.forEach { hash -> require(assets.getValue(hash).length() <= NotebookArchive.MAX_IMAGE_BYTES) {
+                        "This backup's image is too large to import"
+                    } }
+                }
+                info.notebookIds.forEach { id ->
+                    val note = NoteCodec.decode(noteFiles.getValue(id).readText(Charsets.UTF_8))
+                    val assetRefs = refs.getValue(id)
+                    val noteImageIds = note.pages.flatMap { it.images }.map { it.id }.toSet()
+                    require(note.id == id && (note.folderId == null || note.folderId in folderIds) &&
+                        noteImageIds == assetRefs.imageHashes.keys) {
+                        "Notebook does not match the backup manifest"
+                    }
+                    require(note.pages.none { it.pdfIndex != null } || assetRefs.pdfHash != null) {
+                        "Backup is missing its source PDF"
+                    }
+                    notebookFolders[id] = note.folderId
+                }
+            }
+            val folders = info.folders.map { it.copy(id = UUID.randomUUID().toString()) }
+            val folderMap = info.folders.map { it.id }.zip(folders.map { it.id }).toMap()
+            info.notebookIds.forEach { id ->
+                val targetFolder = if (info.version == 1) legacyFolders.getValue(id)
+                    else notebookFolders.getValue(id)
+                val mappedFolder = targetFolder?.let(folderMap::get)
+                added += if (info.version == 1) {
+                    val archived = legacyFiles.getValue(id).inputStream().use(NotebookArchive::read)
+                    importArchived(archived, mappedFolder)
+                } else {
+                    val note = NoteCodec.decode(noteFiles.getValue(id).readText(Charsets.UTF_8))
+                    importLibraryNote(note, info.assetsByNotebook.getValue(id), assets, mappedFolder)
+                }
+            }
+            saveFolders(existingFolders + folders)
+            added.toList() to folders
+        } catch (e: Exception) {
+            added.forEach { runCatching { delete(it.id) } }
+            throw e
+        } finally { staged.deleteRecursively() }
+    }
+
+    private fun readBounded(input: java.io.InputStream, max: Long): ByteArray =
+        java.io.ByteArrayOutputStream().use { output -> copyBounded(input, output, max); output.toByteArray() }
+
+    private fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream, max: Long) {
+        var count = 0L
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            count += n
+            require(count <= max) { "Backup entry is too large" }
+            output.write(buffer, 0, n)
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private suspend fun importLibraryNote(
+        archivedNote: Notebook,
+        references: LibraryBackup.AssetReference,
+        assets: Map<String, File>,
+        folder: String?
+    ): Notebook {
+        val newId = UUID.randomUUID().toString()
+        val note = archivedNote.copy(id = newId, folderId = folder, updated = System.currentTimeMillis(),
+            mistakeReviews = archivedNote.mistakeReviews.map { it.copy(practiceNotebookId = newId) })
+        val dir = directory(note.id)
+        try {
+            references.pdfHash?.let { assets.getValue(it).copyTo(File(dir, "source.pdf"), overwrite = true) }
+            references.imageHashes.forEach { (imageId, hash) ->
+                require(idPattern.matches(imageId)) { "Invalid image identifier" }
+                assets.getValue(hash).copyTo(imageFile(note.id, imageId), overwrite = true)
+            }
+            saveAll(note)
+        } catch (e: Exception) { dir.deleteRecursively(); throw e }
+        return note
     }
 
     // ---- Placed images -------------------------------------------------------------------

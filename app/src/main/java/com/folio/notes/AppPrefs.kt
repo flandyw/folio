@@ -29,6 +29,9 @@ object AppPrefs {
     const val EXPORT_PDF_MODE = "export.pdfMode"
     const val SPLIT_FRACTION = "workspace.splitFraction"
     const val TEXT_SIZE_KEY = "text.size"
+    const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
+    const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
+    const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
 
     const val DEFAULT_FULLSCREEN = true
     const val DEFAULT_KEEP_SCREEN_ON = false

@@ -132,6 +132,23 @@ import java.io.File
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { target -> state.active?.let { model.exportArchive(it, target) } }
     }
+    val saveLibraryBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let(model::backupLibrary)
+    }
+    val openLibraryBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(model::restoreLibrary)
+    }
+    val pickBackupFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                LibraryAutoBackup.enable(context.applicationContext, uri)
+            } catch (e: Exception) {
+                model.reportError("Couldn't keep access to that backup folder: ${e.message.orEmpty()}")
+            }
+        }
+    }
     fun exportTo(uri: android.net.Uri?) {
         val request = model.pendingExport ?: return
         model.pendingExport = null
@@ -370,7 +387,13 @@ import java.io.File
                     onCheckForUpdates = { checkForUpdates(showDialog = true) },
                     updateChecking = updateChecking,
                     onBack = { settings = false },
-                    onExamTrack = { settings = false; showMistakes = true })
+                    onExamTrack = { settings = false; showMistakes = true },
+                    onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
+                    onRestoreLibrary = { settings = false; openLibraryBackup.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
+                    onChooseBackupFolder = { pickBackupFolder.launch(null) },
+                    onBackupNow = { LibraryAutoBackup.requestNow(context.applicationContext) },
+                    onDisableAutoBackup = { LibraryAutoBackup.disable(context.applicationContext) },
+                    backupBusy = state.busy || state.exporting || state.loading || state.loadFailed)
             }
         }
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
