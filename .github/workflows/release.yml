@@ -46,11 +46,6 @@ jobs:
         with:
           ref: ${{ matrix.commit }}
           fetch-depth: 0
-      - name: Calculate version
-        run: |
-          count=$(git rev-list --count HEAD)
-          echo "VERSION_CODE=$count" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=0.2.$count" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -60,6 +55,10 @@ jobs:
           # Override the default list, which includes the unavailable legacy 'tools' package.
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
+      - name: Calculate version
+        run: |
+          set -euo pipefail
+          ./gradlew -q :app:printReleaseVersion >> "$GITHUB_ENV"
       - name: Check app
         env:
           EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
@@ -93,7 +92,7 @@ jobs:
           COMMIT: ${{ matrix.commit }}
         run: |
           set -euo pipefail
-          tag="v$VERSION_NAME"
+          tag="$RELEASE_TAG"
           if gh release view "$tag" >/dev/null 2>&1; then
             test "$(git rev-list -n 1 "$tag")" = "$COMMIT"
             echo "Release $tag already exists"

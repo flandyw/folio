@@ -752,6 +752,77 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
     }
 }
 
+// ---- Stopwatch -----------------------------------------------------------------------------------------
+
+/**
+ * The simple count-up stopwatch: start, pause/resume and reset. Runs independently of
+ * the exam countdown timer and keeps counting only while the pages are on screen —
+ * leaving the editor parks it, and the parked time never counts.
+ */
+@Composable
+fun StopwatchPanel(
+    stopwatch: StopwatchState, onDismiss: () -> Unit,
+    onStart: () -> Unit, onPauseResume: () -> Unit, onReset: () -> Unit
+) {
+    FolioPanel(title = "Stopwatch", onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (stopwatch.idle) {
+                Text(
+                    "Time how long the work takes: the clock counts up from zero and runs beside the exam timer.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onStart, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.PlayArrow, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Start stopwatch")
+                }
+            } else {
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "ELAPSED",
+                            style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Text(
+                            stopwatch.clockText(),
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Text(
+                            when {
+                                stopwatch.paused && stopwatch.autoParked -> "Stopped on its own — resume to carry on"
+                                stopwatch.paused -> "Paused"
+                                else -> "The stopwatch is running"
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+                Button(onPauseResume, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                    Icon(if (stopwatch.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (stopwatch.paused) "Resume stopwatch" else "Pause stopwatch")
+                }
+                OutlinedButton(onReset, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.RestartAlt, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reset to 0:00")
+                }
+            }
+        }
+    }
+}
+
 // ---- Timer ---------------------------------------------------------------------------------------------
 
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */

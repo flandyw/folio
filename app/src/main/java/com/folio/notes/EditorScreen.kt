@@ -344,6 +344,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var clear by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
     var timerPanel by remember { mutableStateOf(false) }
+    var stopwatchPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
     var markDialog by remember { mutableStateOf(false) }
     var pdfSearchOpen by remember { mutableStateOf(false) }
@@ -356,6 +357,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         while (true) {
             kotlinx.coroutines.delay(1000)
             model.tickTimer()
+            model.tickStopwatch()
         }
     }
     // The exam clock only runs while the pages are on screen: leaving the editor for the library
@@ -529,7 +531,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             onRename = { renameTitle = note.title; rename = true },
             onRetrySave = model::retrySave,
             onClose = model::close,
-            timer = { ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true } },
+            timer = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
+                    StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
+                }
+            },
             pageIndex = state.pageIndex,
             pageCount = note.pages.size,
             onPrevious = { jumpTo(state.pageIndex - 1) },
@@ -553,6 +560,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                         onClear = { clear = true }, onRetry = model::retrySave,
                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                        onStopwatch = { stopwatchPanel = true },
                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                         onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                         onContents = { pdfContentsOpen = true; loadOutline() },
@@ -1196,6 +1204,13 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSkip = model::skipTimerPhase,
         onPauseResume = model::toggleTimerPause
     )
+    if (stopwatchPanel) StopwatchPanel(
+        stopwatch = state.stopwatch,
+        onDismiss = { stopwatchPanel = false },
+        onStart = model::startStopwatch,
+        onPauseResume = model::toggleStopwatchPause,
+        onReset = model::resetStopwatch
+    )
     if (examPanel) ExamDetailsPanel(
         note = note,
         onDismiss = { examPanel = false },
@@ -1471,6 +1486,45 @@ private fun paperLabel(p: Paper): String = when (p) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${entry.title}")
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The stopwatch's place in the editor chrome: an icon while idle, the live count-up
+ * while it runs, so elapsed time stays visible without covering any of the page.
+ */
+@Composable private fun StopwatchChip(stopwatch: StopwatchState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    // The hold claims the gesture so the release after it never also opens the stopwatch panel.
+    val hold = rememberLongPressGuard()
+    Crossfade(targetState = stopwatch.active, label = "stopwatchChip") { isActive ->
+        if (!isActive) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Stopwatch") } }, state = rememberTooltipState()) {
+                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Stopwatch") }
+            }
+        } else {
+            Surface(
+                onClick = hold.click(onClick),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                tonalElevation = 1.dp,
+                shadowElevation = 1.dp,
+                modifier = Modifier.height(36.dp)
+                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(
+                        if (stopwatch.paused) Icons.Rounded.Pause else Icons.Rounded.Timer,
+                        null, Modifier.size(15.dp)
+                    )
+                    Text(
+                        if (stopwatch.paused) "${if (stopwatch.autoParked) "Stopped" else "Paused"} · ${stopwatch.clockText()}"
+                        else stopwatch.clockText(),
+                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false
+                    )
                 }
             }
         }
@@ -2223,7 +2277,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
     canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onStopwatch: () -> Unit = {}, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
@@ -2242,6 +2296,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
         DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
         DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
+        DropdownMenuItem({ Text("Stopwatch") }, { onDismiss(); onStopwatch() }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) })
         HorizontalDivider()
         DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
         DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })

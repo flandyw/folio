@@ -6,6 +6,22 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Derive every local and release build from the same full Git commit count.
+fun gitOutput(vararg args: String): String? = runCatching {
+    val process = ProcessBuilder(listOf("git", "-C", rootProject.projectDir.absolutePath) + args)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+    if (process.waitFor() == 0) output else null
+}.getOrNull()
+
+val automaticVersionCode = gitOutput("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+require(automaticVersionCode in 1..2_100_000_000) { "Generated Android versionCode is out of range" }
+val automaticVersionName = "${automaticVersionCode / 100}.${(automaticVersionCode / 10) % 10}.${automaticVersionCode % 10}"
+// The updater in already-installed builds reads the final number in a v0.2.N
+// tag as versionCode, so keep that tag shape while presenting x.y.z elsewhere.
+val automaticReleaseTag = "v0.2.$automaticVersionCode"
+
 android {
     namespace = "com.folio.notes"
     // compileSdk stays at 36; targetSdk stays 35 so no new runtime behavior is opted into.
@@ -14,8 +30,8 @@ android {
         applicationId = "com.folio.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.environmentVariable("VERSION_CODE").orElse("1").get().toInt()
-        versionName = providers.environmentVariable("VERSION_NAME").orElse("0.2.0").get()
+        versionCode = automaticVersionCode
+        versionName = automaticVersionName
         fun examTrackConfig(name: String, fallback: String): String {
             val local = Properties().apply {
                 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
@@ -76,6 +92,14 @@ android {
     }
     // jvmTarget is not set explicitly: built-in Kotlin defaults it to
     // compileOptions.targetCompatibility (Java 17, see above).
+}
+
+tasks.register("printReleaseVersion") {
+    doLast {
+        println("VERSION_CODE=$automaticVersionCode")
+        println("VERSION_NAME=$automaticVersionName")
+        println("RELEASE_TAG=$automaticReleaseTag")
+    }
 }
 
 // AGP 9 puts android.jar first on the unit-test *compile* classpath, while the

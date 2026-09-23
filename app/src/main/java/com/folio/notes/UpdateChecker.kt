@@ -94,9 +94,16 @@ class FolioUpdateChecker(private val context: Context) {
         }
         if (release.optBoolean("draft") || release.optBoolean("prerelease")) return null
 
-        val versionName = release.optString("tag_name").removePrefix("v")
-        val versionCode = versionName.substringAfterLast('.', "").toLongOrNull()
+        val releaseTag = release.optString("tag_name").removePrefix("v")
+        val versionCode = releaseTag.substringAfterLast('.', "").toLongOrNull()
             ?: throw IOException("The latest release has an invalid version")
+        // Release tags retain the old v0.2.N shape for installed clients that
+        // use its final component as versionCode. New release titles show the
+        // digit-packed app version instead.
+        val versionName = release.optString("name")
+            .removePrefix("Folio ")
+            .takeIf { it.matches(Regex("\\d+\\.\\d+\\.\\d+")) }
+            ?: releaseTag
         if (versionCode <= installedVersion) return null
 
         var apkName: String? = null

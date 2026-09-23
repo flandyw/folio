@@ -412,6 +412,103 @@ data class NotebookTemplate(
     }
 }
 
+// ---- Stopwatch -----------------------------------------------------------------------------------
+
+/**
+ * A simple count-up stopwatch that runs independently of the exam countdown timer.
+ * Pure state machine, so every transition is unit-testable without a clock.
+ * [elapsedSeconds] counts up while running and freezes while paused; it is derived
+ * from the start moment, so a sitting that survives a restart is still timed correctly.
+ */
+data class StopwatchState(
+    val startedAt: Long? = null,
+    val pausedAt: Long? = null,
+    val pausedMillis: Long = 0L,
+    /** Seconds elapsed, updated by [tick]. */
+    val elapsedSeconds: Int = 0,
+    /**
+     * True when the clock was parked by the app itself — a hidden editor or an unseen
+     * gap — rather than by hand. Kept for display (Stopped vs Paused).
+     */
+    val autoParked: Boolean = false
+) {
+    /** True before the first start or after a reset. */
+    val idle: Boolean get() = startedAt == null
+    /** True once started, whether running or paused. */
+    val active: Boolean get() = startedAt != null
+    val paused: Boolean get() = pausedAt != null
+    val running: Boolean get() = startedAt != null && pausedAt == null
+    private fun elapsedMillis(now: Long): Long =
+        ((pausedAt ?: now) - (startedAt ?: now) - pausedMillis).coerceAtLeast(0L)
+
+    /** The state one second later, or this state when the stopwatch is not running. */
+    fun tick(now: Long = System.currentTimeMillis()): StopwatchState {
+        if (startedAt == null) return this
+        val elapsed = (elapsedMillis(now) / 1000).toInt().coerceAtLeast(0)
+        return if (elapsed == elapsedSeconds) this else copy(elapsedSeconds = elapsed)
+    }
+    fun start(now: Long = System.currentTimeMillis()): StopwatchState =
+        copy(startedAt = now, pausedAt = null, pausedMillis = 0L, elapsedSeconds = 0, autoParked = false)
+    /** Parks the clock. [auto] marks a park by the app itself, as opposed to the Pause button. */
+    fun pause(now: Long = System.currentTimeMillis(), auto: Boolean = false): StopwatchState {
+        val current = tick(now)
+        return if (current.running) current.copy(pausedAt = now, autoParked = auto) else current
+    }
+    fun unpause(now: Long = System.currentTimeMillis()): StopwatchState {
+        val pausedSince = pausedAt ?: return this
+        return copy(pausedAt = null, autoParked = false, pausedMillis = pausedMillis + (now - pausedSince).coerceAtLeast(0L)).tick(now)
+    }
+    fun reset(): StopwatchState = StopwatchState()
+    /**
+     * Parks a sitting that came back running after the user stopped looking at the pages.
+     * Time after [lastSeen] never counts. Returns this state when it is not running, when
+     * [lastSeen] is unknown, or when the gap is within [graceMs] of continuous foreground use.
+     */
+    fun clampUnseenGap(lastSeen: Long?, now: Long, graceMs: Long = UNSEEN_GAP_GRACE_MS): StopwatchState {
+        if (!running || lastSeen == null || lastSeen <= 0L) return this
+        if (now - lastSeen <= graceMs) return this
+        return pause(lastSeen.coerceAtLeast(startedAt ?: lastSeen), auto = true)
+    }
+    /** "1:28:03" style, used by the stopwatch chip and panel. */
+    fun clockText(): String {
+        val total = elapsedSeconds.coerceAtLeast(0)
+        val hours = total / 3600
+        val minutes = (total % 3600) / 60
+        val seconds = total % 60
+        return if (hours > 0) String.format(java.util.Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
+        else String.format(java.util.Locale.ROOT, "%d:%02d", minutes, seconds)
+    }
+
+    companion object {
+        /** A stored sitting older than this is dropped rather than resurrected. */
+        private const val MAX_RESUME_AGE_MS = 48L * 60 * 60 * 1000
+
+        /**
+         * A restored sitting still running this long after its last confirmed-visible moment is
+         * treated as an unseen gap and parked, not caught up.
+         */
+        const val UNSEEN_GAP_GRACE_MS = 30_000L
+
+        /**
+         * Rebuilds a sitting that was already running when the app last stopped, from the start
+         * moment that was saved with it. Returns null when there is nothing sane to restore.
+         */
+        fun resume(
+            startedAt: Long?, now: Long = System.currentTimeMillis(),
+            pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false
+        ): StopwatchState? {
+            if (startedAt == null || startedAt <= 0 || startedAt > now) return null
+            if (pausedAt != null && (pausedAt < startedAt || pausedAt > now)) return null
+            val elapsed = (pausedAt ?: now) - startedAt - pausedMillis
+            if (pausedMillis < 0L || elapsed < 0L || elapsed > MAX_RESUME_AGE_MS) return null
+            return StopwatchState(
+                startedAt = startedAt, pausedAt = pausedAt,
+                pausedMillis = pausedMillis, autoParked = parkAuto
+            ).tick(now)
+        }
+    }
+}
+
 // ---- Timer ---------------------------------------------------------------------------------------
 
 /**
