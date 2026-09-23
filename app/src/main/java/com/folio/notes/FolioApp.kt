@@ -121,6 +121,13 @@ import java.io.File
     val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val exporter = remember { NoteExporter(model.repository) }
+    var pdfExportMode by remember {
+        mutableStateOf(AppPrefs.pdfExportMode(prefs.getString(AppPrefs.EXPORT_PDF_MODE, null)))
+    }
+    fun rememberPdfMode(mode: PdfExportMode) {
+        pdfExportMode = mode
+        prefs.edit().putString(AppPrefs.EXPORT_PDF_MODE, mode.name).apply()
+    }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> model.preparePdfImport(uris) }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importArchive) }
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -133,6 +140,8 @@ import java.io.File
         val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
         model.export {
             exporter.write(context.applicationContext, uri, request, pngScale)
+            // The request already carries the user-chosen PDF mode, so Save and Share
+            // never diverge: both honour the same explicit choice.
             val message = when (request.format) {
                 PageExportFormat.PDF -> if (request.indices.size == request.note.pages.size) "Notebook saved as PDF"
                     else if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PDF" else "${request.indices.size} pages saved as PDF"
@@ -189,7 +198,10 @@ import java.io.File
                         File(dir, name).also { out ->
                             out.outputStream().use { stream ->
                                 when (scoped.format) {
-                                    PageExportFormat.PDF -> exporter.writePdf(stream, scoped.note, scoped.indices)
+                                    PageExportFormat.PDF -> exporter.writePdf(
+                                        stream, scoped.note, scoped.indices,
+                                        scoped.pdfMode, context.applicationContext
+                                    )
                                     PageExportFormat.PNG -> exporter.write(stream, scoped, pngScale)
                                 }
                             }
@@ -367,8 +379,13 @@ import java.io.File
                 Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)
                 Text("Export a notebook or just this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
+                val activeNote = state.active
+                if (activeNote != null && shouldShowPdfQuality(activeNote)) {
+                    PdfQualitySection(selected = pdfExportMode, onSelect = ::rememberPdfMode)
+                    Spacer(Modifier.height(4.dp))
+                }
                 ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
-                    state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF)) }; exportMenu = false
+                    state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF, pdfExportMode)) }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.Image, "Save page as image", "A crisp PNG of the current page") {
                     state.active?.let { launchExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
@@ -382,12 +399,17 @@ import java.io.File
                 ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
                     exportMenu = false
                     val note = state.active ?: return@ExportOption
+                    val mode = pdfExportMode
                     model.export {
                         try {
                             val file = withContext(Dispatchers.IO) {
                                 val dir = exportCacheDir(context.cacheDir)
                                 pruneExportCache(dir)
-                                File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file -> file.outputStream().use { exporter.writePdf(it, note, note.pages.indices.toList()) } }
+                                File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file ->
+                                    file.outputStream().use {
+                                        exporter.writePdf(it, note, note.pages.indices.toList(), mode, context.applicationContext)
+                                    }
+                                }
                             }
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
                             val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); clipData = ClipData.newRawUri("Notebook", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -405,9 +427,11 @@ import java.io.File
             else ExportPagesDialog(
                 note = note,
                 initialIndex = state.pageIndex,
+                initialPdfMode = pdfExportMode,
                 onDismiss = { pageExportDialog = false },
-                onExport = { request -> pageExportDialog = false; launchExport(request) },
-                onShare = { request -> pageExportDialog = false; shareExport(request) }
+                onExport = { request -> pageExportDialog = false; rememberPdfMode(request.pdfMode); launchExport(request) },
+                onShare = { request -> pageExportDialog = false; rememberPdfMode(request.pdfMode); shareExport(request) },
+                onPdfModeChange = ::rememberPdfMode
             )
         }
         if (updateDialog) AlertDialog(

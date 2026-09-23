@@ -490,12 +490,16 @@ class NoteRepository(private val context: Context) {
     // ---- Imported PDF navigation -----------------------------------------------------------
 
     /** Loads pdfbox's bundled resources once; extraction without it fails on some font tables. */
-    private fun ensurePdfBox() {
+    fun ensurePdfBox() {
         if (!pdfBoxReady) {
             PDFBoxResourceLoader.init(context)
             pdfBoxReady = true
         }
     }
+
+    /** The notebook's imported source PDF file, or null when it has none. No disk writes. */
+    fun sourcePdfFile(noteId: String): File? =
+        File(storedDirectory(noteId), "source.pdf").takeIf { it.exists() }
 
     /** Keeps one cached readout per recent notebook; the oldest goes when another arrives. */
     private fun <T> evictPdfCache(cache: MutableMap<String, T>, noteId: String) {

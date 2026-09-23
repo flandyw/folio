@@ -264,7 +264,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
-    LaunchedEffect(followPreferences, writingHand, tool) { followView?.suspendWritingFollow() }
+    LaunchedEffect(followPreferences, writingHand, tool) { followView?.suspendWritingFollow(clearBack = false) }
     fun configureFollow(view: InkView) {
         view.followPreferences = followPreferences
         view.writingRegions = writingRegions
@@ -858,7 +858,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     {
                                         writingFollowEnabled = !writingFollowEnabled
                                         appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
-                                        followView?.suspendWritingFollow()
+                                        followView?.suspendWritingFollow(clearBack = false)
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
                                     trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }

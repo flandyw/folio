@@ -24,6 +24,7 @@ object AppPrefs {
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"
     const val TIMER_READING_MIN = "timer.readingMinutes"
     const val EXPORT_PNG_SCALE = "export.pngScale"
+    const val EXPORT_PDF_MODE = "export.pdfMode"
     const val SPLIT_FRACTION = "workspace.splitFraction"
     const val TEXT_SIZE_KEY = "text.size"
 
@@ -77,6 +78,8 @@ object AppPrefs {
     fun pngScale(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_PNG_SCALE
         else value.coerceIn(PNG_SCALE_MIN, PNG_SCALE_MAX)
+
+    fun pdfExportMode(raw: String?): PdfExportMode = PdfExportMode.safeValueOf(raw)
 
     fun splitFraction(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_SPLIT

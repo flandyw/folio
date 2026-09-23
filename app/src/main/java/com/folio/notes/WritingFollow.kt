@@ -19,6 +19,22 @@ data class WritingFollowState(
 )
 enum class WritingHand(val direction: Float) { RIGHT(1f), LEFT(-1f) }
 
+/** A requested or clamped glide must not replace the last movement that Back can undo. */
+internal class FollowBackHistory {
+    data class Entry(val x: Float, val y: Float, val state: WritingFollowState)
+    var entry: Entry? = null
+        private set
+    private var pending: WritingFollowState? = null
+    fun begin(state: WritingFollowState) { pending = state }
+    fun cancelPending() { pending = null }
+    fun clear() { entry = null; pending = null }
+    fun moved(x: Float, y: Float) {
+        if (x == 0f && y == 0f) return
+        pending?.let { entry = Entry(0f, 0f, it); pending = null }
+        entry = entry?.let { it.copy(x = it.x + x, y = it.y + y) }
+    }
+}
+
 class WritingFollow {
     var state = WritingFollowState()
     /** Corrections behind the writing frontier must not move the page. */

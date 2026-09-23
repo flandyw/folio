@@ -43,14 +43,17 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun ExportPagesDialog(
     note: Notebook,
     initialIndex: Int,
+    initialPdfMode: PdfExportMode = PdfExportMode.PRESERVE,
     onDismiss: () -> Unit,
     onExport: (PageExportRequest) -> Unit,
-    onShare: (PageExportRequest) -> Unit
+    onShare: (PageExportRequest) -> Unit,
+    onPdfModeChange: ((PdfExportMode) -> Unit)? = null
 ) {
     var selected by remember(note.id, initialIndex) {
         mutableStateOf(if (note.pages.isEmpty()) emptySet() else setOf(initialIndex.coerceIn(0, note.pages.lastIndex)))
     }
     var format by remember(note.id) { mutableStateOf(PageExportFormat.PDF) }
+    var pdfMode by remember(note.id) { mutableStateOf(initialPdfMode) }
     var rangeText by remember(note.id) { mutableStateOf("") }
     var rangeError by remember { mutableStateOf<String?>(null) }
 
@@ -83,6 +86,15 @@ import androidx.compose.ui.unit.dp
                     "Saving several PNGs makes one .zip file; sharing sends each image separately.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (format == PageExportFormat.PDF && shouldShowPdfQuality(note)) {
+                PdfQualitySection(
+                    selected = pdfMode,
+                    onSelect = {
+                        pdfMode = it
+                        onPdfModeChange?.invoke(it)
+                    }
                 )
             }
             OutlinedTextField(
@@ -202,7 +214,7 @@ import androidx.compose.ui.unit.dp
                 val count = selected.size
                 val indices = normalizeExportIndices(selected, note.pages.size)
                 Button(
-                    onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format)) },
+                    onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format, pdfMode)) },
                     enabled = selected.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                     shapes = ButtonDefaults.shapes()
@@ -219,7 +231,7 @@ import androidx.compose.ui.unit.dp
                     )
                 }
                 FilledTonalButton(
-                    onClick = { if (indices.isNotEmpty()) onShare(PageExportRequest(note, indices, format)) },
+                    onClick = { if (indices.isNotEmpty()) onShare(PageExportRequest(note, indices, format, pdfMode)) },
                     enabled = selected.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                     shapes = ButtonDefaults.shapes()

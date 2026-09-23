@@ -3,7 +3,51 @@ package com.folio.notes
 /** Which file a page-range export produces. PNG with one page is a single image; with several it is a zip. */
 enum class PageExportFormat { PDF, PNG }
 
-data class PageExportRequest(val note: Notebook, val indices: List<Int>, val format: PageExportFormat)
+/**
+ * How a PDF export treats an imported source document.
+ *
+ * PRESERVE keeps the original page content (searchable text, vectors, links where safely
+ * possible) and adds Folio annotations as an overlay, so quality and structure survive.
+ * RASTERISE flattens each composed page (source + Folio ink/highlighter/shapes/text/images)
+ * into a single image, maximising downstream compatibility with weak renderers, parsers
+ * and document-analysis tools at the cost of selectable text and larger files.
+ */
+enum class PdfExportMode {
+    PRESERVE, RASTERISE;
+    companion object {
+        fun safeValueOf(name: String?): PdfExportMode =
+            try { valueOf(name ?: "") } catch (_: Exception) { PRESERVE }
+    }
+}
+
+data class PageExportRequest(
+    val note: Notebook,
+    val indices: List<Int>,
+    val format: PageExportFormat,
+    val pdfMode: PdfExportMode = PdfExportMode.PRESERVE
+)
+
+/** True when the notebook holds at least one imported-PDF page. */
+fun hasPdfPages(note: Notebook): Boolean = note.pages.any { it.pdfIndex != null }
+
+/** True when the PDF-quality choice should be offered for this notebook. */
+fun shouldShowPdfQuality(note: Notebook): Boolean = hasPdfPages(note)
+
+/** True when the page carries visible Folio content worth overlaying. */
+fun pageHasAnnotations(page: NotePage): Boolean =
+    page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.text.isNotBlank() }
+
+/**
+ * True when the export is every notebook page in source order with no native pages,
+ * so bookmarks and document structures can be carried over 1:1. Anything selective,
+ * reordered or mixed must skip outlines rather than mis-point them.
+ */
+fun isIdentityPdfExport(note: Notebook, selected: List<Int>, sourcePages: Int): Boolean {
+    if (selected.size != note.pages.size) return false
+    if (selected.size != sourcePages) return false
+    if (selected != note.pages.indices.toList()) return false
+    return note.pages.mapIndexed { index, page -> page.pdfIndex == index }.all { it }
+}
 
 /**
  * Keeps only valid page indices, de-duplicated and in reading order, so an export can never

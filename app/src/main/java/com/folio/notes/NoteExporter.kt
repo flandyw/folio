@@ -3,7 +3,6 @@ package com.folio.notes
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,55 +10,88 @@ import java.io.File
 import java.io.OutputStream
 
 class NoteExporter(private val repository: NoteRepository) {
-    suspend fun write(context: Context, uri: Uri, note: Notebook, pageIndex: Int, png: Boolean, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { write(it, note, pageIndex, png, pngScale) } ?: error("Couldn't open the export destination")
+    suspend fun write(
+        context: Context,
+        uri: Uri,
+        note: Notebook,
+        pageIndex: Int,
+        png: Boolean,
+        pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE,
+        pdfMode: PdfExportMode = PdfExportMode.PRESERVE
+    ): Unit = withContext(Dispatchers.IO) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use {
+            write(it, note, pageIndex, png, pngScale, pdfMode, context.applicationContext)
+        } ?: error("Couldn't open the export destination")
     }
-    suspend fun write(output: OutputStream, note: Notebook, pageIndex: Int, png: Boolean, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
+    suspend fun write(
+        output: OutputStream,
+        note: Notebook,
+        pageIndex: Int,
+        png: Boolean,
+        pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE,
+        pdfMode: PdfExportMode = PdfExportMode.PRESERVE,
+        context: Context? = null
+    ): Unit = withContext(Dispatchers.IO) {
         if (png) writeSinglePng(output, note, pageIndex, pngScale)
-        else writePdf(output, note, note.pages.indices.toList())
+        else writePdf(output, note, note.pages.indices.toList(), pdfMode, context)
     }
 
     /** Writes exactly the requested pages, as a PDF or as one PNG (single page) or a zip of PNGs. */
     suspend fun write(context: Context, uri: Uri, request: PageExportRequest, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { write(it, request, pngScale) } ?: error("Couldn't open the export destination")
+        context.contentResolver.openOutputStream(uri, "wt")?.use { write(it, request, pngScale, context.applicationContext) } ?: error("Couldn't open the export destination")
     }
 
-    suspend fun write(output: OutputStream, request: PageExportRequest, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
+    suspend fun write(
+        output: OutputStream,
+        request: PageExportRequest,
+        pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE,
+        context: Context? = null
+    ): Unit = withContext(Dispatchers.IO) {
         val indices = normalizeExportIndices(request.indices, request.note.pages.size)
         require(indices.isNotEmpty()) { "Select at least one page to export" }
         val scoped = request.copy(indices = indices)
         when (scoped.format) {
-            PageExportFormat.PDF -> writePdf(output, scoped.note, scoped.indices)
+            PageExportFormat.PDF -> writePdf(output, scoped.note, scoped.indices, scoped.pdfMode, context)
             PageExportFormat.PNG -> if (scoped.indices.size == 1) writeSinglePng(output, scoped.note, scoped.indices.first(), pngScale)
                 else writePngZip(output, scoped.note, scoped.indices, pngScale)
         }
     }
 
-    /** A PDF holding exactly [indices] in notebook order, reading one page at a time. */
-    suspend fun writePdf(output: OutputStream, note: Notebook, indices: List<Int>): Unit = withContext(Dispatchers.IO) {
+    /**
+     * A PDF holding exactly [indices] in notebook order, reading one page at a time.
+     *
+     * PRESERVE keeps source text/vectors and overlays Folio content; RASTERISE flattens
+     * each composed page into an image for maximum compatibility. A [context] is required
+     * for PRESERVE (PDFBox resources + temp dir); without one PRESERVE falls back to RASTERISE
+     * rather than failing.
+     */
+    suspend fun writePdf(
+        output: OutputStream,
+        note: Notebook,
+        indices: List<Int>,
+        mode: PdfExportMode = PdfExportMode.PRESERVE,
+        context: Context? = null
+    ): Unit = withContext(Dispatchers.IO) {
         val selected = normalizeExportIndices(indices, note.pages.size)
         require(selected.isNotEmpty()) { "Select at least one page to export" }
-        // The imported PDF is parsed once here and reused, so a long notebook isn't reparsed per page.
-        repository.openPdf(note.id).use { source ->
-            val document = PdfDocument()
-            try {
-                selected.forEachIndexed { number, pageIndex ->
-                    // Each page is read from disk just before it is drawn, so exporting a long notebook
-                    // never holds more than one page's ink in memory at a time.
-                    val page = note.pages.getOrNull(pageIndex) ?: return@forEachIndexed
-                    val loaded = InkRenderer.exportPage(content(note, page))
-                    val factor = minOf(1f, 14400f / loaded.width, 14400f / loaded.height)
-                    val pdfPage = document.startPage(PdfDocument.PageInfo.Builder((loaded.width * factor).toInt().coerceAtLeast(1), (loaded.height * factor).toInt().coerceAtLeast(1), number + 1).create())
-                    pdfPage.canvas.scale(factor, factor)
-                    val background = source?.render(loaded, 1680)
-                    val images = repository.loadImages(note.id, loaded)
-                    try { InkRenderer.page(pdfPage.canvas, loaded, background, images = images) } finally { background?.recycle(); images.values.forEach { it.recycle() } }
-                    document.finishPage(pdfPage)
-                }
-                document.writeTo(output)
-            } finally { document.close() }
+        when (mode) {
+            PdfExportMode.RASTERISE -> RasterPdfExporter.write(output, note, selected, repository)
+            PdfExportMode.PRESERVE -> {
+                val ctx = context
+                if (ctx != null) PreservedPdfExporter.write(output, note, selected, repository, ctx)
+                else RasterPdfExporter.write(output, note, selected, repository)
+            }
         }
     }
+
+    /** Context-aware overload so callers with a Context always get true PRESERVE behaviour. */
+    suspend fun writePdfWithContext(
+        context: Context,
+        output: OutputStream,
+        note: Notebook,
+        indices: List<Int>,
+        mode: PdfExportMode = PdfExportMode.PRESERVE
+    ): Unit = writePdf(output, note, indices, mode, context)
 
     /** One PNG per selected page, zipped so a single document-picker destination is enough. */
     suspend fun writePngZip(output: OutputStream, note: Notebook, indices: List<Int>, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {

@@ -57,6 +57,13 @@ class AppPrefsTests {
         assertEquals(72f, AppPrefs.textSize(999f))
     }
 
+    @Test fun pdfExportModeDefaultsToPreserve() {
+        assertEquals(PdfExportMode.PRESERVE, AppPrefs.pdfExportMode(null))
+        assertEquals(PdfExportMode.PRESERVE, AppPrefs.pdfExportMode("BOGUS"))
+        assertEquals(PdfExportMode.PRESERVE, AppPrefs.pdfExportMode("PRESERVE"))
+        assertEquals(PdfExportMode.RASTERISE, AppPrefs.pdfExportMode("RASTERISE"))
+    }
+
     @Test fun coverIndexStaysInRange() {
         assertTrue(CoverColors.isNotEmpty())
         assertEquals(0, AppPrefs.defaultCover(-5))
