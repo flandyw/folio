@@ -49,19 +49,17 @@ internal fun holdsPenFromScrolling(type: PointerType, consumed: Boolean): Boolea
  * take is left completely alone — the whole gesture is ignored — so ink is never at risk, and
  * finger scrolling over the column keeps working because only pen contacts are held.
  */
-internal fun Modifier.holdPenFromScrolling(): Modifier = composed {
-    pointerInput(Unit) {
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            if (!isPen(down.type)) return@awaitEachGesture
-            val claimed = awaitPointerEvent(PointerEventPass.Final)
-                .changes.firstOrNull { it.id == down.id }?.isConsumed == true
-            if (claimed) return@awaitEachGesture
-            do {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                event.changes.forEach { if (holdsPenFromScrolling(it.type, it.isConsumed)) it.consume() }
-            } while (event.changes.any { it.pressed })
-        }
+internal fun Modifier.holdPenFromScrolling(): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        if (!isPen(down.type)) return@awaitEachGesture
+        val claimed = awaitPointerEvent(PointerEventPass.Final)
+            .changes.firstOrNull { it.id == down.id }?.isConsumed == true
+        if (claimed) return@awaitEachGesture
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            event.changes.forEach { if (holdsPenFromScrolling(it.type, it.isConsumed)) it.consume() }
+        } while (event.changes.any { it.pressed })
     }
 }
 

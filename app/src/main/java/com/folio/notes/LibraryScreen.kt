@@ -514,7 +514,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             }
             if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate)
         }
-        ExamBadges(note, redoCount, Modifier.padding(top = 4.dp))
+        ExamBadges(note, modifier = Modifier.padding(top = 4.dp), redoCount = redoCount)
     }
 }
 

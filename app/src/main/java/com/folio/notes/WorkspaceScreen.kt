@@ -10,8 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,7 +47,7 @@ import androidx.compose.ui.unit.dp
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     TextButton({ model.open(tab.notebookId) }, modifier = Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }, shapes = ButtonDefaults.shapes()) {
                                         val tabIsPdf = note.pages.any { it.pdfIndex != null }
-                                        Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
+                                        Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(note.title, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
@@ -59,7 +58,7 @@ import androidx.compose.ui.unit.dp
                     }
                     IconButton({ picker = "open" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Open document") }
                     IconButton({ picker = "split" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.VerticalSplit, "Split view") }
-                    IconButton({ picker = "reference" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ChromeReaderMode, "Reference view") }
+                    IconButton({ picker = "reference" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Reference view") }
                 }
             }
             val companion = state.companion
@@ -248,7 +247,7 @@ import androidx.compose.ui.unit.dp
             DropdownMenuItem(
                 { Text(if (mode == CompanionMode.SPLIT) "Make reference" else "Make split") },
                 { menu = false; onToggleMode() },
-                leadingIcon = { Icon(if (mode == CompanionMode.SPLIT) Icons.Rounded.ChromeReaderMode else Icons.Rounded.VerticalSplit, null) }
+                leadingIcon = { Icon(if (mode == CompanionMode.SPLIT) Icons.AutoMirrored.Rounded.ChromeReaderMode else Icons.Rounded.VerticalSplit, null) }
             )
             DropdownMenuItem(
                 { Text(if (linked) "Unlink pages" else "Link pages") },

@@ -80,7 +80,7 @@ import androidx.compose.ui.unit.dp
                         if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 6.dp), shapes = ButtonDefaults.shapes()) {
                             Text("Retry", style = MaterialTheme.typography.labelSmall)
                         }
-                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
                             IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(36.dp)) {
                                 Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                                     if (starred) "Remove from favorites" else "Add to favorites",
@@ -106,7 +106,7 @@ import androidx.compose.ui.unit.dp
                             Icon(Icons.Rounded.Add, "Add page", Modifier.size(20.dp))
                         }
                         Box {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
                                 IconButton({ notebookMenu = true }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options", Modifier.size(20.dp)) }
                             }
                             DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
@@ -190,7 +190,7 @@ import androidx.compose.ui.unit.dp
         }
         var notebookMenu by remember { mutableStateOf(false) }
         Box {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
                 IconButton({ notebookMenu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
             }
             DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
@@ -205,7 +205,7 @@ import androidx.compose.ui.unit.dp
             }
         }
         if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) { Text("Retry") }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
             IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(40.dp)) {
                 Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                     if (starred) "Remove from favorites" else "Add to favorites",
@@ -238,7 +238,7 @@ import androidx.compose.ui.unit.dp
                 IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
             }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Zoom $zoomPercent% — tap to reset") } }, state = rememberTooltipState()) {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Zoom $zoomPercent% — tap to reset") } }, state = rememberTooltipState()) {
             Surface(onClick = onFit, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
                 modifier = Modifier.height(40.dp).semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }) {
@@ -248,7 +248,7 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Add page") } }, state = rememberTooltipState()) {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Add page") } }, state = rememberTooltipState()) {
             FilledTonalIconButton(onAdd, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add page") }
         }
     }

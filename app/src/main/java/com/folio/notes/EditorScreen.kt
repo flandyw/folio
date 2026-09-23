@@ -97,7 +97,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var tool by rememberSaveable { mutableStateOf(session?.tool ?: AppPrefs.defaultTool(appPrefs.getString(AppPrefs.DEFAULT_TOOL, null))) }
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
-    var palmRejectMs by remember { mutableStateOf(AppPrefs.palmMs(appPrefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { appPrefs.contains(AppPrefs.PALM_MS) })) }
+    var palmRejectMs by remember { mutableLongStateOf(AppPrefs.palmMs(appPrefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { appPrefs.contains(AppPrefs.PALM_MS) })) }
     DisposableEffect(appPrefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefsChanged, key ->
             if (key == AppPrefs.PALM_MS) {
@@ -180,7 +180,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var eraserPressure by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
     fun setEraserPressure(v: Boolean) { eraserPressure = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, v).apply() }
     var scribbleToErase by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
-    var scribbleSensitivity by remember { mutableStateOf(appPrefs.getFloat(EditorQuickPrefs.SCRIBBLE_SENSITIVITY, ScribbleSensitivity.DEFAULT)) }
+    var scribbleSensitivity by remember { mutableFloatStateOf(appPrefs.getFloat(EditorQuickPrefs.SCRIBBLE_SENSITIVITY, ScribbleSensitivity.DEFAULT)) }
     fun setScribbleToErase(v: Boolean) { scribbleToErase = v; appPrefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, v).apply() }
     var eraserWholeStroke by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
     fun setEraserWholeStroke(v: Boolean) { eraserWholeStroke = v; appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, v).apply() }
@@ -840,7 +840,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Box {
-                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (writingFollowEnabled) "Writing follow on" else "Writing follow off") } }, state = rememberTooltipState()) {
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (writingFollowEnabled) "Writing follow on" else "Writing follow off") } }, state = rememberTooltipState()) {
                                 IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(Icons.Rounded.SwipeRight, "Writing follow options",
@@ -910,7 +910,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                         if (writingFollowEnabled) {
                             TooltipBox(
-                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                                 tooltip = {
                                     PlainTooltip {
                                         Text(
@@ -1438,7 +1438,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         } else if (outline.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Rounded.FormatListBulleted, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
@@ -1468,7 +1468,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
     Crossfade(targetState = active, label = "timerChip") { isActive ->
         if (!isActive) {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Exam timer") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Exam timer") } }, state = rememberTooltipState()) {
                 IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Exam timer") }
             }
         } else {
@@ -1548,7 +1548,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
 
 @Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, indicatorColor: Color? = null, change: (Tool) -> Unit) {
 
-    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         FolioToolToggle(value == selected, { change(value) }, icon, label, indicatorColor = indicatorColor)
     }
 }
@@ -1757,7 +1757,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             quick.colors(colorGroup).forEachIndexed { index, c ->
                 InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}")
             }
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
                 IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1766,7 +1766,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     @Composable fun WidthControl() {
         Box {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Stroke width ${String.format(java.util.Locale.ROOT, "%.1f", options.width)} pt — tap to adjust") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Stroke width ${String.format(java.util.Locale.ROOT, "%.1f", options.width)} pt — tap to adjust") } }, state = rememberTooltipState()) {
                 AssistChip(
                     onClick = { showWidth = true },
                     label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
@@ -1825,7 +1825,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 Tool.ELLIPSE -> Icons.Rounded.Circle
                 else -> Icons.Rounded.CropSquare
             }
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (isShape) "Shapes, ${tool.name.lowercase()} — tap for options" else "Shapes — tap for ${lastShape.name.lowercase()}") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (isShape) "Shapes, ${tool.name.lowercase()} — tap for options" else "Shapes — tap for ${lastShape.name.lowercase()}") } }, state = rememberTooltipState()) {
                 Box {
                     FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
                         if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes")
@@ -1859,10 +1859,10 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         }
     }
     val controls: @Composable RowScope.() -> Unit = {
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
             IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         }
         ToolbarDivider()
@@ -1874,7 +1874,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ) {
             toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
             pinnedPresets.forEach { preset ->
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("${preset.name} · ${preset.tool.name.lowercase()}") } }, state = rememberTooltipState()) {
                     FilterChip(
                         selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
                         onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
@@ -1983,32 +1983,32 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                             if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             WidthControl()
                             if (tool == Tool.ERASER && onEraserPressure != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
                                     FilterChip(selected = eraserPressureEnabled, onClick = { onEraserPressure(!eraserPressureEnabled) }, label = { Text("Pressure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
                                 }
                             }
                             if (tool == Tool.ERASER && onEraserWholeStroke != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
                                     FilterChip(selected = eraserWholeStroke, onClick = { onEraserWholeStroke(!eraserWholeStroke) }, label = { Text("Whole", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
                                 }
                             }
                             if ((tool == Tool.PEN || tool == Tool.HIGHLIGHTER) && onScribbleToErase != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
                                     FilterChip(selected = scribbleToErase, onClick = { onScribbleToErase(!scribbleToErase) }, label = { Text("Scribble", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
                                 }
                             }
                             if (tool == Tool.ERASER && onEraserSingleStroke != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
                                     FilterChip(selected = eraserSingleStroke, onClick = { onEraserSingleStroke(!eraserSingleStroke) }, label = { Text("Single", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
                                 }
                             }
                             if (isShape && onShapeMeasurements != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
                                     FilterChip(selected = shapeMeasurements, onClick = { onShapeMeasurements(!shapeMeasurements) }, label = { Text("Measure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
                                 }
                             }
                             if (isShape) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Line style: ${options.style.name.lowercase()} — tap to cycle") } }, state = rememberTooltipState()) {
+                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Line style: ${options.style.name.lowercase()} — tap to cycle") } }, state = rememberTooltipState()) {
                                     val styleLabel = when (options.style) { StrokeStyle.SOLID -> "Solid"; StrokeStyle.DASHED -> "Dashed"; StrokeStyle.DOTTED -> "Dotted" }
                                     FilterChip(selected = options.style != StrokeStyle.SOLID, onClick = {
                                         feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -2214,7 +2214,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
         DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
         DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.FormatListBulleted, null) })
+        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
         if (onFitAll != null) {
             DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
             DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })

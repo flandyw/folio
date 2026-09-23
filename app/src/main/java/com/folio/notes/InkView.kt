@@ -185,6 +185,9 @@ class InkView(context: Context) : View(context) {
     private val measurementTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 26f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) }
     private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
     private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
+    // Reused across onDraw frames so selection previews and writing lanes allocate nothing per frame.
+    private val selectionPreviewMatrix = Matrix()
+    private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE }
     val writingFollow = WritingFollow()
     var writingGuides: List<WritingGuide> = emptyList()
     private var lineAdvance: WritingAdvance? = null
@@ -666,14 +669,15 @@ class InkView(context: Context) : View(context) {
             (selectionPreviewScale != 1f || selectionPreviewDeg != 0f)
         if (previewing) {
             canvas.save()
-            val pivot = selectionBox()?.let { box -> InkPoint((box[0] + box[2]) / 2f, (box[1] + box[3]) / 2f) }
-                ?: handleCenter
-            val matrix = Matrix()
-            matrix.postTranslate(-pivot.x, -pivot.y)
-            matrix.postScale(selectionPreviewScale, selectionPreviewScale)
-            matrix.postRotate(selectionPreviewDeg)
-            matrix.postTranslate(pivot.x, pivot.y)
-            canvas.concat(matrix)
+            val previewBox = selectionBox()
+            val pivotX = if (previewBox != null) (previewBox[0] + previewBox[2]) / 2f else handleCenter.x
+            val pivotY = if (previewBox != null) (previewBox[1] + previewBox[3]) / 2f else handleCenter.y
+            selectionPreviewMatrix.reset()
+            selectionPreviewMatrix.postTranslate(-pivotX, -pivotY)
+            selectionPreviewMatrix.postScale(selectionPreviewScale, selectionPreviewScale)
+            selectionPreviewMatrix.postRotate(selectionPreviewDeg)
+            selectionPreviewMatrix.postTranslate(pivotX, pivotY)
+            canvas.concat(selectionPreviewMatrix)
         }
         if (selection.isNotEmpty()) {
             // Draw the originals under a translate instead of allocating translated copies:
@@ -726,8 +730,8 @@ class InkView(context: Context) : View(context) {
         }
         outlined?.let { drawImageSelection(canvas, it) }
         (writingRegions + listOfNotNull(regionDraft ?: writingRegion)).distinct().forEach { r ->
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f / scale }
-            canvas.drawRect(r.left, r.top, r.right, r.bottom, paint)
+            writingRegionPaint.strokeWidth = 2f / scale
+            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
         }
         canvas.restore()
     }

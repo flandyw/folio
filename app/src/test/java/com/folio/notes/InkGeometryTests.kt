@@ -43,13 +43,13 @@ class InkGeometryTests {
         assertEquals(5f, smooth.first().x, .001f)
     }
 
-    @Test fun taperLeavesTheMiddleAtFullWidthAndThinsBothEnds() {
+    @Test fun strokePositionKeepsBothEndsAtFullWidth() {
         val scales = InkGeometry.taperScales(listOf(InkPoint(0f, 0f), InkPoint(40f, 0f), InkPoint(80f, 0f), InkPoint(120f, 0f)))
         assertEquals(4, scales.size)
-        assertEquals(.5f, scales[0], .0001f)
+        assertEquals(1f, scales[0], .0001f)
         assertEquals(1f, scales[1], .0001f)
         assertEquals(1f, scales[2], .0001f)
-        assertEquals(.5f, scales[3], .0001f)
+        assertEquals(1f, scales[3], .0001f)
     }
 
     @Test fun taperLeavesADotAlone() {

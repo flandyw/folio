@@ -6,6 +6,25 @@ import org.junit.Test
 import kotlin.math.abs
 
 class InkRendererTests {
+    @Test fun constantPressureKeepsFullWidthAtEveryLiveAndSavedEndpoint() {
+        for (pressure in listOf(.25f, 1f, 1.8f)) {
+            for (gap in listOf(.2f, 2f, 40f)) {
+                val points = List(12) { InkPoint(it * gap, 0f, pressure) }
+                val live = InkRenderer.IncrementalPenStroke()
+                for (count in 2..points.size) {
+                    val prefix = points.take(count)
+                    val saved = InkRenderer.rendered(Stroke(Tool.PEN, 0, 3f, prefix))
+                    val draft = live.update(prefix)
+                    for (geometry in listOf(saved, draft)) {
+                        for (width in geometry.widths!!) {
+                            assertEquals(InkRenderer.penPressureScale(pressure), width, .0001f)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun nearbySplitEndpointSurvivesBothSectionJoins() {
         for (gap in listOf(.051f, .2f, .35f)) {
             val turn = InkPoint(2f + gap, 0f, .45f)

@@ -73,7 +73,7 @@ fun SubjectChip(subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
 
 /** Cover badges: subject, score, year and redo count, kept small enough for a shelf card. */
 @Composable
-fun ExamBadges(note: Notebook, redoCount: Int = 0, modifier: Modifier = Modifier) {
+fun ExamBadges(note: Notebook, modifier: Modifier = Modifier, redoCount: Int = 0) {
     val exam = note.exam
     if (!exam.isTagged && note.attempts.isEmpty() && redoCount == 0) return
     Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {

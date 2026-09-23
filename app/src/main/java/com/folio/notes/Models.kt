@@ -898,9 +898,6 @@ object InkGeometry {
     private const val SMOOTH_STEP = 3f
     private const val MAX_SMOOTH_STEPS = 4
     /** How far a pen stroke eases up to full width from each end, in page units and as its share. */
-    private const val TAPER_RAMP = 14f
-    private const val TAPER_SHARE = 0.3f
-    private const val TAPER_FLOOR = 0.5f
 
     /**
      * Rounds a freehand centreline so handwriting reads as a curve instead of a polyline.
@@ -1010,9 +1007,8 @@ object InkGeometry {
     }
 
     /**
-     * Width multipliers that ease a pen stroke in and out of the page. The ramp is measured in page
-     * units and capped at a share of the stroke, so a short tick keeps most of its width while a
-     * long line trails off naturally at both ends.
+     * Neutral position multipliers: stroke ends keep the same width as the middle at equal
+     * pressure. Retained for the shared live, saved, and selection rendering geometry.
      */
     fun taperScales(points: List<InkPoint>): List<Float> {
         val scales = taperScalesArray(points)
@@ -1025,19 +1021,7 @@ object InkGeometry {
      * instead of churning a boxed Float per point per frame.
      */
     fun taperScalesArray(points: List<InkPoint>): FloatArray {
-        val count = points.size
-        val scales = FloatArray(count) { 1f }
-        if (count < 2) return scales
-        val travelled = FloatArray(count)
-        for (i in 1 until count) travelled[i] = travelled[i - 1] + distance(points[i - 1], points[i])
-        val total = travelled[count - 1]
-        if (total <= 0f) return scales
-        val ramp = min(TAPER_RAMP, total * TAPER_SHARE)
-        for (i in 0 until count) {
-            val edge = min(travelled[i], total - travelled[i])
-            scales[i] = TAPER_FLOOR + (1f - TAPER_FLOOR) * (edge / ramp).coerceAtMost(1f)
-        }
-        return scales
+        return FloatArray(points.size) { 1f }
     }
 
     // ---- Scribble-to-erase + eraser pressure -------------------------------------------------

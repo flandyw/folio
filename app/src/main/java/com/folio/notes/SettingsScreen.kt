@@ -219,7 +219,7 @@ private enum class SettingsCategory(val title: String, val description: String) 
     var kind by remember { mutableStateOf(AppPrefs.libraryKind(p.getString(AppPrefs.LIB_KIND, null))) }
     var listView by remember { mutableStateOf(p.getBoolean(AppPrefs.LIB_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
     var defaultPaper by remember { mutableStateOf(AppPrefs.defaultPaper(p.getString(AppPrefs.DEFAULT_PAPER, null))) }
-    var defaultCover by remember { mutableStateOf(AppPrefs.defaultCover(p.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { p.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
+    var defaultCover by remember { mutableIntStateOf(AppPrefs.defaultCover(p.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { p.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
     var pageCover by remember { mutableStateOf(p.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
@@ -316,7 +316,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 @Composable private fun EditorDefaultsSection() {
     val p = prefs()
     var defaultTool by remember { mutableStateOf(AppPrefs.defaultTool(p.getString(AppPrefs.DEFAULT_TOOL, null))) }
-    var textSize by remember { mutableStateOf(AppPrefs.textSize(p.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { p.contains(AppPrefs.TEXT_SIZE_KEY) })) }
+    var textSize by remember { mutableFloatStateOf(AppPrefs.textSize(p.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { p.contains(AppPrefs.TEXT_SIZE_KEY) })) }
     var textAlign by remember { mutableStateOf(runCatching { TextAlignMode.valueOf(p.getString("text.align", "LEFT") ?: "LEFT") }.getOrDefault(TextAlignMode.LEFT)) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
@@ -361,7 +361,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 
 @Composable private fun InputGesturesSection() {
     val p = prefs()
-    var palmMs by remember { mutableStateOf(AppPrefs.palmMs(p.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { p.contains(AppPrefs.PALM_MS) })) }
+    var palmMs by remember { mutableLongStateOf(AppPrefs.palmMs(p.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { p.contains(AppPrefs.PALM_MS) })) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
             if (k == AppPrefs.PALM_MS) palmMs = AppPrefs.palmMs(p.getLong(k, AppPrefs.DEFAULT_PALM_MS))
@@ -453,9 +453,9 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 @Composable private fun WorkflowSection() {
     val p = prefs()
     var customMinutes by remember { mutableStateOf(AppPrefs.timerCustomMinutes(p.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { p.contains(AppPrefs.TIMER_CUSTOM_MIN) }).toString()) }
-    var readingMinutes by remember { mutableStateOf(AppPrefs.timerReadingMinutes(p.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { p.contains(AppPrefs.TIMER_READING_MIN) }).toFloat()) }
-    var pngScale by remember { mutableStateOf(AppPrefs.pngScale(p.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { p.contains(AppPrefs.EXPORT_PNG_SCALE) })) }
-    var split by remember { mutableStateOf(AppPrefs.splitFraction(p.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { p.contains(AppPrefs.SPLIT_FRACTION) })) }
+    var readingMinutes by remember { mutableFloatStateOf(AppPrefs.timerReadingMinutes(p.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { p.contains(AppPrefs.TIMER_READING_MIN) }).toFloat()) }
+    var pngScale by remember { mutableFloatStateOf(AppPrefs.pngScale(p.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { p.contains(AppPrefs.EXPORT_PNG_SCALE) })) }
+    var split by remember { mutableFloatStateOf(AppPrefs.splitFraction(p.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { p.contains(AppPrefs.SPLIT_FRACTION) })) }
     var customError by rememberSaveable { mutableStateOf(false) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->

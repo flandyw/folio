@@ -6,7 +6,6 @@ import android.content.ClipData
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -232,7 +231,7 @@ import java.io.File
         if (!allowed) model.reportError("Pen haptics need Bluetooth permission")
     }
     fun installUpdate(uri: Uri) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+        if (!context.packageManager.canRequestPackageInstalls()) {
             updateReady = uri
             updateMessage = "Allow Folio to install updates, then tap Install update again."
             updateDialog = true
