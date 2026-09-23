@@ -220,9 +220,10 @@ object InkRenderer {
                 else if (clean.size < 3) clean
                 else smoothed()
             val taper = if (centreline.size >= 2) InkGeometry.taperScalesArray(centreline) else null
+            val widths = widthMultipliers(centreline, taper)
             // Bounds stay on the stored samples, exactly as `rendered` measures them.
-            val rendered = if (points.isEmpty()) RenderedStroke(centreline, taper, 0f, 0f, 0f, 0f)
-            else RenderedStroke(centreline, taper, rawMinX, rawMinY, rawMaxX, rawMaxY)
+            val rendered = if (points.isEmpty()) RenderedStroke(centreline, taper, 0f, 0f, 0f, 0f, widths)
+            else RenderedStroke(centreline, taper, rawMinX, rawMinY, rawMaxX, rawMaxY, widths)
             cached = rendered
             return rendered
         }
@@ -305,8 +306,35 @@ object InkRenderer {
         val centre: List<InkPoint>,
         /** Per-point width multipliers for [Tool.PEN], or null for paths drawn at uniform width. */
         val taper: FloatArray?,
-        val minX: Float, val minY: Float, val maxX: Float, val maxY: Float
+        val minX: Float, val minY: Float, val maxX: Float, val maxY: Float,
+        /**
+         * Per-point combined pressure×taper multipliers for [Tool.PEN], or null otherwise.
+         * Precomputed once with the spline so every frame after pays one add+multiply per
+         * segment instead of a sqrt per segment — which is what made dense pages re-pay
+         * pressure math on every raster. Compare via [widthsEqual], not `==`: FloatArray
+         * equality is referential, like [taper].
+         */
+        val widths: FloatArray? = null
     )
+
+    /** Structural equality for cached width multipliers; FloatArray `==` is referential. */
+    internal fun widthsEqual(a: FloatArray?, b: FloatArray?): Boolean {
+        if (a === b) return true
+        if (a == null || b == null || a.size != b.size) return false
+        for (i in a.indices) if (a[i] != b[i]) return false
+        return true
+    }
+
+    /**
+     * Per-point pressure×taper multipliers for a pen centreline. One sqrt per point here
+     * replaces one sqrt per segment per frame in the old draw loop.
+     */
+    internal fun widthMultipliers(centre: List<InkPoint>, taper: FloatArray?): FloatArray? {
+        if (centre.size < 2 || taper == null || taper.size != centre.size) return null
+        return FloatArray(centre.size) { i ->
+            penPressureScale(centre[i].pressure) * taper[i].coerceAtLeast(MIN_VISIBLE_TAPER)
+        }
+    }
 
     /** Pure geometry for [stroke]: centreline, taper and raw bounds. No Android types. */
     fun rendered(stroke: Stroke): RenderedStroke {
@@ -317,6 +345,7 @@ object InkRenderer {
             else -> InkGeometry.smooth(points)
         }
         val taper = if (stroke.tool == Tool.PEN && centre.size >= 2) InkGeometry.taperScalesArray(centre) else null
+        val widths = if (stroke.tool == Tool.PEN) widthMultipliers(centre, taper) else null
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         // Raw points already bound the rendered geometry (shapes re-derive from two corners),
@@ -330,7 +359,7 @@ object InkRenderer {
             if (p.y < minY) minY = p.y
             if (p.y > maxY) maxY = p.y
         }
-        return RenderedStroke(centre, taper, minX, minY, maxX, maxY)
+        return RenderedStroke(centre, taper, minX, minY, maxX, maxY, widths)
     }
 
     /** Raw bounds of [stroke] as `[minX, minY, maxX, maxY]`. No spline math: O(points). */
@@ -388,8 +417,33 @@ object InkRenderer {
             return
         }
         paint.pathEffect = null
-        drawTaperedLines(canvas, paint, centre, rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width)
+        drawTaperedLines(canvas, paint, centre,
+            rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width, rendered.widths)
         paint.pathEffect = null
+    }
+
+    /**
+     * Navigation preview for one pen stroke: a single uniform-width path instead of the
+     * width-bucketed runs. Pinch/pan previews last ~90ms, so trading taper detail for one
+     * draw call per stroke keeps a dense page panning at display rate; full detail returns
+     * on settle. Highlighter/shapes already draw as one path, so they share it.
+     */
+    fun drawPreview(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
+        val centre = rendered.centre
+        if (centre.isEmpty()) return
+        val paint = strokePaintPool.get()!!.apply {
+            color = stroke.color; alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255); strokeWidth = stroke.width; strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE
+            pathEffect = if (stroke.tool in SHAPE_SET) dashEffect(stroke.style, stroke.width) else null
+        }
+        if (centre.size < 2) {
+            paint.style = Paint.Style.FILL
+            paint.pathEffect = null
+            val widthScale = if (stroke.tool == Tool.PEN) penPressureScale(centre[0].pressure) else centre[0].pressure
+            canvas.drawCircle(centre[0].x, centre[0].y, stroke.width * widthScale / 2, paint)
+            return
+        }
+        canvas.drawPath(polylinePath(centre), paint)
     }
 
     /** The cached [stroke] path, rebuilt in a pooled [Path] without allocating a sublist per frame. */
@@ -402,20 +456,65 @@ object InkRenderer {
     }
 
     /**
-     * Pressure- and taper-varying ink: one line per spline segment at its own width. Written as an
-     * indexed loop because the obvious `zipWithNext().forEachIndexed` allocated a pair and an
-     * indexed wrapper for every segment of every stroke, on every frame of a stroke in progress.
+     * Pressure- and taper-varying ink, batched into width runs. The old loop paid one native
+     * `drawLine` per spline segment (100+ calls for a long stroke); adjacent segments share
+     * nearly the same width, so contiguous segments quantized to the same 0.5px bucket draw
+     * as one `drawPath` — typically 3–8 calls per stroke instead of 100+. Width multipliers
+     * come precomputed from [RenderedStroke.widths] (one sqrt per point, once), so frames pay
+     * only adds and multiplies. Written as indexed loops to stay allocation-free per frame.
      */
-    private fun drawTaperedLines(canvas: Canvas, paint: Paint, centre: List<InkPoint>, taper: FloatArray, width: Float) {
-        val segments = minOf(centre.size, taper.size) - 1
-        for (index in 0 until segments) {
-            val a = centre[index]
-            val b = centre[index + 1]
-            val pressure = penPressureScale((a.pressure + b.pressure) / 2f)
-            val taperScale = ((taper[index] + taper[index + 1]) / 2f).coerceAtLeast(MIN_VISIBLE_TAPER)
-            paint.strokeWidth = width * pressure * taperScale
-            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+    private fun drawTaperedLines(
+        canvas: Canvas,
+        paint: Paint,
+        centre: List<InkPoint>,
+        taper: FloatArray,
+        width: Float,
+        widths: FloatArray?
+    ) {
+        if (centre.size < 2) return
+        val mults: FloatArray = if (widths != null && widths.size == centre.size) widths
+        else {
+            // Fallback for geometry built without multipliers: one sqrt per point (not per
+            // segment), then the same bucketed runs below.
+            val t = if (taper.size == centre.size) taper else InkGeometry.taperScalesArray(centre)
+            FloatArray(centre.size) { i ->
+                penPressureScale(centre[i].pressure) * t[i].coerceAtLeast(MIN_VISIBLE_TAPER)
+            }
         }
+        var runStart = 0
+        var runBucket = ((width * (mults[0] + mults[1]) / 2f) * 2f).roundToInt()
+        for (seg in 1 until centre.size - 1) {
+            val bucket = ((width * (mults[seg] + mults[seg + 1]) / 2f) * 2f).roundToInt()
+            if (bucket != runBucket) {
+                drawTaperedRun(canvas, paint, centre, runStart, seg - 1, runBucket / 2f)
+                runStart = seg
+                runBucket = bucket
+            }
+        }
+        drawTaperedRun(canvas, paint, centre, runStart, centre.size - 2, runBucket / 2f)
+    }
+
+    /** One width run: a lone segment draws directly, longer runs share a single path. */
+    private fun drawTaperedRun(
+        canvas: Canvas,
+        paint: Paint,
+        centre: List<InkPoint>,
+        firstSeg: Int,
+        lastSeg: Int,
+        strokeWidth: Float
+    ) {
+        paint.strokeWidth = strokeWidth
+        if (firstSeg >= lastSeg) {
+            val a = centre[firstSeg]
+            val b = centre[firstSeg + 1]
+            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+            return
+        }
+        val path = strokePathPool.get()!!
+        path.reset()
+        path.moveTo(centre[firstSeg].x, centre[firstSeg].y)
+        for (i in firstSeg + 1..lastSeg + 1) path.lineTo(centre[i].x, centre[i].y)
+        canvas.drawPath(path, paint)
     }
 
     /**
@@ -444,7 +543,8 @@ object InkRenderer {
             return
         }
         paint.pathEffect = null
-        drawTaperedLines(canvas, paint, centre, rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width + 14f)
+        drawTaperedLines(canvas, paint, centre,
+            rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width + 14f, rendered.widths)
         paint.pathEffect = null
     }
 
@@ -499,6 +599,29 @@ object InkRenderer {
                 val h = textHeight(it)
                 if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
             }
+        }
+    }
+
+    /**
+     * Only the Folio content of a page (placed images, ink strokes, typed text) with no paper,
+     * background or white fill, for a transparent preservation overlay. The caller must start
+     * with a transparent bitmap; drawing uses source-over blending so highlighter translucency
+     * survives compositing over the original PDF in the viewer.
+     */
+    fun overlay(canvas: Canvas, page: NotePage, images: Map<String, Bitmap?>? = null) {
+        val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
+        page.images.forEach { box ->
+            if (!rectVisible(box.x, box.y, box.x + box.width, box.y + box.height, clip)) return@forEach
+            images?.get(box.id)?.let { image(canvas, it, box) }
+        }
+        page.strokes.forEach { stroke ->
+            if (!boundsVisible(rawBounds(stroke), stroke.width, clip)) return@forEach
+            drawRendered(canvas, stroke, rendered(stroke))
+        }
+        page.texts.forEach {
+            if (it.text.isBlank()) return@forEach
+            val h = textHeight(it)
+            if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
         }
     }
 

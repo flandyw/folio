@@ -517,13 +517,27 @@ object InkGeometry {
         return floatArrayOf(minX, minY, maxX, maxY)
     }
 
+    /**
+     * Loop bounds as `[minX, minY, maxX, maxY]`. Hoist this once per lasso gesture: the old
+     * per-stroke lookup re-walked the loop for every stroke on the page (O(N×L)).
+     */
+    fun lassoBounds(polygon: List<InkPoint>): FloatArray = polygonBounds(polygon)
+
     /** A stroke is selected only when every sample is enclosed, so a half-crossed stroke stays put. */
     fun lassoSelects(polygon: List<InkPoint>, stroke: Stroke): Boolean {
         if (polygon.size < 3) return false
+        return lassoSelects(polygon, polygonBounds(polygon), stroke)
+    }
+
+    /**
+     * [lassoSelects] with a hoisted [loop] from [lassoBounds]: a dense page pays O(L) once for
+     * the loop plus O(nearby) ray casts, instead of O(N×L) loop walks.
+     */
+    fun lassoSelects(polygon: List<InkPoint>, loop: FloatArray, stroke: Stroke): Boolean {
+        if (polygon.size < 3 || loop.size < 4) return false
         val points = pathPoints(stroke)
         if (points.isEmpty()) return false
         // Cheap box reject: a stroke fully outside the loop's bounds needs no ray casts.
-        val loop = polygonBounds(polygon)
         val box = strokeBoundsOf(points)
         if (box[2] < loop[0] || box[0] > loop[2] || box[3] < loop[1] || box[1] > loop[3]) return false
         return points.all { lassoContains(polygon, it) }
@@ -535,6 +549,13 @@ object InkGeometry {
      */
     fun lassoSelectsRect(polygon: List<InkPoint>, left: Float, top: Float, right: Float, bottom: Float): Boolean {
         if (polygon.size < 3) return false
+        return lassoSelectsRect(polygon, polygonBounds(polygon), left, top, right, bottom)
+    }
+
+    /** [lassoSelectsRect] with hoisted [loop] bounds, so boxes skip the loop walk and ray casts when outside. */
+    fun lassoSelectsRect(polygon: List<InkPoint>, loop: FloatArray, left: Float, top: Float, right: Float, bottom: Float): Boolean {
+        if (polygon.size < 3 || loop.size < 4) return false
+        if (right < loop[0] || left > loop[2] || bottom < loop[1] || top > loop[3]) return false
         return lassoContains(polygon, InkPoint(left, top)) &&
             lassoContains(polygon, InkPoint(right, top)) &&
             lassoContains(polygon, InkPoint(right, bottom)) &&
@@ -543,9 +564,15 @@ object InkGeometry {
     /** A text box is selected only when its whole rendered extent is enclosed. */
     fun lassoSelectsText(polygon: List<InkPoint>, box: TextBox, height: Float): Boolean =
         lassoSelectsRect(polygon, box.x, box.y, box.x + box.width, box.y + height)
+    /** A text box with hoisted loop bounds. */
+    fun lassoSelectsText(polygon: List<InkPoint>, loop: FloatArray, box: TextBox, height: Float): Boolean =
+        lassoSelectsRect(polygon, loop, box.x, box.y, box.x + box.width, box.y + height)
     /** A picture is selected only when its whole frame is enclosed. */
     fun lassoSelectsImage(polygon: List<InkPoint>, image: PageImage): Boolean =
         lassoSelectsRect(polygon, image.x, image.y, image.x + image.width, image.y + image.height)
+    /** A picture with hoisted loop bounds. */
+    fun lassoSelectsImage(polygon: List<InkPoint>, loop: FloatArray, image: PageImage): Boolean =
+        lassoSelectsRect(polygon, loop, image.x, image.y, image.x + image.width, image.y + image.height)
     /**
      * The bounding box of a mixed selection as `[minX, minY, maxX, maxY]`, or null when there is
      * nothing selected. [textHeight] measures each box's rendered height, which is not stored.
@@ -789,9 +816,17 @@ object InkGeometry {
         for (stroke in strokes) {
             val pts = stroke.points
             if (pts.isEmpty()) continue
+            // Single pass: the old minOf/maxOf ×4 walked dense strokes four times per bounds call.
+            var sMinX = Float.MAX_VALUE; var sMinY = Float.MAX_VALUE
+            var sMaxX = -Float.MAX_VALUE; var sMaxY = -Float.MAX_VALUE
+            for (p in pts) {
+                if (p.x < sMinX) sMinX = p.x
+                if (p.x > sMaxX) sMaxX = p.x
+                if (p.y < sMinY) sMinY = p.y
+                if (p.y > sMaxY) sMaxY = p.y
+            }
             val pad = stroke.width.coerceAtLeast(1f) * 2f
-            include(pts.minOf { it.x } - pad, pts.minOf { it.y } - pad,
-                pts.maxOf { it.x } + pad, pts.maxOf { it.y } + pad)
+            include(sMinX - pad, sMinY - pad, sMaxX + pad, sMaxY + pad)
         }
         for (box in texts) include(box.x, box.y, box.x + box.width, box.y + textHeight(box))
         images.forEach { image -> include(image.x, image.y, image.x + image.width, image.y + image.height) }
@@ -1113,6 +1148,17 @@ object InkGeometry {
             ((aSide < 0f && bSide > 0f) || (aSide > 0f && bSide < 0f))
     }
 
+    /** One scribble leg against one target path, without allocating a copy per leg. */
+    private fun legHits(a: InkPoint, b: InkPoint, path: List<InkPoint>, reach: Float): Boolean {
+        if (path.isEmpty()) return false
+        if (path.size == 1) return segmentDistance(path.first(), a, b) <= reach
+        return path.zipWithNext().any { (c, d) ->
+            segmentsCross(a, b, c, d) ||
+                minOf(segmentDistance(a, c, d), segmentDistance(b, c, d),
+                    segmentDistance(c, a, b), segmentDistance(d, a, b)) <= reach
+        }
+    }
+
     /** Require repeated coverage of existing ink; a nearby mark or one crossing is not enough. */
     fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float, sensitivity: Float = ScribbleSensitivity.DEFAULT): List<Stroke> {
         val ease = ScribbleSensitivity.normalize(sensitivity)
@@ -1121,14 +1167,29 @@ object InkGeometry {
         val span = hypot(bounds[2] - bounds[0], bounds[3] - bounds[1])
         val legs = simplify(scribble.points, max(2f, span * .025f)).zipWithNext()
             .filter { (a, b) -> distance(a, b) >= max(8f - 2f * ease, span * (.18f - .06f * ease)) }
+        if (legs.isEmpty()) return strokes
         // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
         val contactRadius = min(radius.coerceAtLeast(0f), 2f)
+        val needed = ScribbleSensitivity.passes(ease)
         return strokes.filterNot { target ->
+            // Hoisted per target: one path + bounds walk instead of one per leg, and no
+            // scribble.copy per leg per target (tens of thousands of allocs on dense pages).
+            val path = pathPoints(target)
+            if (path.isEmpty()) return@filterNot false
+            val reach = contactRadius + target.width / 2f
+            val box = strokeBoundsOf(path)
+            if (box[2] < bounds[0] - reach || box[0] > bounds[2] + reach ||
+                box[3] < bounds[1] - reach || box[1] > bounds[3] + reach) return@filterNot false
             var passes = 0
-            legs.any { (a, b) ->
-                if (scribbleHits(scribble.copy(points = listOf(a, b)), target, contactRadius)) passes++
-                passes >= ScribbleSensitivity.passes(ease)
+            for ((a, b) in legs) {
+                // Per-leg box reject before the O(path) narrow phase.
+                val lMinX = min(a.x, b.x); val lMaxX = max(a.x, b.x)
+                val lMinY = min(a.y, b.y); val lMaxY = max(a.y, b.y)
+                if (box[2] < lMinX - reach || box[0] > lMaxX + reach ||
+                    box[3] < lMinY - reach || box[1] > lMaxY + reach) continue
+                if (legHits(a, b, path, reach) && ++passes >= needed) return@filterNot true
             }
+            false
         }
     }
 

@@ -12,7 +12,11 @@ object InkCodec {
         strokes.forEach { s -> put(JSONObject().apply {
             put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
             if (s.style != StrokeStyle.SOLID) put("style", s.style.name)
-            put("points", JSONArray().apply { s.points.forEach { put(JSONArray(listOf(it.x, it.y, it.pressure))) } })
+            // No intermediate List per point: a dense page holds hundreds of thousands of
+            // samples, and listOf() per sample was pure GC pressure on every save/compact.
+            put("points", JSONArray().apply { s.points.forEach { p ->
+                put(JSONArray().put(p.x.toDouble()).put(p.y.toDouble()).put(p.pressure.toDouble()))
+            } })
         }) }
     }
 

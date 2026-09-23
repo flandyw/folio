@@ -52,7 +52,9 @@ internal class CommittedInkCache(private val maxPixels: Long = 8_000_000L) {
         pixelsPerUnit: Float,
         boundsOf: (Stroke) -> FloatArray,
         renderOf: (Stroke) -> InkRenderer.RenderedStroke,
-        rasterViewport: Rect? = null
+        rasterViewport: Rect? = null,
+        /** When true, pen strokes draw as one uniform path (preview); settled frames use full taper. */
+        fastPreview: Boolean = false
     ) {
         if (rasterViewport != null) clip.set(rasterViewport) else canvas.getClipBounds(clip)
         if (clip.isEmpty || current.isEmpty()) {
@@ -65,7 +67,7 @@ internal class CommittedInkCache(private val maxPixels: Long = 8_000_000L) {
         if (!pixelsPerUnit.isFinite() || pixelsPerUnit <= 0f || width <= 0 || height <= 0 ||
             width.toLong() * height > maxPixels) {
             clear()
-            drawRange(canvas, current, 0, clip, boundsOf, renderOf)
+            drawRange(canvas, current, 0, clip, boundsOf, renderOf, fastPreview)
             return
         }
         var layer = bitmap
@@ -80,7 +82,7 @@ internal class CommittedInkCache(private val maxPixels: Long = 8_000_000L) {
             val recording = Canvas(layer)
             recording.scale(pixelsPerUnit, pixelsPerUnit)
             recording.translate(-clip.left.toFloat(), -clip.top.toFloat())
-            drawRange(recording, current, start, clip, boundsOf, renderOf)
+            drawRange(recording, current, start, clip, boundsOf, renderOf, fastPreview)
             viewport.set(clip)
             scale = pixelsPerUnit
             strokes = current
@@ -92,12 +94,15 @@ internal class CommittedInkCache(private val maxPixels: Long = 8_000_000L) {
 
     private fun drawRange(
         canvas: Canvas, strokes: List<Stroke>, start: Int, clip: Rect,
-        boundsOf: (Stroke) -> FloatArray, renderOf: (Stroke) -> InkRenderer.RenderedStroke
+        boundsOf: (Stroke) -> FloatArray, renderOf: (Stroke) -> InkRenderer.RenderedStroke,
+        fastPreview: Boolean = false
     ) {
         for (i in start until strokes.size) {
             val stroke = strokes[i]
             if (InkRenderer.boundsVisible(boundsOf(stroke), stroke.width, clip)) {
-                InkRenderer.drawRendered(canvas, stroke, renderOf(stroke))
+                val rendered = renderOf(stroke)
+                if (fastPreview) InkRenderer.drawPreview(canvas, stroke, rendered)
+                else InkRenderer.drawRendered(canvas, stroke, rendered)
             }
         }
     }

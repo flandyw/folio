@@ -218,10 +218,7 @@ class InkView(context: Context) : View(context) {
     private var followPaused = false
     private var followLiftedAt = 0L
     private var pendingReturn: WritingAdvance? = null
-    private var backPanX = 0f
-    private var backPanY = 0f
-    private var hasFollowBack = false
-    private var backFollowState = WritingFollowState()
+    private val followBack = FollowBackHistory()
     fun selectWritingRegion() {
         suspendWritingFollow(); selectingWritingRegion = true
         onFollowStatus("Drag an answer area with your pen")
@@ -263,16 +260,17 @@ class InkView(context: Context) : View(context) {
         val next = FollowNavigation.next(baseline, region, writingGuides, followPreferences.spacing)
         if (next == null) { onFollowStatus("End of answer area"); return }
         followPaused = false; writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
-        pendingReturn = null; backPanX = 0f; backPanY = 0f; hasFollowBack = true; backFollowState = writingFollow.state
+        pendingReturn = null
         startLineAdvance(next)
     }
     fun backWritingView() {
-        if (!hasFollowBack || isWritingGesture) return
-        val dx = -backPanX; val dy = -backPanY
+        if (isWritingGesture || inputBlocked || readOnly) return
+        val back = followBack.entry ?: run { onFollowStatus("No previous follow movement"); return }
+        val dx = -back.x; val dy = -back.y
         suspendWritingFollow()
-        if (page.infinite || writingStrip) { camera.pan(dx, dy); invalidate() } else onFollowPan(dx, dy)
-        writingFollow.state = backFollowState
-        hasFollowBack = false; onFollowStatus("View restored · follow paused")
+        if (page.infinite || writingStrip) { camera.pan(dx, dy); reportCanvasViewport(); invalidate() } else onFollowPan(dx, dy)
+        writingFollow.state = back.state
+        followBack.clear(); onFollowStatus("View restored · follow paused")
     }
     var followEnabled = false
         set(value) {
@@ -295,8 +293,8 @@ class InkView(context: Context) : View(context) {
     private var advanceStartAt = 0L
     private var sameLineWaiting = false
     private var captureFollowBack = false
-    fun suspendWritingFollow() {
-        followPaused = true; pendingReturn = null; hasFollowBack = false
+    fun suspendWritingFollow(clearBack: Boolean = true) {
+        followPaused = true; pendingReturn = null; if (clearBack) followBack.clear() else followBack.cancelPending()
         onFollowStatus("Follow paused · resume by writing")
         writingFollow.suspend(SystemClock.uptimeMillis())
         advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
@@ -339,7 +337,6 @@ class InkView(context: Context) : View(context) {
                 val remaining = followPreferences.returnDelayMs.coerceIn(300, 2000) - (now - followLiftedAt)
                 if (remaining > 0) { postDelayed(this, remaining); return }
                 pendingReturn = null
-                backPanX = 0f; backPanY = 0f; hasFollowBack = true; backFollowState = writingFollow.state
                 startLineAdvance(pending)
             }
             // Wait for a deliberate pause, not the tiny lifts between letters and words.
@@ -368,13 +365,13 @@ class InkView(context: Context) : View(context) {
                 return
             }
             if (captureFollowBack) {
-                backPanX = 0f; backPanY = 0f; backFollowState = writingFollow.state; hasFollowBack = true
+                followBack.begin(writingFollow.state)
                 captureFollowBack = false
             }
             val applied = if (page.infinite || writingStrip) {
                 camera.pan(dx, dy); reportCanvasViewport(); invalidate(); dx to dy
             } else onFollowPan(dx, dy)
-            backPanX += applied.first; backPanY += applied.second
+            followBack.moved(applied.first, applied.second)
             postOnAnimation(this)
         }
     }
@@ -385,6 +382,7 @@ class InkView(context: Context) : View(context) {
     /** Place the next printed rule's start where the current rule was being written. */
     private fun startLineAdvance(advance: WritingAdvance) {
         if (!getLocalVisibleRect(followVisible)) return
+        followBack.begin(writingFollow.state)
         val margin = followVisible.width() * (if (writingHand == WritingHand.RIGHT) .18f else .28f)
         val desiredX = if (followPreferences.direction == WritingDirection.LTR) followVisible.left + margin
             else followVisible.right - margin
@@ -476,7 +474,7 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { stripInitialized = false; followPaused = false; pendingReturn = null; followLastPoint = null; hasFollowBack = false; writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
+        if (page.id != value.id || page.infinite != value.infinite) { stripInitialized = false; followPaused = false; pendingReturn = null; followLastPoint = null; followBack.clear(); writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
         else if (page.strokes !== value.strokes) {
             // Same page, new revision: drop geometry for strokes that are gone so the
             // caches track the live ink instead of every undone fragment.
@@ -487,14 +485,23 @@ class InkView(context: Context) : View(context) {
         }
         page = value; background = bitmap; imageBitmaps = images
         // Content deleted from outside the view stops being selected, per list so one removed
-        // stroke does not drop a still-present text box from the selection.
-        // Identity fast-path first (same objects from the ViewModel), structural fallback for
-        // pages reloaded from disk where instances differ but values match.
-        val valueStrokeIds = if (selection.isEmpty()) emptySet() else
-            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(value.strokes) }
-        val keptStrokes = if (selection.isEmpty()) selection else selection.filter { it in valueStrokeIds || it in value.strokes }
-        val keptTexts = selectedTexts.filter { kept -> value.texts.any { it.id == kept.id } }
-        val keptImages = selectedImages.filter { kept -> value.images.any { it.id == kept.id } }
+        // stroke does not drop a still-present text box from the selection. Identity only:
+        // the ViewModel reuses untouched stroke instances, so a deep value walk over every
+        // InkPoint per bind is what stalled dense pages with a live selection. A reload from
+        // disk brings new instances and simply clears the stroke selection.
+        val keptStrokes = if (selection.isEmpty()) selection else {
+            val valueStrokeIds =
+                java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(value.strokes) }
+            selection.filter { it in valueStrokeIds }
+        }
+        val keptTexts = if (selectedTexts.isEmpty()) selectedTexts else {
+            val ids = HashSet<String>(value.texts.size * 2 + 1).apply { value.texts.forEach { add(it.id) } }
+            selectedTexts.filter { it.id in ids }
+        }
+        val keptImages = if (selectedImages.isEmpty()) selectedImages else {
+            val ids = HashSet<String>(value.images.size * 2 + 1).apply { value.images.forEach { add(it.id) } }
+            selectedImages.filter { it.id in ids }
+        }
         if (keptStrokes.size != selection.size || keptTexts.size != selectedTexts.size || keptImages.size != selectedImages.size) {
             selection = keptStrokes; selectedTexts = keptTexts; selectedImages = keptImages
             selectionDx = 0f; selectionDy = 0f
@@ -593,8 +600,10 @@ class InkView(context: Context) : View(context) {
         }
         val longest = max(navigationBounds.width(), navigationBounds.height()).coerceAtLeast(1)
         val previewScale = min(scale, 1024f / longest)
+        // Preview trades taper detail for one draw per stroke so a dense page pans at rate;
+        // the settled frame below repaints full detail after 90ms without motion.
         navigationInk.draw(canvas, content.strokes, previewScale, ::boundsOf, ::renderedOf,
-            rasterViewport = navigationBounds)
+            rasterViewport = navigationBounds, fastPreview = true)
     }
 
     override fun onDetachedFromWindow() {
@@ -779,7 +788,7 @@ class InkView(context: Context) : View(context) {
         }
         if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             if (pendingReturn != null) onFollowStatus("Return cancelled · keep writing")
-            pendingReturn = null; removeCallbacks(followFrame)
+            pendingReturn = null; followBack.cancelPending(); removeCallbacks(followFrame)
             advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
         }
         var dirtyInvalidated = false
@@ -953,7 +962,23 @@ class InkView(context: Context) : View(context) {
                         erasing = if (eraserWholeStroke) {
                             val maxR = if (eraserPressureEnabled && stylus)
                                 centers.maxOf { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) } else inkWidth / 2f
-                            cutting.filterNot { hitStroke ->
+                            // Copy-on-write: most MOVEs remove nothing, so keep the same list
+                            // instead of allocating a fresh 4k-entry copy per input event.
+                            var removedAt = -1
+                            for (i in cutting.indices) {
+                                val hitStroke = cutting[i]
+                                val b = boundsOf(hitStroke)
+                                val reach = maxR + hitStroke.width / 2f
+                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
+                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) continue
+                                val hit = centers.any { c ->
+                                    val r = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(c.pressure) else inkWidth / 2f
+                                    InkGeometry.hits(hitStroke, c, r)
+                                }
+                                if (hit) { removedAt = i; break }
+                            }
+                            if (removedAt < 0) cutting
+                            else cutting.filterNot { hitStroke ->
                                 val b = boundsOf(hitStroke)
                                 val reach = maxR + hitStroke.width / 2f
                                 if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
@@ -966,21 +991,13 @@ class InkView(context: Context) : View(context) {
                         } else if (eraserPressureEnabled && stylus) {
                             val radii = centers.map { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) }
                             val maxR = radii.max()
-                            cutting.flatMap {
-                                val b = boundsOf(it)
-                                val reach = maxR + it.width / 2f
-                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
-                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) listOf(it)
-                                else InkGeometry.erase(it, centers, radii)
+                            eraseCopyOnWrite(cutting, cMinX, cMinY, cMaxX, cMaxY, maxR) { stroke ->
+                                InkGeometry.erase(stroke, centers, radii)
                             }
                         } else {
                             val radius = inkWidth / 2f
-                            cutting.flatMap {
-                                val b = boundsOf(it)
-                                val reach = radius + it.width / 2f
-                                if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
-                                    b[3] + reach < cMinY || b[1] - reach > cMaxY) listOf(it)
-                                else InkGeometry.erase(it, centers, radius)
+                            eraseCopyOnWrite(cutting, cMinX, cMinY, cMaxX, cMaxY, radius) { stroke ->
+                                InkGeometry.erase(stroke, centers, radius)
                             }
                         }
                         eraserMark = centers[centers.size - 1]
@@ -1271,6 +1288,38 @@ class InkView(context: Context) : View(context) {
         linkFromX = at.x; linkFromY = at.y
         return true
     }
+    /**
+     * Copy-on-write eraser pass over a dense page. Far strokes skip the segment walk via
+     * cached bounds, and untouched strokes keep their instance; the outer list is only
+     * allocated once the first fragment appears, so a MOVE that cuts nothing allocates
+     * nothing instead of a fresh N-entry copy per input event.
+     */
+    private inline fun eraseCopyOnWrite(
+        cutting: List<Stroke>,
+        cMinX: Float, cMinY: Float, cMaxX: Float, cMaxY: Float,
+        maxR: Float,
+        erase: (Stroke) -> List<Stroke>
+    ): List<Stroke> {
+        var result: ArrayList<Stroke>? = null
+        for (i in cutting.indices) {
+            val stroke = cutting[i]
+            val b = boundsOf(stroke)
+            val reach = maxR + stroke.width / 2f
+            if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
+                b[3] + reach < cMinY || b[1] - reach > cMaxY) {
+                result?.add(stroke)
+                continue
+            }
+            val out = erase(stroke)
+            if (result == null && out.size == 1 && out[0] === stroke) continue
+            if (result == null) {
+                result = ArrayList(cutting.size)
+                for (j in 0 until i) result.add(cutting[j])
+            }
+            result.addAll(out)
+        }
+        return result ?: cutting
+    }
     private fun cancelSelectionGesture() {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
@@ -1321,11 +1370,15 @@ class InkView(context: Context) : View(context) {
             val loop = lasso ?: emptyList()
             lasso = null
             // A tap sized loop is not a selection, so stroking elsewhere clears instead of flickering.
-            setSelection(if (loop.size >= 3) CanvasSelection(
-                strokes = page.strokes.filter { InkGeometry.lassoSelects(loop, it) },
-                texts = page.texts.filter { InkGeometry.lassoSelectsText(loop, it, InkRenderer.textHeight(it)) },
-                images = page.images.filter { InkGeometry.lassoSelectsImage(loop, it) }
-            ) else CanvasSelection())
+            // Hoist the loop bounds once: per-stroke checks then skip the loop walk entirely.
+            setSelection(if (loop.size >= 3) {
+                val loopBounds = InkGeometry.lassoBounds(loop)
+                CanvasSelection(
+                    strokes = page.strokes.filter { InkGeometry.lassoSelects(loop, loopBounds, it) },
+                    texts = page.texts.filter { InkGeometry.lassoSelectsText(loop, loopBounds, it, InkRenderer.textHeight(it)) },
+                    images = page.images.filter { InkGeometry.lassoSelectsImage(loop, loopBounds, it) }
+                )
+            } else CanvasSelection())
         }
         movingSelection = false; resizingSelection = false; rotatingSelection = false
     }
@@ -1380,10 +1433,14 @@ class InkView(context: Context) : View(context) {
     private fun replaceSelectionContent(
         strokes: List<Stroke>, texts: List<TextBox>, images: List<PageImage>
     ) {
+        // Identity only: `it in selection` walked every InkPoint per stroke (O(sel×page×pts))
+        // and stalled move/rotate on dense pages. `doomed` already holds the same instances.
         val doomed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
-        val allStrokes = page.strokes.filterNot { it in doomed || it in selection } + strokes
-        val allTexts = page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + texts
-        val allImages = page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + images
+        val allStrokes = page.strokes.filterNot { it in doomed } + strokes
+        val doomedTextIds = HashSet<String>(selectedTexts.size * 2 + 1).apply { selectedTexts.forEach { add(it.id) } }
+        val allTexts = (if (doomedTextIds.isEmpty()) page.texts else page.texts.filterNot { it.id in doomedTextIds }) + texts
+        val doomedImageIds = HashSet<String>(selectedImages.size * 2 + 1).apply { selectedImages.forEach { add(it.id) } }
+        val allImages = (if (doomedImageIds.isEmpty()) page.images else page.images.filterNot { it.id in doomedImageIds }) + images
         page = page.copy(strokes = allStrokes, texts = allTexts, images = allImages)
         setSelection(CanvasSelection(strokes, texts, images))
         onContentChanged(allStrokes, allTexts, allImages)
@@ -1539,19 +1596,23 @@ class InkView(context: Context) : View(context) {
         if (tool == Tool.ERASER || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)) {
             val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(start.pressure) else inkWidth / 2f
             erasing = if (eraserWholeStroke) {
-                page.strokes.filterNot {
+                val hitAt = page.strokes.indexOfFirst {
+                    val b = boundsOf(it)
+                    val reach = radius + it.width / 2f
+                    if (start.x < b[0] - reach || start.x > b[2] + reach ||
+                        start.y < b[1] - reach || start.y > b[3] + reach) return@indexOfFirst false
+                    InkGeometry.hits(it, start, radius)
+                }
+                if (hitAt < 0) page.strokes
+                else page.strokes.filterNot {
                     val b = boundsOf(it)
                     val reach = radius + it.width / 2f
                     if (start.x < b[0] - reach || start.x > b[2] + reach ||
                         start.y < b[1] - reach || start.y > b[3] + reach) return@filterNot false
                     InkGeometry.hits(it, start, radius)
                 }
-            } else page.strokes.flatMap {
-                val b = boundsOf(it)
-                val reach = radius + it.width / 2f
-                if (start.x < b[0] - reach || start.x > b[2] + reach ||
-                    start.y < b[1] - reach || start.y > b[3] + reach) listOf(it)
-                else InkGeometry.erase(it, start, radius)
+            } else eraseCopyOnWrite(page.strokes, start.x, start.y, start.x, start.y, radius) {
+                InkGeometry.erase(it, start, radius)
             }
             eraserMark = start
         } else {
@@ -1630,8 +1691,12 @@ class InkView(context: Context) : View(context) {
         const val SELECTION_HALO_LIMIT = 40
         /** Drawn radius of each selection frame handle, in page units. */
         const val SELECTION_HANDLE_RADIUS = 16f
-        /** Geometry caches evict one old entry at capacity, even on pages with more live strokes. */
-        const val MAX_CACHED_STROKES = 4000
+        /**
+         * Geometry caches hold a dense page's live strokes without thrashing: LRU keeps the
+         * visible working set resident while panning, and 8k entries cover ~2× the old bound
+         * for high-stroke-count documents before anything is re-smoothed.
+         */
+        const val MAX_CACHED_STROKES = 8000
         val SELECTION_COLOR = 0xFF2F6FBA.toInt()
     }
 }
