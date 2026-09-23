@@ -290,11 +290,12 @@ object EditorQuickPrefs {
         if (quickPresets.isEmpty()) Text("Save your quick colours to bring the same five back in any notebook.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             quickPresets.forEach { preset ->
+                val hold = rememberLongPressGuard()
                 InputChip(
                     selected = preset.colors == quickColors,
-                    onClick = { quick.applyPreset(group, preset); load(quick.colors(group)) },
+                    onClick = hold.click { quick.applyPreset(group, preset); load(quick.colors(group)) },
                     label = { Text(preset.name) },
-                    modifier = Modifier.longPressAction { quick.deletePreset(group, preset) },
+                    modifier = Modifier.longPressAction(hold) { quick.deletePreset(group, preset) },
                     trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { quick.deletePreset(group, preset) }) }
                 )
             }
@@ -335,11 +336,12 @@ object EditorQuickPrefs {
     else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         saved.forEach { preset ->
             val styleSuffix = if (preset.style != StrokeStyle.SOLID) " · ${preset.style.name.lowercase()}" else ""
+            val hold = rememberLongPressGuard()
             InputChip(
                 selected = preset.tool == tool && preset.color == options.color && preset.width == options.width,
-                onClick = { },
+                onClick = hold.click { },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
-                modifier = Modifier.longPressAction { presets.delete(preset.id) },
+                modifier = Modifier.longPressAction(hold) { presets.delete(preset.id) },
                 trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { presets.delete(preset.id) }) }
             )
         }

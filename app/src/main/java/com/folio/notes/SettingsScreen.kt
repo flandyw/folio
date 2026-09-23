@@ -176,9 +176,10 @@ private enum class SettingsCategory(val title: String, val description: String) 
 }
 
 @Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true, onReset: (() -> Unit)? = null) {
+    val hold = rememberLongPressGuard()
     Row(Modifier.fillMaxWidth()
-        .then(if (onReset != null) Modifier.longPressAction(onReset) else Modifier)
-        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        .then(if (onReset != null) Modifier.longPressAction(hold, onReset) else Modifier)
+        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { value -> hold.click { onChange(value) }() }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Switch(checked, onCheckedChange = null, enabled = enabled)
     }

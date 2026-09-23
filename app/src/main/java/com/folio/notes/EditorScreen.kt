@@ -772,7 +772,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
                             // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
                             Box {
-                                Row(Modifier.longPressAction { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val captionHold = rememberLongPressGuard()
+                                Row(Modifier.longPressAction(captionHold) { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
                                     if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
                                     Text(
@@ -794,7 +795,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                     }
                     item {
-                        FilledTonalButton({ addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp).longPressAction { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
+                        val footerHold = rememberLongPressGuard()
+                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp).longPressAction(footerHold) { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
                         }
                     }
@@ -861,6 +863,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
+            val pillHold = rememberLongPressGuard()
             Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd).padding(horizontal = 12.dp, vertical = 16.dp)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
@@ -871,7 +874,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
                         Box {
                             // Tap opens the follow menu; a hold flips writing follow on and off at once.
-                            IconButton({ followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp).longPressAction {
+                            IconButton(pillHold.click { followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp).longPressAction(pillHold) {
                                 writingFollowEnabled = !writingFollowEnabled
                                 appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
                                 followView?.suspendWritingFollow(clearBack = false)
@@ -937,13 +940,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                         if (writingFollowEnabled) {
                             IconButton(
-                                {
+                                pillHold.click {
                                     followPreferences = followPreferences.copy(
                                         mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
                                     )
                                 },
                                 enabled = !peekHeld,
-                                modifier = Modifier.size(40.dp).longPressAction { followSettingsOpen = true },
+                                modifier = Modifier.size(40.dp).longPressAction(pillHold) { followSettingsOpen = true },
                                 shapes = IconButtonDefaults.shapes()) {
                                 Icon(
                                     if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
@@ -1479,6 +1482,8 @@ private fun paperLabel(p: Paper): String = when (p) {
  * is running, so the countdown stays visible without covering any of the page.
  */
 @Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    // The hold claims the gesture so the release after it never also opens the timer panel.
+    val hold = rememberLongPressGuard()
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
     Crossfade(targetState = active, label = "timerChip") { isActive ->
         if (!isActive) {
@@ -1488,14 +1493,14 @@ private fun paperLabel(p: Paper): String = when (p) {
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
             Surface(
-                onClick = onClick,
+                onClick = hold.click(onClick),
                 shape = RoundedCornerShape(20.dp),
                 color = if (done) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
                 contentColor = if (done) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                 tonalElevation = 1.dp,
                 shadowElevation = 1.dp,
                 modifier = Modifier.height(36.dp)
-                    .then(if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier)
+                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)
             ) {
                 Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(
@@ -1744,9 +1749,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // gesture first (and cancels the strip menu again if the strip handler ran first), so
     // a hold over a button only ever opens that button's own action.
     var childLongPressAt by remember { mutableLongStateOf(0L) }
+    val stripGuard = rememberLongPressGuard()
     fun claimStripLongPress() {
         childLongPressAt = System.currentTimeMillis()
         editToolbar = false
+        // The child's own hold stands alone; leave no strip claim to swallow a later tap.
+        stripGuard.begin()
     }
     var lastShape by rememberSaveable { mutableStateOf(Tool.LINE) }
     val toolbarLayout = toolbarLayoutState?.layout ?: ToolbarLayouts.default()
@@ -1788,13 +1796,14 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         }
     }
     @Composable fun WidthControl() {
+        val hold = rememberLongPressGuard()
         Box {
             // Long-press jumps past the width slider straight to the tool's full settings.
             AssistChip(
-                onClick = { showWidth = true },
+                onClick = hold.click { showWidth = true },
                 label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
                 leadingIcon = { Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp)) },
-                modifier = Modifier.height(32.dp).longPressAction { onPalette(true) }
+                modifier = Modifier.height(32.dp).longPressAction(hold) { onPalette(true) }
             )
             DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
                 Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1881,10 +1890,10 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     val controls: @Composable RowScope.() -> Unit = {
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
-            IconButton(undo, enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
+            IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
         }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
-            IconButton(redo, enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+            IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         }
         ToolbarDivider()
         // Only the tool tray scrolls; history and overflow always remain reachable.
@@ -1898,12 +1907,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 Box {
                     FilterChip(
                         selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
-                        onClick = { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
+                        onClick = stripGuard.click { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
                         label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
                         leadingIcon = {
                             Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
                         },
-                        modifier = Modifier.widthIn(max = 112.dp).height(32.dp).longPressAction { claimStripLongPress(); presetMenu = preset.id }
+                        modifier = Modifier.widthIn(max = 112.dp).height(32.dp).longPressAction(stripGuard) { claimStripLongPress(); presetMenu = preset.id }
                     )
                     DropdownMenu(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches()) {
                         DropdownMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(Icons.Rounded.PushPin, null) })
@@ -1915,7 +1924,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
-            IconButton({ shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
+            IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
@@ -1977,16 +1986,12 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     // A tool or preset's own long-press claims the gesture instead (see claimStripLongPress).
     Column(modifier.guardUiTouches().widthIn(max = 520.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
-            Modifier.height(50.dp).combinedClickable(
-                onClick = {},
-                onLongClick = {
-                    if (System.currentTimeMillis() - childLongPressAt > 400) {
-                        feedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (toolbarLayoutState != null) editToolbar = true
-                    }
-                },
-                onLongClickLabel = "Edit toolbar"
-            ),
+            Modifier.height(50.dp).longPressAction(stripGuard) {
+                if (System.currentTimeMillis() - childLongPressAt <= 400) {
+                    // A tool or preset claimed the gesture first; its own action stands alone.
+                    stripGuard.begin()
+                } else if (toolbarLayoutState != null) editToolbar = true
+            },
             shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         ) {
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }

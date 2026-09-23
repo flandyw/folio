@@ -31,11 +31,12 @@ import androidx.compose.ui.unit.dp
     indicatorColor: Color? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
-    Box(Modifier.size(44.dp).then(if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier), contentAlignment = Alignment.Center) {
+    val hold = rememberLongPressGuard()
+    Box(Modifier.size(44.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier), contentAlignment = Alignment.Center) {
         FilledTonalIconToggleButton(
             checked = selected,
             // Tapping the active pen still opens its options rather than deselecting the tool.
-            onCheckedChange = { onClick() },
+            onCheckedChange = { hold.click(onClick)() },
             shapes = IconButtonDefaults.toggleableShapes(),
             modifier = Modifier.size(44.dp),
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(

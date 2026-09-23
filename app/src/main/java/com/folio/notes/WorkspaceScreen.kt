@@ -39,7 +39,8 @@ import androidx.compose.ui.unit.dp
                 Row(Modifier.fillMaxWidth().height(48.dp).guardUiTouches(), verticalAlignment = Alignment.CenterVertically) {
                     if (compact) Box(Modifier.weight(1f)) {
                         // Tap opens the document list; a hold offers closing tabs without leaving the page.
-                        TextButton({ picker = "tabs" }, modifier = Modifier.fillMaxWidth().longPressAction { compactTabMenu = state.activeId != null }, shapes = ButtonDefaults.shapes()) {
+                        val hold = rememberLongPressGuard()
+                        TextButton(hold.click { picker = "tabs" }, modifier = Modifier.fillMaxWidth().longPressAction(hold) { compactTabMenu = state.activeId != null }, shapes = ButtonDefaults.shapes()) {
                             Text(state.active?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Icon(Icons.Rounded.ExpandMore, "Open documents")
                         }
@@ -50,17 +51,19 @@ import androidx.compose.ui.unit.dp
                     } else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                         state.tabs.forEach { tab ->
                             val note = state.notes.find { it.id == tab.notebookId }
-                            if (note != null) Surface(color = if (state.activeId == tab.notebookId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                                modifier = Modifier.longPressAction { tabMenuFor = tab.id }) {
+                            if (note != null) {
+                                val hold = rememberLongPressGuard()
+                                Surface(color = if (state.activeId == tab.notebookId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                                    modifier = Modifier.longPressAction(hold) { tabMenuFor = tab.id }) {
                                 Box {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton({ model.open(tab.notebookId) }, modifier = Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }, shapes = ButtonDefaults.shapes()) {
+                                    TextButton(hold.click { model.open(tab.notebookId) }, modifier = Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }, shapes = ButtonDefaults.shapes()) {
                                         val tabIsPdf = note.pages.any { it.pdfIndex != null }
                                         Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(note.title, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
-                                    IconButton({ model.closeTab(tab.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}", Modifier.size(18.dp)) }
+                                    IconButton(hold.click { model.closeTab(tab.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}", Modifier.size(18.dp)) }
                                 }
                                 DropdownMenu(tabMenuFor == tab.id, { tabMenuFor = null }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("Close tab") }, { tabMenuFor = null; model.closeTab(tab.id) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
@@ -68,6 +71,7 @@ import androidx.compose.ui.unit.dp
                                     HorizontalDivider()
                                     DropdownMenuItem({ Text("Open beside editor") }, { tabMenuFor = null; model.showCompanion(tab.notebookId, CompanionMode.SPLIT) }, leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null) })
                                     DropdownMenuItem({ Text("Open as reference") }, { tabMenuFor = null; model.showCompanion(tab.notebookId, CompanionMode.REFERENCE) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
+                                }
                                 }
                                 }
                             }
@@ -203,9 +207,10 @@ import androidx.compose.ui.unit.dp
             }
         }
         Row(Modifier.fillMaxWidth().guardUiTouches(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
+            val hold = rememberLongPressGuard()
+            IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
             Text("${index + 1} / ${note.pages.size}", style = MaterialTheme.typography.labelLarge)
-            IconButton({ model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
+            IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
             TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
         }
     }

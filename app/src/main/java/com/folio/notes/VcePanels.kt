@@ -720,12 +720,13 @@ fun RedoReviewContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, modi
                         Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         pages.forEach { (target, index, page) ->
                             var menu by remember { mutableStateOf(false) }
+                            val hold = rememberLongPressGuard()
                             Box {
                                 Surface(
-                                    onClick = { onOpen(target.id, index) },
+                                    onClick = hold.click { onOpen(target.id, index) },
                                     shape = RoundedCornerShape(10.dp),
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = if (onClearFlag != null) Modifier.longPressAction { menu = true } else Modifier
+                                    modifier = if (onClearFlag != null) Modifier.longPressAction(hold) { menu = true } else Modifier
                                 ) {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text("Page ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

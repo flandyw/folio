@@ -83,6 +83,8 @@ enum class ReviewTab { REDO, BOOKMARKS }
     var folderMenu by remember { mutableStateOf(false) }
     var menuFolder by remember { mutableStateOf<Folder?>(null) }
     var sidebarNewMenu by remember { mutableStateOf(false) }
+    val newHold = rememberLongPressGuard()
+    val shelfHold = rememberLongPressGuard()
     var renameFolder by remember { mutableStateOf<Folder?>(null) }
     var deleteFolder by remember { mutableStateOf<Folder?>(null) }
     val examFilter = state.examFilter
@@ -115,7 +117,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Brand(); Spacer(Modifier.height(16.dp))
                     Box {
-                        FilledTonalButton(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).longPressAction { sidebarNewMenu = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
+                        FilledTonalButton(newHold.click(onNew), shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).longPressAction(newHold) { sidebarNewMenu = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
                         DropdownMenu(sidebarNewMenu, { sidebarNewMenu = false }, modifier = Modifier.guardUiTouches()) {
                             DropdownMenuItem({ Text("New notebook") }, { sidebarNewMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
                             DropdownMenuItem({ Text("Import PDF document") }, { sidebarNewMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
@@ -172,7 +174,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                             if (!wide) Spacer(Modifier.weight(1f))
                             if (!wide) Box {
-                                FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes(), modifier = Modifier.longPressAction { newButtonMenu = true }) { Icon(Icons.Rounded.Add, "New notebook") }
+                                FilledTonalIconButton(newHold.click(onNew), shapes = IconButtonDefaults.shapes(), modifier = Modifier.longPressAction(newHold) { newButtonMenu = true }) { Icon(Icons.Rounded.Add, "New notebook") }
                                 DropdownMenu(newButtonMenu, { newButtonMenu = false }, modifier = Modifier.guardUiTouches()) {
                                     DropdownMenuItem({ Text("New notebook") }, { newButtonMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
                                     DropdownMenuItem({ Text("Import PDF document") }, { newButtonMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
@@ -226,12 +228,12 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             } }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FilterChip(filtersExpanded || filtersActive, { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
-                                modifier = Modifier.longPressAction { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
+                            FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
+                                modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                 leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
                                 trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-                            TextButton({ selecting = !selecting; selectedIds = emptyList() },
-                                modifier = Modifier.longPressAction { selecting = true; selectedIds = notes.map { it.id } },
+                            TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
+                                modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
                                 shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                         }
                         if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -501,7 +503,8 @@ enum class ReviewTab { REDO, BOOKMARKS }
     }
 }
 @Composable private fun NavItem(title: String, icon: ImageVector, selected: Boolean, count: Int?, onLongClick: (() -> Unit)? = null, action: () -> Unit) {
-    Surface(onClick = action, modifier = if (onLongClick != null) Modifier.longPressAction(onLongClick) else Modifier, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
+    val hold = rememberLongPressGuard()
+    Surface(onClick = hold.click(action), modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(icon, null, Modifier.size(20.dp)); Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             count?.let { Text("$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

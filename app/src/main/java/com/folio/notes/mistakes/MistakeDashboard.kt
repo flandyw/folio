@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
+import com.folio.notes.rememberLongPressGuard
 
 @Composable internal fun ReviewDashboard(
     due: Int, total: Int, limit: Int, onLimit: (Int) -> Unit, shuffle: Boolean,
@@ -94,11 +95,12 @@ import com.folio.notes.longPressAction
 ) {
     // Long-pressing a card opens its context menu; the tap still opens the details.
     var menu by remember { mutableStateOf(false) }
+    val hold = rememberLongPressGuard()
     Box {
-    OutlinedCard(onClick = onOpen, shape = RoundedCornerShape(20.dp),
+    OutlinedCard(onClick = hold.click(onOpen), shape = RoundedCornerShape(20.dp),
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        modifier = Modifier.longPressAction { menu = true }) {
+        modifier = Modifier.longPressAction(hold) { menu = true }) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "ExamTrack question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -115,7 +117,7 @@ import com.folio.notes.longPressAction
                     if (mistake.attachments.isNotEmpty()) add("${mistake.attachments.size} attachments")
                     if (isEmpty()) add("Open question for details")
                 }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!mistake.suspended) FilledTonalButton(onPractice, enabled = !working, shapes = ButtonDefaults.shapes()) { Text(if (resume) "Continue" else "Practise") }
+                if (!mistake.suspended) FilledTonalButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) { Text(if (resume) "Continue" else "Practise") }
             }
         }
     }

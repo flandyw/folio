@@ -45,10 +45,11 @@ fun BookmarkListContent(notes: List<Notebook>, onOpen: (String, Int) -> Unit, mo
             }
             items(entries, key = { (note, page) -> "${note.id}/${page.value.id}" }) { (note, entry) ->
                 var menu by remember { mutableStateOf(false) }
+                val hold = rememberLongPressGuard()
                 Box {
-                    Surface(onClick = { onOpen(note.id, entry.index) }, shape = RoundedCornerShape(16.dp),
+                    Surface(onClick = hold.click { onOpen(note.id, entry.index) }, shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = if (onUnbookmark != null) Modifier.longPressAction { menu = true } else Modifier) {
+                        modifier = if (onUnbookmark != null) Modifier.longPressAction(hold) { menu = true } else Modifier) {
                         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Icon(Icons.Rounded.Bookmark, null, tint = MaterialTheme.colorScheme.primary)
                             Column(Modifier.weight(1f)) {

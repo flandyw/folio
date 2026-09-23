@@ -21,6 +21,7 @@ import com.folio.notes.FolioViewModel
 import com.folio.notes.Notebook
 import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
+import com.folio.notes.rememberLongPressGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -268,8 +269,9 @@ private fun HandwritingNotebookRow(
         runCatching { handwritingDateFormat.get()!!.format(Date(note.updated)) }.getOrDefault("")
     }
     // Long-pressing the card offers the same open/delete pair as its buttons.
+    val hold = rememberLongPressGuard()
     Box {
-    ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.longPressAction { rowMenu = true }) {
+    ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.longPressAction(hold) { rowMenu = true }) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -280,7 +282,7 @@ private fun HandwritingNotebookRow(
                     if (question != null) Text(question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else if (attempt != null) Text("Question removed from ExamTrack · handwriting kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton({ confirmDelete = true }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
+                IconButton(hold.click { confirmDelete = true }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.DeleteOutline, "Delete ${note.title}")
                 }
             }
@@ -297,7 +299,7 @@ private fun HandwritingNotebookRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                FilledTonalButton({ onOpenNotebook(note.id) }, enabled = !working, shapes = ButtonDefaults.shapes()) {
+                FilledTonalButton(hold.click { onOpenNotebook(note.id) }, enabled = !working, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Open")

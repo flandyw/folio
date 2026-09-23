@@ -150,15 +150,18 @@ import androidx.compose.ui.unit.dp
                 items(note.pages.indices.toList(), key = { note.pages[it].id }) { index ->
                     val page = note.pages[index]
                     val checked = index in selected
+                    val hold = rememberLongPressGuard()
                     Row(
-                        Modifier.fillMaxWidth().longPressAction { selected = setOf(index); rangeError = null },
+                        Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
                             checked = checked,
                             onCheckedChange = { on ->
-                                selected = if (on) selected + index else selected - index
-                                rangeError = null
+                                hold.click {
+                                    selected = if (on) selected + index else selected - index
+                                    rangeError = null
+                                }()
                             }
                         )
                         Column(Modifier.weight(1f)) {
