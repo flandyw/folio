@@ -1,10 +1,8 @@
 import java.util.Properties
 import java.util.Base64
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -76,9 +74,28 @@ android {
         // Keep informational AutoboxingStateCreation visible without failing builds.
         informational += setOf("AutoboxingStateCreation")
     }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
+    // jvmTarget is not set explicitly: built-in Kotlin defaults it to
+    // compileOptions.targetCompatibility (Java 17, see above).
+}
+
+// AGP 9 puts android.jar first on the unit-test *compile* classpath, while the
+// runtime classpath still puts dependency jars first. The platform org.json in
+// android.jar lacks JSONObject.similar(), so unit tests using it stopped compiling.
+// Reorder: dependency jars first, android.jar last — matching the runtime order.
+// Deferred to afterEvaluate: AGP wires these classpaths after the plugins block.
+afterEvaluate {
+    tasks.withType<JavaCompile>().configureEach {
+        if (name.contains("UnitTest")) {
+            val snapshot = classpath.toList()
+            setClasspath(files(snapshot.filter { it.name != "android.jar" } + snapshot.filter { it.name == "android.jar" }))
+        }
+    }
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        if (name.contains("UnitTest")) {
+            val snapshot = libraries.toList()
+            (libraries as org.gradle.api.file.ConfigurableFileCollection).setFrom(
+                snapshot.filter { it.name != "android.jar" } + snapshot.filter { it.name == "android.jar" }
+            )
         }
     }
 }
