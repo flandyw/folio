@@ -12,6 +12,29 @@ data class WritingAdvance(val from: WritingGuide, val to: WritingGuide) {
 }
 
 object WritingGuides {
+    /** Partition all printed rules into separate answer areas, including adjacent columns. */
+    fun regions(guides: List<WritingGuide>): List<WritingLane> {
+        val remaining = guides.toMutableSet()
+        val result = mutableListOf<WritingLane>()
+        while (remaining.isNotEmpty()) {
+            val group = mutableSetOf(remaining.first())
+            val queue = java.util.ArrayDeque<WritingGuide>().apply { add(remaining.first()) }
+            while (queue.isNotEmpty()) {
+                val line = queue.removeFirst()
+                remaining.remove(line)
+                val neighbours = remaining.filter { next(line, guides) == it || next(it, guides) == line }
+                for (neighbour in neighbours) if (group.add(neighbour)) queue.add(neighbour)
+            }
+            if (group.size >= 2) result += WritingLane(group.minOf { it.left },
+                (group.minOf { it.y } - 28f).coerceAtLeast(0f), group.maxOf { it.right }, group.maxOf { it.y })
+        }
+        return result.sortedWith(compareBy({ it.top }, { it.left }))
+    }
+
+    fun regionAt(regions: List<WritingLane>, x: Float, y: Float): WritingLane? = regions
+        .filter { x in it.left..it.right && y in it.top..it.bottom }
+        .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
+
     /** Only move within the same answer column, never across a question-sized gap. */
     fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides
         .filter {

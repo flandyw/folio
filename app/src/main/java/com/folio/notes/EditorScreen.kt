@@ -136,6 +136,16 @@ private fun paperLabel(p: Paper): String = when (p) {
         val values = appPrefs.getString(regionKey, null)?.split(",")?.map { it.toFloat() } ?: return@runCatching null
         WritingLane(values[0], values[1], values[2], values[3]).takeIf { values.all(Float::isFinite) && it.right > it.left && it.bottom > it.top }
     }.getOrNull()) }
+    var writingRegions by remember(regionKey) { mutableStateOf(
+        appPrefs.getString("$regionKey.areas", null)?.split(";")?.mapNotNull { entry ->
+            runCatching {
+                val v = entry.split(",").map { it.toFloat() }
+                WritingLane(v[0], v[1], v[2], v[3]).takeIf {
+                    v.size == 4 && v.all(Float::isFinite) && it.right > it.left && it.bottom > it.top
+                }
+            }.getOrNull()
+        } ?: listOfNotNull(writingRegion)
+    ) }
     if (followSettingsOpen) FollowSettingsDialog(
         preferences = followPreferences,
         writingHand = writingHand,
@@ -257,6 +267,13 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(followPreferences, writingHand, tool) { followView?.suspendWritingFollow() }
     fun configureFollow(view: InkView) {
         view.followPreferences = followPreferences
+        view.writingRegions = writingRegions
+        view.onWritingRegions = { regions ->
+            writingRegions = regions
+            appPrefs.edit().putString("$regionKey.areas", regions.joinToString(";") {
+                "${it.left},${it.top},${it.right},${it.bottom}"
+            }).apply()
+        }
         view.writingRegion = writingRegion
         view.onWritingRegion = { region ->
             writingRegion = region
@@ -761,12 +778,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {},
                         onTextEdit = {}, onTextCreate = {}, onLoad = { model.loadPage(page.id) },
                         fullscreen = true, readOnly = true, inputBlocked = peekHeld,
-                        onSelectAllView = { it.writingRegion = writingRegion })
+                        onSelectAllView = { it.writingRegions = writingRegions; it.writingRegion = writingRegion })
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f).padding(bottom = 72.dp)
                     .zIndex(8f).background(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Writing strip · $followStatus", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                        Text("Writing strip", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                         TextButton({ stripInkView?.nextWritingLine() }, shapes = ButtonDefaults.shapes()) { Text("Next line") }
                         IconButton({ writingStripOpen = false }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close writing strip") }
                     }
@@ -789,11 +806,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                         onSelectionAnchor = { selectionAnchor = it }, selectionAnchor = selectionAnchor,
                         selectionPill = if (selected.isNotEmpty()) selectionPill else null)
-                }
-            } else if (writingFollowEnabled) {
-                Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp), shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    Text(followStatus, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
             // Keep the original composition and cameras alive. Dismissing this read-only lens is
@@ -870,8 +882,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 )
                                 DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
                                 DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
-                                DropdownMenuItem({ Text("Detect answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
-                                if (writingRegion != null) DropdownMenuItem({ Text("Clear answer area") }, { followView?.clearWritingRegion(); followMenu = false })
+                                DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                                if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
                                 DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
                                     activeInkView?.suspendWritingFollow()
                                     motion.reset()
@@ -937,6 +949,17 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     peekHeld = true
                                 }
                             }
+                        }
+                        if (writingFollowEnabled) {
+                            Text(
+                                followStatus,
+                                modifier = Modifier.weight(1f, fill = false).widthIn(max = 280.dp)
+                                    .padding(horizontal = 12.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }

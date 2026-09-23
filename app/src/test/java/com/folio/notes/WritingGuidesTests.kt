@@ -69,4 +69,24 @@ class WritingGuidesTests {
         assertEquals(28f, guides[1].y - guides[0].y, 0f)
         assertTrue(guides.last().y < 1188f)
     }
+
+    @Test fun detectsMultipleAreasOnOnePageAndSelectsByBothCoordinates() {
+        val pixels = raster()
+        for (y in listOf(100, 132, 270, 302)) line(pixels, 50, 350, y)
+        for (y in listOf(100, 132)) line(pixels, 450, 750, y)
+        val guides = detect(pixels)
+        val areas = WritingGuides.regions(guides.reversed())
+        assertEquals(listOf(WritingLane(50f, 72f, 350f, 132f),
+            WritingLane(450f, 72f, 750f, 132f), WritingLane(50f, 242f, 350f, 302f)), areas)
+        assertEquals(areas[1], WritingGuides.regionAt(areas, 500f, 90f))
+        assertEquals(areas[2], WritingGuides.regionAt(areas, 100f, 280f))
+        assertNull(WritingGuides.regionAt(areas, 400f, 100f))
+        assertNull(WritingGuides.regionAt(areas, 100f, 200f))
+        assertNull(FollowNavigation.next(132f, areas[0], guides, 32f))
+    }
+
+    @Test fun emptyOrIsolatedGuidesDoNotCreateAnswerAreas() {
+        assertTrue(WritingGuides.regions(emptyList()).isEmpty())
+        assertTrue(WritingGuides.regions(listOf(WritingGuide(50f, 350f, 100f))).isEmpty())
+    }
 }

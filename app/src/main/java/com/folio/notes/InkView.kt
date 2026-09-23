@@ -191,6 +191,8 @@ class InkView(context: Context) : View(context) {
     var followPreferences = FollowPreferences()
     var writingRegion: WritingLane? = null
         set(value) { if (field != value) { suspendWritingFollow(); field = value; invalidate() } }
+    var writingRegions: List<WritingLane> = emptyList()
+    var onWritingRegions: (List<WritingLane>) -> Unit = {}
     var onWritingRegion: (WritingLane?) -> Unit = {}
     var onFollowStatus: (String) -> Unit = {}
     var writingStrip = false
@@ -224,17 +226,24 @@ class InkView(context: Context) : View(context) {
         suspendWritingFollow(); selectingWritingRegion = true
         onFollowStatus("Drag an answer area with your pen")
     }
-    fun clearWritingRegion() { writingRegion = null; onWritingRegion(null); invalidate() }
+    fun clearWritingRegion() {
+        writingRegions = emptyList(); onWritingRegions(writingRegions)
+        writingRegion = null; onWritingRegion(null); invalidate()
+    }
     fun suggestWritingRegion() {
-        val y = followLastPoint?.y ?: currentPeekAnchor()?.let { (it.top + it.bottom) / 2 } ?: 70f
-        val line = writingGuides.minByOrNull { kotlin.math.abs(it.y - y) } ?: return selectWritingRegion()
-        val group = mutableListOf(line)
-        var cursor = line
-        while (true) { val next = WritingGuides.next(cursor, writingGuides) ?: break; group += next; cursor = next }
-        cursor = line
-        while (true) { val previous = writingGuides.firstOrNull { WritingGuides.next(it, writingGuides) == cursor } ?: break; group += previous; cursor = previous }
-        writingRegion = WritingLane(group.minOf { it.left }, group.minOf { it.y } - 28f, group.maxOf { it.right }, group.maxOf { it.y })
-        onWritingRegion(writingRegion); onFollowStatus("Answer area selected"); invalidate()
+        val regions = WritingGuides.regions(writingGuides)
+        if (regions.isEmpty()) return selectWritingRegion()
+        writingRegions = regions; onWritingRegions(regions)
+        val anchor = currentPeekAnchor()
+        val x = followLastPoint?.x ?: anchor?.let { (it.left + it.right) / 2 } ?: page.width / 2
+        val y = followLastPoint?.y ?: anchor?.let { (it.top + it.bottom) / 2 } ?: 70f
+        writingRegion = WritingGuides.regionAt(regions, x, y) ?: regions.minByOrNull {
+            val dx = x - x.coerceIn(it.left, it.right)
+            val dy = y - y.coerceIn(it.top, it.bottom)
+            dx * dx + dy * dy
+        }
+        onWritingRegion(writingRegion)
+        onFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
     }
     private fun followRegion(): WritingLane {
         writingRegion?.let { return it }
@@ -707,7 +716,7 @@ class InkView(context: Context) : View(context) {
                 ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         }
         outlined?.let { drawImageSelection(canvas, it) }
-        (regionDraft ?: writingRegion)?.let { r ->
+        (writingRegions + listOfNotNull(regionDraft ?: writingRegion)).distinct().forEach { r ->
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f / scale }
             canvas.drawRect(r.left, r.top, r.right, r.bottom, paint)
         }
@@ -760,7 +769,7 @@ class InkView(context: Context) : View(context) {
                 MotionEvent.ACTION_MOVE -> regionStart?.let { regionDraft = WritingLane(min(it.x, pt.x), min(it.y, pt.y), max(it.x, pt.x), max(it.y, pt.y)) }
                 MotionEvent.ACTION_UP -> {
                     regionStart?.let { val r = WritingLane(min(it.x, pt.x), min(it.y, pt.y), max(it.x, pt.x), max(it.y, pt.y))
-                        if (r.right - r.left >= 48f && r.bottom - r.top >= 32f) { writingRegion = r; onWritingRegion(r); onFollowStatus("Answer area selected") }
+                        if (r.right - r.left >= 48f && r.bottom - r.top >= 32f) { writingRegions = (writingRegions + r).distinct(); onWritingRegions(writingRegions); writingRegion = r; onWritingRegion(r); onFollowStatus("Answer area selected") }
                         else onFollowStatus("Area too small · try again") }
                     regionDraft = null; regionStart = null; selectingWritingRegion = false; parent?.requestDisallowInterceptTouchEvent(false)
                 }
@@ -1091,6 +1100,15 @@ class InkView(context: Context) : View(context) {
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { listOf(it) })?.let { page.strokes + it } ?: erasing
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
             val now = SystemClock.uptimeMillis()
+            drawn.points.lastOrNull()?.let { point ->
+                WritingGuides.regionAt(writingRegions, point.x, point.y)?.let { area ->
+                    if (area != writingRegion) {
+                        writingRegion = area
+                        writingFollow.state = WritingFollowState()
+                        onWritingRegion(area)
+                    }
+                }
+            }
             followPaused = false
             writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
             val progressing = writingFollow.progresses(drawn.points, followPreferences.direction)
