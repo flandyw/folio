@@ -48,7 +48,10 @@ import kotlin.math.roundToInt
                     .align(Alignment.CenterHorizontally).verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                if (category == null) {
+                // Snapshot the delegated state into a local val: the compiler can
+                // smart-cast it below (delegated vars cannot be smart-cast).
+                val selected = category
+                if (selected == null) {
                     Text("Make Folio your own", style = MaterialTheme.typography.headlineSmall)
                     SectionHint("Choose a category to adjust your writing space. Changes are saved automatically.")
                     SettingsCategory.entries.forEach { item ->
@@ -63,8 +66,8 @@ import kotlin.math.roundToInt
                         }
                     }
                 } else {
-                    SectionHint(category!!.description)
-                    when (category) {
+                    SectionHint(selected.description)
+                    when (selected) {
                         SettingsCategory.APPEARANCE -> {
                             SectionTitle("Theme mode")
                             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -154,7 +157,6 @@ import kotlin.math.roundToInt
                             }
                             SectionHint("Your notebooks stay on this device. Export a PDF to share your work, or a .folio backup to keep an editable copy.")
                         }
-                        null -> Unit
                     }
                 }
             }
