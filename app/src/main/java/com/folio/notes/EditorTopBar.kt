@@ -54,33 +54,73 @@ import androidx.compose.ui.unit.dp
             BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
                 val compact = maxWidth < 600.dp
                 if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            IdentityContent(
-                                title = title,
-                                saveFailed = saveFailed,
-                                pendingSaves = pendingSaves,
-                                starred = starred,
-                                onStar = onStar,
-                                onRename = onRename,
-                                onRetrySave = onRetrySave,
-                                onClose = onClose,
-                                timer = timer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            actions()
+                    // One scrollable row instead of two stacked rows: saves ~60dp of
+                    // vertical page space on phones. Everything stays reachable via
+                    // horizontal scroll; nothing is dropped or moved into menus.
+                    var notebookMenu by remember { mutableStateOf(false) }
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 2.dp, vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 160.dp))
+                        val statusColor = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        Icon(when {
+                            saveFailed -> Icons.Rounded.ErrorOutline
+                            pendingSaves > 0 -> Icons.Rounded.Sync
+                            else -> Icons.Rounded.Check
+                        }, when {
+                            saveFailed -> "Couldn't save — tap Retry"
+                            pendingSaves > 0 -> "Saving…"
+                            else -> "Saved on device"
+                        }, Modifier.size(13.dp), tint = statusColor)
+                        if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 6.dp), shapes = ButtonDefaults.shapes()) {
+                            Text("Retry", style = MaterialTheme.typography.labelSmall)
                         }
-                        AppNavigationRow(
-                            pageIndex = pageIndex,
-                            pageCount = pageCount,
-                            onPrevious = onPrevious,
-                            onNext = onNext,
-                            onPages = onPages,
-                            zoomPercent = zoomPercent,
-                            onFit = onFit,
-                            onAdd = onAdd,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
+                            IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(36.dp)) {
+                                Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                    if (starred) "Remove from favorites" else "Add to favorites",
+                                    Modifier.size(20.dp),
+                                    tint = if (starred) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        timer()
+                        IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page", Modifier.size(20.dp))
+                        }
+                        TextButton(onPages, modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }, contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
+                            Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                        }
+                        IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page", Modifier.size(20.dp))
+                        }
+                        TextButton(onFit, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes(),
+                            modifier = Modifier.semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }) {
+                            Text("$zoomPercent%", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                        }
+                        FilledTonalIconButton(onAdd, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Add, "Add page", Modifier.size(20.dp))
+                        }
+                        Box {
+                            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(), tooltip = { PlainTooltip { Text("Notebook options") } }, state = rememberTooltipState()) {
+                                IconButton({ notebookMenu = true }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options", Modifier.size(20.dp)) }
+                            }
+                            DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem(text = { Text("Rename notebook") }, onClick = {
+                                    notebookMenu = false
+                                    onRename()
+                                }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                DropdownMenuItem(text = { Text(if (starred) "Remove from favourites" else "Add to favourites") }, onClick = {
+                                    notebookMenu = false
+                                    onStar()
+                                }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
+                            }
+                        }
+                        actions()
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

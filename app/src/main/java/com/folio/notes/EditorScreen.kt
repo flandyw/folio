@@ -556,7 +556,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
-            val baseWidth = (maxWidth - 32.dp).coerceAtMost(900.dp)
+            val baseWidth = (maxWidth - 20.dp).coerceAtMost(900.dp)
             val baseWidthPx = with(density) { baseWidth.toPx() }
             val stripWidth = 26.dp
             val stripInset = 2.dp
@@ -721,11 +721,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
-                    contentPadding = PaddingValues(top = floatingToolbarTop + 16.dp, bottom = 32.dp, start = 12.dp, end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally
+                    contentPadding = PaddingValues(top = floatingToolbarTop + 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                             EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
                                 onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
                                 onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
