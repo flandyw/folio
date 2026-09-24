@@ -1502,7 +1502,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Crossfade(targetState = stopwatch.active, label = "stopwatchChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Stopwatch") }
+                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.HourglassEmpty, "Stopwatch") }
             }
         } else {
             Surface(
@@ -1517,7 +1517,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             ) {
                 Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(
-                        if (stopwatch.paused) Icons.Rounded.Pause else Icons.Rounded.Timer,
+                        if (stopwatch.paused) Icons.Rounded.Pause else Icons.Rounded.HourglassEmpty,
                         null, Modifier.size(15.dp)
                     )
                     Text(
