@@ -46,7 +46,9 @@ class ExamTrackSyncService(private val client: SupabaseClient) : ExamTrackRemote
     }
     override suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean {
         checkUser(userId)
-        val patch = JSONObject().put("deleted_at", deletedAt).put("updated_at", deletedAt)
+        // ExamTrack's mistakes_deleted_payload constraint requires tombstones to have no payload.
+        val patch = JSONObject().put("payload", JSONObject.NULL)
+            .put("deleted_at", deletedAt).put("updated_at", deletedAt)
         val data = client.from("mistakes").update(Json.parseToJsonElement(patch.toString()).jsonObject) {
             filter {
                 eq("user_id", userId); eq("id", expected.id); eq("updated_at", expected.updatedAt)

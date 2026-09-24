@@ -97,6 +97,8 @@ class ExamTrackSyncServiceTests {
             assertEquals("eq.$at", request.url.parameters["updated_at"])
             assertEquals("is.null", request.url.parameters["deleted_at"])
             val body = JSONObject((request.body as TextContent).text)
+            assertTrue(body.has("payload"))
+            assertTrue(body.isNull("payload"))
             assertEquals(deletedAt, body.getString("deleted_at"))
             assertEquals(deletedAt, body.getString("updated_at"))
             respond("[{\"id\":\"m\"}]", headers = headersOf(HttpHeaders.ContentType, "application/json"))

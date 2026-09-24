@@ -43,7 +43,7 @@ class MistakeTests {
             check(!offline)
             if (conflict) return false
             deletes += expected.id
-            rows = rows.map { if (it.id == expected.id) it.copy(payload = it.payload, updatedAt = deletedAt, deletedAt = deletedAt) else it }
+            rows = rows.map { if (it.id == expected.id) it.copy(payload = null, updatedAt = deletedAt, deletedAt = deletedAt) else it }
             return true
         }
         override suspend fun contexts(userId: String) = emptyMap<String, ExamContext>()
