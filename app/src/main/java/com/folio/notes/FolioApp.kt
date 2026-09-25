@@ -572,8 +572,9 @@ import java.io.File
         paper = item.paper
         pageCount = item.pages
     }
-    AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = onDismiss, icon = { Icon(Icons.Rounded.AutoStories, null) }, title = { Text("A fresh start") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    FolioPanel(title = "A fresh start", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -626,15 +627,19 @@ import java.io.File
             if (paper == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet — shade A–E with the pen", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (paper == Paper.TIAN_GRID) Text("田字格 — one character per square with a dashed cross", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (paper == Paper.MI_GRID) Text("米字格 — cross plus diagonals in each square", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                val chosen = NotebookTemplate.byId(template)
+                Button(
+                    { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
+                    shapes = ButtonDefaults.shapes(),
+                    enabled = title.isNotBlank()
+                ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+            }
         }
-    }, dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = {
-        val chosen = NotebookTemplate.byId(template)
-        Button(
-            { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
-            shapes = ButtonDefaults.shapes(),
-            enabled = title.isNotBlank()
-        ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
-    })
+    }
 }
 
 @Composable

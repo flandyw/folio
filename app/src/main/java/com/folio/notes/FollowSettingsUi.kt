@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -47,12 +46,10 @@ fun FollowSettingsDialog(
     onHand: (WritingHand) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Writing follow") },
-        text = {
+    FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth()) {
             Column(
-                Modifier.verticalScroll(rememberScrollState()),
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
@@ -248,16 +245,19 @@ fun FollowSettingsDialog(
                     valueRange = 120f..800f,
                 )
             }
-        },
-        confirmButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Done") } },
-        dismissButton = {
-            TextButton({
-                onPreferences(FollowPreferences())
-                onHand(WritingHand.RIGHT)
-            },
-                shapes = ButtonDefaults.shapes()) { Text("Reset") }
-        },
-    )
+            HorizontalDivider()
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            ) {
+                TextButton({
+                    onPreferences(FollowPreferences())
+                    onHand(WritingHand.RIGHT)
+                }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Done") }
+            }
+        }
+    }
 }
 
 @Composable
