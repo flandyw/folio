@@ -11,6 +11,18 @@ class FocalStudyTests {
         assertNull(FocalSubjects.suggest(Notebook(title = "Untitled")))
     }
 
+    @Test fun focalSessionsUseSubjectBasedTitles() {
+        assertEquals("Physics Focus", focalSessionTitle("phys", FocalSubjects.builtIn))
+        assertEquals("Study Focus", focalSessionTitle(null, FocalSubjects.builtIn))
+    }
+
+    @Test fun todayMinutesOnlyCountsTheOverlappingPartOfASession() {
+        val entry = FocalStudyEntry(notebookId = null, title = "Physics Focus", subjectId = "phys",
+            kind = "study", startedAt = 1_000L, endedAt = 121_000L, activeMillis = 120_000L,
+            completed = true, intervals = listOf(FocalStudyInterval(1_000L, 61_000L), FocalStudyInterval(61_000L, 121_000L)))
+        assertEquals(30_000L, focalActiveMillisBetween(entry, 61_000L, 91_000L))
+    }
+
     @Test fun pausedFocusExcludesBreakTime() {
         val started = FocalFocus("note", "Study", "phys", 1_000L, 1_000L)
         val paused = started.pause(61_000L)
@@ -23,7 +35,7 @@ class FocalStudyTests {
             changeId = "56ddc8e0-080d-4295-a541-3cb6fbe8c50a", notebookId = "notebook",
             title = "Methods exam", subjectId = "mm", kind = "exam",
             startedAt = 1_000L, endedAt = 91_000L, activeMillis = 90_000L,
-            notes = "Calculus", confidence = 4)
+            notebookTitle = "Methods revision", notes = "Calculus", confidence = 4)
         val payload = focalPayload(entry)
         assertEquals(2, payload.getInt("schemaVersion"))
         assertEquals("mm", payload.getJSONArray("subjectIds").getString(0))
@@ -31,6 +43,7 @@ class FocalStudyTests {
         assertEquals("manual", payload.getJSONObject("execution").getJSONArray("intervals").getJSONObject(0).getString("source"))
         assertEquals(4, payload.getJSONObject("reflection").getInt("confidence"))
         assertEquals(1, payload.getJSONObject("execution").getInt("reportedMinutes"))
+        assertTrue(payload.getString("description").contains("Methods revision"))
         assertEquals("manual", payload.getString("createdVia"))
     }
 

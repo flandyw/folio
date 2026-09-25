@@ -92,18 +92,52 @@ data class FocalStudyEntry(
     val examPhase: String? = null,
     val examPhaseBeforePause: String? = null,
     val intervals: List<FocalStudyInterval> = emptyList(),
-    val remotePayload: String? = null
+    val remotePayload: String? = null,
+    val notebookTitle: String? = null
 ) {
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
 }
 
 data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
 
+/** A stable, readable title for a regular study session. */
+internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>): String =
+    (subjects.firstOrNull { it.id == subjectId }?.name ?: "Study") + " Focus"
+
+/**
+ * Count only the part of a session that overlaps the requested day. This matters for a session
+ * that begins before midnight: the old UI added its whole duration whenever it ended today.
+ * Completed exam rows already contain writing intervals only; regular study rows use their active
+ * intervals as well.
+ */
+private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
+
+internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until: Long): Long {
+    if (entry.kind == "exam" && entry.examPhase == "reading") return 0L
+    if (until <= from) return 0L
+    val sessionEnd = entry.endedAt.coerceAtMost(until)
+    if (sessionEnd <= from) return 0L
+    val wallDuration = (entry.endedAt - entry.startedAt).coerceAtLeast(0L)
+    // A corrupt remote row must not turn one day's dashboard into years of study time.
+    val activeLimit = entry.activeMillis.coerceIn(0L, minOf(wallDuration, MAX_REPORTED_SESSION_MILLIS))
+    val intervals = entry.intervals.ifEmpty {
+        if (activeLimit <= 0L) emptyList() else listOf(
+            FocalStudyInterval((entry.endedAt - activeLimit).coerceAtLeast(entry.startedAt), entry.endedAt)
+        )
+    }
+    return intervals.sumOf { interval ->
+        val start = interval.startAt.coerceIn(from, sessionEnd)
+        val end = (interval.endAt ?: entry.endedAt).coerceIn(start, sessionEnd)
+        (end - start).coerceAtLeast(0L)
+    }.coerceAtMost(activeLimit)
+}
+
 /** Preserve one Focal row through reading, writing, pauses and completion. */
 internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                             existing: FocalStudyEntry?, completed: Boolean = false,
                             subjects: List<FocalSubject> = FocalSubjects.builtIn): FocalStudyEntry {
     val started = requireNotNull(timer.startedAt)
+    val subject = existing?.subjectId ?: FocalSubjects.suggest(note, subjects)
     val writing = timer.elapsedWriting(now).coerceAtLeast(0) * 1_000L
     val previousWriting = existing?.activeMillis ?: 0L
     val newWriting = (writing - previousWriting).coerceAtLeast(0L)
@@ -117,12 +151,12 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
     } else if (!timer.paused && timer.phase == ExamTimerPhase.WRITING && newWriting > 0L && intervals.lastOrNull()?.endAt != null) {
         intervals.add(FocalStudyInterval((writingEnd - newWriting).coerceAtLeast(started), null))
     }
-    return (existing ?: FocalStudyEntry(notebookId = note.id, title = note.title,
-        subjectId = FocalSubjects.suggest(note, subjects), kind = "exam", startedAt = started,
-        endedAt = now, activeMillis = writing)).copy(
+    return (existing ?: FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subject, subjects),
+        subjectId = subject, kind = "exam", startedAt = started,
+        endedAt = now, activeMillis = writing, notebookTitle = note.title)).copy(
         changeId = UUID.randomUUID().toString(),
-        title = note.title, subjectId = existing?.subjectId ?: FocalSubjects.suggest(note, subjects),
-        endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing,
+        title = focalSessionTitle(subject, subjects), subjectId = subject,
+        endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing, notebookTitle = note.title,
         completed = completed, deleted = completed && writing == 0L,
         paused = timer.paused, examPhase = timer.phase.name.lowercase(), intervals = intervals,
         synced = false
@@ -137,7 +171,8 @@ data class FocalFocus(
     val resumedAt: Long?,
     val accumulatedMillis: Long = 0L,
     val sessionId: String = UUID.randomUUID().toString(),
-    val intervals: List<FocalStudyInterval> = emptyList()
+    val intervals: List<FocalStudyInterval> = emptyList(),
+    val notebookTitle: String? = null
 ) {
     fun elapsed(now: Long) = accumulatedMillis + (resumedAt?.let { (now - it).coerceAtLeast(0) } ?: 0L)
     fun pause(now: Long) = if (resumedAt == null) this else copy(resumedAt = null,
@@ -233,6 +268,7 @@ class FocalStudyManager(context: Context) {
                 paused = row.optBoolean("paused"), examPhase = row.optString("examPhase").lowercase().ifBlank { null },
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
                 remotePayload = row.optString("remotePayload").ifBlank { null },
+                notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 intervals = (row.optJSONArray("intervals") ?: JSONArray()).let { saved ->
                     (0 until saved.length()).mapNotNull { position -> runCatching {
                         val interval = saved.getJSONObject(position)
@@ -245,6 +281,7 @@ class FocalStudyManager(context: Context) {
             FocalFocus(sessionId = row.optString("sessionId").ifBlank { UUID.randomUUID().toString() },
                 notebookId = row.getString("notebookId"), title = row.getString("title"),
                 subjectId = row.optString("subjectId").ifBlank { null }, startedAt = row.getLong("startedAt"),
+                notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 resumedAt = row.optLong("resumedAt").takeIf { it > 0 }, accumulatedMillis = row.optLong("accumulatedMillis"),
                 intervals = (row.optJSONArray("intervals") ?: JSONArray()).let { saved ->
                     (0 until saved.length()).mapNotNull { position -> runCatching {
@@ -271,12 +308,13 @@ class FocalStudyManager(context: Context) {
             .put("completed", entry.completed).put("deleted", entry.deleted)
             .put("paused", entry.paused).put("examPhase", entry.examPhase)
             .put("examPhaseBeforePause", entry.examPhaseBeforePause)
-            .put("remotePayload", entry.remotePayload)
+            .put("remotePayload", entry.remotePayload).put("notebookTitle", entry.notebookTitle)
             .put("intervals", JSONArray().also { array -> entry.intervals.forEach { interval ->
                 array.put(JSONObject().put("startAt", interval.startAt).put("endAt", interval.endAt))
             } })) }
         val focus = snapshot.focus?.let { if (parkRunningAt == null) it else it.pause(parkRunningAt) }?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
-            .put("title", it.title).put("subjectId", it.subjectId).put("startedAt", it.startedAt)
+            .put("title", it.title).put("subjectId", it.subjectId).put("notebookTitle", it.notebookTitle)
+            .put("startedAt", it.startedAt)
             .put("resumedAt", it.resumedAt).put("accumulatedMillis", it.accumulatedMillis)
             .put("intervals", JSONArray().also { array -> it.intervals.forEach { interval ->
                 array.put(JSONObject().put("startAt", interval.startAt).put("endAt", interval.endAt))
@@ -298,8 +336,9 @@ class FocalStudyManager(context: Context) {
 
     fun startFocus(note: Notebook, subjectId: String?, now: Long = System.currentTimeMillis()) {
         if (_state.value.focus != null || _state.value.visibleEntries.any { !it.completed && !it.deleted }) return
-        val focus = FocalFocus(notebookId = note.id, title = note.title, subjectId = subjectId,
-            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)))
+        val focus = FocalFocus(notebookId = note.id,
+            title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
+            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note.title)
         _state.update { it.copy(focus = focus, error = null) }
         saveFocusEntry(focus, now)
     }
@@ -329,7 +368,7 @@ class FocalStudyManager(context: Context) {
             endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
             notes = notes, confidence = confidence, userId = _state.value.userId,
             completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
-            intervals = focus.intervals, changeId = UUID.randomUUID().toString())
+            intervals = focus.intervals, changeId = UUID.randomUUID().toString(), notebookTitle = focus.notebookTitle)
         saveEntry(entry)
     }
 
@@ -423,9 +462,9 @@ class FocalStudyManager(context: Context) {
     fun logManual(note: Notebook, subjectId: String?, minutes: Int, notes: String,
                   confidence: Int?, now: Long = System.currentTimeMillis()) {
         if (minutes !in 1..1_440) return
-        add(FocalStudyEntry(notebookId = note.id, title = note.title,
+        add(FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subjectId, _state.value.subjects),
             subjectId = subjectId, kind = "study", startedAt = now - minutes * 60_000L,
-            endedAt = now, activeMillis = minutes * 60_000L,
+            endedAt = now, activeMillis = minutes * 60_000L, notebookTitle = note.title,
             notes = notes.trim(), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
     }
     private fun add(entry: FocalStudyEntry) {
@@ -565,8 +604,11 @@ class FocalStudyManager(context: Context) {
             val integrations = payload.optJSONObject("integrations")
             val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
             val subjectId = payload.optJSONArray("subjectIds")?.optString(0)?.takeIf { it.isNotBlank() }
+            val remoteDescription = payload.optString("description")
+            val notebookTitle = remoteDescription.substringAfter(" · ", "").trim()
+                .takeIf { it.isNotEmpty() && it !in setOf("reading", "writing", "paused") }
             val phase = integration?.optString("phase")?.takeIf { it.isNotBlank() }
-                ?: payload.optString("description").substringAfterLast("·", "").trim()
+                ?: remoteDescription.substringAfterLast("·", "").trim()
                     .takeIf { it in setOf("reading", "writing", "paused") }
             val executionState = execution.optString("state")
             FocalStudyEntry(id = id, changeId = row.optString("change_id"), notebookId = null,
@@ -581,7 +623,7 @@ class FocalStudyManager(context: Context) {
                     (phase == null && intervals.isNotEmpty() && intervals.last().endAt != null)),
                 examPhase = phase,
                 examPhaseBeforePause = integration?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") },
-                intervals = intervals, remotePayload = payload.toString())
+                intervals = intervals, remotePayload = payload.toString(), notebookTitle = notebookTitle)
         }.getOrNull() }
         if (_state.value.userId != user) return
         _state.update { state ->
@@ -649,12 +691,13 @@ internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
     val reflection = JSONObject()
     if (entry.notes.isNotBlank()) reflection.put("notes", entry.notes)
     entry.confidence?.let { reflection.put("confidence", it) }
+    val notebookContext = entry.notebookTitle?.trim()?.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
     val description = when {
-        entry.kind != "exam" -> "Study in Folio"
-        entry.completed -> "Exam practice in Folio"
-        entry.paused -> "Exam practice in Folio · paused"
-        entry.examPhase == "reading" -> "Exam practice in Folio · reading"
-        else -> "Exam practice in Folio · writing"
+        entry.kind != "exam" -> "Study in Folio$notebookContext"
+        entry.completed -> "Exam practice in Folio$notebookContext"
+        entry.paused -> "Exam practice in Folio$notebookContext · paused"
+        entry.examPhase == "reading" -> "Exam practice in Folio$notebookContext · reading"
+        else -> "Exam practice in Folio$notebookContext · writing"
     }
     val execution = JSONObject().put("state", if (entry.completed) "completed" else "in-progress")
         .put("intervals", intervals)
@@ -662,6 +705,7 @@ internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
     entry.remotePayload?.let { raw ->
         val payload = JSONObject(raw).put("execution", execution).put("updated_at", end)
             .put("last_modified_device_id", "folio-android")
+        if (entry.notebookTitle != null) payload.put("description", description)
         val integrations = payload.optJSONObject("integrations")
         val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
         integration?.let {

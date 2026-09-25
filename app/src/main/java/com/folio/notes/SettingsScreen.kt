@@ -18,14 +18,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,38 +71,212 @@ import kotlin.math.roundToInt
     }
     val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
     val dynamicAvailable = Build.VERSION.SDK_INT >= 31
+    val selected = category
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(close, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (category == null) "Close settings" else "Back to settings") }
-            Text(category?.title ?: "Settings", style = MaterialTheme.typography.headlineSmall)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(close, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (selected == null) "Close settings" else "Back to settings") }
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                Text(selected?.title ?: "Settings", style = MaterialTheme.typography.titleLarge)
+                selected?.let { SectionHint(it.description) }
+            }
         }
         HorizontalDivider()
-        key(category) {
+
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val twoPane = maxWidth >= 840.dp && selected != null
+            if (twoPane) {
+                Row(Modifier.fillMaxSize()) {
+                    SettingsNavigation(
+                        selected = selected,
+                        onSelect = { category = it },
+                        modifier = Modifier.width(280.dp).fillMaxHeight(),
+                    )
+                    VerticalDivider()
+                    SettingsPage(
+                        selected = selected,
+                        modifier = Modifier.weight(1f),
+                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onExamTrack, onCheckForUpdates, updateChecking) }
+                }
+            } else {
+                SettingsPage(selected = selected, modifier = Modifier.fillMaxSize()) {
+                    if (selected == null) SettingsHome(onSelect = { category = it })
+                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onExamTrack, onCheckForUpdates, updateChecking)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPage(
+    selected: SettingsCategory?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    key(selected) {
+        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.weight(1f).widthIn(max = 680.dp).fillMaxWidth()
-                    .align(Alignment.CenterHorizontally).verticalScroll(rememberScrollState()).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                // Snapshot the delegated state into a local val: the compiler can
-                // smart-cast it below (delegated vars cannot be smart-cast).
-                val selected = category
-                if (selected == null) {
-                    Text("Make Folio your own", style = MaterialTheme.typography.headlineSmall)
-                    SectionHint("Choose a category to adjust your writing space. Changes are saved automatically. Hold a switch to put it back to its default.")
-                    SettingsCategory.entries.forEach { item ->
-                        Surface(onClick = { category = item }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(item.title, style = MaterialTheme.typography.titleMedium)
-                                    SectionHint(item.description)
-                                }
-                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
+                Modifier.widthIn(max = 760.dp).fillMaxWidth()
+                    .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                content = content,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val normalizedQuery = query.trim().lowercase()
+    val matches = SettingsCategory.entries.filter { it.matches(normalizedQuery) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Make Folio your own", style = MaterialTheme.typography.headlineMedium)
+            Text("Find a setting without searching through long menus.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            placeholder = { Text("Search settings") },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                { IconButton({ query = "" }) { Icon(Icons.Rounded.Clear, "Clear search") } }
+            } else null,
+        )
+
+        if (normalizedQuery.isBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("All settings", style = MaterialTheme.typography.titleMedium)
+                Text("${SettingsCategory.entries.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+        } else {
+            SectionHint(if (matches.size == 1) "1 matching category" else "${matches.size} matching categories")
+        }
+
+        if (matches.isEmpty()) {
+            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No settings found", style = MaterialTheme.typography.titleMedium)
+                    Text("Try a word such as theme, backup, pencil, or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ query = "" }) { Text("Show all settings") }
+                }
+            }
+        } else {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val columns = if (maxWidth >= 560.dp) 2 else 1
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    matches.chunked(columns).forEach { rowItems ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            rowItems.forEach { item ->
+                                SettingsCategoryCard(item, Modifier.weight(1f), onSelect)
                             }
+                            repeat(columns - rowItems.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
-                } else {
-                    SectionHint(selected.description)
-                    when (selected) {
+                }
+            }
+        }
+
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            SectionHint("Changes save automatically. Use the reset arrow on a setting to restore its default.")
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryCard(item: SettingsCategory, modifier: Modifier, onSelect: (SettingsCategory) -> Unit) {
+    Surface(
+        onClick = { onSelect(item) },
+        modifier = modifier.heightIn(min = 112.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(item.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(item.title, style = MaterialTheme.typography.titleMedium)
+                Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavigation(selected: SettingsCategory?, onSelect: (SettingsCategory?) -> Unit, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Browse settings", modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.titleMedium)
+            NavigationDrawerItem(
+                label = { Text("All settings") },
+                selected = selected == null,
+                onClick = { onSelect(null) },
+                icon = { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+            SettingsCategory.entries.forEach { item ->
+                NavigationDrawerItem(
+                    label = { Text(item.title) },
+                    selected = item == selected,
+                    onClick = { onSelect(item) },
+                    icon = { Icon(item.icon, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsDetails(
+    selected: SettingsCategory,
+    themeMode: ThemeMode,
+    onThemeMode: (ThemeMode) -> Unit,
+    themePalette: ThemePalette,
+    onThemePalette: (ThemePalette) -> Unit,
+    amoled: Boolean,
+    onAmoled: (Boolean) -> Unit,
+    finger: Boolean,
+    onFinger: (Boolean) -> Unit,
+    stylus: StylusShortcut,
+    onStylus: (StylusShortcut) -> Unit,
+    haptics: Boolean,
+    onHaptics: (Boolean) -> Unit,
+    shapeRecognition: Boolean,
+    onShapeRecognition: (Boolean) -> Unit,
+    hapticsSupported: Boolean,
+    dynamicAvailable: Boolean,
+    backupTree: String?,
+    backupFolderName: String?,
+    backupLastSuccess: Long,
+    backupLastError: String?,
+    backupBusy: Boolean,
+    onChooseBackupFolder: () -> Unit,
+    onBackupNow: () -> Unit,
+    onDisableAutoBackup: () -> Unit,
+    onBackupLibrary: () -> Unit,
+    onRestoreLibrary: () -> Unit,
+    onFocal: () -> Unit,
+    onExamTrack: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    updateChecking: Boolean,
+) {
+    when (selected) {
                         SettingsCategory.APPEARANCE -> {
                             SectionTitle("Theme mode")
                             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -214,22 +400,25 @@ import kotlin.math.roundToInt
                             }
                             SectionHint("Your notebooks stay on this device. Use Library & notebooks to save or restore the entire library.")
                         }
-                    }
-                }
-            }
-        }
     }
 }
 
-private enum class SettingsCategory(val title: String, val description: String) {
-    APPEARANCE("Appearance", "Theme, colors, pure black backgrounds and fullscreen"),
-    LIBRARY("Library & notebooks", "Shelf layout, sorting, default paper and covers"),
-    WRITING("Writing & tools", "Finger drawing, shapes, default tool and typed text"),
-    STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures"),
-    ERASING("Erasing", "Eraser behavior and scribble-to-erase"),
-    FOLLOW("Writing follow", "Page movement, writing direction and line return"),
-    WORKFLOW("Timer & workspace", "Exam timer, smart start/stop, PNG export and split view"),
-    ACCOUNT("Account & updates", "Focal sessions, ExamTrack and Folio updates")
+private enum class SettingsCategory(
+    val title: String,
+    val description: String,
+    val icon: ImageVector,
+    val searchTerms: String,
+) {
+    APPEARANCE("Appearance", "Theme, colors, pure black and fullscreen", Icons.Rounded.Palette, "theme dark light colour color amoled black fullscreen display"),
+    WRITING("Writing & tools", "Finger drawing, shapes, default pen and text", Icons.Rounded.Edit, "finger palm drawing pen pencil shape tool text font size alignment"),
+    STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures", Icons.Rounded.Gesture, "stylus pencil pen haptics vibration palm touch gestures undo redo shortcut"),
+    LIBRARY("Library & notebooks", "Shelf layout, sorting, paper, covers and backup", Icons.AutoMirrored.Rounded.MenuBook, "library notebook notebooks shelf sort filter cover paper backup restore save"),
+    WORKFLOW("Timer & workspace", "Exam timer, screen, image export and split view", Icons.Rounded.Timer, "timer exam minutes idle screen export png image split view workspace"),
+    FOLLOW("Writing follow", "Page movement, writing direction and line return", Icons.Rounded.AutoStories, "follow page move direction hand left right line return glide"),
+    ERASING("Erasing", "Pressure, whole strokes and scribble-to-erase", Icons.Rounded.CleaningServices, "erase eraser pressure stroke scribble clean"),
+    ACCOUNT("Account & updates", "Focal sessions, ExamTrack and app updates", Icons.Rounded.AccountCircle, "account focal examtrack mistake sync sign in update github version");
+
+    fun matches(query: String): Boolean = query.isBlank() || listOf(title, description, searchTerms).any { it.lowercase().contains(query) }
 }
 
 @Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true, onReset: (() -> Unit)? = null) {
@@ -239,6 +428,11 @@ private enum class SettingsCategory(val title: String, val description: String) 
         .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { value -> hold.click { onChange(value) }() }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Switch(checked, onCheckedChange = null, enabled = enabled)
+        onReset?.let { reset ->
+            IconButton(onClick = { hold.click(reset)() }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.RestartAlt, "Reset $title to default")
+            }
+        }
     }
 }
 

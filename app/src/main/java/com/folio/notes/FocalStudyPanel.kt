@@ -37,17 +37,31 @@ import java.util.Date
 fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
     val examActive = timer.active && timer.startedAt != null
     val focus = state.focus
     val sharedActive = state.visibleEntries.firstOrNull { !it.completed && !it.deleted }
+    val activeElapsed = when {
+        focus != null -> focus.elapsed(now)
+        sharedActive != null -> sharedActive.intervals.sumOf { interval ->
+            ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
+        }.coerceAtLeast(sharedActive.activeMillis)
+        else -> 0L
+    }
     val label = when {
         examActive && timer.paused -> "Focal · Paused"
         examActive && timer.phase == ExamTimerPhase.READING -> "Focal · Reading"
         examActive -> "Focal · Writing"
-        focus?.resumedAt != null -> "Focal · Studying"
+        focus?.resumedAt != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
         focus != null -> "Focal · Paused"
         sharedActive != null && sharedActive.paused -> "Focal · Paused"
-        sharedActive != null -> "Focal · Studying"
+        sharedActive != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
         else -> "Focal"
     }
     val syncStatus = when {
@@ -108,8 +122,12 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     val activeElsewhere = state.visibleEntries.any { !it.completed && !it.deleted && it.id != focus?.sessionId &&
         !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }
     val today = remember(now / 60_000L, state.visibleEntries) {
-        val start = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
-        state.visibleEntries.filter { it.completed && it.endedAt >= start }.sumOf { it.activeMillis } / 60_000L
+        val start = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        state.visibleEntries.asSequence()
+            .filter { it.completed && it.endedAt >= start && it.startedAt < now }
+            .sumOf { focalActiveMillisBetween(it, start, now) } / 60_000L
     }
     FolioPanel("Study sessions", onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
@@ -118,8 +136,8 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Rounded.School, null)
                     Column(Modifier.weight(1f)) {
-                        Text("$today min recorded in Folio today", style = MaterialTheme.typography.titleMedium)
-                        Text("Exam sittings and regular study are logged separately.", style = MaterialTheme.typography.bodySmall)
+                        Text("$today min studied today", style = MaterialTheme.typography.titleMedium)
+                        Text("Active study time only — pauses and exam reading time are excluded.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -186,7 +204,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) { Text("Save past study") }
                 }
             } else if (focus != null) {
-                Text(focus.title, style = MaterialTheme.typography.bodyMedium)
+                Text(focalSessionTitle(focus.subjectId, state.subjects), style = MaterialTheme.typography.bodyMedium)
                 Text(formatElapsed(focus.elapsed(now)), style = MaterialTheme.typography.headlineLarge)
                 Text(if (focus.resumedAt == null) "Paused" else "Recording active time", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (examRecording != null && focus.resumedAt == null) {
@@ -226,7 +244,8 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     }.coerceAtLeast(entry.activeMillis)
                     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            val title = focalSessionTitle(entry.subjectId, state.subjects)
+                            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${if (entry.kind == "exam") "Timed exam" else "Study"} · ${if (entry.paused) "Paused" else "In progress"} · ${formatElapsed(elapsed)}",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -287,19 +306,26 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             }
 
             val recent = state.visibleEntries.filter { it.completed }
+                .sortedByDescending { it.endedAt }
+                .take(5)
             if (recent.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Recent sessions", style = MaterialTheme.typography.titleMedium)
-                recent.take(8).forEach { entry ->
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.title, style = MaterialTheme.typography.titleSmall)
-                                Text("${if (entry.kind == "exam") "Exam" else "Study"} · ${state.subjects.firstOrNull { it.id == entry.subjectId }?.name ?: "No subject"} · ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(entry.endedAt))}",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("${entry.minutes} min", style = MaterialTheme.typography.labelLarge)
+                recent.forEachIndexed { index, entry ->
+                    if (index > 0) HorizontalDivider()
+                    val title = focalSessionTitle(entry.subjectId, state.subjects)
+                    val minutes = (focalActiveMillisBetween(entry, entry.startedAt, entry.endedAt) / 60_000L)
+                        .toInt().coerceAtLeast(1)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleSmall)
+                            val subject = state.subjects.firstOrNull { it.id == entry.subjectId }?.name ?: "No subject"
+                            val details = listOf(if (entry.kind == "exam") "Exam" else "Study", subject,
+                                entry.notebookTitle, DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(entry.endedAt)))
+                                .filterNot { it.isNullOrBlank() }.joinToString(" · ")
+                            Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text("$minutes min", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -310,4 +336,13 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
 private fun formatElapsed(millis: Long): String {
     val seconds = (millis / 1000L).coerceAtLeast(0L)
     return String.format(java.util.Locale.ROOT, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
+}
+
+private fun formatChipElapsed(millis: Long): String {
+    val seconds = (millis / 1000L).coerceAtLeast(0L)
+    return if (seconds >= 3600L) {
+        String.format(java.util.Locale.ROOT, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
+    } else {
+        String.format(java.util.Locale.ROOT, "%02d:%02d", (seconds / 60) % 60, seconds % 60)
+    }
 }
