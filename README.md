@@ -7,7 +7,7 @@
 <p align="center">A quiet, local-first notebook for handwriting, sketches, maths, and PDFs.</p>
 
 <p align="center">
-  <a href="https://github.com/flandyw/folio/actions/workflows/android.yml"><img src="https://img.shields.io/github/actions/workflow/status/flandyw/folio/android.yml?branch=main&label=checks" alt="Android checks"></a>
+  <a href="https://github.com/flandyw/folio/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/flandyw/folio/release.yml?branch=main&label=checks" alt="Android checks"></a>
   <a href="https://github.com/flandyw/folio/releases/latest"><img src="https://img.shields.io/github/v/release/flandyw/folio?display_name=tag" alt="Latest release"></a>
   <a href="https://github.com/flandyw/folio/releases"><img src="https://img.shields.io/github/downloads/flandyw/folio/total" alt="GitHub downloads"></a>
   <a href="https://github.com/flandyw/folio"><img src="https://img.shields.io/github/stars/flandyw/folio" alt="GitHub stars"></a>

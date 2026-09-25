@@ -9,19 +9,24 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DateFormat
@@ -29,7 +34,58 @@ import java.util.Calendar
 import java.util.Date
 
 @Composable
-fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
+fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
+    val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
+    val state by manager.state.collectAsStateWithLifecycle()
+    val examActive = timer.active && timer.startedAt != null
+    val focus = state.focus
+    val sharedActive = state.visibleEntries.firstOrNull { !it.completed && !it.deleted }
+    val label = when {
+        examActive && timer.paused -> "Focal · Paused"
+        examActive && timer.phase == ExamTimerPhase.READING -> "Focal · Reading"
+        examActive -> "Focal · Writing"
+        focus?.resumedAt != null -> "Focal · Studying"
+        focus != null -> "Focal · Paused"
+        sharedActive != null && sharedActive.paused -> "Focal · Paused"
+        sharedActive != null -> "Focal · Studying"
+        else -> "Focal"
+    }
+    val syncStatus = when {
+        state.error != null -> "Sync needs attention"
+        state.userId == null || !state.configured -> "Saved on this device"
+        state.syncing -> "Syncing with Focal"
+        state.pendingCount > 0 -> "Waiting to sync"
+        else -> "Synced with Focal"
+    }
+    val syncIcon = when {
+        state.error != null -> Icons.Rounded.ErrorOutline
+        state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
+        state.syncing -> Icons.Rounded.Sync
+        else -> Icons.Rounded.CloudDone
+    }
+    val recording = examActive || focus != null || sharedActive != null
+    val isPaused = when {
+        examActive -> timer.paused
+        focus != null -> focus.resumedAt == null
+        else -> sharedActive?.paused == true
+    }
+    Surface(onClick = onClick, shape = RoundedCornerShape(18.dp),
+        color = if (recording) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.semantics { contentDescription = "$label. $syncStatus. Open study sessions" }) {
+        Row(Modifier.heightIn(min = 36.dp).padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(if (recording && isPaused) Icons.Rounded.Pause
+                else if (recording) Icons.Rounded.PlayArrow else Icons.Rounded.School,
+                null, Modifier.size(16.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(syncIcon, null, Modifier.size(15.dp),
+                tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
+        }
+    }
+}
+
+@Composable
+fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismiss: () -> Unit) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
     var subjectId by remember(note?.id) { mutableStateOf(note?.let { FocalSubjects.suggest(it) }) }
@@ -48,9 +104,12 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
         while (true) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() }
     }
     val focus = state.focus
+    val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
+    val activeElsewhere = state.visibleEntries.any { !it.completed && !it.deleted && it.id != focus?.sessionId &&
+        !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }
     val today = remember(now / 60_000L, state.visibleEntries) {
         val start = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
-        state.visibleEntries.filter { it.endedAt >= start }.sumOf { it.activeMillis } / 60_000L
+        state.visibleEntries.filter { it.completed && it.endedAt >= start }.sumOf { it.activeMillis } / 60_000L
     }
     FolioPanel("Study sessions", onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
@@ -61,6 +120,21 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text("$today min recorded in Folio today", style = MaterialTheme.typography.titleMedium)
                         Text("Exam sittings and regular study are logged separately.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            if (examRecording != null) {
+                val phase = when {
+                    examRecording.paused -> "Paused"
+                    examRecording.phase == ExamTimerPhase.READING -> "Reading"
+                    else -> "Writing"
+                }
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Exam recording · $phase", style = MaterialTheme.typography.titleSmall)
+                        Text("Writing time is being saved to Focal as this exam runs. Reading time and pauses are excluded.",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -87,7 +161,8 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
                     Text("Suggested from this notebook", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Button({ manager.startFocus(note, subjectId) }, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
+                Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && !activeElsewhere,
+                    shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start study")
                 }
                 TextButton({ manualLog = !manualLog }) { Text(if (manualLog) "Cancel manual entry" else "Log study without a timer") }
@@ -114,8 +189,13 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
                 Text(focus.title, style = MaterialTheme.typography.bodyMedium)
                 Text(formatElapsed(focus.elapsed(now)), style = MaterialTheme.typography.headlineLarge)
                 Text(if (focus.resumedAt == null) "Paused" else "Recording active time", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (examRecording != null && focus.resumedAt == null) {
+                    Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({ manager.toggleFocus() }, shapes = ButtonDefaults.shapes()) {
+                    OutlinedButton({ manager.toggleFocus() }, enabled = examRecording == null || focus.resumedAt != null,
+                        shapes = ButtonDefaults.shapes()) {
                         Icon(if (focus.resumedAt == null) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
                         Spacer(Modifier.width(6.dp)); Text(if (focus.resumedAt == null) "Resume" else "Pause")
                     }
@@ -131,6 +211,36 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
                 }
                 Button({ manager.finishFocus(notes, confidence.takeIf { it > 0 }); notes = ""; confidence = 0 },
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) { Text("Save session") }
+            }
+
+            val sharedActive = state.visibleEntries.filter { entry ->
+                !entry.completed && !entry.deleted && entry.id != focus?.sessionId &&
+                    !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
+            }
+            if (sharedActive.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Active across your apps", style = MaterialTheme.typography.titleMedium)
+                sharedActive.take(6).forEach { entry ->
+                    val elapsed = entry.intervals.sumOf { interval ->
+                        ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
+                    }.coerceAtLeast(entry.activeMillis)
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${if (entry.kind == "exam") "Timed exam" else "Study"} · ${if (entry.paused) "Paused" else "In progress"} · ${formatElapsed(elapsed)}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton({ manager.controlEntry(entry.id, if (entry.paused) "resume" else "pause") },
+                                    shapes = ButtonDefaults.shapes()) {
+                                    Icon(if (entry.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
+                                    Spacer(Modifier.width(6.dp)); Text(if (entry.paused) "Resume" else "Pause")
+                                }
+                                TextButton({ manager.controlEntry(entry.id, "finish") }) { Text("Finish") }
+                                TextButton({ manager.controlEntry(entry.id, "discard") }) { Text("Discard") }
+                            }
+                        }
+                    }
+                }
             }
 
             HorizontalDivider()
@@ -176,10 +286,11 @@ fun FocalStudyPanel(note: Notebook?, onDismiss: () -> Unit) {
                 }
             }
 
-            if (state.visibleEntries.isNotEmpty()) {
+            val recent = state.visibleEntries.filter { it.completed }
+            if (recent.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Recent sessions", style = MaterialTheme.typography.titleMedium)
-                state.visibleEntries.take(8).forEach { entry ->
+                recent.take(8).forEach { entry ->
                     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {

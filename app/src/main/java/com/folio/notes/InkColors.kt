@@ -53,6 +53,7 @@ object InkColors {
         ColorPalette("Vivid", listOf(ink(0xFFFF3B30), ink(0xFF007AFF), ink(0xFF34C759), ink(0xFFFFCC00), ink(0xFFFF9500), ink(0xFFAF52DE), ink(0xFFFF2D55))),
         ColorPalette("Cool", listOf(ink(0xFF0B3C5D), ink(0xFF1A73E8), ink(0xFF00A6A6), ink(0xFF2E8B57), ink(0xFF6A5ACD), ink(0xFF4682B4), ink(0xFF3A3A3A))),
         ColorPalette("Warm", listOf(ink(0xFF8B2E2E), ink(0xFFC0392B), ink(0xFFD2691E), ink(0xFFE67E22), ink(0xFFB8860B), ink(0xFF8B4513), ink(0xFF3A3A3A))),
+        ColorPalette("Iroshizuku", listOf(ink(0xFFE12E2C), ink(0xFF00A0DF), ink(0xFF007E4F), ink(0xFF94BD4E), ink(0xFFEF881F), ink(0xFF1E1D1E), ink(0xFF660D5B))),
         ColorPalette("Graphite", listOf(ink(0xFF1A1C1A), ink(0xFF3A3A3A), ink(0xFF6E6E6E), ink(0xFF9E9E9E), ink(0xFFC7C7C7), ink(0xFFFFFFFF), ink(0xFF000000)))
     )
 

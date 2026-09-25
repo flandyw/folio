@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.dp
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Choose which pages to save or share. A PDF keeps them in order; PNG saves one image per page. Long-press a page to pick only that one.",
+                "Choose which pages to save or share. A PDF keeps them in order; one PNG saves to your gallery, several PNGs make one .zip. Long-press a page to pick only that one.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -79,6 +79,13 @@ import androidx.compose.ui.unit.dp
                     onClick = { format = PageExportFormat.PNG },
                     label = { Text("PNG images") },
                     leadingIcon = { Icon(Icons.Rounded.Image, null, Modifier.size(18.dp)) }
+                )
+            }
+            if (format == PageExportFormat.PNG && selected.size == 1) {
+                Text(
+                    "Saving one PNG goes straight to your photo gallery.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (format == PageExportFormat.PNG && selected.size > 1) {
@@ -228,7 +235,7 @@ import androidx.compose.ui.unit.dp
                         when {
                             count == 0 -> "Save"
                             format == PageExportFormat.PDF -> "Save PDF"
-                            count == 1 -> "Save PNG"
+                            count == 1 -> "Save to gallery"
                             else -> "Save ZIP"
                         }
                     )

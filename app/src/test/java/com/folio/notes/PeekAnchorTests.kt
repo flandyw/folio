@@ -40,6 +40,13 @@ class PeekAnchorTests {
         assertEquals(anchor, note.withDeletedPage(0).sharedPeekAnchor())
         assertNull(note.withDeletedPage(1).sharedPeekAnchor())
     }
+    @Test fun fullPagePeekAnchorCoversCurrentPage() {
+        val page = NotePage(id = "current", width = 840f, height = 1188f)
+        assertEquals(PeekAnchor("current", 0f, 0f, 840f, 1188f), page.fullPagePeekAnchor())
+        val note = Notebook(title = "Peek", pages = listOf(page, NotePage(id = "other")))
+            .withSharedPeekAnchor(page.fullPagePeekAnchor())
+        assertEquals(PeekAnchor("current", 0f, 0f, 840f, 1188f), note.sharedPeekAnchor())
+    }
     @Test fun replacingOrRemovingSharedAnchorClearsLegacyPageAssignments() {
         val legacy = Notebook(title = "Peek", pages = listOf(NotePage(id = "writing", peekAnchor = anchor),
             NotePage(id = "reference", peekAnchor = anchor)))

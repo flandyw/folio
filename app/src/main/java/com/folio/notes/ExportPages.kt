@@ -115,6 +115,16 @@ fun selectiveExportFilename(note: Notebook, indices: List<Int>, format: PageExpo
     }
 }
 
+/** Subfolder under Pictures/ where single-page PNGs are saved so they land in the gallery. */
+const val GALLERY_PICTURES_SUBFOLDER = "Folio"
+
+/** Display name for a single page saved to the gallery (camera roll). */
+fun galleryPngFilename(note: Notebook, pageIndex: Int): String =
+    selectiveExportFilename(note, listOf(pageIndex), PageExportFormat.PNG)
+
+/** Relative MediaStore path for gallery saves, e.g. Pictures/Folio. */
+fun galleryRelativePath(): String = "Pictures/$GALLERY_PICTURES_SUBFOLDER"
+
 /** MIME type used when natively sharing a selective export. Multi-PNG shares as images, not a zip. */
 fun exportShareMimeType(format: PageExportFormat): String = when (format) {
     PageExportFormat.PDF -> "application/pdf"

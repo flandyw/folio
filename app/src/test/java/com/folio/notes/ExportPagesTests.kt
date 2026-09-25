@@ -34,6 +34,12 @@ class ExportPagesTests {
         assertEquals("Notebook-pages.pdf", selectiveExportFilename(note.copy(title = ""), listOf(0, 1), PageExportFormat.PDF))
     }
 
+    @Test fun galleryPngUsesSinglePageFilename() {
+        val note = Notebook(title = "Calculus!", pages = List(4) { NotePage() })
+        assertEquals("Calculus_-p2.png", galleryPngFilename(note, 1))
+        assertEquals("Pictures/Folio", galleryRelativePath())
+    }
+
     @Test fun pdfModeDefaultsToPreserveAndSurvivesUnknown() {
         assertEquals(PdfExportMode.PRESERVE, PdfExportMode.safeValueOf(null))
         assertEquals(PdfExportMode.PRESERVE, PdfExportMode.safeValueOf("BOGUS"))

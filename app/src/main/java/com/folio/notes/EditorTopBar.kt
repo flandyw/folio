@@ -132,7 +132,7 @@ import androidx.compose.ui.unit.dp
                             }
                             DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
                                 DropdownMenuItem({ Text("Add page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                                 DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                             }
                         }
@@ -312,7 +312,7 @@ import androidx.compose.ui.unit.dp
             FilledTonalIconButton(navHold.click(onAdd), modifier = Modifier.size(40.dp).longPressAction(navHold) { addMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add page") }
             DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
                 DropdownMenuItem({ Text("Add page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                DropdownMenuItem({ Text("Insert page after this one") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                 DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
             }
         }

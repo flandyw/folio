@@ -46,27 +46,61 @@ jobs:
         with:
           ref: ${{ matrix.commit }}
           fetch-depth: 0
+      - name: Skip an already published commit
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ matrix.commit }}
+        run: |
+          set -euo pipefail
+          tag="v0.2.$(git rev-list --count HEAD)"
+          if git show-ref --verify --quiet "refs/tags/$tag" && gh release view "$tag" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$tag")" = "$COMMIT"
+            echo "Release $tag already exists"
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check no hardcoded Supabase secrets
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "sb_publishable_[A-Za-z0-9_.-]{10,}" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "sb_publishable_example_placeholder_for_local_ci_builds_only" | grep -v "your-publishable" | grep -q .; then
+            echo "Hardcoded Supabase publishable key found; use the ExamTrack or Focal secret instead"
+            exit 1
+          fi
+          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "[a-z0-9-]+\.supabase\.co" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "example\.supabase\.co" | grep -v "your-project\.supabase\.co" | grep -q .; then
+            echo "Hardcoded Supabase URL found; use the ExamTrack or Focal secret instead"
+            exit 1
+          fi
+      - name: Check bundled offline KaTeX
+        if: steps.existing.outputs.skip != 'true'
+        run: node tools/katex-smoke.cjs
       - uses: actions/setup-java@v6
+        if: steps.existing.outputs.skip != 'true'
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
+        if: steps.existing.outputs.skip != 'true'
         with:
           # Override the default list, which includes the unavailable legacy 'tools' package.
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
+        if: steps.existing.outputs.skip != 'true'
       - name: Calculate version
+        if: steps.existing.outputs.skip != 'true'
         run: |
           set -euo pipefail
           ./gradlew -q :app:printReleaseVersion >> "$GITHUB_ENV"
       - name: Check app
+        if: steps.existing.outputs.skip != 'true'
         env:
           EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
           EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
           FOCAL_SUPABASE_URL: ${{ secrets.FOCAL_SUPABASE_URL }}
           FOCAL_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.FOCAL_SUPABASE_PUBLISHABLE_KEY }}
-        run: bash ./gradlew :app:testDebugUnitTest :app:lintDebug
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
       - name: Build signed release
+        if: steps.existing.outputs.skip != 'true'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -93,6 +127,7 @@ jobs:
           "$signer" verify --verbose --print-certs "dist/folio-$VERSION_NAME.apk"
           (cd dist && sha256sum "folio-$VERSION_NAME.apk" > SHA256SUMS)
       - name: Publish release
+        if: steps.existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ matrix.commit }}

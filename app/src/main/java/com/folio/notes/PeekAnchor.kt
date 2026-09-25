@@ -19,6 +19,9 @@ data class PeekAnchor(val pageId: String, val left: Float, val top: Float, val r
 
 data class ViewportSnapshot(val pageId: String, val viewport: WorkspaceViewport)
 
+/** Auto Peek Anchor: the current full page, no manual framing needed. */
+fun NotePage.fullPagePeekAnchor(): PeekAnchor = PeekAnchor(id, 0f, 0f, width, height)
+
 /** Read legacy page-stored anchors notebook-wide, including unloaded page summaries. */
 fun Notebook.sharedPeekAnchor(): PeekAnchor? = pages.asSequence().mapNotNull { it.peekAnchor }
     .firstOrNull { it.resolve(pages) != null }

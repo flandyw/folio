@@ -33,4 +33,55 @@ class FocalStudyTests {
         assertEquals(1, payload.getJSONObject("execution").getInt("reportedMinutes"))
         assertEquals("manual", payload.getString("createdVia"))
     }
+
+    @Test fun examProgressKeepsOneFocalRowUntilCompletion() {
+        val note = Notebook(title = "Methods practice", exam = ExamTags(subject = VceSubject.MATHS_METHODS))
+        val preset = ExamTimerPreset("Practice", writingSeconds = 120, readingSeconds = 30)
+        val start = 1_000L
+        val reading = ExamTimerState().start(preset, start)
+        val first = examStudyEntry(note, reading, start, null)
+        val readingPayload = focalPayload(first)
+        assertFalse(first.completed)
+        assertEquals("in-progress", readingPayload.getJSONObject("execution").getString("state"))
+        assertEquals(0, readingPayload.getJSONObject("execution").getJSONArray("intervals").length())
+        assertFalse(readingPayload.getJSONObject("execution").has("completedAt"))
+
+        val writing = reading.tick(start + 60_000L)
+        val progress = examStudyEntry(note, writing, start + 60_000L, first)
+        assertEquals(first.id, progress.id)
+        assertNotEquals(first.changeId, progress.changeId)
+        assertEquals("mm", progress.subjectId)
+        assertEquals(30_000L, progress.activeMillis)
+        assertEquals(1, focalPayload(progress).getJSONObject("execution").getJSONArray("intervals").length())
+
+        val finished = examStudyEntry(note, writing.pause(start + 70_000L), start + 80_000L,
+            progress, completed = true)
+        assertEquals(first.id, finished.id)
+        assertEquals(40_000L, finished.activeMillis)
+        assertEquals("completed", focalPayload(finished).getJSONObject("execution").getString("state"))
+    }
+
+    @Test fun examStoppedDuringReadingDeletesItsProvisionalRow() {
+        val note = Notebook(title = "Exam")
+        val timer = ExamTimerState().start(ExamTimerPreset("Practice", 120, 30), 1_000L)
+        val provisional = examStudyEntry(note, timer, 10_000L, null)
+        val stopped = examStudyEntry(note, timer, 20_000L, provisional, completed = true)
+        assertEquals(provisional.id, stopped.id)
+        assertTrue(stopped.deleted)
+        assertEquals(0L, stopped.activeMillis)
+    }
+
+    @Test fun examWritingIntervalsDoNotCoverPausedTime() {
+        val note = Notebook(title = "Exam")
+        val timer = ExamTimerState().start(ExamTimerPreset("Practice", 120, 30), 1_000L)
+        val first = examStudyEntry(note, timer.tick(61_000L), 61_000L, null)
+        val paused = timer.pause(71_000L)
+        val pauseRecord = examStudyEntry(note, paused, 71_000L, first)
+        val resumed = paused.unpause(81_000L)
+        val resumedRecord = examStudyEntry(note, resumed.tick(91_000L), 91_000L, pauseRecord)
+        assertEquals(2, resumedRecord.intervals.size)
+        assertEquals(71_000L, resumedRecord.intervals[0].endAt)
+        assertEquals(81_000L, resumedRecord.intervals[1].startAt)
+        assertEquals(2, focalPayload(resumedRecord).getJSONObject("execution").getJSONArray("intervals").length())
+    }
 }

@@ -536,9 +536,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
                     StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
-                    IconButton({ studyPanel = true }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.School, "Study sessions")
-                    }
+                    FocalStudyChip(state.timer) { studyPanel = true }
                 }
             },
             pageIndex = state.pageIndex,
@@ -798,7 +796,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     DropdownMenuItem({ Text(if (item.bookmarked) "Remove bookmark" else "Bookmark page") }, { pageMenuFor = null; model.togglePageBookmark(item.id) }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
                                     DropdownMenuItem({ Text(if (item.redoFlag) "Clear redo flag" else "Flag to redo") }, { pageMenuFor = null; model.setPageRedoFlag(note.id, item.id, !item.redoFlag) }, leadingIcon = { Icon(Icons.Rounded.OutlinedFlag, null) })
                                     HorizontalDivider()
-                                    DropdownMenuItem({ Text("Insert page after") }, { pageMenuFor = null; revealNewPage(model.insertPage(index + 1)) }, leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, null) })
+                                    DropdownMenuItem({ Text("Insert page after") }, { pageMenuFor = null; revealNewPage(model.insertPage(index + 1)) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                                     DropdownMenuItem({ Text("Duplicate page") }, { pageMenuFor = null; model.duplicatePage(index)?.let { revealNewPage(it) } }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                                     DropdownMenuItem({ Text("Move page…") }, { pageMenuFor = null; movingPage = item.id; destinationPage = (index + 1).toString() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
                                     if (note.pages.size > 1) DropdownMenuItem({ Text("Delete page") }, { pageMenuFor = null; deletingPage = item.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
@@ -939,6 +937,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     { Text("Set current view as Peek Anchor") },
                                     {
                                         activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
+                                        followMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
+                                )
+                                DropdownMenuItem(
+                                    { Text("Auto Peek Anchor (full page)") },
+                                    {
+                                        model.setPeekAnchor(page.fullPagePeekAnchor())
                                         followMenu = false
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
@@ -1208,7 +1214,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSkip = model::skipTimerPhase,
         onPauseResume = model::toggleTimerPause
     )
-    if (studyPanel) FocalStudyPanel(note, onDismiss = { studyPanel = false })
+    if (studyPanel) FocalStudyPanel(note, state.timer, onDismiss = { studyPanel = false })
     if (stopwatchPanel) StopwatchPanel(
         stopwatch = state.stopwatch,
         onDismiss = { stopwatchPanel = false },

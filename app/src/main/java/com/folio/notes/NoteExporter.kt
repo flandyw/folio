@@ -1,9 +1,12 @@
 package com.folio.notes
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -130,6 +133,59 @@ class NoteExporter(private val repository: NoteRepository) {
                     file
                 } finally { bitmap.recycle() }
             }
+        }
+    }
+
+    /**
+     * Renders one page as PNG and inserts it into the shared photo gallery
+     * (MediaStore Images, Pictures/Folio) so it appears in the camera roll /
+     * gallery app. Returns the MediaStore Uri of the new image.
+     *
+     * On Android 10+ no permission is needed; on older releases the caller must
+     * hold WRITE_EXTERNAL_STORAGE before invoking.
+     */
+    suspend fun saveSinglePngToGallery(
+        context: Context,
+        note: Notebook,
+        pageIndex: Int,
+        pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE
+    ): Uri = withContext(Dispatchers.IO) {
+        val selected = normalizeExportIndices(listOf(pageIndex), note.pages.size)
+        require(selected.isNotEmpty()) { "Select at least one page to export" }
+        val index = selected.first()
+        val bitmap = repository.openPdf(note.id).use { source ->
+            val page = note.pages.getOrNull(index) ?: note.pages.first()
+            renderPng(note, page, source, pngScale)
+        }
+        try {
+            val filename = galleryPngFilename(note, index)
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, galleryRelativePath())
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: error("Couldn't save to gallery")
+            try {
+                resolver.openOutputStream(uri)?.use { out ->
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Image export failed" }
+                } ?: error("Couldn't save to gallery")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
+                uri
+            } catch (e: Exception) {
+                runCatching { resolver.delete(uri, null, null) }
+                throw e
+            }
+        } finally {
+            bitmap.recycle()
         }
     }
 

@@ -5,8 +5,11 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -162,21 +165,62 @@ import java.io.File
             val message = when (request.format) {
                 PageExportFormat.PDF -> if (request.indices.size == request.note.pages.size) "Notebook saved as PDF"
                     else if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PDF" else "${request.indices.size} pages saved as PDF"
-                PageExportFormat.PNG -> if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PNG" else "${request.indices.size} pages saved as images"
+                PageExportFormat.PNG -> if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved to gallery" else "${request.indices.size} pages saved as images"
             }
             model.reportError(message)
         }
     }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { exportTo(it) }
-    val savePng = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { exportTo(it) }
     val savePngZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { exportTo(it) }
     var pageExportDialog by remember { mutableStateOf(false) }
+    // Pre-Q gallery saves need WRITE_EXTERNAL_STORAGE; the pending page is retried once granted.
+    var pendingGallerySave by remember { mutableStateOf<PageExportRequest?>(null) }
+    val galleryPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingGallerySave
+        pendingGallerySave = null
+        if (!granted) {
+            model.reportError("Gallery needs storage permission to save the image")
+            return@rememberLauncherForActivityResult
+        }
+        if (pending != null) {
+            val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
+            val scoped = pending
+            model.export {
+                exporter.saveSinglePngToGallery(context.applicationContext, scoped.note, scoped.indices.first(), pngScale)
+                model.reportError("Page ${scoped.indices.first() + 1} saved to gallery")
+            }
+        }
+    }
+    fun savePageToGallery(request: PageExportRequest) {
+        val indices = normalizeExportIndices(request.indices, request.note.pages.size)
+        if (indices.isEmpty()) return
+        val scoped = request.copy(indices = listOf(indices.first()))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            pendingGallerySave = scoped
+            galleryPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+        val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
+        model.export {
+            exporter.saveSinglePngToGallery(context.applicationContext, scoped.note, scoped.indices.first(), pngScale)
+            model.reportError("Page ${scoped.indices.first() + 1} saved to gallery")
+        }
+    }
     fun launchExport(request: PageExportRequest) {
-        model.pendingExport = request
-        when (request.format) {
-            PageExportFormat.PDF -> savePdf.launch(selectiveExportFilename(request.note, request.indices, request.format))
-            PageExportFormat.PNG -> if (request.indices.size == 1) savePng.launch(selectiveExportFilename(request.note, request.indices, request.format))
-                else savePngZip.launch(selectiveExportFilename(request.note, request.indices, request.format))
+        val indices = normalizeExportIndices(request.indices, request.note.pages.size)
+        if (indices.isEmpty()) return
+        val scoped = request.copy(indices = indices)
+        // A single PNG goes straight to the photo gallery (camera roll); several PNGs
+        // still need a .zip destination, and PDFs keep the file picker.
+        if (scoped.format == PageExportFormat.PNG && scoped.indices.size == 1) {
+            savePageToGallery(scoped)
+            return
+        }
+        model.pendingExport = scoped
+        when (scoped.format) {
+            PageExportFormat.PDF -> savePdf.launch(selectiveExportFilename(scoped.note, scoped.indices, scoped.format))
+            PageExportFormat.PNG -> savePngZip.launch(selectiveExportFilename(scoped.note, scoped.indices, scoped.format))
         }
     }
     fun shareExport(request: PageExportRequest) {
@@ -412,8 +456,11 @@ import java.io.File
                 ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
                     state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF, pdfExportMode)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.Image, "Save page as image", "A crisp PNG of the current page") {
+                ExportOption(Icons.Rounded.Image, "Save page as image", "A crisp PNG of the current page, saved to your gallery") {
                     state.active?.let { launchExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
+                }
+                ExportOption(Icons.Rounded.Share, "Share page as image", "Send a PNG of the current page to another app") {
+                    state.active?.let { shareExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
                     exportMenu = false; pageExportDialog = true

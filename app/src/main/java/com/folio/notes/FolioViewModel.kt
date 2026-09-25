@@ -176,6 +176,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         lastTimerActivityAt = now
         val restoredStopwatch = restoreStopwatch(id, cached?.stopwatch, now)
         _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds, stopwatch = restoredStopwatch) }
+        if (clamped.active) _state.value.active?.let { note ->
+            (getApplication<FolioApplication>()).focalStudy.recordExamProgress(note, clamped, now, force = true)
+        }
     }
 
     private fun stopwatchKey(key: String): String = "$key.notebook.${requireNotNull(timerNotebookId)}"
@@ -225,7 +228,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         timerNotebookId?.let { previous ->
             val current = _state.value.timer
             val paused = if (current.running) current.pause(now, auto = true) else current
-            if (paused != current) saveSitting(paused)
+            if (paused != current) {
+                saveSitting(paused)
+                _state.value.notes.find { it.id == previous }?.let { note ->
+                    (getApplication<FolioApplication>()).focalStudy.recordExamProgress(note, paused, now, force = true)
+                }
+            }
             val state = _state.value
             notebookSittings.save(previous, paused, state.lastTimedSeconds)
             val stopwatch = state.stopwatch
@@ -257,6 +265,33 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         loadLibrary()
         restoreNotebookTimer()
+        viewModelScope.launch {
+            (application as FolioApplication).focalStudy.state.collect { shared ->
+                val current = _state.value.timer
+                val started = current.startedAt ?: return@collect
+                if (!current.active) return@collect
+                val entry = shared.entries.firstOrNull { it.kind == "exam" && it.startedAt == started && it.synced &&
+                    (it.userId == null || it.userId == shared.userId) }
+                    ?: return@collect
+                val now = System.currentTimeMillis()
+                when {
+                    entry.deleted || entry.completed -> {
+                        clearSitting()
+                        _state.update { it.copy(timer = current.stop()) }
+                    }
+                    entry.paused && !current.paused -> {
+                        val paused = current.pause(now)
+                        saveSitting(paused, lastSeen = now)
+                        _state.update { it.copy(timer = paused) }
+                    }
+                    !entry.paused && current.paused -> {
+                        val resumed = current.unpause(now)
+                        saveSitting(resumed, lastSeen = now)
+                        _state.update { it.copy(timer = resumed) }
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             state
                 .distinctUntilChanged { a, b ->
@@ -1285,6 +1320,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     // ---- Exam timer -----------------------------------------------------------------------
 
+    private fun recordTimerInFocal(timer: ExamTimerState, now: Long, force: Boolean = false) {
+        val note = _state.value.active ?: return
+        if (timer.startedAt == null) return
+        val focal = (getApplication<FolioApplication>()).focalStudy
+        if (timer.phase == ExamTimerPhase.DONE) focal.finishExam(note, timer, now)
+        else if (timer.active) focal.recordExamProgress(note, timer, now, force)
+    }
+
     /**
      * The running sitting is saved to preferences the moment it starts, so a process death — the
      * app swiped away, a crash, the system reclaiming memory — never ends an exam. Every timer
@@ -1348,6 +1391,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             saveSitting(parked, lastSeen = now)
             _state.update { it.copy(timer = parked) }
         }
+        val latest = _state.value.timer
+        if (latest.active || latest.phase == ExamTimerPhase.DONE) {
+            recordTimerInFocal(latest, now, force = latest.phase != current.phase || latest.paused != current.paused)
+        }
     }
     /**
      * The smart timer's pen hook. A stroke on a paused sitting resumes it where it stopped,
@@ -1364,6 +1411,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 val resumed = _state.value.timer.unpause(now)
                 saveSitting(resumed, lastSeen = now)
                 _state.update { it.copy(timer = resumed) }
+                recordTimerInFocal(resumed, now, force = true)
             }
         }
     }
@@ -1388,6 +1436,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             if (parked != current) {
                 saveSitting(parked, lastSeen = now)
                 _state.update { it.copy(timer = parked) }
+                recordTimerInFocal(parked, now, force = true)
             }
         }
         val stopwatch = _state.value.stopwatch
@@ -1401,16 +1450,20 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun startTimer(preset: ExamTimerPreset, now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
+        val focal = (getApplication<FolioApplication>()).focalStudy
+        if (focal.state.value.focus?.resumedAt != null) focal.toggleFocus(now)
         val started = ExamTimerState().start(preset, now)
         lastTimerActivityAt = now
         saveSitting(started, lastSeen = now)
         _state.update { it.copy(timer = started) }
+        recordTimerInFocal(started, now, force = true)
     }
     fun adjustTimer(seconds: Int) {
         if (_state.value.active == null) return
         val adjusted = _state.value.timer.adjust(seconds)
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
+        recordTimerInFocal(adjusted, System.currentTimeMillis(), force = true)
     }
     /** Pauses the clock; the next pen stroke resumes it while the auto-start setting is on. */
     fun toggleTimerPause() {
@@ -1421,12 +1474,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (updated == current) return
         saveSitting(updated)
         _state.update { it.copy(timer = updated) }
+        recordTimerInFocal(updated, now, force = true)
     }
     fun skipTimerPhase() {
         if (_state.value.active == null) return
         val skipped = _state.value.timer.skip()
         saveSitting(skipped)
         _state.update { it.copy(timer = skipped) }
+        recordTimerInFocal(skipped, System.currentTimeMillis(), force = true)
     }
     /** Stops the timer, keeping how long the writing phase ran for the attempt record. */
     fun stopTimer() {
@@ -1434,8 +1489,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val current = _state.value.timer
         val now = System.currentTimeMillis()
         val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
-        if (spent != null) (getApplication<FolioApplication>()).focalStudy.recordExam(
-            requireNotNull(_state.value.active), spent, requireNotNull(current.startedAt), now)
+        if (current.startedAt != null) (getApplication<FolioApplication>()).focalStudy.finishExam(
+            requireNotNull(_state.value.active), current, now)
         clearSitting()
         _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
     }
