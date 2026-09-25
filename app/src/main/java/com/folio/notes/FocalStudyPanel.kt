@@ -126,9 +126,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        state.visibleEntries.asSequence()
-            .filter { it.completed && it.endedAt >= start && it.startedAt < now }
-            .sumOf { focalActiveMillisBetween(it, start, now) } / 60_000L
+        focalStudyMillisBetween(state.visibleEntries, start, now) / 60_000L
     }
     FolioPanel("Study sessions", onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
@@ -138,7 +136,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     Icon(Icons.Rounded.School, null)
                     Column(Modifier.weight(1f)) {
                         Text("$today min studied today", style = MaterialTheme.typography.titleMedium)
-                        Text("Active study time only — pauses and exam reading time are excluded.", style = MaterialTheme.typography.bodySmall)
+                        Text("Active time from study sessions only — pauses are excluded.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

@@ -23,6 +23,14 @@ class FocalStudyTests {
         assertEquals(30_000L, focalActiveMillisBetween(entry, 61_000L, 91_000L))
     }
 
+    @Test fun todayMinutesOnlyCountsStudySessions() {
+        fun entry(kind: String) = FocalStudyEntry(notebookId = null, title = kind,
+            subjectId = null, kind = kind, startedAt = 1_000L, endedAt = 121_000L,
+            activeMillis = 120_000L, completed = true,
+            intervals = listOf(FocalStudyInterval(1_000L, 121_000L)))
+        assertEquals(120_000L, focalStudyMillisBetween(listOf(entry("study"), entry("exam"), entry("event")), 0L, 180_000L))
+    }
+
     @Test fun pausedFocusExcludesBreakTime() {
         val started = FocalFocus("note", "Study", "phys", 1_000L, 1_000L)
         val paused = started.pause(61_000L)

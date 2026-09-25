@@ -112,6 +112,11 @@ internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>)
  */
 private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
 
+internal fun focalStudyMillisBetween(entries: Iterable<FocalStudyEntry>, from: Long, until: Long): Long =
+    entries.asSequence()
+        .filter { it.kind == "study" && it.completed && it.endedAt >= from && it.startedAt < until }
+        .sumOf { focalActiveMillisBetween(it, from, until) }
+
 internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until: Long): Long {
     if (entry.kind == "exam" && entry.examPhase == "reading") return 0L
     if (until <= from) return 0L
