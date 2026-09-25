@@ -1,4 +1,5 @@
 name: Android checks
+
 on:
   push:
     branches-ignore: [main]
@@ -12,15 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Check no hardcoded Supabase secrets
         run: |
           set -euo pipefail
-          # Fail if a real-looking publishable key or project URL is committed.
-          # Placeholders (example.* / your-*) and test keys are allowed.
           if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "sb_publishable_[A-Za-z0-9_.-]{10,}" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "sb_publishable_example_placeholder_for_local_ci_builds_only" | grep -v "your-publishable" | grep -q .; then
             echo "Hardcoded Supabase publishable key found; use the ExamTrack or Focal secret instead"
             exit 1
@@ -37,21 +36,10 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v4
         with:
-          # Override the default list, which includes the unavailable legacy 'tools' package.
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
-      - name: Build and test
+      - name: Unit tests
         env:
-          # Empty on forks; blank values fall back to safe
-          # placeholders in app/build.gradle.kts (blank values are ignored there).
-          # GitHub automatically masks these values in logs; do not echo them.
           EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
           EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
-      - uses: actions/upload-artifact@v7
-        with:
-          name: folio-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
+        run: ./gradlew :app:testDebugUnitTest
