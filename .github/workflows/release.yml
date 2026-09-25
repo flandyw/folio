@@ -63,6 +63,8 @@ jobs:
         env:
           EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
           EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
+          FOCAL_SUPABASE_URL: ${{ secrets.FOCAL_SUPABASE_URL }}
+          FOCAL_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.FOCAL_SUPABASE_PUBLISHABLE_KEY }}
         run: bash ./gradlew :app:testDebugUnitTest :app:lintDebug
       - name: Build signed release
         env:
@@ -71,12 +73,16 @@ jobs:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/folio-release.p12
           EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
           EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
+          FOCAL_SUPABASE_URL: ${{ secrets.FOCAL_SUPABASE_URL }}
+          FOCAL_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.FOCAL_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           : "${ANDROID_KEYSTORE_BASE64:?Missing signing keystore secret}"
           : "${ANDROID_KEYSTORE_PASSWORD:?Missing signing password secret}"
           : "${EXAMTRACK_SUPABASE_URL:?Missing ExamTrack Supabase URL secret}"
           : "${EXAMTRACK_SUPABASE_PUBLISHABLE_KEY:?Missing ExamTrack Supabase publishable key secret}"
+          : "${FOCAL_SUPABASE_URL:?Missing Focal Supabase URL secret}"
+          : "${FOCAL_SUPABASE_PUBLISHABLE_KEY:?Missing Focal Supabase publishable key secret}"
           umask 077
           trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"

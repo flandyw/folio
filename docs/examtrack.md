@@ -24,7 +24,7 @@ The native library is [supabase-kt 3.0.3](https://github.com/supabase-community/
 ## Use
 
 1. Open **Mistakes** from the library, or **Settings → Account → ExamTrack**.
-2. Sign in with the same email/password as ExamTrack's sync account. Account creation and password recovery remain in ExamTrack.
+2. Sign in with the same email/password as ExamTrack's sync account. You can also create an account or request a password reset from Folio; confirmation and reset links arrive by email.
 3. **Today** opens a focused dashboard. Choose 5, 10 or all due questions, optionally shuffle, then start a session. Unfinished questions have a **Continue** action that reuses their existing handwriting page.
 4. **Library** searches question text, corrections, explanations, topics, subjects, titles and categories. Due/upcoming/suspended tabs and the **Filters** sheet narrow the list. **Review matching due questions** starts a session within those filters; Today always reviews the complete due queue.
 5. Open a question for separate **Question**, **Solution**, and **Attempts** tabs. Images open in a full-screen viewer with pinch, pan, zoom buttons and reset. Unfinished attempts can be resumed; completed attempts open their saved notebook.

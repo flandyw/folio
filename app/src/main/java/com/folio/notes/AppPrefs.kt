@@ -88,12 +88,6 @@ object AppPrefs {
     fun timerIdleMinutes(value: Int?): Int =
         (value ?: DEFAULT_TIMER_IDLE_MIN).coerceIn(TIMER_IDLE_MIN_RANGE, TIMER_IDLE_MAX)
 
-    /** The sitting the smart timer starts on a first pen stroke: the Custom timer's own settings. */
-    fun autoStartPreset(writingMinutes: Int?, readingMinutes: Int?): ExamTimerPreset {
-        val writing = timerCustomMinutes(writingMinutes)
-        return ExamTimerPreset("Auto · $writing min", writing * 60, timerReadingMinutes(readingMinutes) * 60)
-    }
-
     fun pngScale(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_PNG_SCALE
         else value.coerceIn(PNG_SCALE_MIN, PNG_SCALE_MAX)

@@ -141,3 +141,7 @@ Platform references: [Material 3](https://developer.android.com/jetpack/androidx
 ## ExamTrack mistakes
 
 Folio can sign in to the existing ExamTrack Supabase backend, cache mistakes offline, and review them using the normal handwriting editor. Ratings sync back to ExamTrack; each handwritten attempt stays in Folio. See [setup, storage, sync semantics and validation](docs/examtrack.md).
+
+## Focal study sessions
+
+The editor's **Study sessions** control records ordinary focus sessions with pause, subject, notes and confidence. Stopping an exam timer also records its writing time. Sessions save on this device and sync to Focal when its account is connected. See [Focal setup and sync details](docs/focal.md).

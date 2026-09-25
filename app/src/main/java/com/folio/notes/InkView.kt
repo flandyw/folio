@@ -65,7 +65,7 @@ class InkView(context: Context) : View(context) {
     var onStrokesChanged: (List<Stroke>) -> Unit = {}
     /**
      * Ink under the pen: true when a fresh stroke begins, false while one grows or the eraser
-     * works. Lets the exam timer start on a pen-down and measure idleness from real writing.
+     * works. Lets the exam timer resume on a pen-down and measure idleness from real writing.
      */
     var onPenInput: (beginsStroke: Boolean) -> Unit = {}
     /** Reports the ink, text and pictures inside the lasso loop so the editor can offer actions. */

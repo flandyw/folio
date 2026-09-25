@@ -716,6 +716,12 @@ private fun LoginCard(
                     }
                 }
             }
+            if (state.authMessage != null) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                    Text(state.authMessage!!, Modifier.fillMaxWidth().padding(12.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             Button(
                 {
                     val pw = password; onPassword(""); focus.clearFocus()
@@ -735,10 +741,15 @@ private fun LoginCard(
                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
                 }
             }
-            Text(
-                "No account yet, or forgot your password? Create and recover it in ExamTrack — Folio only signs in.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton({
+                    val pw = password; onPassword(""); focus.clearFocus()
+                    model.signUp(email, pw)
+                }, enabled = !state.busy && emailLooksValid(email) && password.length >= 6) { Text("Create account") }
+                TextButton({ model.resetPassword(email) }, enabled = !state.busy && emailLooksValid(email)) { Text("Forgot password?") }
+            }
+            Text("New account? Enter a password of at least 6 characters. Password reset opens from your email.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

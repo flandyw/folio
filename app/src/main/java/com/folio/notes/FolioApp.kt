@@ -41,6 +41,7 @@ import java.io.File
     val state by model.state.collectAsStateWithLifecycle()
     val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var showMistakes by rememberSaveable { mutableStateOf(false) }
+    var focalAccountOpen by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner, mistakes) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -388,6 +389,7 @@ import java.io.File
                     updateChecking = updateChecking,
                     onBack = { settings = false },
                     onExamTrack = { settings = false; showMistakes = true },
+                    onFocal = { settings = false; focalAccountOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
                     onRestoreLibrary = { settings = false; openLibraryBackup.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                     onChooseBackupFolder = { pickBackupFolder.launch(null) },
@@ -396,6 +398,7 @@ import java.io.File
                     backupBusy = state.busy || state.exporting || state.loading || state.loadFailed)
             }
         }
+        if (focalAccountOpen) FocalStudyPanel(state.active, onDismiss = { focalAccountOpen = false })
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)

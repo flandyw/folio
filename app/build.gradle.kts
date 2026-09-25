@@ -49,7 +49,7 @@ android {
         targetSdk = 35
         versionCode = automaticVersionCode
         versionName = automaticVersionName
-        fun examTrackConfig(name: String, fallback: String): String {
+        fun supabaseConfig(name: String, fallback: String): String {
             val local = Properties().apply {
                 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
             }
@@ -64,15 +64,17 @@ android {
                     val claims = String(Base64.getUrlDecoder().decode(value.split('.')[1]))
                     Regex("\"role\"\\s*:\\s*\"anon\"").containsMatchIn(claims)
                 }.getOrDefault(false)
-                require(value.startsWith("sb_publishable_") || anonJwt) { "ExamTrack requires a publishable or anon client key" }
-            } else require(value.startsWith("https://")) { "ExamTrack requires HTTPS" }
+                require(value.startsWith("sb_publishable_") || anonJwt) { "$name requires a publishable or anon client key" }
+            } else require(value.startsWith("https://")) { "$name requires HTTPS" }
             return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
         }
         // Safe placeholders for local/CI builds without credentials. Production values are
         // injected via EXAMTRACK_SUPABASE_URL / EXAMTRACK_SUPABASE_PUBLISHABLE_KEY secrets
         // (see .github/workflows/*.yml and docs/examtrack.md). Never commit real keys here.
-        buildConfigField("String", "EXAMTRACK_SUPABASE_URL", examTrackConfig("EXAMTRACK_SUPABASE_URL", "https://example.supabase.co"))
-        buildConfigField("String", "EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", examTrackConfig("EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
+        buildConfigField("String", "EXAMTRACK_SUPABASE_URL", supabaseConfig("EXAMTRACK_SUPABASE_URL", "https://example.supabase.co"))
+        buildConfigField("String", "EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", supabaseConfig("EXAMTRACK_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
+        buildConfigField("String", "FOCAL_SUPABASE_URL", supabaseConfig("FOCAL_SUPABASE_URL", "https://example.supabase.co"))
+        buildConfigField("String", "FOCAL_SUPABASE_PUBLISHABLE_KEY", supabaseConfig("FOCAL_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

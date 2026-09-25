@@ -25,13 +25,14 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Keystore-encrypted SDK session, outside Android backup and all .folio archives. */
-class EncryptedExamTrackSession(context: Context) : SessionManager {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "examtrack-session"))
+class EncryptedExamTrackSession(context: Context, name: String = "examtrack-session", alias: String = "folio-examtrack") : SessionManager {
+    private val file = AtomicFile(File(context.noBackupFilesDir, name))
+    private val keyAlias = alias
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey("folio-examtrack", null) as? SecretKey)?.let { return it }
+        (store.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder("folio-examtrack", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
@@ -77,6 +78,15 @@ class ExamTrackAuthRepository(context: Context) {
         awaitRestoration()
         lifecycle.cancelRestoration()
         client.auth.signInWith(Email) { this.email = email; this.password = password }
+    }
+    suspend fun signUp(email: String, password: String) {
+        awaitRestoration()
+        lifecycle.cancelRestoration()
+        client.auth.signUpWith(Email) { this.email = email; this.password = password }
+    }
+    suspend fun resetPassword(email: String) {
+        awaitRestoration()
+        client.auth.resetPasswordForEmail(email)
     }
     suspend fun signOut() {
         // Local sign-out must work offline; clearing also stops SDK token refresh.

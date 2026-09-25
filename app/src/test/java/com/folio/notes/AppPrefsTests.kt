@@ -51,19 +51,6 @@ class AppPrefsTests {
         assertEquals(60, AppPrefs.timerIdleMinutes(999))
     }
 
-    @Test fun autoStartPresetUsesTheCustomTimerSettings() {
-        val preset = AppPrefs.autoStartPreset(30, 0)
-        assertEquals("Auto · 30 min", preset.label)
-        assertEquals(30 * 60, preset.writingSeconds)
-        assertEquals(0, preset.readingSeconds)
-        val defaulted = AppPrefs.autoStartPreset(null, null)
-        assertEquals(AppPrefs.DEFAULT_TIMER_CUSTOM_MIN * 60, defaulted.writingSeconds)
-        assertEquals(AppPrefs.DEFAULT_TIMER_READING_MIN * 60, defaulted.readingSeconds)
-        val clamped = AppPrefs.autoStartPreset(999, 999)
-        assertEquals(480 * 60, clamped.writingSeconds)
-        assertEquals(60 * 60, clamped.readingSeconds)
-    }
-
     @Test fun exportScaleAndSplitAndTextAreClamped() {
         assertEquals(2f, AppPrefs.pngScale(null))
         assertEquals(2f, AppPrefs.pngScale(Float.NaN))

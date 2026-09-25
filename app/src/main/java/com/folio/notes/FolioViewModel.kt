@@ -23,6 +23,7 @@ class FolioApplication : Application() {
     val storageGate = Mutex()
     /** App-scoped so a pen connection survives configuration changes but is still editor-bound. */
     val penHaptics by lazy { PenHapticsManager(this) }
+    val focalStudy by lazy { FocalStudyManager(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -1341,7 +1342,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         // The smart timer's inactivity stop: a clock left running with the pen idle for the
         // configured stretch parks itself, exactly like leaving the pages, and the next stroke
-        // starts it again.
+        // resumes it.
         if (next.idleExpired(lastTimerActivityAt, now, idleStopMinutes())) {
             val parked = next.pause(now, auto = true)
             saveSitting(parked, lastSeen = now)
@@ -1349,10 +1350,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     /**
-     * The smart timer's pen hook. A first stroke starts the clock by itself — a fresh sitting with
-     * the Custom timer settings — and a stroke on a paused sitting starts it again where it
-     * stopped, while erasing and the rest of a stroke only count as activity, so idleness never
-     * stops a clock in use.
+     * The smart timer's pen hook. A stroke on a paused sitting resumes it where it stopped,
+     * while erasing and the rest of a stroke only count as activity, so idleness never stops a
+     * clock in use. The pen never starts a fresh sitting — start the timer from the timer panel.
      */
     fun onPenActivity(beginsStroke: Boolean, now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
@@ -1360,7 +1360,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         when (_state.value.timer.autoActionOnPenDown(
                 prefs.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START), beginsStroke)) {
             TimerAutoAction.NONE -> Unit
-            TimerAutoAction.START -> startTimer(autoStartPreset(), now)
             TimerAutoAction.RESUME -> {
                 val resumed = _state.value.timer.unpause(now)
                 saveSitting(resumed, lastSeen = now)
@@ -1372,17 +1371,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun touchTimerActivity(now: Long = System.currentTimeMillis()) {
         lastTimerActivityAt = now
     }
-    /** The sitting a first pen stroke starts by itself: the Custom timer's own settings. */
-    private fun autoStartPreset(): ExamTimerPreset = AppPrefs.autoStartPreset(
-        prefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { prefs.contains(AppPrefs.TIMER_CUSTOM_MIN) },
-        prefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { prefs.contains(AppPrefs.TIMER_READING_MIN) })
     private fun idleStopMinutes(): Int = AppPrefs.timerIdleMinutes(
         prefs.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { prefs.contains(AppPrefs.TIMER_IDLE_MIN) })
     /**
      * Parks the clock the moment the user stops looking at the pages — app backgrounded, screen
      * off, or the editor left for the library or mistakes. Parked time never counts, the parked
      * state is saved immediately so a kill still restores it parked, and it stays parked until
-     * the user explicitly resumes it or the pen starts it again. A timer that is not running is
+     * the user explicitly resumes it or the pen resumes it. A timer that is not running is
      * untouched. The stopwatch parks alongside it.
      */
     fun autoPauseTimer(now: Long = System.currentTimeMillis()) {
@@ -1417,7 +1412,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
     }
-    /** Pauses the clock; the next pen stroke starts it again while the auto-start setting is on. */
+    /** Pauses the clock; the next pen stroke resumes it while the auto-start setting is on. */
     fun toggleTimerPause() {
         if (_state.value.active == null) return
         val current = _state.value.timer
@@ -1439,6 +1434,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val current = _state.value.timer
         val now = System.currentTimeMillis()
         val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
+        if (spent != null) (getApplication<FolioApplication>()).focalStudy.recordExam(
+            requireNotNull(_state.value.active), spent, requireNotNull(current.startedAt), now)
         clearSitting()
         _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
     }

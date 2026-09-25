@@ -4,17 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * The smart timer: the clock starts itself on a pen-down, stops itself after a user-set stretch of
- * pen idleness, and keeps the other park conditions (hidden editor, unseen gaps) exactly as they
- * were. Any paused clock is started again by the pen while the auto-start setting is on.
+ * The smart timer: the pen never starts a fresh sitting — it only resumes a paused one — while
+ * the clock stops itself after a user-set stretch of pen idleness, keeping the other park
+ * conditions (hidden editor, unseen gaps) exactly as they were. Any paused clock is resumed by
+ * the pen while the auto-start setting is on.
  */
 class SmartTimerTests {
     private val preset = ExamTimerPreset("Auto · 10 min", 10 * 60, 0)
 
-    @Test fun aFirstStrokeStartsAFreshSittingAndOtherTouchesDoNot() {
+    @Test fun aFirstStrokeNeverStartsAFreshSitting() {
         val idle = ExamTimerState()
-        assertEquals(TimerAutoAction.START, idle.autoActionOnPenDown(autoStart = true, beginsStroke = true))
-        // Erasing, a stroke still growing, or the switch being off never starts a sitting.
+        assertEquals(TimerAutoAction.NONE, idle.autoActionOnPenDown(autoStart = true, beginsStroke = true))
+        // Erasing, a stroke still growing, or the switch being off never resumes either.
         assertEquals(TimerAutoAction.NONE, idle.autoActionOnPenDown(autoStart = true, beginsStroke = false))
         assertEquals(TimerAutoAction.NONE, idle.autoActionOnPenDown(autoStart = false, beginsStroke = true))
         // A running clock is left alone, and a finished one is never restarted by a stray stroke.
@@ -25,7 +26,7 @@ class SmartTimerTests {
         assertEquals(TimerAutoAction.NONE, done.autoActionOnPenDown(autoStart = true, beginsStroke = true))
     }
 
-    @Test fun aStrokeStartsAPausedClockAgainHoweverItWasParked() {
+    @Test fun aStrokeResumesAPausedClockHoweverItWasParked() {
         val running = ExamTimerState().start(preset, now = 1000L)
         val autoParked = running.pause(61_000L, auto = true)
         assertTrue(autoParked.autoParked)
@@ -79,7 +80,7 @@ class SmartTimerTests {
         assertEquals(TimerAutoAction.RESUME, handRestored.autoActionOnPenDown(autoStart = true, beginsStroke = true))
     }
 
-    @Test fun anUnseenGapStillParksOnItsOwnAndThePenCanStartItAgain() {
+    @Test fun anUnseenGapStillParksOnItsOwnAndThePenCanResumeIt() {
         val running = ExamTimerState().start(preset, now = 1000L)
         val parked = running.clampUnseenGap(lastSeen = 21_000L, now = 600_000L)
         assertTrue(parked.paused)
@@ -87,13 +88,13 @@ class SmartTimerTests {
         assertEquals(TimerAutoAction.RESUME, parked.autoActionOnPenDown(autoStart = true, beginsStroke = true))
     }
 
-    @Test fun aManualPauseIsStartedAgainByAPenStroke() {
+    @Test fun aManualPauseIsResumedByAPenStroke() {
         val paused = ExamTimerState().start(preset, now = 1000L).pause(61_000L)
         assertEquals(TimerAutoAction.RESUME, paused.autoActionOnPenDown(autoStart = true, beginsStroke = true))
-        // Stopping still clears the whole sitting, so the next stroke starts afresh.
+        // Stopping clears the whole sitting, and the pen never starts a fresh one by itself.
         val stopped = paused.stop()
         assertEquals(ExamTimerPhase.IDLE, stopped.phase)
         assertFalse(stopped.autoParked)
-        assertEquals(TimerAutoAction.START, stopped.autoActionOnPenDown(autoStart = true, beginsStroke = true))
+        assertEquals(TimerAutoAction.NONE, stopped.autoActionOnPenDown(autoStart = true, beginsStroke = true))
     }
 }

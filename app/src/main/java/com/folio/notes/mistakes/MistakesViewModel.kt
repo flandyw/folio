@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.update
 
 data class MistakesState(val userId: String? = null, val email: String? = null,
     val cache: MistakeCache = MistakeCache(), val status: String = "Not connected",
-    val busy: Boolean = false, val error: String? = null)
+    val busy: Boolean = false, val error: String? = null, val authMessage: String? = null)
 
 class MistakesViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = ExamTrackAuthRepository(application)
@@ -66,11 +66,35 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     }
     fun signIn(email: String, password: String) {
         if (_state.value.busy) return
-        _state.update { it.copy(busy = true, error = null) }
+        _state.update { it.copy(busy = true, error = null, authMessage = null) }
         viewModelScope.launch {
             try { auth.signIn(email.trim(), password) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { _state.update { it.copy(error = "Could not sign in. Check your email, password and connection.") } }
+            finally { _state.update { it.copy(busy = false) } }
+        }
+    }
+    fun signUp(email: String, password: String) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, error = null, authMessage = null) }
+        viewModelScope.launch {
+            try {
+                auth.signUp(email.trim(), password)
+                _state.update { it.copy(authMessage = "Account created. If asked, confirm your email, then sign in.") }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _state.update { it.copy(error = "Could not create the account. Check your details and connection.") } }
+            finally { _state.update { it.copy(busy = false) } }
+        }
+    }
+    fun resetPassword(email: String) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, error = null, authMessage = null) }
+        viewModelScope.launch {
+            try {
+                auth.resetPassword(email.trim())
+                _state.update { it.copy(authMessage = "If this email has an account, a password reset link is on its way.") }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _state.update { it.copy(error = "Could not request a reset. Check your connection and try again.") } }
             finally { _state.update { it.copy(busy = false) } }
         }
     }

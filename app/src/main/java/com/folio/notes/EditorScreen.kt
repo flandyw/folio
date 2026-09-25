@@ -344,6 +344,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var clear by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
     var timerPanel by remember { mutableStateOf(false) }
+    var studyPanel by remember { mutableStateOf(false) }
     var stopwatchPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
     var markDialog by remember { mutableStateOf(false) }
@@ -535,6 +536,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
                     StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
+                    IconButton({ studyPanel = true }, shapes = IconButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.School, "Study sessions")
+                    }
                 }
             },
             pageIndex = state.pageIndex,
@@ -1204,6 +1208,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSkip = model::skipTimerPhase,
         onPauseResume = model::toggleTimerPause
     )
+    if (studyPanel) FocalStudyPanel(note, onDismiss = { studyPanel = false })
     if (stopwatchPanel) StopwatchPanel(
         stopwatch = state.stopwatch,
         onDismiss = { stopwatchPanel = false },

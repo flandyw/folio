@@ -31,7 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     val close: () -> Unit = { if (category != null) category = null else onBack() }
     BackHandler(onBack = close)
@@ -195,6 +195,10 @@ import kotlin.math.roundToInt
                         SettingsCategory.FOLLOW -> WritingFollowDefaultsSection()
                         SettingsCategory.WORKFLOW -> WorkflowSection()
                         SettingsCategory.ACCOUNT -> {
+                            SectionTitle("Focal")
+                            SectionHint("Connect study sessions and review sync status.")
+                            OutlinedButton(onFocal, shapes = ButtonDefaults.shapes()) { Text("Open study sessions") }
+                            HorizontalDivider()
                             SectionTitle("ExamTrack")
                             SectionHint("Sign in to manage mistake sync with ExamTrack.")
                             OutlinedButton(onExamTrack, shapes = ButtonDefaults.shapes()) { Text("Open ExamTrack") }
@@ -225,7 +229,7 @@ private enum class SettingsCategory(val title: String, val description: String) 
     ERASING("Erasing", "Eraser behavior and scribble-to-erase"),
     FOLLOW("Writing follow", "Page movement, writing direction and line return"),
     WORKFLOW("Timer & workspace", "Exam timer, smart start/stop, PNG export and split view"),
-    ACCOUNT("Account & updates", "ExamTrack sync and Folio updates")
+    ACCOUNT("Account & updates", "Focal sessions, ExamTrack and Folio updates")
 }
 
 @Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true, onReset: (() -> Unit)? = null) {
@@ -552,7 +556,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         readingMinutes = it
         p.edit().putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()).apply()
     }, valueRange = AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(), steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1)
-    PreferenceSwitch("Start the timer on pen down", "Put the pen on the page and the exam clock starts by itself, using the Custom timer settings above. A paused clock starts again on the next stroke.", autoStart, {
+    PreferenceSwitch("Resume the timer on pen down", "A paused exam clock resumes on the next pen stroke. The pen never starts a new sitting by itself — start the timer from the timer panel.", autoStart, {
         autoStart = it
         p.edit().putBoolean(AppPrefs.TIMER_AUTO_START, it).apply()
     })
@@ -561,7 +565,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         idleMinutes = it
         p.edit().putInt(AppPrefs.TIMER_IDLE_MIN, it.roundToInt()).apply()
     }, valueRange = AppPrefs.TIMER_IDLE_MIN_RANGE.toFloat()..AppPrefs.TIMER_IDLE_MAX.toFloat(), steps = AppPrefs.TIMER_IDLE_MAX - AppPrefs.TIMER_IDLE_MIN_RANGE - 1)
-    SectionHint("The clock stops itself once the pen has been idle this long, and your next stroke starts it again. Set 0 to keep it running until you stop it. Leaving the editor, backgrounding the app or the screen going off parks it as before.")
+    SectionHint("The clock stops itself once the pen has been idle this long, and your next stroke resumes it. Set 0 to keep it running until you stop it. Leaving the editor, backgrounding the app or the screen going off parks it as before.")
     HorizontalDivider()
     SectionTitle("Export")
     SectionHint("PDF exports keep vector ink. PNG sharpness only affects page images.")

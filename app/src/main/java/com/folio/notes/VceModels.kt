@@ -528,7 +528,7 @@ data class ExamTimerPreset(val label: String, val writingSeconds: Int, val readi
 enum class ExamTimerPhase { IDLE, READING, WRITING, DONE }
 
 /** What touching the pen to the page should do to the exam clock by itself. */
-enum class TimerAutoAction { NONE, START, RESUME }
+enum class TimerAutoAction { NONE, RESUME }
 
 /**
  * The timer's pure state machine, so every transition is unit-testable without a clock.
@@ -545,8 +545,8 @@ data class ExamTimerState(
     val pausedMillis: Long = 0L,
     /**
      * True when the clock was parked by the app itself — pen idleness, a hidden editor, an unseen
-     * gap — rather than by hand. Kept for display (Stopped vs Paused); a pen stroke starts any
-     * paused sitting again while the auto-start setting is on.
+     * gap — rather than by hand. Kept for display (Stopped vs Paused); a pen stroke resumes any
+     * paused sitting while the auto-start setting is on.
      */
     val autoParked: Boolean = false
 ) {
@@ -632,13 +632,13 @@ data class ExamTimerState(
         return pause(lastSeen.coerceAtLeast(startedAt ?: lastSeen), auto = true)
     }
     /**
-     * What a pen stroke on the page should do to this sitting by itself: a first stroke starts a
-     * fresh sitting, and a stroke on any paused sitting starts it again where it stopped. A clock
-     * already running or finished is left alone. Erasing and other edits only count as activity.
+     * What a pen stroke on the page should do to this sitting by itself: a stroke on a paused
+     * sitting starts it again where it stopped. A clock that was never started, is already
+     * running, or is finished is left alone — the pen never starts a fresh sitting. Erasing and
+     * other edits only count as activity.
      */
     fun autoActionOnPenDown(autoStart: Boolean, beginsStroke: Boolean): TimerAutoAction = when {
         !autoStart || !beginsStroke -> TimerAutoAction.NONE
-        phase == ExamTimerPhase.IDLE -> TimerAutoAction.START
         paused -> TimerAutoAction.RESUME
         else -> TimerAutoAction.NONE
     }
