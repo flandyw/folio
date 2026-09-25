@@ -105,7 +105,8 @@ import androidx.compose.ui.unit.dp
                         Box {
                             TextButton(topHold.click(onPages), modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }
                                 .longPressAction(topHold) { pageMenu = true }, contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
-                                Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
+                                Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false,
+                                    modifier = Modifier.widthIn(min = 72.dp))
                             }
                             DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
                                 DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
@@ -120,7 +121,8 @@ import androidx.compose.ui.unit.dp
                             TextButton(topHold.click(onFit), contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes(),
                                 modifier = Modifier.semantics { contentDescription = "Zoom $zoomPercent percent. Reset zoom" }
                                     .then(if (onFitAll != null) Modifier.longPressAction(topHold) { zoomMenu = true } else Modifier)) {
-                                Text("$zoomPercent%", style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
+                                Text("$zoomPercent%", style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false,
+                                    modifier = Modifier.widthIn(min = 44.dp))
                             }
                             DropdownMenu(zoomMenu, { zoomMenu = false }, modifier = Modifier.guardUiTouches()) {
                                 DropdownMenuItem({ Text("Reset zoom to 100%") }, { zoomMenu = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
@@ -283,7 +285,8 @@ import androidx.compose.ui.unit.dp
                 Box {
                     TextButton(navHold.click(onPages), modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" }
                         .longPressAction(navHold) { pageMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface), shapes = ButtonDefaults.shapes()) {
-                        Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
+                        Text("${pageIndex + 1} / $pageCount", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false,
+                            modifier = Modifier.widthIn(min = 72.dp))
                     }
                     DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
                         DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
@@ -301,7 +304,8 @@ import androidx.compose.ui.unit.dp
                     .then(if (onFitAll != null) Modifier.longPressAction(navHold) { zoomMenu = true } else Modifier)) {
                 Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.FitScreen, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("$zoomPercent%", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)
+                    Text("$zoomPercent%", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.widthIn(min = 44.dp))
                 }
             }
             DropdownMenu(zoomMenu, { zoomMenu = false }, modifier = Modifier.guardUiTouches()) {
