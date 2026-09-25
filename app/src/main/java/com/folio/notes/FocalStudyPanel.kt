@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.ImeAction
@@ -91,7 +92,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
             Icon(if (recording && isPaused) Icons.Rounded.Pause
                 else if (recording) Icons.Rounded.PlayArrow else Icons.Rounded.School,
                 null, Modifier.size(16.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Icon(syncIcon, null, Modifier.size(15.dp),
                 tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
         }

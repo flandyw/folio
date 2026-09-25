@@ -190,6 +190,13 @@ class ExamFilterTests {
         assertEquals(emptyList<String>(), organizeExams(notes, ExamFilter(belowShare = 1f, subject = VceSubject.PHYSICS)).map { it.id })
     }
 
+    @Test fun incompleteIncludesToDoAndInProgressButExcludesMarkedAndRedone() {
+        val inProgress = notes[1].copy(exam = notes[1].exam.copy(status = ExamStatus.IN_PROGRESS))
+        val redone = notes[1].copy(id = "d", title = "Redone", exam = notes[1].exam.copy(status = ExamStatus.REDONE))
+        assertEquals(listOf("b", "c"), organizeExams(notes + redone, ExamFilter(incomplete = true)).map { it.id })
+        assertEquals(listOf("b"), organizeExams(listOf(notes[0], inProgress, redone), ExamFilter(incomplete = true)).map { it.id })
+    }
+
     @Test fun theRedoFilterFindsOnlyFlaggedPapers() {
         val flagged = notes.first().copy(pages = notes.first().pages.mapIndexed { i, page -> if (i == 0) page.copy(redoFlag = true) else page })
         assertEquals(emptyList<String>(), organizeExams(notes, ExamFilter(needsRedo = true)).map { it.id })

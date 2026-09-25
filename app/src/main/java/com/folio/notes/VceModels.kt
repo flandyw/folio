@@ -258,10 +258,12 @@ data class ExamFilter(
     val status: ExamStatus? = null,
     /** "Under 70%" and friends; a notebook counts when its best attempt share is below this. */
     val belowShare: Float? = null,
-    val needsRedo: Boolean = false
+    val needsRedo: Boolean = false,
+    /** Show notebooks that are still to do or in progress, not marked or redone. */
+    val incomplete: Boolean = false
 ) {
     val isActive: Boolean get() = subject != null || year != null || !company.isNullOrBlank() ||
-        type != null || unit != null || status != null || belowShare != null || needsRedo
+        type != null || unit != null || status != null || belowShare != null || needsRedo || incomplete
     fun matches(note: Notebook): Boolean {
         val tags = note.exam
         if (subject != null && tags.subject != subject) return false
@@ -275,6 +277,7 @@ data class ExamFilter(
             if (share >= belowShare) return false
         }
         if (needsRedo && note.pages.none { it.redoFlag }) return false
+        if (incomplete && note.exam.status in setOf(ExamStatus.MARKED, ExamStatus.REDONE)) return false
         return true
     }
 }

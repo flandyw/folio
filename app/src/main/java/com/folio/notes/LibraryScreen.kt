@@ -37,11 +37,8 @@ import androidx.compose.ui.unit.sp
 
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
-/** Top-level destinations in the Library sidebar: notebooks, study review, or score progress. */
-enum class LibrarySection { LIBRARY, REVIEW, PROGRESS }
-
-/** Review hub tabs: Redo + Bookmarks live here instead of the Library header. */
-enum class ReviewTab { REDO, BOOKMARKS }
+/** Top-level destinations in the Library sidebar: notebooks or score progress. */
+enum class LibrarySection { LIBRARY, PROGRESS }
 
 @Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -67,7 +64,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
     LaunchedEffect(listView) { libraryPrefs.edit().putBoolean(AppPrefs.LIB_LIST, listView).apply() }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(LibrarySection.LIBRARY) }
-    var reviewTab by rememberSaveable { mutableStateOf(ReviewTab.REDO) }
     var sortMenu by remember { mutableStateOf(false) }
     var sidebarImportMenu by remember { mutableStateOf(false) }
     var newButtonMenu by remember { mutableStateOf(false) }
@@ -94,9 +90,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
         organizeNotebooks(state.notes, state.folderId, starred, unfiled, debouncedQuery, kind, sort)
             .filter { examFilter.matches(it) && (!examFilter.needsRedo || it.pages.any { page -> page.redoFlag }) }
     }
-    val redoCount = remember(state.notes) { state.notes.sumOf { note -> note.pages.count { it.redoFlag } } }
-    val bookmarkCount = remember(state.notes) { state.notes.sumOf { note -> note.pages.count { it.bookmarked } } }
-    val reviewCount = redoCount + bookmarkCount
     val visibleIds = remember(notes) { notes.map { it.id }.toSet() }
     val selection = remember(selectedIds, visibleIds) { selectedIds.filter { it in visibleIds }.toSet() }
     LaunchedEffect(visibleIds) { selectedIds = selectedIds.filter { it in visibleIds } }
@@ -128,13 +121,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
                     Spacer(Modifier.height(12.dp))
                     NavItem("Library", Icons.Rounded.GridView, section == LibrarySection.LIBRARY && !starred && state.folderId == null, state.notes.size) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) }
                     NavItem("Mistakes", Icons.Rounded.School, false, null) { onMistakes() }
-                    NavItem("Review", Icons.AutoMirrored.Rounded.FactCheck, section == LibrarySection.REVIEW, reviewCount.takeIf { it > 0 }) { section = LibrarySection.REVIEW }
-                    if (section == LibrarySection.REVIEW) {
-                        Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            NavItem("Redo", Icons.Rounded.Refresh, reviewTab == ReviewTab.REDO, redoCount.takeIf { it > 0 }) { reviewTab = ReviewTab.REDO }
-                            NavItem("Bookmarks", Icons.Rounded.Bookmark, reviewTab == ReviewTab.BOOKMARKS, bookmarkCount.takeIf { it > 0 }) { reviewTab = ReviewTab.BOOKMARKS }
-                        }
-                    }
                     NavItem("Progress", Icons.Rounded.Insights, section == LibrarySection.PROGRESS, null) { section = LibrarySection.PROGRESS }
                     NavItem("Favorites", Icons.Rounded.StarOutline, section == LibrarySection.LIBRARY && starred, state.notes.count { it.starred }) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null) }
                     Box {
@@ -144,26 +130,38 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             DropdownMenuItem({ Text("Folio backup") }, { sidebarImportMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("YOUR FOLDERS", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onFolder, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                    Spacer(Modifier.height(10.dp))
+                    Row(Modifier.padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Folders", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        IconButton(onFolder, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp))
+                        }
                     }
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        state.folders.forEach { folder -> Box {
-                            NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }, onLongClick = { menuFolder = folder }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) }
-                            DropdownMenu(menuFolder?.id == folder.id, { menuFolder = null }, modifier = Modifier.guardUiTouches()) {
-                                DropdownMenuItem({ Text("Rename folder") }, { menuFolder = null; renameFolder = folder }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                    Surface(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        Column(Modifier.fillMaxSize().padding(6.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            state.folders.forEach { folder -> Box {
+                                NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }, onLongClick = { menuFolder = folder }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) }
+                                DropdownMenu(menuFolder?.id == folder.id, { menuFolder = null }, modifier = Modifier.guardUiTouches()) {
+                                    DropdownMenuItem({ Text("Rename folder") }, { menuFolder = null; renameFolder = folder }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                    DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                                }
+                            } }
+                            if (state.folders.isEmpty()) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("No folders yet", style = MaterialTheme.typography.labelLarge)
+                                    Text("Keep related notebooks together.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
-                        } }
-                        if (state.folders.isEmpty()) Text("A place for every project.\nCreate your first folder.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    HorizontalDivider(); NavItem("Settings", Icons.Rounded.Tune, false, null) { onSettings() }
-                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.OfflinePin, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
-                        Text("On your device. Always yours.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(Modifier.padding(horizontal = 4.dp))
+                    NavItem("Settings", Icons.Rounded.Tune, false, null) { onSettings() }
                 }
             }
             if (section == LibrarySection.LIBRARY) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -196,7 +194,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
                         if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(section == LibrarySection.LIBRARY, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
                             FilterChip(false, onMistakes, { Text("Mistakes") }, leadingIcon = { Icon(Icons.Rounded.School, null, Modifier.size(16.dp)) })
-                            FilterChip(section == LibrarySection.REVIEW, { section = LibrarySection.REVIEW }, { Text(if (reviewCount > 0) "Review · $reviewCount" else "Review") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(16.dp)) })
                             FilterChip(section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS }, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
                         }
                         if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -207,7 +204,7 @@ enum class ReviewTab { REDO, BOOKMARKS }
                         }
                         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (query.isNotEmpty()) "Search results" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(8.dp))
                             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
                             Box {
@@ -248,6 +245,11 @@ enum class ReviewTab { REDO, BOOKMARKS }
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
                                 LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
+                            }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FilterChip(examFilter.incomplete, {
+                                    model.setExamFilter(if (examFilter.incomplete) examFilter.copy(incomplete = false) else examFilter.copy(incomplete = true))
+                                }, { Text("Incomplete") })
                             }
                             // Exam filters: one chip per subject that is actually in use, then year,
                             // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
@@ -353,41 +355,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
                 }
 
             }
-            if (section == LibrarySection.REVIEW) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!wide) Brand() else Text("Review", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    if (!wide) Spacer(Modifier.weight(1f))
-                    if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
-                    if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
-                }
-                if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(false, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
-                    FilterChip(false, onMistakes, { Text("Mistakes") }, leadingIcon = { Icon(Icons.Rounded.School, null, Modifier.size(16.dp)) })
-                    FilterChip(true, {}, { Text(if (reviewCount > 0) "Review · $reviewCount" else "Review") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(16.dp)) })
-                    FilterChip(false, { section = LibrarySection.PROGRESS }, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
-                }
-                Text("Redo queue and bookmarks — kept here so the shelf stays a shelf.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(reviewTab == ReviewTab.REDO, { reviewTab = ReviewTab.REDO }, { Text(if (redoCount > 0) "Redo · $redoCount" else "Redo") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp)) })
-                    FilterChip(reviewTab == ReviewTab.BOOKMARKS, { reviewTab = ReviewTab.BOOKMARKS }, { Text(if (bookmarkCount > 0) "Bookmarks · $bookmarkCount" else "Bookmarks") }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null, Modifier.size(16.dp)) })
-                }
-                when (reviewTab) {
-                    ReviewTab.REDO -> {
-                        Text("Redo queue", style = MaterialTheme.typography.titleMedium)
-                        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            RedoReviewContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(), scrollEnabled = false,
-                                onClearFlag = { noteId, pageId -> model.setPageRedoFlag(noteId, pageId, false) })
-                        }
-                    }
-                    ReviewTab.BOOKMARKS -> {
-                        Text("Bookmarks", style = MaterialTheme.typography.titleMedium)
-                        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            BookmarkListContent(state.notes, { id, index -> model.openAt(id, index) }, Modifier.fillMaxWidth(),
-                                onUnbookmark = { noteId, pageId -> model.setPageBookmarked(noteId, pageId, false) })
-                        }
-                    }
-                }
-            }
             if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
@@ -398,7 +365,6 @@ enum class ReviewTab { REDO, BOOKMARKS }
                 if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(false, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
                     FilterChip(false, onMistakes, { Text("Mistakes") }, leadingIcon = { Icon(Icons.Rounded.School, null, Modifier.size(16.dp)) })
-                    FilterChip(false, { section = LibrarySection.REVIEW }, { Text(if (reviewCount > 0) "Review · $reviewCount" else "Review") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(16.dp)) })
                     FilterChip(true, {}, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
                 }
                 Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

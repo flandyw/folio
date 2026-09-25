@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1534,7 +1535,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     Text(
                         if (stopwatch.paused) "${if (stopwatch.autoParked) "Stopped" else "Paused"} · ${stopwatch.clockText()}"
                         else stopwatch.clockText(),
-                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false
+                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
                     )
                 }
             }
@@ -1577,7 +1578,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
                         else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
                         else "Pens down",
-                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false
+                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
                     )
                 }
             }
