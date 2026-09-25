@@ -36,6 +36,22 @@ class FocalStudyTests {
         assertEquals(day, focalStudyMillisBetween(listOf(allDay.copy(remotePayload = null)), 0, day))
     }
 
+    @Test fun importedCalendarBlockShorterThanDayDoesNotInflateToday() {
+        val minute = 60_000L
+        val imported = FocalStudyEntry(notebookId = null, title = "Calendar block", subjectId = "mm",
+            kind = "study", startedAt = 0, endedAt = 1_401 * minute, activeMillis = 1_401 * minute,
+            intervals = listOf(FocalStudyInterval(0, 1_401 * minute)),
+            remotePayload = """{"createdVia":"notion","execution":{"intervals":[{"source":"imported"}]}}""")
+        val studied = FocalStudyEntry(notebookId = "n", title = "Study", subjectId = "mm",
+            kind = "study", startedAt = 0, endedAt = 149 * minute, activeMillis = 149 * minute,
+            intervals = listOf(FocalStudyInterval(0, 149 * minute)))
+
+        assertTrue(focalIsCalendarPlaceholder(imported))
+        assertEquals(149 * minute, focalStudyMillisBetween(listOf(imported, studied), 0, 1_440 * minute))
+        assertFalse(focalIsCalendarPlaceholder(imported.copy(remotePayload =
+            """{"createdVia":"manual","execution":{"intervals":[{"source":"manual"}]}}""")))
+    }
+
     @Test fun eventProvenanceDoesNotCountAsStudy() {
         val entry = FocalStudyEntry(notebookId = null, title = "Calendar event", subjectId = null,
             kind = "study", startedAt = 0, endedAt = 60_000, activeMillis = 60_000,

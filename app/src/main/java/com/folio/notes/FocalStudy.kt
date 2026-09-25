@@ -124,7 +124,7 @@ internal fun focalStudyMillisBetween(entries: Iterable<FocalStudyEntry>, from: L
             it.endedAt >= from && it.startedAt < until }
         .sumOf { focalActiveMillisBetween(it, from, until) }
 
-/** Imported all-day calendar rows can masquerade as completed Focal study sessions. */
+/** Imported calendar blocks are scheduled time, not measured study, regardless of duration. */
 internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
     val raw = entry.remotePayload ?: return false
     return runCatching {
@@ -132,11 +132,13 @@ internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
         if (payload.optJSONObject("integrations")?.optJSONObject("notion")?.optString("kind") == "event")
             return@runCatching true
         val intervals = payload.optJSONObject("execution")?.optJSONArray("intervals") ?: return@runCatching false
-        if (intervals.length() != 1 || entry.intervals.size != 1) return@runCatching false
-        val source = intervals.getJSONObject(0).optString("source")
-        val imported = source == "imported" || (source.isBlank() && payload.optString("createdVia") == "notion")
-        val interval = entry.intervals.single()
-        imported && interval.endAt != null && interval.endAt - interval.startAt == MAX_REPORTED_SESSION_MILLIS
+        // Focal can synthesize an "imported" execution interval from a completed calendar
+        // block. Its duration (even when shorter than 24 hours) is scheduled time, not
+        // measured study. Do not mistake it for a timer or manually logged session.
+        intervals.length() > 0 && (0 until intervals.length()).all { index ->
+            val source = intervals.getJSONObject(index).optString("source")
+            source == "imported" || (source.isBlank() && payload.optString("createdVia") == "notion")
+        }
     }.getOrDefault(false)
 }
 
