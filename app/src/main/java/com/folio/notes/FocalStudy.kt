@@ -114,8 +114,25 @@ private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
 
 internal fun focalStudyMillisBetween(entries: Iterable<FocalStudyEntry>, from: Long, until: Long): Long =
     entries.asSequence()
-        .filter { it.kind == "study" && it.completed && it.endedAt >= from && it.startedAt < until }
+        .filter { it.kind == "study" && it.completed && !focalIsCalendarPlaceholder(it) &&
+            it.endedAt >= from && it.startedAt < until }
         .sumOf { focalActiveMillisBetween(it, from, until) }
+
+/** Imported all-day calendar rows can masquerade as completed Focal study sessions. */
+internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
+    val raw = entry.remotePayload ?: return false
+    return runCatching {
+        val payload = JSONObject(raw)
+        if (payload.optJSONObject("integrations")?.optJSONObject("notion")?.optString("kind") == "event")
+            return@runCatching true
+        val intervals = payload.optJSONObject("execution")?.optJSONArray("intervals") ?: return@runCatching false
+        if (intervals.length() != 1 || entry.intervals.size != 1) return@runCatching false
+        val source = intervals.getJSONObject(0).optString("source")
+        val imported = source == "imported" || (source.isBlank() && payload.optString("createdVia") == "notion")
+        val interval = entry.intervals.single()
+        imported && interval.endAt != null && interval.endAt - interval.startAt == MAX_REPORTED_SESSION_MILLIS
+    }.getOrDefault(false)
+}
 
 internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until: Long): Long {
     if (entry.kind == "exam" && entry.examPhase == "reading") return 0L

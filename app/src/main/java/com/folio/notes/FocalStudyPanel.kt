@@ -339,7 +339,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 }
             }
 
-            val recent = state.visibleEntries.filter { it.completed }
+            val recent = state.visibleEntries.filter { it.completed && !focalIsCalendarPlaceholder(it) }
                 .sortedByDescending { it.endedAt }
                 .take(5)
             if (recent.isNotEmpty()) {
