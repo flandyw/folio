@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -412,7 +414,7 @@ import java.io.File
             }
         }
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
-            PdfImportDialog(state, model::cancelPdfImport, model::importPdfs)
+            PdfImportDialog(state, model::cancelPdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
@@ -643,20 +645,78 @@ import java.io.File
 }
 
 @Composable
-private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: (String?) -> Unit) {
+private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: (String?, List<PendingPdfImport>) -> Unit) {
     var destination by rememberSaveable { mutableStateOf(state.folderId) }
+    var reviewed by remember(state.pendingPdfImports) { mutableStateOf(state.pendingPdfImports) }
     val validDestination = destination?.takeIf { id -> state.folders.any { it.id == id } }
+    fun updateExam(uri: Uri, transform: (ExamTags) -> ExamTags) {
+        reviewed = reviewed.map { if (it.uri == uri) it.copy(exam = transform(it.exam)) else it }
+    }
     AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
         onDismissRequest = onDismiss,
         title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
         text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-                Text("Each PDF becomes a separate notebook. Choose where to put them.")
-                Spacer(Modifier.height(8.dp))
-                Text("Exam details are detected automatically where possible. Review and edit them in Exam details after import; uncertain fields stay blank.")
-                Spacer(Modifier.height(16.dp))
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Review the detected exam details. You can change anything before importing.")
+                reviewed.forEachIndexed { index, item ->
+                    val tags = item.exam
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("PDF ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                Text(if (item.detected) "Exam details detected" else "Reading PDF…",
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                            OutlinedTextField(
+                                value = item.title, onValueChange = { value -> reviewed = reviewed.map {
+                                    if (it.uri == item.uri) it.copy(title = value.take(120)) else it
+                                } }, modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Notebook name") }, singleLine = true,
+                                trailingIcon = { TextButton({ reviewed = reviewed.map {
+                                    if (it.uri == item.uri) it.copy(title = smartImportedNotebookName(tags, item.title)) else it
+                                } }) { Text("Auto") } }
+                            )
+                            OutlinedTextField(
+                                value = tags.subjectLabel,
+                                onValueChange = { value -> updateExam(item.uri) { old ->
+                                    old.copy(subject = VceSubject.match(value), subjectText = if (VceSubject.match(value) == null) value.take(60) else "")
+                                } },
+                                modifier = Modifier.fillMaxWidth(), label = { Text("Subject") },
+                                placeholder = { Text("Not an exam, or unknown") }, singleLine = true
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    tags.year?.toString().orEmpty(),
+                                    { value -> updateExam(item.uri) { it.copy(year = value.filter(Char::isDigit).take(4).toIntOrNull()) } },
+                                    Modifier.weight(1f), label = { Text("Year") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                                OutlinedTextField(
+                                    tags.company, { value -> updateExam(item.uri) { it.copy(company = value.take(40)) } },
+                                    Modifier.weight(1.4f), label = { Text("Company / source") },
+                                    placeholder = { Text("e.g. VCAA") }, singleLine = true
+                                )
+                                OutlinedTextField(
+                                    tags.marksTotal?.toString().orEmpty(),
+                                    { value -> updateExam(item.uri) { it.copy(marksTotal = value.filter(Char::isDigit).take(3).toIntOrNull()) } },
+                                    Modifier.weight(0.8f), label = { Text("Marks") }, singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                            }
+                            Text("Type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ExamType.entries.forEach { type ->
+                                    FilterChip(tags.type == type, { updateExam(item.uri) {
+                                        it.copy(type = if (it.type == type) null else type)
+                                    } }, { Text(type.label) })
+                                }
+                            }
+                        }
+                    }
+                }
+                Text("Destination", style = MaterialTheme.typography.titleSmall)
                 (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
                     Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -666,7 +726,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                 }
             }
         },
-        confirmButton = { Button(onClick = { onImport(validDestination) }, shapes = ButtonDefaults.shapes()) { Text("Import") } },
+        confirmButton = { Button(onClick = { onImport(validDestination, reviewed) }, shapes = ButtonDefaults.shapes(), enabled = reviewed.all { it.detected && it.title.isNotBlank() }) { Text("Import") } },
         dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
 }

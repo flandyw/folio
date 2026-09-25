@@ -112,6 +112,9 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+    /** Hides a transient sync/status banner; the next sync or session event can show it again. */
+    fun dismissStatus() { _state.update { it.copy(status = "") } }
+
     fun requestSync(force: Boolean = false) {
         val user = _state.value.userId ?: return
         if (syncJob?.isActive == true) return

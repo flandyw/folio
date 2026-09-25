@@ -519,10 +519,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         } else {
                             if (state.status.startsWith("Offline") || state.status.startsWith("ExamTrack") || state.cache.pending.isNotEmpty()) fullWidthItem {
                                 Surface(onClick = { showAccount = true }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp))
-                                        Text(if (state.status.startsWith("ExamTrack") || state.status.startsWith("Offline")) state.status
-                                            else "${state.cache.pending.size} reviews saved locally · view sync", style = MaterialTheme.typography.bodySmall)
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            if (state.status.startsWith("ExamTrack") || state.status.startsWith("Offline")) state.status
+                                            else "${state.cache.pending.size} reviews saved locally · view sync",
+                                            Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        TextButton(onClick = model::dismissStatus, shapes = ButtonDefaults.shapes()) {
+                                            Text("Dismiss")
+                                        }
                                     }
                                 }
                             }

@@ -6,6 +6,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExamDetectionTests {
+    @Test fun smartImportNameUsesYearCompanySubject() {
+        assertEquals("2024 VCAA Maths Methods", smartImportedNotebookName(
+            ExamTags(year = 2024, company = "VCAA", subject = VceSubject.MATHS_METHODS), "scan"))
+        assertEquals("scan", smartImportedNotebookName(ExamTags(), "scan"))
+    }
+
     private fun detect(name: String, vararg pages: String) = detectImportedExam(name) {
         ExamDocumentEvidence(pages.mapIndexed { index, text -> PdfPageText(index, text) })
     }

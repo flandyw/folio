@@ -531,7 +531,9 @@ class FocalStudyManager(context: Context) {
     private suspend fun sync() = gate.withLock {
         val user = _state.value.userId ?: return@withLock
         if (!_state.value.configured || client.auth.currentUserOrNull()?.id != user) return@withLock
-        _state.update { it.copy(syncing = true, error = null) }
+        // Keep the last error visible while retrying. Clearing it at the start makes the chip
+        // flash "synced" between every failed attempt, which is misleading and distracting.
+        _state.update { it.copy(syncing = true) }
         try {
             // Focal v2 stores immutable changes. A fixed change ID makes retries idempotent.
             loadRemoteSessions(user)
@@ -556,6 +558,7 @@ class FocalStudyManager(context: Context) {
             }
             loadRemoteSessions(user)
             loadCustomSubjects(user)
+            _state.update { it.copy(error = null) }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { _state.update { it.copy(error = "Sessions are saved here. Focal sync will retry when connected.") } }
         finally { _state.update { it.copy(syncing = false) } }

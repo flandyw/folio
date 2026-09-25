@@ -209,6 +209,13 @@ object ExamClassifier {
     }
 }
 
+/** The import naming convention: year, source/company, then subject, omitting unknown fields. */
+fun smartImportedNotebookName(exam: ExamTags, fallback: String): String {
+    val name = listOfNotNull(exam.year?.toString(), exam.company.trim().takeIf(String::isNotEmpty), exam.subjectLabel.trim().takeIf(String::isNotEmpty))
+        .joinToString(" ")
+    return name.ifBlank { fallback }
+}
+
 /** Import's failure boundary: unsupported text extraction must not reject a valid PDF. */
 internal fun detectImportedExam(filename: String, readDocument: () -> ExamDocumentEvidence): ExamDetectionResult {
     return try {

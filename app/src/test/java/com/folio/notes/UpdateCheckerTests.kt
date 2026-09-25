@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UpdateCheckerTests {
+    @Test fun releaseTagsMapToVersionCodeAndKeepLegacySupport() {
+        assertEquals(106L, releaseVersionCode("v1.0.6"))
+        assertEquals(102L, releaseVersionCode("v0.2.102"))
+        assertNull(releaseVersionCode("v1.invalid.6"))
+    }
+
     @Test fun rateLimited403ReportsRetryDelayWithoutLeakingBody() {
         val now = 1_700_000_000L
         val message = githubUpdateErrorMessage(

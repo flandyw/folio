@@ -38,6 +38,14 @@ data class PdfSearchState(
     val results: List<PdfSearchHit> = emptyList()
 )
 
+/** A PDF being reviewed before import; the fields are editable and become the notebook metadata. */
+data class PendingPdfImport(
+    val uri: Uri,
+    val title: String,
+    val exam: ExamTags = ExamTags(),
+    val detected: Boolean = false
+)
+
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
     val examFilter: ExamFilter = ExamFilter(),
@@ -53,7 +61,7 @@ data class FolioState(
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
     val saveFailed: Boolean = false, val loadFailed: Boolean = false, val error: String? = null,
-    val pendingPdfImports: List<Uri> = emptyList(),
+    val pendingPdfImports: List<PendingPdfImport> = emptyList(),
     val importProgress: String? = null,
     val canUndo: Boolean = false, val canRedo: Boolean = false,
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
@@ -1587,24 +1595,36 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun clearPdfSearch() { _state.update { it.copy(pdfSearch = PdfSearchState()) }; captureTab() }
     fun preparePdfImport(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        _state.update { it.copy(pendingPdfImports = (it.pendingPdfImports + uris).distinct()) }
+        val existing = _state.value.pendingPdfImports
+        val additions = uris.distinct().filter { uri -> existing.none { it.uri == uri } }
+        if (additions.isEmpty()) return
+        _state.update { it.copy(pendingPdfImports = it.pendingPdfImports + additions.map { PendingPdfImport(it, "Reading PDF…") }) }
+        viewModelScope.launch(Dispatchers.IO) {
+            additions.forEach { uri ->
+                val inspected = runCatching { repository.inspectPdf(uri) }.getOrElse { PendingPdfImport(uri, "Imported document") }
+                _state.update { state -> state.copy(pendingPdfImports = state.pendingPdfImports.map {
+                    if (it.uri == uri) inspected.copy(detected = true) else it
+                }) }
+            }
+        }
     }
     fun cancelPdfImport() { _state.update { it.copy(pendingPdfImports = emptyList()) } }
 
-    fun importPdfs(folderId: String?) {
+    fun importPdfs(folderId: String?, reviewed: List<PendingPdfImport> = _state.value.pendingPdfImports) {
         val request = _state.value
         if (request.busy || request.loading || request.loadFailed || request.pendingPdfImports.isEmpty()) return
         if (folderId != null && request.folders.none { it.id == folderId }) return
-        val uris = request.pendingPdfImports
+        val items = request.pendingPdfImports
+        val options = reviewed.associateBy { it.uri }
         _state.update { it.copy(busy = true, pendingPdfImports = emptyList()) }
         viewModelScope.launch {
             val imported = mutableListOf<Notebook>()
             val failures = mutableListOf<String>()
             try {
                 ready.await()
-                importBatch(uris,
-                    importItem = { uri ->
-                        getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(uri, folderId) }
+                importBatch(items,
+                    importItem = { item ->
+                        getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(item.uri, folderId, options[item.uri] ?: item) }
                     },
                     onSuccess = { note ->
                         imported += note
@@ -1619,16 +1639,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 if (imported.isNotEmpty()) {
                     LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                     captureTab()
-                    selectNotebookTimer(if (uris.size == 1) imported.single().id else null)
-                    _state.update { it.copy(activeId = if (uris.size == 1) imported.single().id else null,
+                    selectNotebookTimer(if (items.size == 1) imported.single().id else null)
+                    _state.update { it.copy(activeId = if (items.size == 1) imported.single().id else null,
                         folderId = folderId, pageIndex = 0, canUndo = false, canRedo = false,
                         examFilter = ExamFilter(), pdfSearch = PdfSearchState()) }
                 }
                 captureTab()
                 reportError(buildString {
-                    append("Imported ${imported.size} of ${uris.size} PDFs.")
+                    append("Imported ${imported.size} of ${items.size} PDFs.")
                     if (imported.any { it.exam.isTagged })
-                        append("\nDetected exam metadata has been filled in. Review it in Exam details.")
+                        append("\nExam details and smart notebook names were applied.")
                     if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
                 })
             } finally { _state.update { it.copy(busy = false, importProgress = null) } }

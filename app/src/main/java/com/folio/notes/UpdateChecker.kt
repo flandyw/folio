@@ -65,6 +65,15 @@ internal fun shouldAutoUpdateCheck(nowMillis: Long, lastCheckMillis: Long): Bool
 
 internal const val AUTO_UPDATE_CHECK_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
 
+internal fun releaseVersionCode(tag: String): Long? {
+    val parts = tag.removePrefix("v").split('.')
+    val legacyTag = parts.size == 3 && parts[0] == "0" && parts[1] == "2"
+    if (!legacyTag && parts.size == 3 && parts.all { it.toLongOrNull() != null }) {
+        return parts[0].toLong() * 100 + parts[1].toLong() * 10 + parts[2].toLong()
+    }
+    return if (legacyTag) parts.lastOrNull()?.toLongOrNull() else null
+}
+
 /** Hosts GitHub uses for the releases API, release pages and redirected asset bytes. */
 internal val TRUSTED_UPDATE_HOSTS = setOf(
     "api.github.com",
@@ -95,11 +104,10 @@ class FolioUpdateChecker(private val context: Context) {
         if (release.optBoolean("draft") || release.optBoolean("prerelease")) return null
 
         val releaseTag = release.optString("tag_name").removePrefix("v")
-        val versionCode = releaseTag.substringAfterLast('.', "").toLongOrNull()
+        // Current tags encode versionCode in their display version; releaseVersionCode
+        // also preserves the historical v0.2.N mapping for already-installed clients.
+        val versionCode = releaseVersionCode(releaseTag)
             ?: throw IOException("The latest release has an invalid version")
-        // Release tags retain the old v0.2.N shape for installed clients that
-        // use its final component as versionCode. New release titles show the
-        // digit-packed app version instead.
         val versionName = release.optString("name")
             .removePrefix("Folio ")
             .takeIf { it.matches(Regex("\\d+\\.\\d+\\.\\d+")) }

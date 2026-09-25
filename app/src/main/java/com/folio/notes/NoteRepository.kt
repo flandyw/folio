@@ -346,10 +346,35 @@ class NoteRepository(private val context: Context) {
         true
     }
 
-    suspend fun importPdf(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {
-        val title = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+    /** Reads only enough of a PDF to prefill the import review. The original URI is never modified. */
+    suspend fun inspectPdf(uri: Uri): PendingPdfImport = withContext(Dispatchers.IO) {
+        val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        } ?: "Imported document.pdf"
+        val title = filename.substringBeforeLast('.', filename)
+        val detection = detectImportedExam(title) {
+            ensurePdfBox()
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                PDDocument.load(input, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                    .setTempDir(context.cacheDir)).use { doc ->
+                    ExamDocumentEvidence(
+                        pages = extractPdfPageTexts(doc, ExamEvidenceCollector.MAX_PAGES,
+                            ExamEvidenceCollector.MAX_PAGE_CHARACTERS),
+                        metadata = listOfNotNull(doc.documentInformation.title,
+                            doc.documentInformation.subject, doc.documentInformation.author)
+                    )
+                }
+            } ?: error("This PDF could not be opened")
+        }
+        val exam = detection.toExamTags()
+        PendingPdfImport(uri, smartImportedNotebookName(exam, title), exam, detected = true)
+    }
+
+    suspend fun importPdf(uri: Uri, folder: String?, options: PendingPdfImport? = null): Notebook = withContext(Dispatchers.IO) {
+        val title = options?.title ?: context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0).substringBeforeLast('.', it.getString(0)) else null
         } ?: "Imported document"
+        val requestedExam = options?.exam
         val note = Notebook(title = title, folderId = folder, cover = 3)
         val dir = directory(note.id)
         try {
@@ -362,7 +387,7 @@ class NoteRepository(private val context: Context) {
                     NotePage(width = 840f, height = 840f * it.height / it.width, paper = Paper.PLAIN, pdfIndex = index)
                 } }
             }
-            val detection = pdfLock.withLock {
+            val exam = requestedExam ?: pdfLock.withLock {
                 detectImportedExam(title) {
                     ensurePdfBox()
                     PDDocument.load(pdf, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
@@ -374,9 +399,9 @@ class NoteRepository(private val context: Context) {
                                 doc.documentInformation.subject, doc.documentInformation.author)
                         )
                     }
-                }
+                }.toExamTags()
             }
-            note.copy(pages = pages, exam = detection.toExamTags()).also { saveAll(it) }
+            note.copy(pages = pages, exam = exam).also { saveAll(it) }
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
     }
 

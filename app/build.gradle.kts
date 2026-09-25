@@ -35,9 +35,8 @@ val automaticVersionCode = providers.exec {
 }.standardOutput.asText.map { it.trim().toIntOrNull() ?: 1 }.get()
 require(automaticVersionCode in 1..2_100_000_000) { "Generated Android versionCode is out of range" }
 val automaticVersionName = "${automaticVersionCode / 100}.${(automaticVersionCode / 10) % 10}.${automaticVersionCode % 10}"
-// The updater in already-installed builds reads the final number in a v0.2.N
-// tag as versionCode, so keep that tag shape while presenting x.y.z elsewhere.
-val automaticReleaseTag = "v0.2.$automaticVersionCode"
+// Keep release tags aligned with the version shown in the app and release assets.
+val automaticReleaseTag = "v$automaticVersionName"
 
 android {
     namespace = "com.folio.notes"

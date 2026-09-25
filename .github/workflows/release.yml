@@ -53,7 +53,8 @@ jobs:
           COMMIT: ${{ matrix.commit }}
         run: |
           set -euo pipefail
-          tag="v0.2.$(git rev-list --count HEAD)"
+          count=$(git rev-list --count HEAD)
+          tag="v$((count / 100)).$(((count / 10) % 10)).$((count % 10))"
           if git show-ref --verify --quiet "refs/tags/$tag" && gh release view "$tag" >/dev/null 2>&1; then
             test "$(git rev-list -n 1 "$tag")" = "$COMMIT"
             echo "Release $tag already exists"

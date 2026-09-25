@@ -8,8 +8,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.School
@@ -156,33 +158,46 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 }
             }
 
-            Text("Regular study", style = MaterialTheme.typography.titleMedium)
             if (focus == null && note == null) {
                 Text("Open a notebook to start recording study. You can connect Focal and review recent sessions here.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (focus == null && note != null) {
-                Text("Record reading, revision, homework or practice outside exam conditions.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Box {
-                    OutlinedButton({ subjectMenu = true }, shapes = ButtonDefaults.shapes()) {
-                        Text(state.subjects.firstOrNull { it.id == subjectId }?.name ?: "Choose a subject")
-                    }
-                    DropdownMenu(subjectMenu, onDismissRequest = { subjectMenu = false }) {
-                        DropdownMenuItem(text = { Text("No subject") }, onClick = { subjectId = null; subjectMenu = false })
-                        state.subjects.forEach { subject ->
-                            DropdownMenuItem(text = { Text(subject.name) }, onClick = { subjectId = subject.id; subjectMenu = false })
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box {
+                        OutlinedButton(
+                            onClick = { subjectMenu = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.School, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    state.subjects.firstOrNull { it.id == subjectId }?.name ?: "No subject",
+                                    Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp))
+                            }
+                        }
+                        DropdownMenu(subjectMenu, onDismissRequest = { subjectMenu = false }) {
+                            DropdownMenuItem(text = { Text("No subject") }, onClick = { subjectId = null; subjectMenu = false })
+                            state.subjects.forEach { subject ->
+                                DropdownMenuItem(text = { Text(subject.name) }, onClick = { subjectId = subject.id; subjectMenu = false })
+                            }
                         }
                     }
                 }
-                val suggested = FocalSubjects.suggest(note, state.subjects)
-                if (suggested != null && suggested == subjectId) {
-                    Text("Suggested from this notebook", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && !activeElsewhere,
+                        shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start study")
+                    }
+                    TextButton({ manualLog = !manualLog }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
+                        Text(if (manualLog) "Cancel manual entry" else "Log without timer", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
-                Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && !activeElsewhere,
-                    shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start study")
-                }
-                TextButton({ manualLog = !manualLog }) { Text(if (manualLog) "Cancel manual entry" else "Log study without a timer") }
                 if (manualLog) {
                     OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
                         Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
@@ -210,13 +225,33 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({ manager.toggleFocus() }, enabled = examRecording == null || focus.resumedAt != null,
-                        shapes = ButtonDefaults.shapes()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        { manager.toggleFocus() },
+                        enabled = examRecording == null || focus.resumedAt != null,
+                        shapes = ButtonDefaults.shapes(),
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(if (focus.resumedAt == null) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                        Spacer(Modifier.width(6.dp)); Text(if (focus.resumedAt == null) "Resume" else "Pause")
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (focus.resumedAt == null) "Resume study" else "Pause study")
                     }
-                    TextButton({ manager.discardFocus() }, shapes = ButtonDefaults.shapes()) { Text("Discard") }
+                    OutlinedButton(
+                        { manager.discardFocus() },
+                        shapes = ButtonDefaults.shapes(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Discard")
+                    }
                 }
                 OutlinedTextField(notes, { notes = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("What did you work on? (optional)") }, minLines = 2)
                 Text("How confident do you feel? (optional)", style = MaterialTheme.typography.labelMedium)
