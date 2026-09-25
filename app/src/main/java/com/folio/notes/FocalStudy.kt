@@ -100,6 +100,12 @@ data class FocalStudyEntry(
 
 data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
 
+/**
+ * A newly-created active row is uploaded once so other Focal clients can show it immediately.
+ * Once that row exists, timer checkpoints stay local and only the terminal row is uploaded.
+ */
+internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
+
 /** A stable, readable title for a regular study session. */
 internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>): String =
     (subjects.firstOrNull { it.id == subjectId }?.name ?: "Study") + " Focus"
@@ -157,6 +163,7 @@ internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until:
 /** Preserve one Focal row through reading, writing, pauses and completion. */
 internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                             existing: FocalStudyEntry?, completed: Boolean = false,
+                            forceUpload: Boolean = false,
                             subjects: List<FocalSubject> = FocalSubjects.builtIn): FocalStudyEntry {
     val started = requireNotNull(timer.startedAt)
     val subject = existing?.subjectId ?: FocalSubjects.suggest(note, subjects)
@@ -181,7 +188,10 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
         endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing, notebookTitle = note.title,
         completed = completed, deleted = completed && writing == 0L,
         paused = timer.paused, examPhase = timer.phase.name.lowercase(), intervals = intervals,
-        synced = false
+        // Publish the first checkpoint so another Focal client can see the active sitting, but
+        // keep later timer checkpoints local. The stable row_id lets the terminal update replace
+        // that in-progress record in clients that understand the change log.
+        synced = if (!completed && !forceUpload) existing?.synced ?: false else false
     )
 }
 
@@ -221,7 +231,8 @@ data class FocalStudyState(
         !BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
 ) {
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
-    val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) }
+    val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) && focalShouldUpload(it) }
+    val hasActiveSession get() = focus != null || visibleEntries.any { !it.completed && !it.deleted }
 }
 
 /** Durable local sessions and an idempotent Focal sync_changes outbox. */
@@ -264,7 +275,11 @@ class FocalStudyManager(context: Context) {
         }
         scope.launch {
             while (true) {
-                delay(5_000)
+                // The first active checkpoint is published so another Focal client can show the
+                // sitting immediately. Later checkpoints stay local; this avoids turning a long
+                // exam into dozens of immutable changes. The terminal update keeps the same
+                // row_id and replaces the in-progress record in a correct Focal consumer.
+                delay(30_000)
                 if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = System.currentTimeMillis())
                 if (_state.value.userId != null) sync()
             }
@@ -368,7 +383,9 @@ class FocalStudyManager(context: Context) {
         val focus = _state.value.focus ?: return
         val next = if (focus.resumedAt == null) focus.resume(now) else focus.pause(now)
         _state.update { it.copy(focus = next, error = null) }
-        saveFocusEntry(next, now)
+        // Publish pause/resume boundaries. While running, the macOS client can derive elapsed
+        // time from the open interval's start and does not need a checkpoint every few seconds.
+        saveFocusEntry(next, now, forceUpload = true)
     }
     fun discardFocus(now: Long = System.currentTimeMillis()) {
         val focus = _state.value.focus ?: return
@@ -384,13 +401,14 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun saveFocusEntry(focus: FocalFocus, now: Long, completed: Boolean = false, deleted: Boolean = false,
-                               notes: String = "", confidence: Int? = null) {
+                               notes: String = "", confidence: Int? = null, forceUpload: Boolean = false) {
         val entry = FocalStudyEntry(id = focus.sessionId, notebookId = focus.notebookId, title = focus.title,
             subjectId = focus.subjectId, kind = "study", startedAt = focus.startedAt,
             endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
             notes = notes, confidence = confidence, userId = _state.value.userId,
             completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
-            intervals = focus.intervals, changeId = UUID.randomUUID().toString(), notebookTitle = focus.notebookTitle)
+            intervals = focus.intervals, changeId = UUID.randomUUID().toString(), notebookTitle = focus.notebookTitle,
+            synced = if (!completed && !deleted && !forceUpload) _state.value.entries.firstOrNull { it.id == focus.sessionId }?.synced ?: false else false)
         saveEntry(entry)
     }
 
@@ -463,7 +481,8 @@ class FocalStudyManager(context: Context) {
         if (existing?.completed == true) return
         if (!force && existing != null && existing.examPhase == timer.phase.name.lowercase() && existing.paused == timer.paused &&
             now - existing.endedAt < EXAM_SYNC_INTERVAL_MS) return
-        updateExam(examStudyEntry(note, timer, now, existing, subjects = _state.value.subjects))
+        val phaseChanged = existing != null && (existing.examPhase != timer.phase.name.lowercase() || existing.paused != timer.paused)
+        updateExam(examStudyEntry(note, timer, now, existing, forceUpload = phaseChanged, subjects = _state.value.subjects))
     }
 
     fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis()) {
@@ -552,9 +571,13 @@ class FocalStudyManager(context: Context) {
         // flash "synced" between every failed attempt, which is misleading and distracting.
         _state.update { it.copy(syncing = true) }
         try {
-            // Focal v2 stores immutable changes. A fixed change ID makes retries idempotent.
+            // Focal v2 stores immutable changes. An active row is published once, then its
+            // timer checkpoints are deliberately coalesced locally. A terminal entry gets one
+            // final change with the same row_id; the stable change ID makes retries idempotent.
             loadRemoteSessions(user)
-            val pending = _state.value.entries.filter { !it.synced && (it.userId == null || it.userId == user) }.asReversed()
+            val pending = _state.value.entries.filter {
+                !it.synced && (it.userId == null || it.userId == user) && focalShouldUpload(it)
+            }.asReversed()
             for (entry in pending) {
                 if (client.auth.currentUserOrNull()?.id != user) break
                 if (_state.value.entries.none { it.id == entry.id && it.changeId == entry.changeId }) continue

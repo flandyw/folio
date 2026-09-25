@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FocalStudyTests {
+    @Test fun activeTimerCheckpointsAreNotUploadedAsSeparateSessions() {
+        val active = FocalStudyEntry(notebookId = "n", title = "Study", subjectId = "pe", kind = "study",
+            startedAt = 0, endedAt = 10_000, activeMillis = 10_000, completed = false)
+        val published = active.copy(synced = true)
+        val completed = published.copy(synced = false, completed = true, endedAt = 20_000, activeMillis = 20_000)
+        val discarded = published.copy(synced = false, deleted = true)
+
+        assertTrue(focalShouldUpload(active))
+        assertFalse(focalShouldUpload(published))
+        assertTrue(focalShouldUpload(completed))
+        assertTrue(focalShouldUpload(discarded))
+    }
+
     @Test fun importedAllDayCalendarIntervalDoesNotCountAsStudy() {
         val day = 24L * 60 * 60 * 1_000
         val allDay = FocalStudyEntry(notebookId = null, title = "All-day event", subjectId = null,
