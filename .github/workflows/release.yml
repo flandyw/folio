@@ -98,7 +98,7 @@ jobs:
           EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
           FOCAL_SUPABASE_URL: ${{ secrets.FOCAL_SUPABASE_URL }}
           FOCAL_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.FOCAL_SUPABASE_PUBLISHABLE_KEY }}
-        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+        run: bash ./gradlew :app:testDebugUnitTest :app:lintDebug
       - name: Build signed release
         if: steps.existing.outputs.skip != 'true'
         env:

@@ -112,7 +112,7 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
     if (intervals.isEmpty() && writing > 0L) {
         val writingStart = (writingEnd - writing).coerceAtLeast(started)
         intervals.add(FocalStudyInterval(writingStart, if (timer.paused || completed) writingEnd else null))
-    } else if ((timer.paused || completed) && intervals.lastOrNull()?.endAt == null) {
+    } else if (intervals.isNotEmpty() && (timer.paused || completed) && intervals.last().endAt == null) {
         intervals[intervals.lastIndex] = intervals.last().copy(endAt = writingEnd)
     } else if (!timer.paused && timer.phase == ExamTimerPhase.WRITING && newWriting > 0L && intervals.lastOrNull()?.endAt != null) {
         intervals.add(FocalStudyInterval((writingEnd - newWriting).coerceAtLeast(started), null))
