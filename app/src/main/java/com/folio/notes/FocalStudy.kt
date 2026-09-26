@@ -14,17 +14,32 @@ import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.json.JSONArray
@@ -329,27 +344,33 @@ class FocalStudyManager(context: Context) {
             enableLifecycleCallbacks = false
         }
         install(Postgrest)
+        install(Realtime)
     }
     private val lifecycle = ExamTrackSessionLifecycle(client, sessions)
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
+    private val foreground = MutableStateFlow(false)
+
+    fun setForeground(value: Boolean) { foreground.value = value }
 
     init {
         scope.launch {
             lifecycle.awaitRestoration()
             lifecycle.restoredUser?.let { user -> _state.update { it.copy(userId = user.id, email = user.email) } }
-            client.auth.sessionStatus.collect { status ->
-                when (status) {
-                    is SessionStatus.Authenticated -> {
-                        status.session.user?.let { user ->
-                            _state.update { it.copy(userId = user.id, email = user.email, error = null) }
-                            sync()
+            combine(client.auth.sessionStatus, foreground) { status, visible -> status to visible }
+                .collectLatest { (status, visible) ->
+                    when (status) {
+                        is SessionStatus.Authenticated -> {
+                            status.session.user?.let { user ->
+                                _state.update { it.copy(userId = user.id, email = user.email, error = null) }
+                                sync()
+                                if (visible) watchRemoteSessions(user.id)
+                            }
                         }
+                        is SessionStatus.NotAuthenticated -> _state.update { it.copy(userId = null, email = null) }
+                        else -> Unit
                     }
-                    is SessionStatus.NotAuthenticated -> _state.update { it.copy(userId = null, email = null) }
-                    else -> Unit
                 }
-            }
         }
         scope.launch {
             while (true) {
@@ -361,6 +382,29 @@ class FocalStudyManager(context: Context) {
                 if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = System.currentTimeMillis())
                 if (_state.value.userId != null) sync()
             }
+        }
+    }
+
+    private suspend fun watchRemoteSessions(user: String) {
+        while (foreground.value && _state.value.userId == user) {
+            val channel = client.realtime.channel("folio-study-$user")
+            try {
+                coroutineScope {
+                    channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                        table = "sync_log"
+                        filter("entity", FilterOperator.EQ, "study_sessions")
+                    }.onEach { sync() }.launchIn(this)
+                    // A reconnect can miss messages while the socket is down. Joining also
+                    // closes the gap between the initial pull and this subscription.
+                    channel.status.onEach { status ->
+                        if (status == RealtimeChannel.Status.SUBSCRIBED) sync()
+                    }.launchIn(this)
+                    channel.subscribe(blockUntilSubscribed = true)
+                    awaitCancellation()
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { delay(7_000) }
+            finally { withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } } }
         }
     }
 

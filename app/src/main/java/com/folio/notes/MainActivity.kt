@@ -46,14 +46,22 @@ class MainActivity : ComponentActivity() {
         observeStylus(event)
         return super.dispatchGenericMotionEvent(event)
     }
+    override fun onStart() {
+        super.onStart()
+        (application as FolioApplication).focalStudy.setForeground(true)
+    }
     override fun onResume() {
         super.onResume()
         // A mode can change while the app is in the background (another app, a power profile), so the
         // request is re-checked on every return rather than assumed to have stuck.
         requestHighRefreshRate()
+        // A session may have been finished in Focal while Android deferred our background poll.
+        // Pull as soon as the user returns so its timer stops on the remote terminal change.
+        (application as FolioApplication).focalStudy.retry()
     }
     override fun onStop() {
         super.onStop()
+        (application as FolioApplication).focalStudy.setForeground(false)
         // The exam clock only runs while the user is looking at the pages: backgrounding the app
         // or turning the screen off parks it, and parked time never counts. Rotation also stops
         // the activity, so it is skipped — the timer keeps running across a rotate.
