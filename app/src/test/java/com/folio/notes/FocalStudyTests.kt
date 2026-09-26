@@ -10,6 +10,21 @@ class FocalStudyTests {
         subjectId = "mm", kind = "study", startedAt = 0, endedAt = 60_000,
         activeMillis = 60_000, completed = false, synced = true, revision = 7)
 
+    @Test fun notionRoundTripCannotTurnLocalExamIntoNewSitting() {
+        val local = active().copy(kind = "exam", notebookId = "notebook", startedAt = 1234)
+        val remote = active().copy(kind = "study", notebookId = null, startedAt = 1000, revision = 8,
+            remotePayload = """{"integrations":{"notion":{"type":"notion","id":"page"}}}""")
+        val merged = focalMergeSession(local, remote)
+        assertEquals("exam", merged.kind)
+        assertEquals(1234L, merged.startedAt)
+        assertEquals("notebook", merged.notebookId)
+        val payload = focalPayload(merged.copy(paused = true))
+        assertEquals("paused", payload.getJSONObject("integrations").getJSONObject("folio").getString("phase"))
+        assertEquals("session", payload.getJSONObject("integrations").getJSONObject("folio").getString("id"))
+        assertEquals("page", payload.getJSONObject("integrations").getJSONObject("notion").getString("id"))
+        assertEquals("study", focalPayload(active()).getJSONObject("integrations").getJSONObject("folio").getString("kind"))
+    }
+
     @Test fun pendingBoundariesSurviveServerEcho() {
         val remote = active().copy(changeId = "old", notebookId = null, revision = 8)
         for (local in listOf(

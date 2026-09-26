@@ -114,7 +114,9 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
     if (remote.revision < local.revision) return local
     if (!local.synced && local.changeId != remote.changeId &&
         !(remote.deleted || (remote.completed && !local.deleted && !local.completed))) return local
-    return remote.copy(notebookId = local.notebookId ?: remote.notebookId,
+    return remote.copy(kind = if (local.notebookId != null) local.kind else remote.kind,
+        startedAt = if (local.notebookId != null) local.startedAt else remote.startedAt,
+        notebookId = local.notebookId ?: remote.notebookId,
         notebookTitle = local.notebookTitle ?: remote.notebookTitle)
 }
 
@@ -203,7 +205,7 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
         subjectId = subject, kind = "exam", startedAt = started,
         endedAt = now, activeMillis = writing, notebookTitle = note.title)).copy(
         changeId = UUID.randomUUID().toString(),
-        title = focalSessionTitle(subject, subjects), subjectId = subject,
+        title = focalSessionTitle(subject, subjects), subjectId = subject, kind = "exam",
         endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing, notebookTitle = note.title,
         completed = completed, deleted = completed && writing == 0L,
         paused = timer.paused, examPhase = timer.phase.name.lowercase(), intervals = intervals,
@@ -515,7 +517,7 @@ class FocalStudyManager(context: Context) {
     fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis(), force: Boolean = false) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
-        val existing = _state.value.entries.firstOrNull { it.kind == "exam" && it.notebookId == note.id && it.startedAt == started }
+        val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
         if (existing?.completed == true || existing?.deleted == true) return
         if (!force && existing != null && existing.examPhase == timer.phase.name.lowercase() && existing.paused == timer.paused &&
             now - existing.endedAt < EXAM_SYNC_INTERVAL_MS) return
@@ -525,7 +527,7 @@ class FocalStudyManager(context: Context) {
 
     fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis()) {
         val started = timer.startedAt ?: return
-        val existing = _state.value.entries.firstOrNull { it.kind == "exam" && it.notebookId == note.id && it.startedAt == started }
+        val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
         if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedWriting(now) <= 0)) return
         updateExam(examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects))
     }
@@ -797,10 +799,15 @@ internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
             if (entry.notes.isNotBlank()) put("notes", entry.notes) else remove("notes")
             if (entry.confidence != null) put("confidence", entry.confidence) else remove("confidence")
         })
-        val integrations = payload.optJSONObject("integrations")
-        val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
+        val integrations = payload.optJSONObject("integrations") ?: JSONObject().also { payload.put("integrations", it) }
+        if (entry.notebookId != null && !integrations.has("examtrack")) {
+            integrations.put("folio", (integrations.optJSONObject("folio") ?: JSONObject())
+                .put("type", "folio").put("id", entry.id).put("kind", entry.kind)
+                .put("subject", entry.subjectId ?: ""))
+        }
+        val integration = integrations.optJSONObject("examtrack") ?: integrations.optJSONObject("folio")
         integration?.let {
-            if (entry.examPhase == "paused") {
+            if (entry.paused || entry.examPhase == "paused") {
                 if (it.optString("phase") != "paused") it.put("phaseBeforePause", entry.examPhaseBeforePause ?: it.optString("phase", "writing"))
                 it.put("phase", "paused")
             } else if (!entry.completed) {
@@ -810,8 +817,8 @@ internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
         return payload
     }
     val integrations = JSONObject()
-    if (entry.kind == "exam") integrations.put("folio", JSONObject().put("type", "folio").put("id", entry.id)
-        .put("kind", "exam").put("subject", entry.subjectId ?: "")
+    integrations.put("folio", JSONObject().put("type", "folio").put("id", entry.id)
+        .put("kind", entry.kind).put("subject", entry.subjectId ?: "")
         .put("phase", if (entry.paused) "paused" else entry.examPhase ?: "writing")
         .put("phaseBeforePause", if (entry.paused) entry.examPhaseBeforePause ?: entry.examPhase ?: "writing" else JSONObject.NULL))
     return JSONObject().put("schemaVersion", 2).put("id", entry.id)
