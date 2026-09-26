@@ -1,6 +1,8 @@
 # ExamTrack mistake review
 
-Folio uses ExamTrack's existing Supabase project. Verified against ExamTrack upstream `289e39ef4d8d002117d7f35424bf035df686edfb` (16 Sep 2026). There are **no SQL changes**, new tables, service-role credentials, or additional cloud databases.
+Folio uses ExamTrack's existing Supabase project. Verified against ExamTrack upstream `289e39ef4d8d002117d7f35424bf035df686edfb` (16 Sep 2026). The mistake sync described below needs no SQL of its own, no service-role credentials, and no additional cloud database.
+
+The project does now carry the shared change log from `supabase/migrations/20260926020000_change_log.sql` in the `examtrack` repository, which adds tables alongside `mistakes` and `attempts` rather than changing them. Nothing on this page depends on it yet: mistake sync still fetches and compare-and-sets as described below. See [`sync.md`](sync.md) for what is in place and what is not.
 
 ## Setup
 

@@ -6,6 +6,67 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FocalStudyTests {
+    private fun active() = FocalStudyEntry(id = "session", notebookId = "notebook", title = "Study",
+        subjectId = "mm", kind = "study", startedAt = 0, endedAt = 60_000,
+        activeMillis = 60_000, completed = false, synced = true, revision = 7)
+
+    @Test fun pendingBoundariesSurviveServerEcho() {
+        val remote = active().copy(changeId = "old", notebookId = null, revision = 8)
+        for (local in listOf(
+            active().copy(changeId = "pause", synced = false, paused = true),
+            active().copy(changeId = "finish", synced = false, completed = true),
+            active().copy(changeId = "discard", synced = false, deleted = true)
+        )) assertEquals(local, focalMergeSession(local, remote))
+    }
+
+    @Test fun remoteTerminationWinsAndRetainsLocalIdentity() {
+        val local = active().copy(synced = false)
+        for (remote in listOf(
+            active().copy(notebookId = null, deleted = true, revision = 8),
+            active().copy(notebookId = null, completed = true, revision = 8)
+        )) {
+            val merged = focalMergeSession(local, remote)
+            assertEquals("notebook", merged.notebookId)
+            assertTrue(merged.deleted || merged.completed)
+            assertTrue(merged.synced)
+        }
+    }
+
+    @Test fun acknowledgementAndStalePullAreSafe() {
+        val local = active().copy(changeId = "pending", synced = false)
+        assertTrue(focalMergeSession(local, local.copy(synced = true, revision = 8)).synced)
+        assertEquals(local, focalMergeSession(local, active().copy(revision = 6, deleted = true)))
+    }
+
+    @Test fun recoveryPublishesPauseInsteadOfResumingFromOldEcho() {
+        val focus = FocalFocus(notebookId = "notebook", title = "Study", subjectId = "mm",
+            startedAt = 0, resumedAt = null, accumulatedMillis = 60_000,
+            intervals = listOf(FocalStudyInterval(0, 60_000)))
+        val remote = active().copy(intervals = listOf(FocalStudyInterval(0, null)))
+        val recovered = focalRecoverFocus(remote, focus)
+        assertTrue(recovered.paused)
+        assertFalse(recovered.synced)
+        assertEquals(60_000L, recovered.intervals.single().endAt)
+        assertEquals(recovered, focalMergeSession(recovered, remote))
+    }
+
+    @Test fun plannedCalendarRowsDoNotBlockFocus() {
+        assertFalse(active().copy(planned = true).active)
+        assertFalse(FocalStudyState(entries = listOf(active().copy(planned = true))).hasActiveSession)
+        assertFalse(active().copy(deleted = true).active)
+        assertFalse(active().copy(completed = true).active)
+    }
+
+    @Test fun activeStatusReflectsActualSyncNotTimerState() {
+        val state = FocalStudyState(entries = listOf(active().copy(userId = "user")),
+            userId = "user", configured = true)
+        assertTrue(state.hasActiveSession)
+        assertEquals("Synced with Focal", state.syncStatus)
+        assertEquals("Syncing with Focal", state.copy(syncing = true).syncStatus)
+        assertEquals("Focal sync needs attention", state.copy(error = "offline").syncStatus)
+        assertEquals("1 waiting to sync", state.copy(entries = listOf(active().copy(synced = false))).syncStatus)
+    }
+
     @Test fun activeTimerCheckpointsAreNotUploadedAsSeparateSessions() {
         val active = FocalStudyEntry(notebookId = "n", title = "Study", subjectId = "pe", kind = "study",
             startedAt = 0, endedAt = 10_000, activeMillis = 10_000, completed = false)

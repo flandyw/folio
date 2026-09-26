@@ -49,7 +49,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     }
     val examActive = timer.active && timer.startedAt != null
     val focus = state.focus
-    val sharedActive = state.visibleEntries.firstOrNull { !it.completed && !it.deleted }
+    val sharedActive = state.visibleEntries.firstOrNull { it.active }
     val activeElapsed = when {
         focus != null -> focus.elapsed(now)
         sharedActive != null -> sharedActive.intervals.sumOf { interval ->
@@ -67,14 +67,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         sharedActive != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
         else -> "Focal"
     }
-    val syncStatus = when {
-        state.error != null -> "Sync needs attention"
-        state.hasActiveSession -> "Active session saved locally"
-        state.userId == null || !state.configured -> "Saved on this device"
-        state.syncing -> "Syncing with Focal"
-        state.pendingCount > 0 -> "Waiting to sync"
-        else -> "Synced with Focal"
-    }
+    val syncStatus = state.syncStatus
     val syncIcon = when {
         state.error != null -> Icons.Rounded.ErrorOutline
         state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
@@ -123,7 +116,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     }
     val focus = state.focus
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
-    val activeElsewhere = state.visibleEntries.any { !it.completed && !it.deleted && it.id != focus?.sessionId &&
+    val activeElsewhere = state.visibleEntries.any { it.active && it.id != focus?.sessionId &&
         !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }
     val today = remember(now / 60_000L, state.visibleEntries) {
         val start = Calendar.getInstance().apply {
@@ -267,7 +260,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             }
 
             val sharedActive = state.visibleEntries.filter { entry ->
-                !entry.completed && !entry.deleted && entry.id != focus?.sessionId &&
+                entry.active && entry.id != focus?.sessionId &&
                     !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
             }
             if (sharedActive.isNotEmpty()) {
@@ -299,8 +292,13 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
 
             HorizontalDivider()
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(if (state.pendingCount == 0 && !state.hasActiveSession) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff, null)
-                Text(if (state.hasActiveSession) "Active session saved locally; it will sync when you finish" else if (state.userId == null) "Saved on this device" else if (state.error != null) "Focal sync needs attention" else if (state.pendingCount == 0) "Synced with Focal" else "${state.pendingCount} waiting to sync",
+                Icon(when {
+                    state.error != null -> Icons.Rounded.ErrorOutline
+                    state.syncing -> Icons.Rounded.Sync
+                    state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
+                    else -> Icons.Rounded.CloudDone
+                }, null)
+                Text(state.syncStatus,
                     modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 if (state.userId != null && (state.pendingCount > 0 || state.error != null)) TextButton({ manager.retry() }) { Text("Retry") }
             }
