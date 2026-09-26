@@ -72,6 +72,31 @@ class FocalStudyTests {
         assertFalse(active().copy(completed = true).active)
     }
 
+    @Test fun staleSharedSessionsDoNotBlockStartingLocalStudy() {
+        val stale = active().copy(paused = true, notebookId = null,
+            intervals = listOf(FocalStudyInterval(0, 60_000)))
+        val state = FocalStudyState(entries = List(8) { stale.copy(id = "stale-$it") })
+        assertTrue(state.hasActiveSession)
+        assertTrue(state.canStartFocus)
+        assertFalse(state.copy(focus = FocalFocus(notebookId = "new", title = "Study",
+            subjectId = "mm", startedAt = 60_000, resumedAt = null)).canStartFocus)
+    }
+
+    @Test fun pausedSharedEntriesCanBeFinishedOrDiscarded() {
+        val paused = active().copy(notebookId = null, paused = true,
+            intervals = listOf(FocalStudyInterval(0, 60_000)))
+        val finished = focalControlledEntry(paused, "finish", 120_000)!!
+        assertTrue(finished.completed)
+        assertFalse(finished.active)
+        assertEquals(60_000L, finished.activeMillis)
+        assertEquals("completed", focalPayload(finished).getJSONObject("execution").getString("state"))
+
+        val discarded = focalControlledEntry(paused, "discard", 120_000)!!
+        assertTrue(discarded.deleted)
+        assertFalse(discarded.active)
+        assertFalse(discarded.synced)
+    }
+
     @Test fun activeStatusReflectsActualSyncNotTimerState() {
         val state = FocalStudyState(entries = listOf(active().copy(userId = "user")),
             userId = "user", configured = true)

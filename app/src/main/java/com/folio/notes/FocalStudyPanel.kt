@@ -108,6 +108,8 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var showPassword by rememberSaveable { mutableStateOf(false) }
+    var showAllShared by rememberSaveable { mutableStateOf(false) }
+    var bulkAction by remember { mutableStateOf<String?>(null) }
     val emailValid = android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -116,8 +118,6 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     }
     val focus = state.focus
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
-    val activeElsewhere = state.visibleEntries.any { it.active && it.id != focus?.sessionId &&
-        !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }
     val today = remember(now / 60_000L, state.visibleEntries) {
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
@@ -184,7 +184,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && !activeElsewhere,
+                    Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && state.canStartFocus,
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start study")
                     }
@@ -266,7 +266,16 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             if (sharedActive.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Active across your apps", style = MaterialTheme.typography.titleMedium)
-                sharedActive.take(6).forEach { entry ->
+                val pausedCount = sharedActive.count { it.paused }
+                if (pausedCount > 1) {
+                    Text("$pausedCount paused sessions can be resolved together.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton({ bulkAction = "finish" }) { Text("Finish paused") }
+                        TextButton({ bulkAction = "discard" }) { Text("Discard paused") }
+                    }
+                }
+                sharedActive.take(if (showAllShared) Int.MAX_VALUE else 6).forEach { entry ->
                     val elapsed = entry.intervals.sumOf { interval ->
                         ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
                     }.coerceAtLeast(entry.activeMillis)
@@ -286,6 +295,11 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                                 TextButton({ manager.controlEntry(entry.id, "discard") }) { Text("Discard") }
                             }
                         }
+                    }
+                }
+                if (sharedActive.size > 6) {
+                    TextButton({ showAllShared = !showAllShared }) {
+                        Text(if (showAllShared) "Show fewer" else "Show all ${sharedActive.size} sessions")
                     }
                 }
             }
@@ -363,6 +377,18 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 }
             }
         }
+    }
+    bulkAction?.let { action ->
+        val ids = state.visibleEntries.filter { it.active && it.paused && it.id != focus?.sessionId &&
+            !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }.map { it.id }
+        AlertDialog(onDismissRequest = { bulkAction = null }, modifier = Modifier.guardUiTouches(),
+            title = { Text(if (action == "discard") "Discard ${ids.size} paused sessions?" else "Finish ${ids.size} paused sessions?") },
+            text = { Text(if (action == "discard") "These sessions will be removed from Folio and Focal."
+                else "These sessions will be saved as completed study sessions.") },
+            confirmButton = { TextButton({ manager.controlPausedEntries(ids, action); bulkAction = null }) {
+                Text(if (action == "discard") "Discard sessions" else "Finish sessions")
+            } },
+            dismissButton = { TextButton({ bulkAction = null }) { Text("Cancel") } })
     }
 }
 

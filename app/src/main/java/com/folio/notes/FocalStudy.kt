@@ -236,6 +236,55 @@ data class FocalFocus(
         intervals = intervals + FocalStudyInterval(now, null))
 }
 
+internal fun focalControlledEntry(current: FocalStudyEntry, action: String, now: Long): FocalStudyEntry? {
+    val intervals = current.intervals.toMutableList()
+    val last = intervals.lastOrNull()
+    when (action) {
+        "pause" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
+        "resume" -> if ((current.kind != "exam" || current.examPhaseBeforePause != "reading") &&
+            (last == null || last.endAt != null)) intervals.add(FocalStudyInterval(now, null))
+        "finish", "discard" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
+        else -> return null
+    }
+    val total = intervals.sumOf { ((it.endAt ?: now) - it.startAt).coerceAtLeast(0L) }
+    val source = current.remotePayload?.let { raw ->
+        runCatching {
+            val integrations = JSONObject(raw).optJSONObject("integrations")
+            integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
+        }.getOrNull()
+    }
+    val oldPhase = source?.optString("phase")?.takeIf { it in setOf("reading", "writing") }
+        ?: source?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
+        ?: current.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
+        ?: current.examPhase?.takeIf { it in setOf("reading", "writing") }
+        ?: "writing"
+    val resumedPhase = source?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
+        ?: current.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") } ?: oldPhase
+    val remotePayload = current.remotePayload?.let { raw -> runCatching {
+        JSONObject(raw).apply {
+            val integrations = optJSONObject("integrations")
+            val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
+            integration?.let {
+                when (action) {
+                    "pause" -> it.put("phaseBeforePause", oldPhase).put("phase", "paused")
+                    "resume" -> it.put("phase", resumedPhase).remove("phaseBeforePause")
+                }
+            }
+        }.toString()
+    }.getOrNull() } ?: current.remotePayload
+    return current.copy(changeId = UUID.randomUUID().toString(), endedAt = now.coerceAtLeast(current.startedAt + 1_000L),
+        activeMillis = total, intervals = intervals, paused = action != "resume", completed = action == "finish",
+        deleted = action == "discard", examPhase = when (action) {
+            "pause" -> "paused"
+            "resume" -> resumedPhase
+            else -> current.examPhase
+        }, examPhaseBeforePause = when (action) {
+            "pause" -> oldPhase
+            "resume" -> null
+            else -> current.examPhaseBeforePause
+        }, remotePayload = remotePayload, synced = false)
+}
+
 data class FocalStudyState(
     val entries: List<FocalStudyEntry> = emptyList(),
     val focus: FocalFocus? = null,
@@ -254,6 +303,7 @@ data class FocalStudyState(
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
     val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) && focalShouldUpload(it) }
     val hasActiveSession get() = focus != null || visibleEntries.any { it.active }
+    val canStartFocus get() = focus == null
     val syncStatus get() = when {
         error != null -> "Focal sync needs attention"
         userId == null || !configured -> "Saved on this device"
@@ -409,7 +459,7 @@ class FocalStudyManager(context: Context) {
     }
 
     fun startFocus(note: Notebook, subjectId: String?, now: Long = System.currentTimeMillis()) {
-        if (_state.value.focus != null || _state.value.visibleEntries.any { it.active }) return
+        if (!_state.value.canStartFocus) return
         val focus = FocalFocus(notebookId = note.id,
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
             startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note.title)
@@ -467,53 +517,21 @@ class FocalStudyManager(context: Context) {
                 "discard" -> { discardFocus(now); return }
             }
         }
-        val intervals = current.intervals.toMutableList()
-        val last = intervals.lastOrNull()
-        when (action) {
-            "pause" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
-            "resume" -> if ((current.kind != "exam" || current.examPhaseBeforePause != "reading") &&
-                (last == null || last.endAt != null)) intervals.add(FocalStudyInterval(now, null))
-            "finish", "discard" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
-            else -> return
-        }
-        val total = intervals.sumOf { ((it.endAt ?: now) - it.startAt).coerceAtLeast(0L) }
-        val source = current.remotePayload?.let { raw ->
-            runCatching {
-                val integrations = JSONObject(raw).optJSONObject("integrations")
-                integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
-            }.getOrNull()
-        }
-        val oldPhase = source?.optString("phase")?.takeIf { it in setOf("reading", "writing") }
-            ?: source?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
-            ?: current.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
-            ?: current.examPhase?.takeIf { it in setOf("reading", "writing") }
-            ?: "writing"
-        val resumedPhase = source?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
-            ?: current.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") } ?: oldPhase
-        val remotePayload = current.remotePayload?.let { raw -> runCatching {
-            JSONObject(raw).apply {
-                val integrations = optJSONObject("integrations")
-                val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
-                integration?.let {
-                    when (action) {
-                        "pause" -> it.put("phaseBeforePause", oldPhase).put("phase", "paused")
-                        "resume" -> it.put("phase", resumedPhase).remove("phaseBeforePause")
-                    }
-                }
-            }.toString()
-        }.getOrNull() } ?: current.remotePayload
-        saveEntry(current.copy(changeId = UUID.randomUUID().toString(), endedAt = now.coerceAtLeast(current.startedAt + 1_000L),
-            activeMillis = total, intervals = intervals, paused = action != "resume", completed = action == "finish",
-            deleted = action == "discard", examPhase = when (action) {
-                "pause" -> "paused"
-                "resume" -> resumedPhase
-                else -> current.examPhase
-            }, examPhaseBeforePause = when (action) {
-                "pause" -> oldPhase
-                "resume" -> null
-                else -> current.examPhaseBeforePause
-            }, remotePayload = remotePayload, synced = false))
+        val updated = focalControlledEntry(current, action, now) ?: return
+        saveEntry(updated)
     }
+
+    /** Resolve multiple old paused rows in one durable write and one sync pass. */
+    fun controlPausedEntries(ids: Collection<String>, action: String, now: Long = System.currentTimeMillis()) {
+        if (action != "finish" && action != "discard") return
+        val focusId = _state.value.focus?.sessionId
+        val targets = _state.value.visibleEntries.filter { it.id in ids && it.active && it.paused && it.id != focusId }
+        if (targets.isEmpty()) return
+        val updated = targets.mapNotNull { focalControlledEntry(it, action, now) }.associateBy { it.id }
+        _state.update { state -> state.copy(entries = state.entries.map { updated[it.id] ?: it }, error = null) }
+        if (persist()) scope.launch { sync() }
+    }
+
     fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis(), force: Boolean = false) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
