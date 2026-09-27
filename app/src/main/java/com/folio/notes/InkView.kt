@@ -63,6 +63,8 @@ class InkView(context: Context) : View(context) {
     var onDocumentPanEnd: (Float) -> Unit = {}
     private val panVelocity = VelocityTracker()
     var onStrokesChanged: (List<Stroke>) -> Unit = {}
+    /** Exact append from a pen gesture; [before] is the page list held at pen-up. */
+    var onStrokeAppended: ((before: List<Stroke>, stroke: Stroke, after: List<Stroke>) -> Unit)? = null
     /**
      * Ink under the pen: true when a fresh stroke begins, false while one grows or the eraser
      * works. Lets the exam timer resume on a pen-down and measure idleness from real writing.
@@ -483,9 +485,10 @@ class InkView(context: Context) : View(context) {
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) { stripInitialized = false; followPaused = false; pendingReturn = null; followLastPoint = null; followBack.clear(); writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
-        else if (page.strokes !== value.strokes) {
-            // Same page, new revision: drop geometry for strokes that are gone so the
-            // caches track the live ink instead of every undone fragment.
+        else if (page.strokes !== value.strokes && value.strokes.size <= page.strokes.size) {
+            // Ordinary pen commits only append. Growing replacements are also safe because
+            // both geometry caches are identity keyed and bounded. Prune on shrink/equal-size
+            // replacements so undo generations do not remain resident.
             val keep = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>())
             keep.addAll(value.strokes); keep.addAll(selection)
             renderCache.retainAll(keep)
@@ -529,6 +532,7 @@ class InkView(context: Context) : View(context) {
     private val zoomRenderState = ZoomRenderState()
     private val navigationBounds = android.graphics.Rect()
     private val requiredInkBounds = android.graphics.Rect()
+    private val stableInkBounds = android.graphics.Rect()
     private val refreshInkDetail = Runnable { invalidate() }
 
     private fun clearInkLayers() {
@@ -591,7 +595,21 @@ class InkView(context: Context) : View(context) {
             boundsOf = ::boundsOf, renderOf = ::renderedOf,
             drawInk = { inkCanvas ->
                 if (preview) drawNavigationInk(inkCanvas, content)
-                else committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf)
+                else {
+                    // Invalidating just the moving tip changes Canvas's damage clip each frame.
+                    // Rasterize the stable visible viewport instead, so committed ink remains a
+                    // single bitmap draw throughout the gesture even on a dense page.
+                    val left = floor(-originX / scale).toInt()
+                    val top = floor(-originY / scale).toInt()
+                    val right = ceil((width - originX) / scale).toInt()
+                    val bottom = ceil((height - originY) / scale).toInt()
+                    if (content.infinite) stableInkBounds.set(left, top, right, bottom)
+                    else stableInkBounds.set(left.coerceAtLeast(0), top.coerceAtLeast(0),
+                        right.coerceAtMost(ceil(content.width).toInt()),
+                        bottom.coerceAtMost(ceil(content.height).toInt()))
+                    committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf,
+                        rasterViewport = stableInkBounds)
+                }
             })
     }
 
@@ -1120,8 +1138,8 @@ class InkView(context: Context) : View(context) {
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
         var scribbleErased: List<Stroke>? = null
         if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
-            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity)
-            if (scrubbed.size != page.strokes.size) scribbleErased = scrubbed
+            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity, ::boundsOf)
+            if (scrubbed !== page.strokes) scribbleErased = scrubbed
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
@@ -1178,21 +1196,28 @@ class InkView(context: Context) : View(context) {
                 scheduleFollow()
             }
         }
-        val changed = strokes != null && strokes != page.strokes
+        val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null }
+        val beforeStrokes = page.strokes
+        val changed = strokes != null && (appendedStroke != null || strokes != beforeStrokes)
         if (changed) {
             if (drawn != null && drawn.tool in FREEHAND_TOOLS && scribbleErased == null && tidied == null) {
                 // Hand the final live geometry to the retained layer; pen-up need not smooth it again.
                 val geometry = draftGeometry(draft!!)
                 renderCache.getOrPut(drawn) {
                     // Detach from the live builder so cached ink does not retain its scratch buffers.
-                    geometry.copy(centre = geometry.centre.toList())
+                    geometry.copy(centre = geometry.centre.toList(),
+                        widths = geometry.widths?.copyOf(geometry.centre.size))
                 }
             }
             page = page.copy(strokes = strokes!!)
         }
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
         cancelGesture()
-        if (changed) onStrokesChanged(page.strokes)
+        if (changed) {
+            if (appendedStroke != null && onStrokeAppended != null)
+                onStrokeAppended!!.invoke(beforeStrokes, appendedStroke, page.strokes)
+            else onStrokesChanged(page.strokes)
+        }
         if (shouldNotifyEraser) onEraserFinished?.invoke()
     }
     /** A tidied single line follows the grid and 15° snapping the user already has switched on. */

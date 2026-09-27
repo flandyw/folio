@@ -28,6 +28,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.debounce
@@ -1603,6 +1604,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
 }
 
+private const val FastScrollChipHoldMs = 900L
+
 private data class FastScrollGeometry(val top: Float, val height: Float)
 
 /** Shared geometry keeps the touch target aligned with the visible thumb. */
@@ -1624,6 +1627,18 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
 /** The page count follows the thumb without making the label a touch target. */
 @Composable private fun FastScrollTrack(pages: LazyListState, pageCount: Int, scrubbing: Boolean, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
+    // The chip is a transient affordance: it fades in for any scroll or thumb drag and
+    // fades out again once the document settles, so it never clutters a still page.
+    var chipActive by remember { mutableStateOf(false) }
+    LaunchedEffect(pages, scrubbing) {
+        snapshotFlow { pages.isScrollInProgress || scrubbing }.collect { active ->
+            if (active) chipActive = true else {
+                delay(FastScrollChipHoldMs)
+                chipActive = false
+            }
+        }
+    }
+    val chipAlpha by animateFloatAsState(if (chipActive) 1f else 0f, label = "fastScrollChipAlpha")
     // The thumb brightens and thickens smoothly when grabbed instead of snapping.
     val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
     val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, label = "fastScrollWidth")
@@ -1634,10 +1649,12 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .22f)))
             Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(thumbWidth).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)))
         }
+        if (chipAlpha < 0.01f) return@BoxWithConstraints
         val labelHeightPx = with(density) { 32.dp.toPx() }
         val labelTop = (geometry.top + geometry.height / 2 - labelHeightPx / 2)
             .coerceIn(0f, (constraints.maxHeight - labelHeightPx).coerceAtLeast(0f))
-        Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp),
+        Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp)
+            .graphicsLayer { alpha = chipAlpha },
             shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
@@ -1759,6 +1776,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 view.shapeRecognition = shapeRecognition
                 view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
                 view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
+                view.onStrokeAppended = { before, stroke, after ->
+                    if (!readOnly) model.appendStroke(page.id, before, stroke, after)
+                }
                 view.onPenInput = { beginsStroke -> if (!readOnly) model.onPenActivity(beginsStroke) }
                 view.onSelectionChanged = onSelection
                 view.onSelectionViewBounds = onSelectionAnchor

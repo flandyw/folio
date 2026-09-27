@@ -98,6 +98,43 @@ class NoteTests {
         assertTrue(InkGeometry.hits(stroke, InkPoint(50f, 3f), 3f))
         assertFalse(InkGeometry.hits(stroke, InkPoint(50f, 15f), 3f))
     }
+    @Test fun scribbleEraseKeepsDistantDenseInkAndCopiesOnlyWhenItHits() {
+        val scrub = Stroke(Tool.PEN, 0, 2f, listOf(
+            InkPoint(0f, 0f), InkPoint(40f, 3f), InkPoint(0f, 6f),
+            InkPoint(40f, 9f), InkPoint(0f, 12f), InkPoint(40f, 15f)))
+        assertTrue(InkGeometry.isScribble(scrub.points))
+        val distant = (0 until 2_000).map { index ->
+            Stroke(Tool.PEN, 0, 2f, listOf(InkPoint(100f + index, 100f)))
+        }
+        val target = Stroke(Tool.LINE, 0, 2f, listOf(InkPoint(20f, 0f), InkPoint(20f, 15f)))
+        val boundsOf: (Stroke) -> FloatArray = { stroke ->
+            val x = stroke.points.first().x
+            if (stroke === target) floatArrayOf(20f, 0f, 20f, 15f)
+            else floatArrayOf(x, 100f, x, 100f)
+        }
+        assertSame(distant, InkGeometry.scribbleErase(distant, scrub, 14f, boundsOf = boundsOf))
+        val withTarget = distant + target
+        val survivors = InkGeometry.scribbleErase(withTarget, scrub, 14f, boundsOf = boundsOf)
+        assertEquals(distant.size, survivors.size)
+        assertTrue(survivors.indices.all { survivors[it] === distant[it] })
+    }
+    @Test fun livePressureWidthsStayCorrectAsSplineSettles() {
+        val builder = InkRenderer.IncrementalPenStroke()
+        val points = ArrayList<InkPoint>()
+        for (index in 0 until 320) {
+            points += InkPoint(index * 1.7f,
+                (index % 17 - 8) * 1.3f + (index / 70) * 12f,
+                0.3f + (index % 11) * 0.12f)
+            val live = builder.update(points)
+            if (live.centre.size < 2) continue
+            val widths = live.widths!!
+            assertTrue(widths.size >= live.centre.size)
+            for (point in live.centre.indices) {
+                assertEquals(InkRenderer.penPressureScale(live.centre[point].pressure),
+                    widths[point], 0.00001f)
+            }
+        }
+    }
     @Test fun eraserUsesRectangleEdgesNotDiagonal() {
         val stroke = Stroke(Tool.RECTANGLE, 0, 2f, listOf(InkPoint(0f, 0f), InkPoint(100f, 100f)))
         assertTrue(InkGeometry.hits(stroke, InkPoint(50f, 0f), 3f))

@@ -947,6 +947,8 @@ object InkGeometry {
         private val tail = ArrayList<InkPoint>()
         private var consumed = 0
         private var settledSegments = 0
+        /** Points in the returned centreline that no later append can change. */
+        val stablePointCount: Int get() = settled.size
         private val result = object : AbstractList<InkPoint>() {
             override val size get() = settled.size + tail.size
             override fun get(index: Int): InkPoint =
@@ -1144,7 +1146,11 @@ object InkGeometry {
     }
 
     /** Require repeated coverage of existing ink; a nearby mark or one crossing is not enough. */
-    fun scribbleErase(strokes: List<Stroke>, scribble: Stroke, radius: Float, sensitivity: Float = ScribbleSensitivity.DEFAULT): List<Stroke> {
+    fun scribbleErase(
+        strokes: List<Stroke>, scribble: Stroke, radius: Float,
+        sensitivity: Float = ScribbleSensitivity.DEFAULT,
+        boundsOf: (Stroke) -> FloatArray = { strokeBoundsOf(it.points) }
+    ): List<Stroke> {
         val ease = ScribbleSensitivity.normalize(sensitivity)
         if (strokes.isEmpty() || !isScribble(scribble.points, ease)) return strokes
         val bounds = strokeBoundsOf(scribble.points)
@@ -1155,15 +1161,20 @@ object InkGeometry {
         // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
         val contactRadius = min(radius.coerceAtLeast(0f), 2f)
         val needed = ScribbleSensitivity.passes(ease)
-        return strokes.filterNot { target ->
-            // Hoisted per target: one path + bounds walk instead of one per leg, and no
-            // scribble.copy per leg per target (tens of thousands of allocs on dense pages).
-            val path = pathPoints(target)
-            if (path.isEmpty()) return@filterNot false
+        var survivors: ArrayList<Stroke>? = null
+        for (index in strokes.indices) {
+            val target = strokes[index]
             val reach = contactRadius + target.width / 2f
-            val box = strokeBoundsOf(path)
+            // Reject distant ink before expanding shapes or walking long freehand paths.
+            // The view supplies its identity-cached bounds, so this stays cheap on dense pages.
+            val box = boundsOf(target)
             if (box[2] < bounds[0] - reach || box[0] > bounds[2] + reach ||
-                box[3] < bounds[1] - reach || box[1] > bounds[3] + reach) return@filterNot false
+                box[3] < bounds[1] - reach || box[1] > bounds[3] + reach) {
+                survivors?.add(target)
+                continue
+            }
+            val path = pathPoints(target)
+            if (path.isEmpty()) { survivors?.add(target); continue }
             var passes = 0
             for ((a, b) in legs) {
                 // Per-leg box reject before the O(path) narrow phase.
@@ -1171,10 +1182,16 @@ object InkGeometry {
                 val lMinY = min(a.y, b.y); val lMaxY = max(a.y, b.y)
                 if (box[2] < lMinX - reach || box[0] > lMaxX + reach ||
                     box[3] < lMinY - reach || box[1] > lMaxY + reach) continue
-                if (legHits(a, b, path, reach) && ++passes >= needed) return@filterNot true
+                if (legHits(a, b, path, reach) && ++passes >= needed) break
             }
-            false
+            if (passes >= needed) {
+                if (survivors == null) {
+                    survivors = ArrayList(strokes.size - 1)
+                    for (prior in 0 until index) survivors.add(strokes[prior])
+                }
+            } else survivors?.add(target)
         }
+        return survivors ?: strokes
     }
 
     /** Variant of [erase] where each centre has its own radius (for pressure-varying eraser). */

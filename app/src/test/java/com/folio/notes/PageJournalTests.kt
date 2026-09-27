@@ -20,6 +20,19 @@ class PageJournalTests {
         assertEquals(content(a, b), applyAll(content(a), edit))
     }
 
+    @Test fun appendedStrokeCanBeUndoneAfterAFullPage() {
+        val before = PageContent(strokes = (0 until 4_000).map { stroke(it.toFloat()) })
+        val newStroke = stroke(4_001f)
+        val forward = PageEdit(StrokesEdit.Add(listOf(newStroke)))
+        val inverse = PageEdit(StrokesEdit.Remove(listOf(before.strokes.size)))
+        val restoredForward = PageJournal.decode(PageJournal.encode(1, forward))!!.edit
+        val restoredInverse = PageJournal.decode(PageJournal.encode(2, inverse))!!.edit
+        val after = PageJournal.apply(before, restoredForward)
+        assertEquals(before.strokes.size + 1, after.strokes.size)
+        assertSame(newStroke, PageJournal.apply(before, forward).strokes.last())
+        assertEquals(before, PageJournal.apply(after, restoredInverse))
+    }
+
     @Test fun erasingStoresThePositionsThatLeft() {
         val edit = PageJournal.diff(content(a, b, c), content(a, c))!!
         assertEquals(StrokesEdit.Remove(listOf(1)), edit.strokes)

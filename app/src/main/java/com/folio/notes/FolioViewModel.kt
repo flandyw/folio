@@ -1055,11 +1055,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * redo flag, a paper choice) only rewrites the small index. [beforeSave] lets the picture path
      * store the new image bytes ahead of the page edit in the same queue slot.
      */
-    private fun commitEdit(note: Notebook, before: NotePage, after: NotePage, beforeSave: suspend () -> Unit = {}) {
+    private fun commitEdit(
+        note: Notebook, before: NotePage, after: NotePage,
+        knownEdits: Pair<PageEdit, PageEdit>? = null, beforeSave: suspend () -> Unit = {}
+    ) {
         touchTimerActivity()
         val beforeContent = before.content()
         val afterContent = after.content()
-        val forward = PageJournal.diff(beforeContent, afterContent)
+        val forward = knownEdits?.first ?: PageJournal.diff(beforeContent, afterContent)
         val revised = after.revised()
         val updated = note.copy(pages = note.pages.map { if (it.id == after.id) revised else it }, updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
@@ -1067,7 +1070,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             enqueue { beforeSave(); repository.saveMeta(updated) }
             return
         }
-        val inverse = PageJournal.diff(afterContent, beforeContent)!!
+        val inverse = knownEdits?.second ?: PageJournal.diff(afterContent, beforeContent)!!
         undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
         redo.remove(after.id)
         historyState()
@@ -1093,6 +1096,20 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         // Reference check first avoids a deep walk over every InkPoint for identical lists.
         if (!page.loaded || page.strokes === strokes || page.strokes == strokes) return
         replacePage(page.copy(strokes = strokes))
+    }
+    /** Pen-up already knows this is one appended stroke, so skip two dense-list diffs. */
+    fun appendStroke(pageId: String, beforeStrokes: List<Stroke>, stroke: Stroke, afterStrokes: List<Stroke>) {
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded) return
+        if (page.strokes !== beforeStrokes || afterStrokes.size != beforeStrokes.size + 1 ||
+            afterStrokes.last() !== stroke) {
+            strokes(pageId, afterStrokes)
+            return
+        }
+        val note = _state.value.notes.find { it.pages.any { page -> page.id == pageId } } ?: return
+        commitEdit(note, page, page.copy(strokes = afterStrokes), knownEdits =
+            PageEdit(StrokesEdit.Add(listOf(stroke))) to
+                PageEdit(StrokesEdit.Remove(listOf(beforeStrokes.size))))
     }
     fun texts(texts: List<TextBox>) {
         val page = _state.value.page ?: return
@@ -1425,6 +1442,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun onPenActivity(beginsStroke: Boolean, now: Long = System.currentTimeMillis()) {
         if (_state.value.active == null) return
         lastTimerActivityAt = now
+        // MOVE samples only refresh idleness. Reading preferences and evaluating resume on
+        // every sample adds work to the input path without changing the timer decision.
+        if (!beginsStroke) return
         when (_state.value.timer.autoActionOnPenDown(
                 prefs.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START), beginsStroke)) {
             TimerAutoAction.NONE -> Unit

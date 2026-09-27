@@ -184,6 +184,9 @@ object InkRenderer {
         private var cleanMinX = Float.MAX_VALUE; private var cleanMinY = Float.MAX_VALUE
         private var cleanMaxX = -Float.MAX_VALUE; private var cleanMaxY = -Float.MAX_VALUE
         private var cached: RenderedStroke? = null
+        private var widthBuffer = FloatArray(16)
+        private var stableWidthCount = 0
+        private var nextStableWidthCount = 0
 
         /**
          * Geometry for the raw [points] so far. Only samples that arrived since the previous call
@@ -215,15 +218,26 @@ object InkRenderer {
             // prefix, so this flips at most once per stroke.
             val micro = hypot(cleanMaxX - cleanMinX, cleanMaxY - cleanMinY) <= MICRO_STROKE_SPAN
             if (micro != microStroke) { microStroke = micro; retakeSplits() }
+            nextStableWidthCount = 0
             val centreline =
                 if (points.size < 3) points
                 else if (clean.size < 3) clean
                 else smoothed()
-            val taper = if (centreline.size >= 2) InkGeometry.taperScalesArray(centreline) else null
-            val widths = widthMultipliers(centreline, taper)
+            // Taper is neutral; reuse the pressure buffer and touch only the changing spline
+            // tail. A settled point's pressure never changes on a later update.
+            if (widthBuffer.size < centreline.size) {
+                var capacity = widthBuffer.size
+                while (capacity < centreline.size) capacity *= 2
+                widthBuffer = widthBuffer.copyOf(capacity)
+            }
+            for (i in stableWidthCount.coerceAtMost(centreline.size) until centreline.size) {
+                widthBuffer[i] = penPressureScale(centreline[i].pressure)
+            }
+            stableWidthCount = nextStableWidthCount
+            val widths = if (centreline.size >= 2) widthBuffer else null
             // Bounds stay on the stored samples, exactly as `rendered` measures them.
-            val rendered = if (points.isEmpty()) RenderedStroke(centreline, taper, 0f, 0f, 0f, 0f, widths)
-            else RenderedStroke(centreline, taper, rawMinX, rawMinY, rawMaxX, rawMaxY, widths)
+            val rendered = if (points.isEmpty()) RenderedStroke(centreline, null, 0f, 0f, 0f, 0f, widths)
+            else RenderedStroke(centreline, null, rawMinX, rawMinY, rawMaxX, rawMaxY, widths)
             cached = rendered
             return rendered
         }
@@ -239,6 +253,9 @@ object InkRenderer {
             // The final section is never committed: its endpoint still moves as the tip does.
             val section = clean.subList(sectionStart, clean.size)
             liveTail = if (section.size <= 2) section else sectionSmoother.update(section)
+            val skip = if (committed.isEmpty()) 0 else 1
+            nextStableWidthCount = committed.size +
+                (sectionSmoother.stablePointCount - skip).coerceAtLeast(0)
             return centre
         }
 
@@ -268,6 +285,7 @@ object InkRenderer {
         private fun retakeSplits() {
             sectionSmoother.reset()
             committed.clear(); liveTail = emptyList(); sectionStart = 0; nextCandidate = 1; cached = null
+            stableWidthCount = 0
         }
 
         private fun restart() {
@@ -418,7 +436,7 @@ object InkRenderer {
         }
         paint.pathEffect = null
         drawTaperedLines(canvas, paint, centre,
-            rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width, rendered.widths)
+            rendered.taper, stroke.width, rendered.widths)
         paint.pathEffect = null
     }
 
@@ -467,18 +485,18 @@ object InkRenderer {
         canvas: Canvas,
         paint: Paint,
         centre: List<InkPoint>,
-        taper: FloatArray,
+        taper: FloatArray?,
         width: Float,
         widths: FloatArray?
     ) {
         if (centre.size < 2) return
-        val mults: FloatArray = if (widths != null && widths.size == centre.size) widths
+        val mults: FloatArray = if (widths != null && widths.size >= centre.size) widths
         else {
             // Fallback for geometry built without multipliers: one sqrt per point (not per
             // segment), then the same bucketed runs below.
-            val t = if (taper.size == centre.size) taper else InkGeometry.taperScalesArray(centre)
+            val t = if (taper != null && taper.size == centre.size) taper else null
             FloatArray(centre.size) { i ->
-                penPressureScale(centre[i].pressure) * t[i].coerceAtLeast(MIN_VISIBLE_TAPER)
+                penPressureScale(centre[i].pressure) * (t?.get(i)?.coerceAtLeast(MIN_VISIBLE_TAPER) ?: 1f)
             }
         }
         var runStart = 0
@@ -544,7 +562,7 @@ object InkRenderer {
         }
         paint.pathEffect = null
         drawTaperedLines(canvas, paint, centre,
-            rendered.taper ?: InkGeometry.taperScalesArray(centre), stroke.width + 14f, rendered.widths)
+            rendered.taper, stroke.width + 14f, rendered.widths)
         paint.pathEffect = null
     }
 
