@@ -69,9 +69,9 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     }
     val syncStatus = state.syncStatus
     val syncIcon = when {
+        state.syncing -> Icons.Rounded.Sync
         state.error != null -> Icons.Rounded.ErrorOutline
         state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
-        state.syncing -> Icons.Rounded.Sync
         else -> Icons.Rounded.CloudDone
     }
     val recording = examActive || focus != null || sharedActive != null
@@ -90,7 +90,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
                 null, Modifier.size(16.dp))
             Text(label, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Icon(syncIcon, null, Modifier.size(15.dp),
-                tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
+                tint = if (state.error != null && !state.syncing) MaterialTheme.colorScheme.error else LocalContentColor.current)
         }
     }
 }
@@ -307,16 +307,21 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             HorizontalDivider()
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(when {
-                    state.error != null -> Icons.Rounded.ErrorOutline
                     state.syncing -> Icons.Rounded.Sync
+                    state.error != null -> Icons.Rounded.ErrorOutline
                     state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
                     else -> Icons.Rounded.CloudDone
                 }, null)
                 Text(state.syncStatus,
                     modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                if (state.userId != null && (state.pendingCount > 0 || state.error != null)) TextButton({ manager.retry() }) { Text("Retry") }
+                if ((state.userId != null && (state.pendingCount > 0 || state.error != null || state.syncing)) ||
+                    state.localSaveFailed) {
+                    TextButton({ manager.retry() }, enabled = !state.syncing) {
+                        Text(if (state.syncing) "Retrying…" else "Retry")
+                    }
+                }
             }
-            if (state.error != null) Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (state.error != null && !state.syncing) Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (state.authMessage != null) Text(state.authMessage!!,
                 color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             if (state.userId == null) {

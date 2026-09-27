@@ -310,6 +310,8 @@ data class FocalStudyState(
     val email: String? = null,
     val busy: Boolean = false,
     val syncing: Boolean = false,
+    val syncDetail: String? = null,
+    val localSaveFailed: Boolean = false,
     val error: String? = null,
     val authMessage: String? = null,
     /** Transient in-app notice for a change received after the first remote load. */
@@ -323,9 +325,9 @@ data class FocalStudyState(
     val hasActiveSession get() = focus != null || visibleEntries.any { it.active }
     val canStartFocus get() = focus == null
     val syncStatus get() = when {
+        syncing -> syncDetail ?: "Connecting to Focal…"
         error != null -> "Focal sync needs attention"
         userId == null || !configured -> "Saved on this device"
-        syncing -> "Syncing with Focal"
         pendingCount > 0 -> "$pendingCount waiting to sync"
         else -> "Synced with Focal"
     }
@@ -502,10 +504,13 @@ class FocalStudyManager(context: Context) {
             val stream = file.startWrite()
             try { stream.write(bytes); file.finishWrite(stream) }
             catch (e: Exception) { file.failWrite(stream); throw e }
+            _state.update { it.copy(localSaveFailed = false,
+                error = if (it.localSaveFailed) null else it.error) }
             true
         }
         catch (_: Exception) {
-            _state.update { it.copy(error = "Could not save study sessions on this device. Free storage and try again.") }
+            _state.update { it.copy(localSaveFailed = true,
+                error = "Could not save study sessions on this device. Check free storage, then retry while Folio is still open.") }
             false
         }
     }
@@ -622,7 +627,21 @@ class FocalStudyManager(context: Context) {
         _state.update { it.copy(entries = listOf(entry) + it.entries, error = null) }
         if (persist()) scope.launch { sync() }
     }
-    fun retry() { scope.launch { sync() } }
+    fun retry() {
+        if (_state.value.syncing) return
+        _state.update { it.copy(syncing = true, syncDetail = if (it.localSaveFailed)
+            "Saving sessions on this device…" else "Waiting to connect to Focal…") }
+        scope.launch {
+            if (_state.value.localSaveFailed) {
+                if (!persist()) {
+                    _state.update { it.copy(syncing = false, syncDetail = null) }
+                    return@launch
+                }
+                _state.update { it.copy(error = null) }
+            }
+            sync()
+        }
+    }
 
     companion object { private const val EXAM_SYNC_INTERVAL_MS = 30_000L }
 
@@ -676,11 +695,23 @@ class FocalStudyManager(context: Context) {
     }
 
     private suspend fun sync() = gate.withLock {
-        val user = _state.value.userId ?: return@withLock
-        if (!_state.value.configured || client.auth.currentUserOrNull()?.id != user) return@withLock
+        val user = _state.value.userId ?: run {
+            _state.update { it.copy(syncing = false, syncDetail = null) }
+            return@withLock
+        }
+        if (!_state.value.configured) {
+            _state.update { it.copy(syncing = false, syncDetail = null,
+                error = "Focal sync is not configured in this build. Sessions remain on this device.") }
+            return@withLock
+        }
+        if (client.auth.currentUserOrNull()?.id != user) {
+            _state.update { it.copy(userId = null, email = null, syncing = false, syncDetail = null,
+                error = "Your Focal session expired. Sign in again to sync your saved sessions.") }
+            return@withLock
+        }
         // Keep the last error visible while retrying. Clearing it at the start makes the chip
         // flash "synced" between every failed attempt, which is misleading and distracting.
-        _state.update { it.copy(syncing = true) }
+        _state.update { it.copy(syncing = true, syncDetail = "Checking Focal for session changes…") }
         try {
             // Focal v2 stores immutable changes. An active row is published once, then its
             // timer checkpoints are deliberately coalesced locally. A terminal entry gets one
@@ -689,7 +720,8 @@ class FocalStudyManager(context: Context) {
             val pending = _state.value.entries.filter {
                 !it.synced && (it.userId == null || it.userId == user) && focalShouldUpload(it)
             }.asReversed()
-            for (entry in pending) {
+            for ((index, entry) in pending.withIndex()) {
+                _state.update { it.copy(syncDetail = "Sending saved session ${index + 1} of ${pending.size} to Focal…") }
                 if (client.auth.currentUserOrNull()?.id != user) break
                 if (_state.value.entries.none { it.id == entry.id && it.changeId == entry.changeId }) continue
                 val owned = entry.copy(userId = user)
@@ -707,12 +739,24 @@ class FocalStudyManager(context: Context) {
                 }) }
                 persist()
             }
+            _state.update { it.copy(syncDetail = "Checking that Focal received the changes…") }
             loadRemoteSessions(user)
+            _state.update { it.copy(syncDetail = "Loading Focal subjects…") }
             loadCustomSubjects(user)
-            _state.update { it.copy(error = null) }
+            _state.update { it.copy(error = if (it.localSaveFailed) it.error else null) }
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { _state.update { it.copy(error = "Sessions are saved here. Focal sync will retry when connected.") } }
-        finally { _state.update { it.copy(syncing = false) } }
+        catch (e: Exception) {
+            val step = _state.value.syncDetail ?: "Syncing with Focal"
+            val causes = generateSequence(e as Throwable?) { it.cause }.toList()
+            val reason = when {
+                causes.any { it is java.net.UnknownHostException } -> "Focal could not be reached. Check your internet connection."
+                causes.any { it is java.net.SocketTimeoutException } -> "Focal did not respond in time. Check your connection and try again."
+                causes.any { it is java.io.IOException } -> "The connection to Focal was interrupted. Check your connection and try again."
+                else -> "Focal could not complete the request. A server or account issue may be involved. Try again, or sign out and reconnect your account."
+            }
+            _state.update { it.copy(error = "${step.removeSuffix("…")} failed. $reason Sessions remain saved on this device.") }
+        }
+        finally { _state.update { it.copy(syncing = false, syncDetail = null) } }
     }
 
     private suspend fun loadRemoteSessions(user: String) {

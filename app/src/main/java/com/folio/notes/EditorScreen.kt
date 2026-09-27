@@ -545,6 +545,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         EditorTopBar(
             title = note.title,
             saveFailed = state.saveFailed,
+            retryingSave = state.retryingSave,
+            saveFailureReason = state.saveFailureReason,
+            lastSaveProgressAt = state.lastSaveProgressAt,
             pendingSaves = state.pendingSaves,
             starred = note.starred,
             onStar = { model.star(note) },

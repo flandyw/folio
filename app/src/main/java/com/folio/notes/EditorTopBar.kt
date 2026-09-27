@@ -11,7 +11,9 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,6 +36,9 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun EditorTopBar(
     title: String,
     saveFailed: Boolean,
+    retryingSave: Boolean,
+    saveFailureReason: String?,
+    lastSaveProgressAt: Long?,
     pendingSaves: Int,
     starred: Boolean,
     onStar: () -> Unit,
@@ -78,19 +83,8 @@ import androidx.compose.ui.unit.dp
                         IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 160.dp).longPressAction(topHold, onRename))
-                        val statusColor = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                        Icon(when {
-                            saveFailed -> Icons.Rounded.ErrorOutline
-                            pendingSaves > 0 -> Icons.Rounded.Sync
-                            else -> Icons.Rounded.Check
-                        }, when {
-                            saveFailed -> "Couldn't save — tap Retry"
-                            pendingSaves > 0 -> "Saving…"
-                            else -> "Saved on device"
-                        }, Modifier.size(13.dp), tint = statusColor)
-                        if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 6.dp), shapes = ButtonDefaults.shapes()) {
-                            Text("Retry", style = MaterialTheme.typography.labelSmall)
-                        }
+                        SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt,
+                            pendingSaves, onRetrySave, onClose, compact = true)
                         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
                             IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(36.dp)) {
                                 Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
@@ -162,6 +156,9 @@ import androidx.compose.ui.unit.dp
                         IdentityContent(
                             title = title,
                             saveFailed = saveFailed,
+                            retryingSave = retryingSave,
+                            saveFailureReason = saveFailureReason,
+                            lastSaveProgressAt = lastSaveProgressAt,
                             pendingSaves = pendingSaves,
                             starred = starred,
                             onStar = onStar,
@@ -199,6 +196,9 @@ import androidx.compose.ui.unit.dp
 @Composable private fun IdentityContent(
     title: String,
     saveFailed: Boolean,
+    retryingSave: Boolean,
+    saveFailureReason: String?,
+    lastSaveProgressAt: Long?,
     pendingSaves: Int,
     starred: Boolean,
     onStar: () -> Unit,
@@ -214,21 +214,8 @@ import androidx.compose.ui.unit.dp
         Column(Modifier.weight(1f).padding(vertical = 1.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.longPressAction(identityHold, onRename))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                val statusColor = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                androidx.compose.animation.Crossfade(targetState = saveFailed to (pendingSaves > 0), label = "saveStatus") { (failed, saving) ->
-                    Icon(when {
-                        failed -> Icons.Rounded.ErrorOutline
-                        saving -> Icons.Rounded.Sync
-                        else -> Icons.Rounded.Check
-                    }, null, Modifier.size(13.dp), tint = statusColor)
-                }
-                Text(when {
-                    saveFailed -> "Couldn't save — tap Retry"
-                    pendingSaves > 0 -> "Saving…"
-                    else -> "Saved on device"
-                }, style = MaterialTheme.typography.labelSmall, color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt,
+                pendingSaves, onRetrySave, onClose)
         }
         var notebookMenu by remember { mutableStateOf(false) }
         Box {
@@ -246,7 +233,6 @@ import androidx.compose.ui.unit.dp
                 }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
             }
         }
-        if (saveFailed) TextButton(onRetrySave, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) { Text("Retry") }
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (starred) "Favourited" else "Add to favourites") } }, state = rememberTooltipState()) {
             IconToggleButton(checked = starred, onCheckedChange = { onStar() }, modifier = Modifier.size(40.dp)) {
                 Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
@@ -256,6 +242,71 @@ import androidx.compose.ui.unit.dp
         }
         timer()
     }
+}
+
+@Composable private fun SaveStatus(
+    saveFailed: Boolean,
+    retryingSave: Boolean,
+    saveFailureReason: String?,
+    lastSaveProgressAt: Long?,
+    pendingSaves: Int,
+    onRetrySave: () -> Unit,
+    onClose: () -> Unit,
+    compact: Boolean = false
+) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(pendingSaves) {
+        while (pendingSaves > 0) {
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+    val slow = pendingSaves > 0 && lastSaveProgressAt != null && now - lastSaveProgressAt >= 5_000L
+    val label = when {
+        retryingSave -> "Retrying local save…"
+        saveFailed -> "Save failed · Details"
+        slow -> "Still saving · $pendingSaves queued"
+        pendingSaves > 0 -> "Saving on device…"
+        else -> "Saved on device"
+    }
+    val statusColor = if (saveFailed && !retryingSave) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    TextButton(onClick = { detailsOpen = true }, contentPadding = PaddingValues(horizontal = if (compact) 2.dp else 0.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = statusColor), shapes = ButtonDefaults.shapes()) {
+        Icon(when {
+            saveFailed && !retryingSave -> Icons.Rounded.ErrorOutline
+            pendingSaves > 0 -> Icons.Rounded.Sync
+            else -> Icons.Rounded.Check
+        }, null, Modifier.size(13.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    if (detailsOpen) AlertDialog(
+        onDismissRequest = { detailsOpen = false }, modifier = Modifier.guardUiTouches(),
+        title = { Text(when {
+            retryingSave -> "Retrying the save"
+            saveFailed -> "Changes could not be saved"
+            slow -> "Saving is taking longer"
+            pendingSaves > 0 -> "Saving on this device"
+            else -> "Changes saved"
+        }) },
+        text = { Text(when {
+            retryingSave -> "Folio is writing the latest notebook and library data to this device. Keep the app open until it says Saved on device."
+            saveFailed -> "${saveFailureReason ?: "The device could not finish the write."} Your latest changes are still open in Folio. Retry the save before closing the app."
+            slow -> "Folio is still writing $pendingSaves queued change${if (pendingSaves == 1) "" else "s"} to this device. Large pages, images, or busy storage can slow writes. Keep the app open until it says Saved on device."
+            pendingSaves > 0 -> "$pendingSaves change${if (pendingSaves == 1) " is" else "s are"} waiting to finish writing to this device."
+            else -> "All queued changes have been written to this device."
+        }) },
+        confirmButton = {
+            if (saveFailed && !retryingSave) TextButton({ detailsOpen = false; onRetrySave() }) { Text("Retry save") }
+            else TextButton({ detailsOpen = false }) { Text("Stay here") }
+        },
+        dismissButton = {
+            if (!saveFailed && pendingSaves > 0) TextButton({ detailsOpen = false; onClose() }) {
+                Text("Library · save continues")
+            } else TextButton({ detailsOpen = false }) { Text("Close") }
+        }
+    )
 }
 
 @Composable private fun AppNavigationRow(

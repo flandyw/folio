@@ -102,8 +102,11 @@ class FocalStudyTests {
             userId = "user", configured = true)
         assertTrue(state.hasActiveSession)
         assertEquals("Synced with Focal", state.syncStatus)
-        assertEquals("Syncing with Focal", state.copy(syncing = true).syncStatus)
+        assertEquals("Connecting to Focal…", state.copy(syncing = true).syncStatus)
         assertEquals("Focal sync needs attention", state.copy(error = "offline").syncStatus)
+        assertEquals("Connecting to Focal…", state.copy(error = "offline", syncing = true).syncStatus)
+        assertEquals("Sending saved session 1 of 2 to Focal…",
+            state.copy(syncing = true, syncDetail = "Sending saved session 1 of 2 to Focal…").syncStatus)
         assertEquals("1 waiting to sync", state.copy(entries = listOf(active().copy(synced = false))).syncStatus)
     }
 

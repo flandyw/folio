@@ -60,7 +60,8 @@ data class FolioState(
     val companionLinked: Boolean = false,
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
-    val saveFailed: Boolean = false, val loadFailed: Boolean = false, val error: String? = null,
+    val saveFailed: Boolean = false, val retryingSave: Boolean = false, val saveFailureReason: String? = null,
+    val lastSaveProgressAt: Long? = null, val loadFailed: Boolean = false, val error: String? = null,
     val pendingPdfImports: List<PendingPdfImport> = emptyList(),
     val importProgress: String? = null,
     val canUndo: Boolean = false, val canRedo: Boolean = false,
@@ -258,14 +259,23 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         (application as FolioApplication).storageScope.launch {
             for (write in writes) {
                 try { (application as FolioApplication).storageGate.withLock { write() } }
-                catch (e: Exception) { _state.update { it.copy(saveFailed = true, error = "Couldn't save changes: ${e.message}. Use Retry save before closing.") } }
+                catch (e: Exception) {
+                    val reason = when (e) {
+                        is java.io.IOException -> "Device storage could not finish the write. Check free space and storage access."
+                        is SecurityException -> "Folio lost access to storage. Check the app's storage access."
+                        else -> "The device could not finish writing these changes. It did not report a specific storage cause."
+                    }
+                    _state.update { it.copy(saveFailed = true, saveFailureReason = reason,
+                        error = "$reason Your latest changes are still open here. Use Retry save before closing Folio.") }
+                }
                 finally {
                     var runAutoBackup = false
                     _state.update { state ->
                         val pending = (state.pendingSaves - 1).coerceAtLeast(0)
                         runAutoBackup = pending == 0 && !state.saveFailed && autoBackupDirty
                         if (runAutoBackup) autoBackupDirty = false
-                        state.copy(pendingSaves = pending)
+                        state.copy(pendingSaves = pending,
+                            lastSaveProgressAt = if (pending > 0) System.currentTimeMillis() else null)
                     }
                     if (runAutoBackup) LibraryAutoBackup.requestAfterSave(application)
                 }
@@ -345,7 +355,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     private fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit) {
         if (scheduleAutoBackup) autoBackupDirty = true
-        _state.update { it.copy(pendingSaves = it.pendingSaves + 1) }
+        _state.update { it.copy(pendingSaves = it.pendingSaves + 1,
+            lastSaveProgressAt = it.lastSaveProgressAt ?: System.currentTimeMillis()) }
         writes.trySend(block)
     }
     /** A queued marker runs after all earlier page and metadata writes. */
@@ -1602,10 +1613,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     private fun historyState() { _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) } }
     fun retrySave() {
-        val snapshot = _state.value
+        if (!_state.value.saveFailed || _state.value.retryingSave) return
+        _state.update { it.copy(retryingSave = true) }
         enqueue {
-            snapshot.notes.forEach { repository.saveAll(it) }; repository.saveFolders(snapshot.folders)
-            _state.update { it.copy(saveFailed = false) }
+            try {
+                val snapshot = _state.value
+                snapshot.notes.forEach { repository.saveAll(it) }; repository.saveFolders(snapshot.folders)
+                _state.update { it.copy(saveFailed = false, retryingSave = false, saveFailureReason = null) }
+            } catch (e: Exception) {
+                _state.update { it.copy(retryingSave = false) }
+                throw e
+            }
         }
     }
     /** Searches the open notebook's imported PDF text; a blank query clears the results. */
