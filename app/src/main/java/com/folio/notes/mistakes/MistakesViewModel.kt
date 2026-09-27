@@ -7,9 +7,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 
 data class MistakesState(val userId: String? = null, val email: String? = null,
@@ -24,13 +34,23 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     val state = _state.asStateFlow()
     private var signingOut = false
     private var syncJob: Job? = null
+    private var rerunSync = false
     private var lastRequest = 0L
+    private val foreground = MutableStateFlow(false)
+    fun setForeground(value: Boolean) { foreground.value = value }
     private val connectivity = application.getSystemService(ConnectivityManager::class.java)
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { viewModelScope.launch { requestSync() } }
     }
     init {
         connectivity.registerDefaultNetworkCallback(callback)
+        viewModelScope.launch {
+            combine(auth.client.auth.sessionStatus, foreground) { status, visible -> status to visible }
+                .collectLatest { (status, visible) ->
+                    val user = (status as? SessionStatus.Authenticated)?.session?.user?.id
+                    if (visible && user != null) watchRemoteChanges(user)
+                }
+        }
         viewModelScope.launch {
             // The SDK imports the saved identity before attempting any network refresh.
             auth.awaitRestoration()
@@ -50,6 +70,30 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                     else -> Unit
                 }
             }
+        }
+    }
+    /** Listen while the app is visible; the 30-second pull also covers missed socket events. */
+    private suspend fun watchRemoteChanges(user: String) {
+        while (foreground.value && auth.client.auth.currentUserOrNull()?.id == user) {
+            val channel = auth.client.realtime.channel("folio-mistakes-$user")
+            try {
+                coroutineScope {
+                    // ExamTrack publishes the append-only sync log. Base tables are not
+                    // guaranteed to be in the Realtime publication.
+                    for (entity in listOf("mistakes", "attempts")) {
+                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                            table = "sync_log"; filter("entity", FilterOperator.EQ, entity)
+                        }.onEach { requestSync(force = true) }.launchIn(this)
+                    }
+                    channel.status.onEach { status ->
+                        if (status == RealtimeChannel.Status.SUBSCRIBED) requestSync(force = true)
+                    }.launchIn(this)
+                    channel.subscribe(blockUntilSubscribed = true)
+                    awaitCancellation()
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { delay(7_000) }
+            finally { withContext(NonCancellable) { runCatching { auth.client.realtime.removeChannel(channel) } } }
         }
     }
     private suspend fun acceptUser(id: String, email: String?) {
@@ -101,6 +145,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     fun signOut() {
         if (signingOut) return
         signingOut = true
+        rerunSync = false
         _state.value = MistakesState(busy = true) // Hide outgoing data before any asynchronous work.
         viewModelScope.launch {
             try {
@@ -117,7 +162,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
 
     fun requestSync(force: Boolean = false) {
         val user = _state.value.userId ?: return
-        if (syncJob?.isActive == true) return
+        if (syncJob?.isActive == true) { rerunSync = true; return }
         val now = System.currentTimeMillis()
         val waitMillis = if (force) 300L else maxOf(300L, 5_000 - (now - lastRequest))
         syncJob = viewModelScope.launch {
@@ -133,6 +178,12 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                 if (_state.value.userId == user) _state.update { it.copy(status = examTrackSyncError(e)) }
             } finally {
                 withContext(NonCancellable) { reload(user) }
+            }
+        }
+        syncJob?.invokeOnCompletion {
+            if (rerunSync && !signingOut) {
+                rerunSync = false
+                viewModelScope.launch { requestSync(force = true) }
             }
         }
     }

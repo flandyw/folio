@@ -2,7 +2,7 @@
 
 Folio uses ExamTrack's existing Supabase project. Verified against ExamTrack upstream `289e39ef4d8d002117d7f35424bf035df686edfb` (16 Sep 2026). The mistake sync described below needs no SQL of its own, no service-role credentials, and no additional cloud database.
 
-The project does now carry the shared change log from `supabase/migrations/20260926020000_change_log.sql` in the `examtrack` repository, which adds tables alongside `mistakes` and `attempts` rather than changing them. Nothing on this page depends on it yet: mistake sync still fetches and compare-and-sets as described below. See [`sync.md`](sync.md) for what is in place and what is not.
+The project carries the shared change log from `supabase/migrations/20260926020000_change_log.sql` in the `examtrack` repository, which adds tables alongside `mistakes` and `attempts`. Folio listens to its `sync_log` inserts for prompt refreshes; the actual mistake sync still fetches and compare-and-sets as described below. Without the migration, the 30-second foreground poll remains the fallback. See [`sync.md`](sync.md) for the protocol migration status.
 
 ## Setup
 
@@ -63,7 +63,7 @@ Every table request includes a `user_id` filter and checks the SDK's current use
 
 ## Downloads, offline storage and conflicts
 
-Sync runs on resume, reconnect and every 30 seconds while Folio is in the foreground. Starting the next practice page resumes any sync cancelled for its local write, so queued ratings are not stranded. Account and sync, and the mistakes list, distinguish authentication, permission, backend, timeout and connection failures; raw SDK messages and request headers are never displayed. Local builds must provide the same public Supabase URL/key as ExamTrack in ignored `local.properties` (mapped from its `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`); placeholder builds cannot connect to a real account.
+Sync runs on resume, reconnect and every 30 seconds while Folio is in the foreground. While visible, Folio also subscribes to `sync_log` changes for mistakes and attempt context, and refreshes on subscription or reconnect. A refresh requested during an active sync is run afterward. Starting the next practice page resumes any sync cancelled for its local write, so queued ratings are not stranded. Account and sync, and the mistakes list, distinguish authentication, permission, backend, timeout and connection failures; raw SDK messages and request headers are never displayed. Local builds must provide the same public Supabase URL/key as ExamTrack in ignored `local.properties` (mapped from its `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`); placeholder builds cannot connect to a real account.
 
 `MistakeRepository` has a versioned, atomic cache at `files/examtrack/<user-id>/cache.json`. It contains original mistake payloads, pending IDs, tombstones, source-attempt context, local page references and last sync time. It contains no tokens. `mistakes` and `attempts` downloads are paginated in stable ID order. Only attempt subject/title/paper context is retained; no unrelated tables are accessed. Invalid individual mistake payloads are counted and skipped.
 
@@ -75,7 +75,7 @@ Deleting a card in Folio (mid-review or from its details) removes it locally at 
 
 Before upload, Folio reads remote rows and applies **only scheduling fields** to the latest remote payload, preserving current question content, attachments, suspended state and unknown fields. It uses a conditional PATCH of the existing row matching `user_id`, `id`, `updated_at` and `deleted_at IS NULL`. This is intentionally safer than an unconditional upsert for existing mistakes: a concurrent web edit/deletion returns no updated row and leaves the operation queued for another sync. Missing/malformed rows are never recreated. The existing backend has no cross-client transaction/RPC, so a web write after Folio's successful update can still win, consistent with ExamTrack's timestamp model.
 
-Reviews save locally before any upload. Pending operations survive process restarts. Sync runs after login, opening Mistakes, foreground/resume, network availability, manual Sync now and a rating. Requests are debounced, overlapping syncs are suppressed, and local rating saves cancel a slow network sync. No background polling or requirement to be online when opening the screen.
+Reviews save locally before any upload. Pending operations survive process restarts. Sync runs after login, opening Mistakes, foreground/resume, network availability, manual Sync now and a rating. Requests are debounced, overlapping sync requests are coalesced into one follow-up pass, and local rating saves cancel a slow network sync. No background polling or requirement to be online when opening the screen.
 
 ## Attachments
 

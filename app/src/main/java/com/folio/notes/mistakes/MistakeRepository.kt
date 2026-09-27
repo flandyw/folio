@@ -85,6 +85,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         var invalid = 0
         var updated = 0
         val rows = remote.fetch(user)
+        val activeRemoteIds = rows.filter { it.deletedAt == null }.mapTo(mutableSetOf()) { it.id }
         val usable = mutableMapOf<String, RemoteMistakeRow>()
         for (row in rows) {
             if (runCatching { timestamp(row.deletedAt ?: row.updatedAt) }.isFailure) { invalid++; continue }
@@ -123,6 +124,9 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         for (id in pendingDeletes.toList()) {
             val expected = usable[id]
             if (expected == null) {
+                // A malformed or invalid active row cannot be safely compared and deleted.
+                // Keep the tombstone queued instead of silently losing the user's deletion.
+                if (id in activeRemoteIds) continue
                 // Already gone remotely (or never existed): locally consistent, nothing to write.
                 pendingDeletes.remove(id)
                 c = c.copy(pendingDeletes = pendingDeletes.toSet())

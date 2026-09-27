@@ -39,7 +39,7 @@ class WritingFollow {
     var state = WritingFollowState()
     /** Corrections behind the writing frontier must not move the page. */
     fun progresses(points: List<InkPoint>, direction: WritingDirection): Boolean {
-        if (points.isEmpty()) return false
+        if (points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return false
         val baseline = state.baselineY ?: return true
         val bottom = points.maxOf { it.y }
         // A confirmed new lane is handled by completed(); an isolated descender is not progress.
@@ -55,7 +55,8 @@ class WritingFollow {
         state = state.copy(pendingGap = state.liftedAt?.let { now - it }?.takeIf { it in 1..2000 })
     }
 
-    fun sameLineDelayMs(returnDelayMs: Int): Int {
+    fun sameLineDelayMs(returnDelayMs: Int, adaptive: Boolean = true): Int {
+        if (!adaptive) return returnDelayMs.coerceIn(300, 2000)
         val gaps = state.writingGaps.sorted()
         // Learn normal pen-up gaps, not stroke duration or long thinking breaks. A high
         // percentile protects word spaces; a small buffer leaves time to touch down again.
@@ -64,27 +65,29 @@ class WritingFollow {
     }
 
     /** Keep a real dead band even when the preferred writing column is near an edge. */
-    fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection): Float {
+    fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection, edgeThreshold: Float = .72f): Float {
         if (!fraction.isFinite() || !target.isFinite()) return 0f
         val destination = target.coerceIn(.1f, .9f)
         return if (direction == WritingDirection.LTR) {
-            if (fraction > maxOf(.72f, destination + .15f).coerceAtMost(.95f))
+            if (fraction > maxOf(edgeThreshold.coerceIn(.55f, .95f), destination + .08f).coerceAtMost(.95f))
                 (destination - fraction).coerceAtMost(0f) else 0f
         } else {
-            if (fraction < minOf(.28f, destination - .15f).coerceAtLeast(.05f))
+            if (fraction < minOf(1f - edgeThreshold.coerceIn(.55f, .95f), destination - .08f).coerceAtLeast(.05f))
                 (destination - fraction).coerceAtLeast(0f) else 0f
         }
     }
 
     fun suspend(now: Long) { state = WritingFollowState(suspendedUntil = now + 1500) }
     fun completed(points: List<InkPoint>, now: Long) {
-        if (now < state.suspendedUntil || points.isEmpty()) return
+        if (now < state.suspendedUntil || points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return
         val box = WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
         // Diagrams and tall flourishes must not pull a handwriting lane down the page.
         val heights = state.recent.map { it.bottom - it.top }.sorted()
         val height = heights.getOrNull(heights.size / 2)?.coerceAtLeast(12f) ?: 24f
         if (box.bottom - box.top > maxOf(90f, height * 3f) || box.right - box.left > 240f) return
         val baseline = state.baselineY
+        // Small detached dots cannot establish a new lane or shift its median.
+        if (baseline != null && box.bottom - box.top < 3f && box.right - box.left < 3f) return
         val threshold = maxOf(28f, height * 1.5f)
         val changedLane = baseline != null && box.bottom - baseline > threshold
         val recent = if (changedLane) {
@@ -170,6 +173,14 @@ data class FollowPreferences(
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** Carriage-return glide length. 120..800 ms. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
+    val adaptiveTiming: Boolean = true,
+    val horizontalFollow: Boolean = true,
+    val verticalFollow: Boolean = true,
+    val autoSwitchAreas: Boolean = true,
+    val minimumZoom: Float = 1.4f,
+    val edgeThreshold: Float = .72f,
+    val verticalDeadBand: Float = .15f,
+    val endMargin: Float = .08f,
 ) {
     /** Page units are A4 at 4 units per mm (840 x 1188), so users see millimetres. */
     val spacingMm: Float get() = spacing / UNITS_PER_MM
@@ -247,10 +258,37 @@ object FollowNavigation {
         return WritingAdvance(current ?: WritingGuide(region.left, region.right, baseline),
             next ?: WritingGuide(region.left, region.right, y))
     }
-    fun nearEnd(points: List<InkPoint>, region: WritingLane, direction: WritingDirection): Boolean {
+    fun nearEnd(points: List<InkPoint>, region: WritingLane, direction: WritingDirection, endMargin: Float = .08f): Boolean {
         if (points.isEmpty()) return false
-        val margin = ((region.right - region.left) * .08f).coerceIn(16f, 48f)
+        val margin = ((region.right - region.left) * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
         return if (direction == WritingDirection.LTR) points.maxOf { it.x } >= region.right - margin
         else points.minOf { it.x } <= region.left + margin
+    }
+}
+
+/** One approachable control for related movement thresholds and timing. Personal choices stay intact. */
+object FollowComfort {
+    fun apply(preferences: FollowPreferences, responsiveness: Float): FollowPreferences {
+        val t = responsiveness.coerceIn(0f, 1f)
+        fun blend(calm: Float, quick: Float) = calm + (quick - calm) * t
+        return preferences.copy(
+            returnDelayMs = blend(1100f, 400f).roundToInt(),
+            glideDurationMs = blend(440f, 180f).roundToInt(),
+            edgeThreshold = blend(.88f, .66f),
+            verticalDeadBand = blend(.24f, .08f),
+            endMargin = blend(.04f, .12f),
+        )
+    }
+
+    fun value(preferences: FollowPreferences): Float =
+        ((1100f - preferences.returnDelayMs) / 700f).coerceIn(0f, 1f)
+
+    fun matches(preferences: FollowPreferences, value: Float): Boolean {
+        val target = apply(preferences, value)
+        return preferences.returnDelayMs == target.returnDelayMs &&
+            preferences.glideDurationMs == target.glideDurationMs &&
+            abs(preferences.edgeThreshold - target.edgeThreshold) < .001f &&
+            abs(preferences.verticalDeadBand - target.verticalDeadBand) < .001f &&
+            abs(preferences.endMargin - target.endMargin) < .001f
     }
 }

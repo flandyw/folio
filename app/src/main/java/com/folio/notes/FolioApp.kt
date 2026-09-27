@@ -59,9 +59,12 @@ import java.io.File
     DisposableEffect(lifecycleOwner, mistakes) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) mistakes.requestSync()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) mistakes.setForeground(true)
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) mistakes.setForeground(false)
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        mistakes.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose { mistakes.setForeground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("preferences", 0) }
@@ -125,6 +128,14 @@ import java.io.File
     val updateProgressFlow = remember { MutableStateFlow(0) }
     val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val focalState by (context.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
+    var shownRemoteNoticeId by rememberSaveable { mutableLongStateOf(focalState.remoteNoticeId) }
+    LaunchedEffect(focalState.remoteNoticeId) {
+        if (focalState.remoteNoticeId > shownRemoteNoticeId) focalState.remoteNotice?.let {
+            shownRemoteNoticeId = focalState.remoteNoticeId
+            snackbar.showSnackbar(it, duration = SnackbarDuration.Short)
+        }
+    }
     val exporter = remember { NoteExporter(model.repository) }
     var pdfExportMode by remember {
         mutableStateOf(AppPrefs.pdfExportMode(prefs.getString(AppPrefs.EXPORT_PDF_MODE, null)))

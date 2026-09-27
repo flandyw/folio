@@ -1129,7 +1129,7 @@ class InkView(context: Context) : View(context) {
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
             val now = SystemClock.uptimeMillis()
             drawn.points.lastOrNull()?.let { point ->
-                WritingGuides.regionAt(writingRegions, point.x, point.y)?.let { area ->
+                WritingGuides.regionAt(if (followPreferences.autoSwitchAreas) writingRegions else emptyList(), point.x, point.y)?.let { area ->
                     if (area != writingRegion) {
                         writingRegion = area
                         writingFollow.state = WritingFollowState()
@@ -1146,30 +1146,30 @@ class InkView(context: Context) : View(context) {
             followLiftedAt = now
             val region = followRegion()
             val pt = followLastPoint
-            if (pt != null && pt.x in region.left..region.right && pt.y in region.top..region.bottom) {
+            if (writingFollow.state.liftedAt == now && pt != null && pt.x in region.left..region.right && pt.y in region.top..region.bottom) {
                 val baseline = writingFollow.state.baselineY ?: pt.y
                 val next = FollowNavigation.next(baseline, region, writingGuides, followPreferences.spacing)
                 val zoom = if (page.infinite || writingStrip) camera.zoom else documentFollowZoom
-                val nearEnd = FollowNavigation.nearEnd(drawn.points, region, followPreferences.direction)
+                val nearEnd = FollowNavigation.nearEnd(drawn.points, region, followPreferences.direction, followPreferences.endMargin)
                 if (progressing && nearEnd && next != null && followPreferences.mode == FollowMode.TEXT && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)) {
-                    onFollowStatus(if (followPreferences.automaticReturn && zoom >= 1.4f) "Next line in ${FollowPreferences.returnDelayLabel(followPreferences.returnDelayMs)}… touch down to cancel" else "Next line ready")
-                    if (followPreferences.automaticReturn && zoom >= 1.4f) pendingReturn = next
+                    onFollowStatus(if (followPreferences.automaticReturn && zoom >= followPreferences.minimumZoom) "Next line in ${FollowPreferences.returnDelayLabel(followPreferences.returnDelayMs)}… touch down to cancel" else "Next line ready")
+                    if (followPreferences.automaticReturn && zoom >= followPreferences.minimumZoom) pendingReturn = next
                 } else onFollowStatus(if (next == null) "End of answer area" else "Following")
                 val newLine = previousBaseline != null && kotlin.math.abs(baseline - previousBaseline) > maxOf(28f, writingFollow.laneHeight() * 1.5f)
                 if (pendingReturn == null && (progressing || newLine) &&
                     FollowNavigation.isTextStroke(drawn.points, followPreferences.spacing) && getLocalVisibleRect(followVisible)) {
-                    if (zoom >= 1.4f) {
+                    if (zoom >= followPreferences.minimumZoom) {
                         val frontier = if (followPreferences.direction == WritingDirection.LTR) drawn.points.maxOf { it.x } else drawn.points.minOf { it.x }
                         val sx = originX + frontier * scale
                         val sy = originY + baseline * scale
                         val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
-                        val dx = if (followPreferences.mode == FollowMode.TEXT && followVisible.width() > 0)
+                        val dx = if (followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && followVisible.width() > 0)
                             writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
-                                followPreferences.direction) * followVisible.width() else 0f
+                                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width() else 0f
                         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
-                        val dy = if (sy > desiredY + followVisible.height() * .15f) desiredY - sy else 0f
+                        val dy = if (followPreferences.verticalFollow && sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand) desiredY - sy else 0f
                         advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
-                        advanceStartAt = now + writingFollow.sameLineDelayMs(followPreferences.returnDelayMs)
+                        advanceStartAt = now + writingFollow.sameLineDelayMs(followPreferences.returnDelayMs, followPreferences.adaptiveTiming)
                         sameLineWaiting = dx != 0f || dy != 0f
                         // A cancelled request must not overwrite Back for the last actual glide.
                         captureFollowBack = sameLineWaiting

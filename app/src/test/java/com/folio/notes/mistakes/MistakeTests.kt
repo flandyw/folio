@@ -167,6 +167,15 @@ class MistakeTests {
         assertTrue(remote.deletes.isEmpty())
         assertEquals(setOf("m"), repo.cache("u").pendingDeletes)
     }
+    @Test fun malformedRemoteRowDoesNotDropQueuedDelete() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }
+        val repo = MistakeRepository(store, remote)
+        repo.sync("u"); repo.delete("u", "m", at)
+        remote.rows = listOf(RemoteMistakeRow("m", "{}", at, null))
+        assertEquals(1, repo.sync("u").pending)
+        assertEquals(setOf("m"), repo.cache("u").pendingDeletes)
+        assertTrue(remote.deletes.isEmpty())
+    }
     @Test fun offlineDeletePersistsAcrossRestartAndUploadsLater() = runBlocking {
         val store = Store(); val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(store, remote)
         repo.sync("u"); repo.delete("u", "m", at)

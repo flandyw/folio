@@ -14,7 +14,7 @@ data class WritingAdvance(val from: WritingGuide, val to: WritingGuide) {
 object WritingGuides {
     /** Partition all printed rules into separate answer areas, including adjacent columns. */
     fun regions(guides: List<WritingGuide>): List<WritingLane> {
-        val remaining = guides.toMutableSet()
+        val remaining = guides.sortedWith(compareBy({ it.y }, { it.left })).toMutableSet()
         val result = mutableListOf<WritingLane>()
         while (remaining.isNotEmpty()) {
             val group = mutableSetOf(remaining.first())
@@ -53,16 +53,19 @@ object WritingGuides {
      * Requiring a neighbouring aligned rule avoids treating isolated underlines as lanes.
      */
     fun detect(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): List<WritingGuide> {
-        require(width > 0 && height > 0 && pixels.size == width * height)
+        require(width > 0 && height > 0 && pixels.size.toLong() == width.toLong() * height)
+        require(pageWidth.isFinite() && pageHeight.isFinite() && pageWidth > 0 && pageHeight > 0)
         val sx = pageWidth / width
         val sy = pageHeight / height
-        val gap = ceil(2f / sx).toInt().coerceAtLeast(1)
+        val gap = ceil(6f / sx).toInt().coerceAtLeast(1)
         val minLength = max(60f, pageWidth * .12f) / sx
         fun dark(x: Int, y: Int): Boolean {
             if (x !in 0 until width || y !in 0 until height) return false
             val color = pixels[y * width + x]
-            return (color ushr 24) >= 128 && ((color ushr 16) and 255) < 190 &&
-                ((color ushr 8) and 255) < 190 && (color and 255) < 190
+            val alpha = (color ushr 24) / 255f
+            val luminance = .2126f * ((color ushr 16) and 255) +
+                .7152f * ((color ushr 8) and 255) + .0722f * (color and 255)
+            return 255f - alpha * (255f - luminance) < 225f
         }
         data class Band(var left: Int, var right: Int, val top: Int, var bottom: Int)
         val bands = mutableListOf<Band>()
@@ -77,7 +80,7 @@ object WritingGuides {
                     if (dark(x, y)) { right = x; ink++ }
                     x++
                 }
-                if (right - left < minLength || ink.toFloat() / (right - left + 1) < .8f) continue
+                if (right - left < minLength || ink.toFloat() / (right - left + 1) < .45f) continue
                 val band = bands.lastOrNull { it.bottom == y - 1 && abs(it.left - left) <= gap * 2 && abs(it.right - right) <= gap * 2 }
                 if (band == null) bands += Band(left, right, y, y)
                 else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y }
@@ -90,7 +93,13 @@ object WritingGuides {
                 (1..reach).count { dark(x + offset, band.top - it) } >= reach * .8f ||
                     (1..reach).count { dark(x + offset, band.bottom + it) } >= reach * .8f
             }
-            thin && !verticalBorder(band.left) && !verticalBorder(band.right)
+            // Text rows have ink above and below the putative rule. Require a
+            // mostly clear strip so joining dash gaps cannot join printed words.
+            val clearance = ceil(4f / sy).toInt().coerceAtLeast(2)
+            val occupied = (band.left..band.right).count { x ->
+                (2..clearance).any { dark(x, band.top - it) || dark(x, band.bottom + it) }
+            }
+            thin && occupied.toFloat() / (band.right - band.left + 1) < .18f && !verticalBorder(band.left) && !verticalBorder(band.right)
         }.map { WritingGuide(it.left * sx, it.right * sx, (it.top + it.bottom) * .5f * sy) }
         return candidates.filter { line -> next(line, candidates) != null || candidates.any { next(it, candidates) == line } }
             .sortedWith(compareBy({ it.y }, { it.left }))

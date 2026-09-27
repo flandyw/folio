@@ -14,6 +14,7 @@ import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
@@ -69,6 +70,7 @@ class ExamTrackAuthRepository(context: Context) {
             enableLifecycleCallbacks = false // Keep the account/cache usable while offline or backgrounded.
         }
         install(Postgrest)
+        install(Realtime)
         install(Storage)
     }
     private val lifecycle = ExamTrackSessionLifecycle(client, sessions)

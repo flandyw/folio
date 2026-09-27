@@ -119,9 +119,26 @@ private fun paperLabel(p: Paper): String = when (p) {
         horizontalPosition = appPrefs.getFloat("follow.horizontal", .5f).coerceIn(.35f, .65f),
         spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
         returnDelayMs = appPrefs.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
+        adaptiveTiming = appPrefs.getBoolean("follow.adaptiveTiming", true),
+        horizontalFollow = appPrefs.getBoolean("follow.horizontalFollow", true),
+        verticalFollow = appPrefs.getBoolean("follow.verticalFollow", true),
+        autoSwitchAreas = appPrefs.getBoolean("follow.autoSwitchAreas", true),
+        minimumZoom = appPrefs.getFloat("follow.minimumZoom", 1.4f).coerceIn(1f, 3f),
+        edgeThreshold = appPrefs.getFloat("follow.edgeThreshold", .72f).coerceIn(.55f, .95f),
+        verticalDeadBand = appPrefs.getFloat("follow.verticalDeadBand", .15f).coerceIn(.05f, .3f),
+        endMargin = appPrefs.getFloat("follow.endMargin", .08f).coerceIn(.02f, .2f),
         glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800))) }
     LaunchedEffect(followPreferences) {
-        appPrefs.edit().putString("follow.direction", followPreferences.direction.name)
+        appPrefs.edit()
+            .putBoolean("follow.adaptiveTiming", followPreferences.adaptiveTiming)
+            .putBoolean("follow.horizontalFollow", followPreferences.horizontalFollow)
+            .putBoolean("follow.verticalFollow", followPreferences.verticalFollow)
+            .putBoolean("follow.autoSwitchAreas", followPreferences.autoSwitchAreas)
+            .putFloat("follow.minimumZoom", followPreferences.minimumZoom)
+            .putFloat("follow.edgeThreshold", followPreferences.edgeThreshold)
+            .putFloat("follow.verticalDeadBand", followPreferences.verticalDeadBand)
+            .putFloat("follow.endMargin", followPreferences.endMargin)
+            .putString("follow.direction", followPreferences.direction.name)
             .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
             .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing)
             .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs).apply()

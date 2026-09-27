@@ -23,6 +23,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -46,19 +50,37 @@ fun FollowSettingsDialog(
     onHand: (WritingHand) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var advanced by rememberSaveable { mutableStateOf(false) }
     FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    "The page stays still while you write. Near the visible edge, it glides after a pause of at least half a second. The pause adapts to your writing rhythm. Touch down to stop it immediately. " +
-                        "Use Next line whenever you finish a short line early.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FollowPreview(preferences)
+                FollowSectionTitle("Choose how following feels")
+                Text("The page stays still while your pen is down. Choose a starting point, then adjust the feel.",
+                    style = MaterialTheme.typography.bodyMedium)
+                val presets = listOf("Relaxed" to 0f, "Balanced" to .5f, "Responsive" to 1f)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presets.forEach { (label, value) ->
+                        FilterChip(selected = FollowComfort.matches(preferences, value),
+                            onClick = { onPreferences(FollowComfort.apply(preferences, value)) },
+                            label = { Text(label) })
+                    }
+                }
+                val feel = FollowComfort.value(preferences)
+                val presetName = presets.firstOrNull { FollowComfort.matches(preferences, it.second) }?.first ?: "Custom"
+                FollowSliderRow("Following feel", presetName,
+                    "Relaxed waits longer and leaves more room before moving. Responsive follows sooner with a quicker glide. Changes timing and movement margins together.",
+                    feel, { onPreferences(FollowComfort.apply(preferences, it)) }, 0f..1f)
+                FollowPreview(preferences, writingHand)
+                FollowTimingPreview(preferences)
+                Text("Presets keep your hand, reading direction, writing position and automatic-return choice.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FollowToggle("Automatic line return", preferences.automaticReturn) {
+                    onPreferences(preferences.copy(automaticReturn = it))
+                }
+                Text("When off, tap Next line to return. Touch down to stop any glide.", style = MaterialTheme.typography.bodySmall)
 
                 // 1 · What are you writing?
                 FollowSectionTitle("What are you writing?")
@@ -79,7 +101,7 @@ fun FollowSettingsDialog(
                 }
                 Text(
                     if (preferences.mode == FollowMode.TEXT)
-                        "Example: finish “Dear Sir…” near the right edge → the page slides so the next line starts at the left. " +
+                        "Follow across a line, then use Next line or enable automatic return. " +
                             "Tall fractions and long underlines never trigger a return."
                     else
                         "Example: a column of working slides straight down. Sideways drift is off, " +
@@ -131,7 +153,7 @@ fun FollowSettingsDialog(
                     )
                 }
                 Text(
-                    "Need this, not direction: it keeps the fresh line clear of your palm. " +
+                    "Offsets the writing position slightly to allow room for your palm. " +
                         "Right-handed keeps a wider margin on the right, left-handed on the left.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -139,111 +161,116 @@ fun FollowSettingsDialog(
 
                 HorizontalDivider()
 
-                // 3 · Where writing sits.
-                FollowSectionTitle("Where writing sits on screen")
-                FollowSliderRow(
-                    label = "Writing height",
-                    valueText = "${preferences.positionPercent}% down · ${FollowPreferences.positionLabel(preferences.position)}",
-                    hint = "Example: 55% keeps the line just below the middle, so you can see the question above and your hand below.",
-                    value = preferences.position,
-                    onValueChange = { onPreferences(preferences.copy(position = it)) },
-                    valueRange = .35f..0.70f,
-                )
-                if (preferences.mode == FollowMode.TEXT) {
+                TextButton(onClick = { advanced = !advanced }) {
+                    Text(if (advanced) "Hide advanced settings" else "Advanced settings · position, spacing and tracking")
+                }
+                if (advanced) {
+                    // 3 · Where writing sits.
+                    FollowSectionTitle("Where writing sits on screen")
                     FollowSliderRow(
-                        label = "Writing column",
-                        valueText = "${preferences.horizontalPercent}% across · ${FollowPreferences.horizontalLabel(preferences.horizontalPosition)}",
-                        hint = "Example: 50% centres each new line. Move left if your sleeve covers the start of lines.",
-                        value = preferences.horizontalPosition,
-                        onValueChange = { onPreferences(preferences.copy(horizontalPosition = it)) },
-                        valueRange = .35f..0.65f,
+                        label = "Writing height",
+                        valueText = "${preferences.positionPercent}% down · ${FollowPreferences.positionLabel(preferences.position)}",
+                        hint = "Example: 55% keeps the line just below the middle, so you can see the question above and your hand below.",
+                        value = preferences.position,
+                        onValueChange = { onPreferences(preferences.copy(position = it)) },
+                        valueRange = .35f..0.70f,
                     )
-                } else {
-                    Text(
-                        "Writing column is hidden in Maths mode — follow only moves down, never sideways.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                HorizontalDivider()
-
-                // 4 · Line spacing in mm with presets and a scaled example.
-                FollowSectionTitle("Blank-page line spacing")
-                Text(
-                    FollowPreferences.spacingLabel(preferences.spacing),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Slider(
-                    value = preferences.spacingMm.coerceIn(4f, 24f),
-                    onValueChange = { onPreferences(preferences.copy(spacing = FollowPreferences.fromMm(it))) },
-                    valueRange = 4f..24f,
-                    steps = 19,
-                )
-                Text(
-                    "Millimetres on a printed A4 page. Example: 7 mm matches ruled paper, 8 mm is the relaxed default. " +
-                        "Only used where the page has no printed lines.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    FollowPreferences.spacingPresets.forEach { (name, units) ->
-                        FilterChip(
-                            selected = preferences.spacing == units,
-                            onClick = { onPreferences(preferences.copy(spacing = units)) },
-                            label = { Text(name) },
+                    if (preferences.mode == FollowMode.TEXT) {
+                        FollowSliderRow(
+                            label = "Writing column",
+                            valueText = "${preferences.horizontalPercent}% across · ${FollowPreferences.horizontalLabel(preferences.horizontalPosition)}",
+                            hint = "Example: 50% centres each new line. Move left if your sleeve covers the start of lines.",
+                            value = preferences.horizontalPosition,
+                            onValueChange = { onPreferences(preferences.copy(horizontalPosition = it)) },
+                            valueRange = .35f..0.65f,
                         )
-                    }
-                }
-                SpacingExample(preferences.spacing)
-
-                HorizontalDivider()
-
-                // 5 · Automatic return + glide: the two new customisations.
-                FollowSectionTitle("Line returns")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Automatic line return", style = MaterialTheme.typography.titleSmall)
+                    } else {
                         Text(
-                            "When on: finishing near the edge shows “Next line…” and glides by itself. " +
-                                "Touch the pen down quickly to cancel. When off: tap Next line yourself.",
+                            "Writing column is hidden in Maths mode — follow only moves down, never sideways.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(
-                        checked = preferences.automaticReturn,
-                        onCheckedChange = { onPreferences(preferences.copy(automaticReturn = it)) },
+
+                    HorizontalDivider()
+
+                    // 4 · Line spacing in mm with presets and a scaled example.
+                    FollowSectionTitle("Blank-page line spacing")
+                    Text(
+                        FollowPreferences.spacingLabel(preferences.spacing),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
                     )
-                }
-                run {
-                    FollowSliderRow(
-                        label = "Pause before following",
-                        valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                        hint = "Line return uses this delay. Same-line follow waits at least 0.5 s and learns longer word gaps as you write.",
-                        value = preferences.returnDelayMs / 1000f,
-                        onValueChange = {
-                            onPreferences(
-                                preferences.copy(returnDelayMs = (it * 1000).roundToInt().coerceIn(300, 2000)),
+                    Slider(
+                        value = preferences.spacingMm.coerceIn(4f, 24f),
+                        onValueChange = { onPreferences(preferences.copy(spacing = FollowPreferences.fromMm(it))) },
+                        valueRange = 4f..24f,
+                        steps = 19,
+                    )
+                    Text(
+                        "Millimetres on a printed A4 page. Example: 7 mm matches ruled paper, 8 mm is the relaxed default. " +
+                            "Only used where the page has no printed lines.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FollowPreferences.spacingPresets.forEach { (name, units) ->
+                            FilterChip(
+                                selected = preferences.spacing == units,
+                                onClick = { onPreferences(preferences.copy(spacing = units)) },
+                                label = { Text(name) },
                             )
+                        }
+                    }
+                    SpacingExample(preferences.spacing)
+
+                    HorizontalDivider()
+
+                    FollowSectionTitle("Tracking controls")
+                    FollowToggle("Learn my writing rhythm", preferences.adaptiveTiming) { onPreferences(preferences.copy(adaptiveTiming = it)) }
+                    FollowToggle("Follow horizontally in text mode", preferences.horizontalFollow) { onPreferences(preferences.copy(horizontalFollow = it)) }
+                    FollowToggle("Follow vertically", preferences.verticalFollow) { onPreferences(preferences.copy(verticalFollow = it)) }
+                    FollowToggle("Switch areas when I write in them", preferences.autoSwitchAreas) { onPreferences(preferences.copy(autoSwitchAreas = it)) }
+                    Text("Turn area switching off to keep the selected answer area locked. Movement switches affect following within a line; Next line still moves to the next line.", style = MaterialTheme.typography.bodySmall)
+                    FollowSliderRow("Minimum zoom", "${"%.1f".format(preferences.minimumZoom)}×", "Automatic movement starts at this zoom level.", preferences.minimumZoom,
+                        { onPreferences(preferences.copy(minimumZoom = it)) }, 1f..3f)
+                    FollowSliderRow("Horizontal trigger", "${(preferences.edgeThreshold * 100).roundToInt()}%", "Distance across the view before following; mirrored for right-to-left writing.", preferences.edgeThreshold,
+                        { onPreferences(preferences.copy(edgeThreshold = it)) }, 0.55f..0.95f)
+                    FollowSliderRow("Vertical tolerance", "${(preferences.verticalDeadBand * 100).roundToInt()}%", "Space below your preferred writing height before the view moves.", preferences.verticalDeadBand,
+                        { onPreferences(preferences.copy(verticalDeadBand = it)) }, 0.05f..0.3f)
+                    FollowSliderRow("Line-end margin", "${(preferences.endMargin * 100).roundToInt()}%", "How close to the answer area's edge a stroke must finish to offer a return.", preferences.endMargin,
+                        { onPreferences(preferences.copy(endMargin = it)) }, 0.02f..0.2f)
+                    HorizontalDivider()
+
+                    FollowSectionTitle("Timing details")
+                    run {
+                        FollowSliderRow(
+                            label = "Pause before following",
+                            valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
+                            hint = "Line return uses this delay. With adaptive timing, same-line follow waits at least 0.5 s and learns longer word gaps.",
+                            value = preferences.returnDelayMs / 1000f,
+                            onValueChange = {
+                                onPreferences(
+                                    preferences.copy(returnDelayMs = (it * 1000).roundToInt().coerceIn(300, 2000)),
+                                )
+                            },
+                            valueRange = 0.3f..2.0f,
+                        )
+                    }
+                    FollowSliderRow(
+                        label = "Glide smoothness",
+                        valueText = "${FollowPreferences.glideLabel(preferences.glideDurationMs)} · ${preferences.glideDurationMs} ms",
+                        hint = "Snappy jumps at once, Smooth eases over, Gentle floats. Try Smooth first.",
+                        value = preferences.glideDurationMs.toFloat(),
+                        onValueChange = {
+                            onPreferences(preferences.copy(glideDurationMs = it.roundToInt().coerceIn(120, 800)))
                         },
-                        valueRange = 0.3f..2.0f,
+                        valueRange = 120f..800f,
                     )
                 }
-                FollowSliderRow(
-                    label = "Glide smoothness",
-                    valueText = "${FollowPreferences.glideLabel(preferences.glideDurationMs)} · ${preferences.glideDurationMs} ms",
-                    hint = "Snappy jumps at once, Smooth eases over, Gentle floats. Try Smooth first.",
-                    value = preferences.glideDurationMs.toFloat(),
-                    onValueChange = {
-                        onPreferences(preferences.copy(glideDurationMs = it.roundToInt().coerceIn(120, 800)))
-                    },
-                    valueRange = 120f..800f,
-                )
             }
             HorizontalDivider()
             Row(
@@ -294,10 +321,10 @@ private fun FollowSliderRow(
  * the faint lines show blank-page spacing, the arrow shows reading direction.
  */
 @Composable
-private fun FollowPreview(preferences: FollowPreferences) {
+private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand) {
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Preview · where the next line lands", style = MaterialTheme.typography.labelMedium)
+            Text("Live preview · movement zones", style = MaterialTheme.typography.labelMedium)
             val trackColor = MaterialTheme.colorScheme.primary
             val faint = MaterialTheme.colorScheme.outlineVariant
             val ink = MaterialTheme.colorScheme.onSurface
@@ -312,6 +339,20 @@ private fun FollowPreview(preferences: FollowPreferences) {
                 while (y < h * 0.92f) {
                     drawLine(faint, Offset(w * 0.12f, y), Offset(w * 0.88f, y), strokeWidth = 1.dp.toPx())
                     y += gap
+                }
+                // Match the actual trigger, including the palm offset and dead band.
+                if (preferences.horizontalFollow && preferences.mode == FollowMode.TEXT) {
+                    val target = preferences.horizontalPosition + if (hand == WritingHand.RIGHT) -.02f else .02f
+                    val trigger = if (preferences.direction == WritingDirection.LTR)
+                        maxOf(preferences.edgeThreshold, target + .08f).coerceAtMost(.95f)
+                    else minOf(1f - preferences.edgeThreshold, target - .08f).coerceAtLeast(.05f)
+                    val left = if (preferences.direction == WritingDirection.LTR) trigger * w else 0f
+                    val zoneWidth = if (preferences.direction == WritingDirection.LTR) w - left else trigger * w
+                    drawRect(trackColor.copy(alpha = .15f), Offset(left, 0f), androidx.compose.ui.geometry.Size(zoneWidth, h))
+                }
+                if (preferences.verticalFollow) {
+                    val triggerY = h * (preferences.position + preferences.verticalDeadBand).coerceAtMost(1f)
+                    drawRect(trackColor.copy(alpha = .15f), Offset(0f, triggerY), androidx.compose.ui.geometry.Size(w, h - triggerY))
                 }
                 // Writing height: horizontal writing line.
                 val wy = h * preferences.position.coerceIn(.35f, .7f)
@@ -348,8 +389,8 @@ private fun FollowPreview(preferences: FollowPreferences) {
             }
             Text(
                 if (preferences.mode == FollowMode.TEXT)
-                    "Dot = where your pen lands next. Dashed lines = writing height + column."
-                else "Maths preview: the page only ever glides straight down.",
+                    "Shaded edges trigger following after a pause. Dot and dashed lines show the landing position. Active from ${"%.1f".format(preferences.minimumZoom)}× zoom."
+                else "Shaded area triggers vertical following after a pause. Maths keeps the horizontal position fixed.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -377,5 +418,34 @@ private fun SpacingExample(spacing: Float) {
                 drawLine(ink, Offset(cx - 70.dp.toPx(), y - gap * 2 + 2.dp.toPx()), Offset(cx + 40.dp.toPx(), y - gap * 2 + 2.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
             }
         }
+    }
+}
+
+@Composable
+private fun FollowToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** Fixed time scale makes timing changes visible without a distracting looping animation. */
+@Composable
+private fun FollowTimingPreview(preferences: FollowPreferences) {
+    val pauseColor = MaterialTheme.colorScheme.secondary
+    val glideColor = MaterialTheme.colorScheme.primary
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Pen lifts → pause → glide", style = MaterialTheme.typography.labelMedium)
+        Canvas(Modifier.fillMaxWidth().height(12.dp)) {
+            drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+            val pause = size.width * preferences.returnDelayMs / 2800f
+            val glide = size.width * preferences.glideDurationMs / 2800f
+            drawRect(pauseColor, size = androidx.compose.ui.geometry.Size(pause, size.height))
+            drawRect(glideColor, topLeft = Offset(pause, 0f), size = androidx.compose.ui.geometry.Size(glide, size.height))
+        }
+        Text("Pause ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms" +
+            if (preferences.adaptiveTiming) ". Learning your rhythm may extend the pause within a line." else ". Fixed pause.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

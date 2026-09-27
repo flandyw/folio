@@ -312,6 +312,9 @@ data class FocalStudyState(
     val syncing: Boolean = false,
     val error: String? = null,
     val authMessage: String? = null,
+    /** Transient in-app notice for a change received after the first remote load. */
+    val remoteNotice: String? = null,
+    val remoteNoticeId: Long = 0L,
     val configured: Boolean = !BuildConfig.FOCAL_SUPABASE_URL.contains("example.supabase.co") &&
         !BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
 ) {
@@ -350,6 +353,7 @@ class FocalStudyManager(context: Context) {
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
+    private var remoteNoticeReadyUser: String? = null
 
     fun setForeground(value: Boolean) { foreground.value = value }
 
@@ -362,12 +366,16 @@ class FocalStudyManager(context: Context) {
                     when (status) {
                         is SessionStatus.Authenticated -> {
                             status.session.user?.let { user ->
+                                if (_state.value.userId != user.id) remoteNoticeReadyUser = null
                                 _state.update { it.copy(userId = user.id, email = user.email, error = null) }
                                 sync()
                                 if (visible) watchRemoteSessions(user.id)
                             }
                         }
-                        is SessionStatus.NotAuthenticated -> _state.update { it.copy(userId = null, email = null) }
+                        is SessionStatus.NotAuthenticated -> {
+                            remoteNoticeReadyUser = null
+                            _state.update { it.copy(userId = null, email = null) }
+                        }
                         else -> Unit
                     }
                 }
@@ -661,6 +669,7 @@ class FocalStudyManager(context: Context) {
             gate.withLock {
                 client.auth.clearSession()
                 sessions.deleteSession()
+                remoteNoticeReadyUser = null
                 _state.update { it.copy(userId = null, email = null, subjects = FocalSubjects.builtIn) }
             }
         }
@@ -777,6 +786,18 @@ class FocalStudyManager(context: Context) {
                 intervals = intervals, remotePayload = payload.toString(), notebookTitle = notebookTitle)
         }.getOrNull() }
         if (_state.value.userId != user) return
+        val previous = _state.value.entries.associateBy { it.id }
+        val externalChanges = remote.filter { incoming ->
+            val old = previous[incoming.id]
+            old?.changeId != incoming.changeId && (old == null || incoming.revision > old.revision)
+        }
+        val notice = if (remoteNoticeReadyUser == user && externalChanges.isNotEmpty()) {
+            if (externalChanges.any { incoming ->
+                    incoming.completed && previous[incoming.id]?.active == true
+                }) "A Focal session finished on another device"
+            else if (externalChanges.size == 1) "A Focal session changed on another device"
+            else "${externalChanges.size} Focal sessions changed on another device"
+        } else null
         _state.update { state ->
             val merged = state.entries.filter { it.userId == null || it.userId == user }
                 .associateBy { it.id }.toMutableMap()
@@ -796,9 +817,12 @@ class FocalStudyManager(context: Context) {
                     resumedAt = if (!session.paused) runningStart ?: System.currentTimeMillis() else null)
             }
             state.copy(entries = merged.values.toList() + otherAccounts, focus = focus,
-                remoteRevision = maxOf(startRevision, latestRevision), remoteRevisionUser = user)
+                remoteRevision = maxOf(startRevision, latestRevision), remoteRevisionUser = user,
+                remoteNotice = notice ?: state.remoteNotice,
+                remoteNoticeId = if (notice != null) state.remoteNoticeId + 1 else state.remoteNoticeId)
         }
         persist()
+        remoteNoticeReadyUser = user
     }
 
     private suspend fun loadCustomSubjects(user: String) {

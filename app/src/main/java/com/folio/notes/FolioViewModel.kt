@@ -348,9 +348,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(pendingSaves = it.pendingSaves + 1) }
         writes.trySend(block)
     }
+    /** A queued marker runs after all earlier page and metadata writes. */
+    private suspend fun awaitQueuedWrites() {
+        val marker = CompletableDeferred<Unit>()
+        enqueue(scheduleAutoBackup = false) { marker.complete(Unit) }
+        marker.await()
+        check(!_state.value.saveFailed) { "Save pending changes before making a copy" }
+    }
     /** Records a change to the notebook itself — title, folder, star, or the order of pages. */
     private fun updateNote(note: Notebook) {
         val updated = note.copy(updated = System.currentTimeMillis())
+        if (_state.value.notes.none { it.id == updated.id }) return
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
         enqueue { repository.saveMeta(updated) }
     }
@@ -367,8 +375,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             val updated = state.notes.map { note ->
                 if (note.id !in ids) note
                 else {
-                    val next = transform(note).copy(updated = now)
-                    if (next == note) note else next
+                    val next = transform(note)
+                    if (next == note) note else next.copy(updated = now)
                 }
             }
             changed = updated.filter { it.id in ids && state.notes.find { n -> n.id == it.id } != it }
@@ -692,13 +700,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         open(pane.notebookId)
         _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
     }
-    fun rename(note: Notebook, title: String) { if (title.isNotBlank()) updateNote(note.copy(title = title.trim())) }
-    fun star(note: Notebook) = updateNote(note.copy(starred = !note.starred))
-    fun move(note: Notebook, folderId: String?) = updateNote(note.copy(folderId = folderId))
+    fun rename(note: Notebook, title: String) {
+        if (title.isNotBlank()) updateNotes(setOf(note.id)) { it.copy(title = title.trim()) }
+    }
+    fun star(note: Notebook) = updateNotes(setOf(note.id)) { it.copy(starred = !it.starred) }
+    fun move(note: Notebook, folderId: String?) {
+        if (folderId != null && _state.value.folders.none { it.id == folderId }) return
+        updateNotes(setOf(note.id)) { it.copy(folderId = folderId) }
+    }
     /** Switches one notebook between its first page and the decorative default cover. */
     fun setPageCover(note: Notebook, pageCover: Boolean) {
-        if (note.pageCover == pageCover) return
-        updateNote(note.copy(pageCover = pageCover))
+        updateNotes(setOf(note.id)) { it.copy(pageCover = pageCover) }
     }
 
     // ---- Exam metadata --------------------------------------------------------------------
@@ -797,6 +809,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         viewModelScope.launch {
             try {
                 ready.await()
+                awaitQueuedWrites()
                 val live = _state.value.notes.find { it.id == note.id } ?: return@launch
                 val title = duplicateNotebookTitle(live.title, _state.value.notes.map { it.title }.toSet())
                 val copy = getApplication<FolioApplication>().storageGate.withLock {
