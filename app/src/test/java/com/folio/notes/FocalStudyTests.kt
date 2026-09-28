@@ -70,16 +70,21 @@ class FocalStudyTests {
             "11111111-1111-4111-8111-111111111111").getString("kind"))
     }
 
-    @Test fun timerCheckpointsStayLocalButReflectionEditsPublishOnce() {
+    @Test fun anUnsyncedEntryPublishesExactlyTheDifferenceFromTheServer() {
         val device = "11111111-1111-4111-8111-111111111111"
-        val base = active().copy(synced = false, remotePayload = """{"state":"running","phase":"focus","kind":"focus","title":"Study","subject_id":"mm","metadata":{}}""")
-        val start = focalStudyCommand(base, "start", 7, device)
-        val state = FocalStudyState(entries = listOf(base), pendingSessionCommands = listOf(start.toString()))
-        val checkpoint = focalQueueEntryMutation(state, base.copy(changeId = "checkpoint", activeMillis = 90_000), device)
-        assertEquals(1, checkpoint.pendingSessionCommands.size)
-        val reflection = focalQueueEntryMutation(state, base.copy(changeId = "reflection", notes = "Remember this"), device)
-        assertEquals(2, reflection.pendingSessionCommands.size)
-        assertEquals("save_progress", JSONObject(reflection.pendingSessionCommands.last()).getString("action"))
+        val running = """{"state":"running","phase":"focus","kind":"focus","title":"Study","subject_id":"mm","metadata":{}}"""
+        val base = active().copy(synced = false, remotePayload = running)
+        // The server already has this session running, so a timer checkpoint is one save.
+        val checkpoint = focalCommandsFor(base, device)
+        assertEquals(1, checkpoint.size)
+        assertEquals("save_progress", checkpoint.first().getString("action"))
+        assertEquals(7L, checkpoint.first().getLong("expected_revision"))
+        // A reflection edit is the same one call, and a synced entry needs none at all.
+        assertEquals("save_progress", focalCommandsFor(base.copy(notes = "Remember this"), device).first().getString("action"))
+        assertTrue(focalCommandsFor(base.copy(synced = true), device).isEmpty())
+        // An entry the server has never seen gets the whole lifecycle, in order.
+        val fresh = focalCommandsFor(active().copy(synced = false, remotePayload = null), device)
+        assertEquals(listOf("start"), fresh.map { it.getString("action") })
     }
 
     @Test fun canonicalMetadataKeepsExamDetailsAndDropsDuplicateTimerBoundaries() {
@@ -179,11 +184,8 @@ class FocalStudyTests {
     @Test fun completedLocalSessionWithDurationStartsBeforeCompletion() {
         val completed = active().copy(changeId = "finish", completed = true, synced = false,
             remotePayload = null, revision = 0)
-        val queued = focalQueueEntryMutation(FocalStudyState(), completed,
-            "11111111-1111-4111-8111-111111111111")
-        assertEquals(listOf("start", "complete"), queued.pendingSessionCommands.map {
-            JSONObject(it).getString("action")
-        })
+        val commands = focalCommandsFor(completed, "11111111-1111-4111-8111-111111111111")
+        assertEquals(listOf("start", "complete"), commands.map { it.getString("action") })
     }
 
     @Test fun pausedSharedEntriesCanBeFinishedOrDiscarded() {
@@ -236,20 +238,35 @@ class FocalStudyTests {
         val focus = FocalFocus(notebookId = "notebook", title = fixture.getString("title"), subjectId = fixture.getString("subject_id"),
             startedAt = 1_000, resumedAt = 1_000, sessionId = sessionId,
             intervals = listOf(FocalStudyInterval(1_000, null)))
-        val running = active().copy(id = sessionId, changeId = steps.getJSONObject(0).getString("mutation_id"),
-            title = fixture.getString("title"), startedAt = 1_000, endedAt = 121_000, paused = false, synced = false, revision = 0)
-        val started = focalQueueEntryMutation(FocalStudyState(), running, deviceId)
-        val paused = running.copy(changeId = steps.getJSONObject(1).getString("mutation_id"), paused = true)
-        val afterPause = focalQueueEntryMutation(started, paused, deviceId)
-        val resumed = paused.copy(changeId = steps.getJSONObject(2).getString("mutation_id"), paused = false)
-        val afterResume = focalQueueEntryMutation(afterPause, resumed, deviceId)
-        val commands = afterResume.pendingSessionCommands.map { org.json.JSONObject(it) }
+        // One call per user action now, so the fixture is replayed step by step: each entry is
+        // diffed against the state the server is known to be in, which is the previous step.
+        val server = arrayOfNulls<JSONObject>(steps.length())
+        val entry = active().copy(id = sessionId, title = fixture.getString("title"), subjectId = fixture.getString("subject_id"),
+            startedAt = 1_000, endedAt = 121_000, paused = false, synced = false, revision = 0, remotePayload = null)
+        val commands = (0 until steps.length()).map { index ->
+            val step = steps.getJSONObject(index)
+            val current = when (index) {
+                0 -> entry
+                1 -> entry.copy(paused = true, revision = 1)
+                else -> entry.copy(paused = false, revision = 2)
+            }.copy(changeId = step.getString("mutation_id"), synced = false,
+                remotePayload = if (index == 0) null else server[index - 1]?.toString())
+            val derived = focalCommandsFor(current, deviceId)
+            assertEquals(step.getString("action"), derived.first().getString("action"))
+            assertEquals(step.getLong("expected_revision"), derived.first().getLong("expected_revision"))
+            assertEquals(sessionId, derived.first().getString("session_id"))
+            assertEquals(deviceId, derived.first().getString("device_id"))
+            assertFalse(derived.first().has("started_at"))
+            // The server answers with the next revision; that is the next step's input.
+            server[index] = JSONObject().put("state", when (step.getString("action")) {
+                "pause" -> "paused"; "resume" -> "running"; else -> "running"
+            }).put("revision", step.getLong("expected_revision") + 1)
+            derived.first()
+        }
 
         assertEquals(fixture.getString("protocol"), "study-session/1")
         assertEquals((0 until steps.length()).map { steps.getJSONObject(it).getString("action") }, commands.map { it.getString("action") })
         assertEquals((0 until steps.length()).map { steps.getJSONObject(it).getLong("expected_revision") }, commands.map { it.getLong("expected_revision") })
-        assertEquals(sessionId, commands.first().getString("session_id"))
-        assertTrue(commands.all { it.getString("device_id") == deviceId && !it.has("started_at") })
     }
 
     @Test fun importedAllDayCalendarIntervalDoesNotCountAsStudy() {
