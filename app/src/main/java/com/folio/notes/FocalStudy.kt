@@ -13,8 +13,10 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.PostgresAction
@@ -41,7 +43,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import com.folio.notes.sync.rpcObject
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -122,6 +124,12 @@ data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
  * Once that row exists, timer checkpoints stay local and only the terminal row is uploaded.
  */
 internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
+
+/** A new boundary must sort after every version this account has seen. */
+internal fun focalNextLamport(state: FocalStudyState, user: String, entry: FocalStudyEntry): Long {
+    val observed = if (state.remoteRevisionUser == user) maxOf(state.remoteRevision, state.remoteLamport) else 0L
+    return maxOf(observed, entry.revision) + 1
+}
 
 /** Pending local boundaries beat an older echo; remote termination beats an active checkpoint. */
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
@@ -305,6 +313,7 @@ data class FocalStudyState(
     val focus: FocalFocus? = null,
     val remoteRevision: Long = 0L,
     val remoteRevisionUser: String? = null,
+    val remoteLamport: Long = 0L,
     val subjects: List<FocalSubject> = FocalSubjects.builtIn,
     val userId: String? = null,
     val email: String? = null,
@@ -470,7 +479,8 @@ class FocalStudyManager(context: Context) {
             if (recoveredFocus?.sessionId == entry.id && !entry.paused)
                 focalRecoverFocus(entry, recoveredFocus) else entry
         }, focus = recoveredFocus,
-            remoteRevision = data.optLong("remoteRevision"), remoteRevisionUser = data.optString("remoteRevisionUser").ifBlank { null })
+            remoteRevision = data.optLong("remoteRevision"), remoteRevisionUser = data.optString("remoteRevisionUser").ifBlank { null },
+            remoteLamport = data.optLong("remoteLamport"))
     }.getOrDefault(FocalStudyState())
 
     @Synchronized private fun persist(parkRunningAt: Long? = null): Boolean {
@@ -499,6 +509,7 @@ class FocalStudyManager(context: Context) {
             } }) }
         val bytes = JSONObject().put("entries", rows).put("focus", focus)
             .put("remoteRevision", snapshot.remoteRevision).put("remoteRevisionUser", snapshot.remoteRevisionUser)
+            .put("remoteLamport", snapshot.remoteLamport)
             .toString().toByteArray()
         return try {
             val stream = file.startWrite()
@@ -729,11 +740,14 @@ class FocalStudyManager(context: Context) {
                     if (it.id == entry.id && it.changeId == entry.changeId) owned else it
                 }) }
                 if (!persist()) break
-                val change = JSONObject().put("user_id", user).put("change_id", owned.changeId)
-                    .put("device_id", "folio-android").put("entity", "study_sessions")
-                    .put("row_id", owned.id).put("operation", if (owned.deleted) "delete" else "put")
-                    .put("payload", if (owned.deleted) JSONObject.NULL else focalPayload(owned))
-                client.from("sync_changes").insert(Json.parseToJsonElement(change.toString()).jsonObject)
+                val change = focalSyncChange(owned, focalNextLamport(_state.value, user, owned))
+                val result = rpcObject(client.postgrest.rpc("sync_apply_changes", mapOf(
+                    "p_changes" to Json.parseToJsonElement(JSONArray().put(change).toString())
+                )))
+                val receipts = result.optJSONArray("receipts") ?: JSONArray()
+                check((0 until receipts.length()).any { receipts.optJSONObject(it)?.optString("change_id") == owned.changeId }) {
+                    "Focal did not confirm the session change"
+                }
                 _state.update { state -> state.copy(entries = state.entries.map {
                     if (it.id == entry.id && it.changeId == entry.changeId) it.copy(synced = true) else it
                 }) }
@@ -774,6 +788,7 @@ class FocalStudyManager(context: Context) {
             offset += page.length()
         } while (page.length() == 500)
         val latestRevision = (0 until rows.length()).maxOfOrNull { rows.getJSONObject(it).optLong("revision") } ?: startRevision
+        val latestLamport = (0 until rows.length()).maxOfOrNull { rows.getJSONObject(it).optLong("lamport") } ?: 0L
         val latest = mutableMapOf<String, JSONObject>()
         repeat(rows.length()) { index ->
             val row = rows.getJSONObject(index)
@@ -862,6 +877,8 @@ class FocalStudyManager(context: Context) {
             }
             state.copy(entries = merged.values.toList() + otherAccounts, focus = focus,
                 remoteRevision = maxOf(startRevision, latestRevision), remoteRevisionUser = user,
+                remoteLamport = maxOf(if (state.remoteRevisionUser == user) state.remoteLamport else 0L,
+                    latestLamport),
                 remoteNotice = notice ?: state.remoteNotice,
                 remoteNoticeId = if (notice != null) state.remoteNoticeId + 1 else state.remoteNoticeId)
         }
@@ -890,6 +907,16 @@ class FocalStudyManager(context: Context) {
         if (_state.value.userId == user) _state.update { it.copy(subjects = FocalSubjects.builtIn + custom) }
     }
 }
+
+/** Publish through Focal's authenticated v3 RPC; the compatibility view is read-only. */
+internal fun focalSyncChange(entry: FocalStudyEntry, lamport: Long): JSONObject = JSONObject()
+    .put("change_id", entry.changeId)
+    .put("client_id", "folio-android")
+    .put("entity", "study_sessions")
+    .put("row_id", entry.id)
+    .put("operation", if (entry.deleted) "delete" else "put")
+    .put("payload", if (entry.deleted) JSONObject.NULL else focalPayload(entry))
+    .put("lamport", lamport)
 
 internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
     fun iso(time: Long) = Instant.ofEpochMilli(time).toString()

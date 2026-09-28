@@ -123,6 +123,34 @@ class FocalStudyTests {
         assertTrue(focalShouldUpload(discarded))
     }
 
+    @Test fun pauseThenResumePublishesAnOpenSecondIntervalThroughTheRpcContract() {
+        val focus = FocalFocus(notebookId = "notebook", title = "Study", subjectId = "mm",
+            startedAt = 1_000, resumedAt = 1_000,
+            intervals = listOf(FocalStudyInterval(1_000, null)))
+        val paused = focus.pause(61_000)
+        val resumed = paused.resume(121_000)
+        val entry = active().copy(id = focus.sessionId, changeId = "change", startedAt = 1_000,
+            endedAt = 121_000, activeMillis = resumed.elapsed(121_000),
+            intervals = resumed.intervals, paused = false, synced = false)
+        val change = focalSyncChange(entry, 9)
+        val intervals = change.getJSONObject("payload").getJSONObject("execution").getJSONArray("intervals")
+
+        assertEquals("study_sessions", change.getString("entity"))
+        assertEquals("put", change.getString("operation"))
+        assertEquals(9L, change.getLong("lamport"))
+        assertEquals(focus.sessionId, change.getString("row_id"))
+        assertEquals(2, intervals.length())
+        assertEquals("1970-01-01T00:01:01Z", intervals.getJSONObject(0).getString("end"))
+        assertFalse(intervals.getJSONObject(1).has("end"))
+    }
+
+    @Test fun resumedBoundarySortsAfterTheLatestRemoteLamport() {
+        val entry = active().copy(revision = 8)
+        val state = FocalStudyState(remoteRevision = 10, remoteRevisionUser = "user", remoteLamport = 40)
+        assertEquals(41L, focalNextLamport(state, "user", entry))
+        assertEquals(9L, focalNextLamport(state, "different-user", entry))
+    }
+
     @Test fun importedAllDayCalendarIntervalDoesNotCountAsStudy() {
         val day = 24L * 60 * 60 * 1_000
         val allDay = FocalStudyEntry(notebookId = null, title = "All-day event", subjectId = null,
