@@ -781,16 +781,28 @@ class FocalStudyManager(context: Context) {
                 (monotonicContinuous || serverElapsed != null ||
                     (previousMono == null && entry.remotePayload == null))
             val occurredAt = if (occurrenceIsSafe) Instant.ofEpochMilli(serverNow!!).toString() else null
-            previousMono = monoNow
-            previousBoot = timingBootCount
-            if (action in setOf("complete", "cancel")) {
-                timingPreferences.edit().remove("elapsed:${entry.id}").remove("boot:${entry.id}")
-                    .remove("process:${entry.id}").commit()
-            } else {
-                timingPreferences.edit().putLong("elapsed:${entry.id}", monoNow).putInt("boot:${entry.id}", timingBootCount)
-                    .putString("process:${entry.id}", timingProcessId).commit()
-            }
+            // Only the in-process chain advances here; the durable anchor is committed by
+            // commitTimingAnchor once the server has accepted the command. A command that never
+            // left the device must not move it, or a retry would report the gap since the retry.
+            if (previousMono != null) { previousMono = monoNow; previousBoot = timingBootCount }
             FocalSessionCommandTiming(occurredAt, elapsed)
+        }
+    }
+
+    /**
+     * Move the durable monotonic anchor for a session. Called only after study_session_mutate
+     * accepted the command, so the next boundary measures from a boundary the server agreed to.
+     */
+    private fun commitTimingAnchor(entry: FocalStudyEntry, commands: List<JSONObject>) {
+        if (commands.isEmpty()) return
+        val terminal = commands.last().optString("action") in setOf("complete", "cancel")
+        if (terminal) {
+            timingPreferences.edit().remove("elapsed:${entry.id}").remove("boot:${entry.id}")
+                .remove("process:${entry.id}").commit()
+        } else {
+            timingPreferences.edit().putLong("elapsed:${entry.id}", SystemClock.elapsedRealtime())
+                .putInt("boot:${entry.id}", timingBootCount)
+                .putString("process:${entry.id}", timingProcessId).commit()
         }
     }
 
@@ -975,6 +987,7 @@ class FocalStudyManager(context: Context) {
             try {
                 val sent = sendCommands(user, commands)
                 if (sent) {
+                    commitTimingAnchor(entry, commands)
                     _state.update { state -> state.copy(entries = state.entries.map {
                         if (it.id == entry.id) it.copy(synced = true) else it
                     }) }
@@ -994,7 +1007,7 @@ class FocalStudyManager(context: Context) {
             if (commands.isEmpty()) { markSynced(entry.id); continue }
             _state.update { it.copy(syncDetail = "Sending session ${index + 1} of ${pending.size} to Focal\u2026") }
             try {
-                if (sendCommands(user, commands)) markSynced(entry.id)
+                if (sendCommands(user, commands)) { commitTimingAnchor(entry, commands); markSynced(entry.id) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending a saved session to Focal", e); return }
         }
