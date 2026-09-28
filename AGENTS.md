@@ -31,6 +31,7 @@ Native Android notebook app. Single module `:app`, Kotlin + Jetpack Compose + Ma
 - Release `isMinifyEnabled/shrinkResources = false` until baseline-profile + R8 keep-rules for pdfbox-android are validated (reflectively loaded font tables).
 - `app/build.gradle.kts` `afterEvaluate` reorders `android.jar` last on unit-test classpaths so `org.json:json` `JSONObject.similar()` compiles. Do not remove.
 - Shrinking/renaming storage fields requires migration + round-trip tests (see `NoteTests.kt`, `LazyStoreTests.kt`, `PageJournalTests.kt`); scheduler parity fixtures regenerate via `node tools/examtrack-scheduler-fixtures.cjs ../examtrack`.
+- `postgrest.rpc` params must be typed `Map<String, JsonElement>` (see the builders in `sync/SyncRemote.kt`): a map inferred as `Map<String, Any>` has no kotlinx serializer and throws `SerializationException: Serializer for class 'Any' is not found` before the request is sent, which surfaces as a sync error and silently never publishes queued work. Sync errors name Focal, not the merged-away ExamTrack project, and the banner keys off `isSyncTrouble(status)` rather than the wording.
 
 ## Secrets / releases (never commit real keys)
 

@@ -35,6 +35,15 @@ wakeup. Local edits are saved before network work and remain queued after failur
 session data are isolated by account ID; sign-out hides the previous account's data without
 purging it.
 
+### RPC parameter typing
+
+`postgrest.rpc` arguments are encoded by kotlinx.serialization using the argument's static
+type. A parameter map whose values are a json element and a string infers
+`Map<String, Any>`, which has no serializer: the call fails with
+`SerializationException: Serializer for class 'Any' is not found` and never reaches the
+network. Every parameter map in `sync/SyncRemote.kt` is therefore typed
+`Map<String, JsonElement>`, and `SyncRemoteParamsTests` asserts the encoded bodies.
+
 ## Validation
 
 ```sh

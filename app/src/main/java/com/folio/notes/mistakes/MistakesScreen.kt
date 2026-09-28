@@ -469,7 +469,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 } },
                 actions = {
                     if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(if (state.status.startsWith("Offline")) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
+                        Icon(if (isSyncTrouble(state.status)) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
                     }
                 }
             )
@@ -517,7 +517,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
                             fullWidthItem { OfflineNoteCard() }
                         } else {
-                            if (state.status.startsWith("Offline") || state.status.startsWith("ExamTrack") || state.cache.pending.isNotEmpty()) fullWidthItem {
+                            if (isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()) fullWidthItem {
                                 Surface(onClick = { showAccount = true }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                                     Row(
                                         Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -526,7 +526,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     ) {
                                         Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(
-                                            if (state.status.startsWith("ExamTrack") || state.status.startsWith("Offline")) state.status
+                                            if (isSyncTrouble(state.status)) state.status
                                             else "${state.cache.pending.size} reviews saved locally · view sync",
                                             Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -817,8 +817,8 @@ private fun AccountCard(
 private fun SyncStatusRow(status: String, pending: Int) {
     val (icon, container, content) = when {
         status == "Syncing…" -> Triple(Icons.Rounded.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        status.startsWith("Offline") -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        status.startsWith("ExamTrack") -> Triple(Icons.Rounded.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        status.startsWith(SYNC_OFFLINE) -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        status.startsWith(SYNC_FOCAL) -> Triple(Icons.Rounded.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         status.startsWith("Synced") && pending == 0 -> Triple(Icons.Rounded.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)

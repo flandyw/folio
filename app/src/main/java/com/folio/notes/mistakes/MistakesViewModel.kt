@@ -66,7 +66,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                     }
                     is SessionStatus.NotAuthenticated -> {
                         syncJob?.cancel()
-                        _state.value = MistakesState(status = if (status.isSignOut) "Not connected" else "Sign in to connect ExamTrack")
+                        _state.value = MistakesState(status = if (status.isSignOut) "Not connected" else "Sign in to connect Focal")
                     }
                     is SessionStatus.RefreshFailure -> _state.update { it.copy(status = "Offline · session refresh will retry") }
                     else -> Unit
@@ -177,7 +177,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                 if (_state.value.userId == user) _state.update { it.copy(status = result.toString()) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (_state.value.userId == user) _state.update { it.copy(status = examTrackSyncError(e)) }
+                if (_state.value.userId == user) _state.update { it.copy(status = mistakeSyncError(e)) }
             } finally {
                 withContext(NonCancellable) { reload(user) }
             }

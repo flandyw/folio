@@ -5,6 +5,13 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.postgrest.result.PostgrestResult
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -48,27 +55,7 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
         clientId: String
     ): ApplyResult {
         checkUser(accountId)
-        val payload = JSONArray().apply {
-            changes.forEach { change ->
-                put(
-                    JSONObject()
-                        .put("change_id", change.changeId)
-                        .put("client_id", clientId)
-                        .put("entity", change.entity)
-                        .put("row_id", change.rowId)
-                        .put("operation", change.operation)
-                        .put("payload", change.payload ?: JSONObject.NULL)
-                        .put("lamport", change.lamport)
-                        .apply { change.expectedSeq?.let { put("expected_seq", it) } }
-                )
-            }
-        }
-        val result = rpcObject(
-            client.postgrest.rpc("sync_apply_changes", mapOf(
-                "p_changes" to kotlinx.serialization.json.Json.parseToJsonElement(payload.toString()),
-                "p_expected_user_id" to accountId,
-            ))
-        )
+        val result = rpcObject(client.postgrest.rpc("sync_apply_changes", applyParams(accountId, changes, clientId)))
         val receipts = result.optJSONArray("receipts") ?: JSONArray()
         val applied = (0 until receipts.length()).mapNotNull { index ->
             val receipt = receipts.optJSONObject(index) ?: return@mapNotNull null
@@ -87,11 +74,7 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
 
     override suspend fun read(accountId: String, cursor: Long, limit: Int): ReadResult {
         checkUser(accountId)
-        val result = rpcObject(
-            client.postgrest.rpc("sync_read_changes", mapOf(
-                "p_after" to cursor, "p_limit" to limit, "p_expected_user_id" to accountId,
-            ))
-        )
+        val result = rpcObject(client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit)))
         val rows = result.optJSONArray("rows") ?: JSONArray()
         val snapshot = result.optString("mode") == "snapshot"
         return ReadResult(
@@ -106,12 +89,47 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
 
     override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
         checkUser(accountId)
-        val request = JSONObject(command.toString()).put("expected_user_id", accountId)
-        return rpcObject(client.postgrest.rpc(
-            "study_session_mutate", mapOf("p_command" to kotlinx.serialization.json.Json.parseToJsonElement(request.toString()))
-        ))
+        return rpcObject(client.postgrest.rpc("study_session_mutate", mutateParams(accountId, command)))
     }
 }
+
+/**
+ * The SDK encodes `rpc` arguments with kotlinx.serialization, choosing the serializer from
+ * the argument's *static* type. A map built inline from a json array and a string infers
+ * `Map<String, Any>`, and there is no serializer for `Any`, so the call dies with
+ * `SerializationException: Serializer for class 'Any' is not found` before a request is sent.
+ * Pinning every parameter map to `Map<String, JsonElement>` gives it a real serializer and
+ * leaves the wire JSON unchanged. [SyncRemoteParamsTests] pins this down.
+ */
+internal fun applyParams(
+    accountId: String,
+    changes: List<SyncProtocol.QueuedChange>,
+    clientId: String
+): Map<String, JsonElement> = mapOf(
+    "p_changes" to JsonArray(changes.map { change -> buildJsonObject {
+        put("change_id", change.changeId)
+        put("client_id", clientId)
+        put("entity", change.entity)
+        put("row_id", change.rowId)
+        put("operation", change.operation)
+        put("payload", change.payload?.let { Json.parseToJsonElement(it.toString()) } ?: JsonNull)
+        put("lamport", change.lamport)
+        change.expectedSeq?.let { put("expected_seq", it) }
+    } }),
+    "p_expected_user_id" to JsonPrimitive(accountId)
+)
+
+internal fun readParams(accountId: String, cursor: Long, limit: Int): Map<String, JsonElement> = mapOf(
+    "p_after" to JsonPrimitive(cursor),
+    "p_limit" to JsonPrimitive(limit),
+    "p_expected_user_id" to JsonPrimitive(accountId)
+)
+
+internal fun mutateParams(accountId: String, command: JSONObject): Map<String, JsonElement> = mapOf(
+    "p_command" to Json.parseToJsonElement(
+        JSONObject(command.toString()).put("expected_user_id", accountId).toString()
+    )
+)
 
 /**
  * The RPC's answer as a document. Supabase reports a failure in the response body rather
