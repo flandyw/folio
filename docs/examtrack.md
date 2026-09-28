@@ -1,23 +1,27 @@
 # ExamTrack mistake review
 
-Folio uses ExamTrack's existing Supabase project. Verified against ExamTrack upstream `289e39ef4d8d002117d7f35424bf035df686edfb` (16 Sep 2026). The mistake sync described below needs no SQL of its own, no service-role credentials, and no additional cloud database.
+Folio reads ExamTrack's mistake data from the Focal Supabase project: ExamTrack was merged into Focal, whose `supabase/migrations/0010_examtrack_data.sql` adds `attempts`, `mistakes`, `user_state` and the `mistake-attachments` bucket with the shapes ExamTrack used. The column shapes are unchanged, so no client-side data change was needed — only the connection moved. Verified against Focal upstream (`0010_examtrack_data.sql`, migration `3199034` "Merge ExamTrack data tables into the Focal project"). The mistake sync described below needs no SQL of its own, no service-role credentials, and no additional cloud database.
 
-The project carries the shared change log from `supabase/migrations/20260926020000_change_log.sql` in the `examtrack` repository, which adds tables alongside `mistakes` and `attempts`. Folio listens to its `sync_log` inserts for prompt refreshes; the actual mistake sync still fetches and compare-and-sets as described below. Without the migration, the 30-second foreground poll remains the fallback. See [`sync.md`](sync.md) for the protocol migration status.
+The project carries the shared change log from Focal's `supabase/migrations/0007_change_log.sql`, which adds tables alongside `mistakes` and `attempts`. Folio still listens to its `sync_log` inserts for prompt refreshes, but the merge deliberately stopped writing those three entities to the log, so the 30-second foreground poll is what actually refreshes mistakes. See [`sync.md`](sync.md) for the protocol migration status.
 
 ## Setup
 
-Configure these values using environment variables, Gradle properties, or untracked `local.properties`, in that order. CI builds without credentials use safe placeholders; release builds inject GitHub Actions secrets. Never commit real keys.
+ExamTrack was merged into the Focal project, so mistake review uses Focal's Supabase project and the same account as study sessions. There is no second URL or key to configure; Folio creates one Supabase client for both features, so a single sign-in covers mistakes and study sessions and signing out of either signs out of both.
+
+Configure Focal's values using environment variables, Gradle properties, or untracked `local.properties`, in that order. CI builds without credentials use safe placeholders; release builds inject GitHub Actions secrets. Never commit real keys. See [`focal.md`](focal.md).
 
 ```properties
-EXAMTRACK_SUPABASE_URL=https://your-project.supabase.co
-EXAMTRACK_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-anon-key
+FOCAL_SUPABASE_URL=https://your-project.supabase.co
+FOCAL_SUPABASE_PUBLISHABLE_KEY=your-focal-publishable-or-anon-key
 ```
 
 ```sh
 # Store production credentials (actions secrets, used by CI/release only):
-gh secret set EXAMTRACK_SUPABASE_URL --app actions
-gh secret set EXAMTRACK_SUPABASE_PUBLISHABLE_KEY --app actions
+gh secret set FOCAL_SUPABASE_URL --app actions
+gh secret set FOCAL_SUPABASE_PUBLISHABLE_KEY --app actions
 ```
+
+Accounts that were created in ExamTrack's old project must sign in again: the merge imported that data into the Focal account, and the pre-merge encrypted session is deleted on first launch. Mistake caches are partitioned by user ID, so a cache written under the old project's uid is simply left behind unused.
 
 Only HTTPS and publishable/anon keys are accepted. The build rejects secret keys and JWT keys without the `anon` role. Public keys identify the project; Supabase Auth and RLS authorize access.
 
@@ -26,7 +30,7 @@ The native library is [supabase-kt 3.0.3](https://github.com/supabase-community/
 ## Use
 
 1. Open **Mistakes** from the library, or **Settings → Account → ExamTrack**.
-2. Sign in with the same email/password as ExamTrack's sync account. You can also create an account or request a password reset from Folio; confirmation and reset links arrive by email.
+2. Sign in with the same email/password as your Focal account, or create an account or request a password reset from Folio; confirmation and reset links arrive by email. This one account signs in study sessions too.
 3. **Today** opens a focused dashboard. Choose 5, 10 or all due questions, optionally shuffle, then start a session. Unfinished questions have a **Continue** action that reuses their existing handwriting page.
 4. **Library** searches question text, corrections, explanations, topics, subjects, titles and categories. Due/upcoming/suspended tabs and the **Filters** sheet narrow the list. **Review matching due questions** starts a session within those filters; Today always reviews the complete due queue.
 5. Open a question for separate **Question**, **Solution**, and **Attempts** tabs. Images open in a full-screen viewer with pinch, pan, zoom buttons and reset. Unfinished attempts can be resumed; completed attempts open their saved notebook.
@@ -63,7 +67,7 @@ Every table request includes a `user_id` filter and checks the SDK's current use
 
 ## Downloads, offline storage and conflicts
 
-Sync runs on resume, reconnect and every 30 seconds while Folio is in the foreground. While visible, Folio also subscribes to `sync_log` changes for mistakes and attempt context, and refreshes on subscription or reconnect. A refresh requested during an active sync is run afterward. Starting the next practice page resumes any sync cancelled for its local write, so queued ratings are not stranded. Account and sync, and the mistakes list, distinguish authentication, permission, backend, timeout and connection failures; raw SDK messages and request headers are never displayed. Local builds must provide the same public Supabase URL/key as ExamTrack in ignored `local.properties` (mapped from its `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`); placeholder builds cannot connect to a real account.
+Sync runs on resume, reconnect and every 30 seconds while Folio is in the foreground. While visible, Folio also subscribes to `sync_log` changes for mistakes and attempt context, and refreshes on subscription or reconnect. A refresh requested during an active sync is run afterward. Starting the next practice page resumes any sync cancelled for its local write, so queued ratings are not stranded. Account and sync, and the mistakes list, distinguish authentication, permission, backend, timeout and connection failures; raw SDK messages and request headers are never displayed. Local builds must provide Focal's public Supabase URL/key in ignored `local.properties` (`FOCAL_SUPABASE_URL` / `FOCAL_SUPABASE_PUBLISHABLE_KEY`, mapped from Focal's `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`); placeholder builds cannot connect to a real account.
 
 `MistakeRepository` has a versioned, atomic cache at `files/examtrack/<user-id>/cache.json`. It contains original mistake payloads, pending IDs, tombstones, source-attempt context, local page references and last sync time. It contains no tokens. `mistakes` and `attempts` downloads are paginated in stable ID order. Only attempt subject/title/paper context is retained; no unrelated tables are accessed. Invalid individual mistake payloads are counted and skipped.
 

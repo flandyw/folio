@@ -4,18 +4,11 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
-import com.folio.notes.BuildConfig
-import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.auth.MemoryCodeVerifierCache
-import io.github.jan.supabase.auth.Auth
+import com.folio.notes.FocalSupabaseConnection
 import io.github.jan.supabase.auth.SessionManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.user.UserSession
-import io.github.jan.supabase.logging.LogLevel
-import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.realtime.Realtime
-import io.github.jan.supabase.storage.Storage
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -58,22 +51,12 @@ class EncryptedExamTrackSession(context: Context, name: String = "examtrack-sess
     override suspend fun deleteSession() = withContext(Dispatchers.IO) { file.delete() }
 }
 
+/** Mistake review signs in through the shared Focal connection; one account covers both features. */
 class ExamTrackAuthRepository(context: Context) {
-    val sessions = EncryptedExamTrackSession(context)
-    val client = createSupabaseClient(BuildConfig.EXAMTRACK_SUPABASE_URL, BuildConfig.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY) {
-        defaultLogLevel = LogLevel.NONE
-        install(Auth) {
-            codeVerifierCache = MemoryCodeVerifierCache()
-            sessionManager = sessions
-            autoLoadFromStorage = false
-            alwaysAutoRefresh = true
-            enableLifecycleCallbacks = false // Keep the account/cache usable while offline or backgrounded.
-        }
-        install(Postgrest)
-        install(Realtime)
-        install(Storage)
-    }
-    private val lifecycle = ExamTrackSessionLifecycle(client, sessions)
+    private val connection = FocalSupabaseConnection.of(context)
+    val sessions: SessionManager = connection.sessions
+    val client = connection.client
+    private val lifecycle = connection.lifecycle
     val restoredUser get() = lifecycle.restoredUser
     suspend fun awaitRestoration() = lifecycle.awaitRestoration()
     suspend fun signIn(email: String, password: String) {
@@ -91,13 +74,10 @@ class ExamTrackAuthRepository(context: Context) {
         client.auth.resetPasswordForEmail(email)
     }
     suspend fun signOut() {
-        // Local sign-out must work offline; clearing also stops SDK token refresh.
+        // Local sign-out must work offline; clearing also stops SDK token refresh. Study sessions
+        // share this session, so signing out of mistakes signs out of Focal too.
         lifecycle.cancelRestoration()
         client.auth.clearSession()
         sessions.deleteSession()
-    }
-    suspend fun close() {
-        lifecycle.cancelRestoration()
-        client.close()
     }
 }

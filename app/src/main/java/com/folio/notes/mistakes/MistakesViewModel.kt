@@ -236,7 +236,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     }
     override fun onCleared() {
         connectivity.unregisterNetworkCallback(callback)
-        (getApplication<Application>() as com.folio.notes.FolioApplication).storageScope.launch { auth.close() }
+        // The Supabase client is process-scoped and shared with study sessions, so it is not closed here.
         super.onCleared()
     }
 }

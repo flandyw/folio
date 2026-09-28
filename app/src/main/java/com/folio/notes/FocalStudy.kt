@@ -3,20 +3,13 @@ package com.folio.notes
 import android.content.Context
 import android.os.SystemClock
 import android.util.AtomicFile
-import com.folio.notes.mistakes.EncryptedExamTrackSession
-import com.folio.notes.mistakes.ExamTrackSessionLifecycle
-import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.postgrest.rpc
-import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
@@ -444,20 +437,11 @@ class FocalStudyManager(context: Context) {
     }
     private val file = AtomicFile(File(context.filesDir, "focal-study.json"))
     private val gate = Mutex()
-    private val sessions = EncryptedExamTrackSession(context, "focal-session", "folio-focal")
-    private val client = createSupabaseClient(BuildConfig.FOCAL_SUPABASE_URL, BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY) {
-        defaultLogLevel = LogLevel.NONE
-        install(Auth) {
-            codeVerifierCache = MemoryCodeVerifierCache()
-            sessionManager = sessions
-            autoLoadFromStorage = false
-            alwaysAutoRefresh = true
-            enableLifecycleCallbacks = false
-        }
-        install(Postgrest)
-        install(Realtime)
-    }
-    private val lifecycle = ExamTrackSessionLifecycle(client, sessions)
+    // Study sessions and mistake review share one Supabase client and one account.
+    private val connection = FocalSupabaseConnection.of(context)
+    private val sessions = connection.sessions
+    private val client = connection.client
+    private val lifecycle = connection.lifecycle
     private val syncRemote = SupabaseSyncRemote(client)
     private val deviceId = context.getSharedPreferences("focal-sync", Context.MODE_PRIVATE).let { preferences ->
         preferences.getString("device-id", null) ?: UUID.randomUUID().toString().also {

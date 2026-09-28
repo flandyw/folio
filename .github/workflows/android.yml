@@ -39,7 +39,4 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
       - name: Unit tests
-        env:
-          EXAMTRACK_SUPABASE_URL: ${{ secrets.EXAMTRACK_SUPABASE_URL }}
-          EXAMTRACK_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXAMTRACK_SUPABASE_PUBLISHABLE_KEY }}
         run: ./gradlew :app:testDebugUnitTest
