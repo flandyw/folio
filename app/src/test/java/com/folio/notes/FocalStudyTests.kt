@@ -24,6 +24,30 @@ class FocalStudyTests {
         assertEquals(serverStart + 10_000L, focalEstimatedServerNow(anchor, 11_000L, wallClockTenMinutesFast))
     }
 
+    @Test fun lifecycleElapsedSurvivesProcessRestartButNotDeviceReboot() {
+        assertEquals(4_900L, focalElapsedSince(100L, 12, 5_000L, 12, 9_000L))
+        assertEquals(0L, focalElapsedSince(100L, 12, 5_000L, 13))
+        assertEquals(0L, focalElapsedSince(5_000L, 12, 100L, 12, 9_000L))
+        assertEquals(9_000L, focalElapsedSince(null, -1, 5_000L, 12, 9_000L))
+        assertEquals(604_800_000L, focalElapsedSince(null, -1, 5_000L, 12, 900_000_000L))
+    }
+
+    @Test fun processRecoveryUsesOnlyDurableActiveTimeSinceCanonicalBoundary() {
+        assertEquals(180_000L, focalRecoveryElapsed(300_000L, 120_000L))
+        assertEquals(0L, focalRecoveryElapsed(90_000L, 120_000L))
+        assertEquals(604_800_000L, focalRecoveryElapsed(900_000_000L, 0L))
+    }
+
+    @Test fun canonicalTimingBoundaryRecoversWithoutDeviceWallTime() {
+        val boundary = "2026-09-28T00:00:00Z"
+        val serverNow = java.time.Instant.parse(boundary).toEpochMilli() + 42_000L
+        assertEquals(42_000L, focalElapsedFromServerBoundary(boundary, serverNow))
+        assertEquals(null, focalElapsedFromServerBoundary(boundary,
+            java.time.Instant.parse(boundary).toEpochMilli() - 1))
+        assertEquals(null, focalElapsedFromServerBoundary(boundary, serverNow + 604_800_001L))
+        assertEquals(null, focalElapsedFromServerBoundary(null, serverNow))
+    }
+
     private fun active() = FocalStudyEntry(id = "session", notebookId = "notebook", title = "Study",
         subjectId = "mm", kind = "study", startedAt = 0, endedAt = 60_000,
         activeMillis = 60_000, completed = false, synced = true, revision = 7)
@@ -44,6 +68,18 @@ class FocalStudyTests {
             .getJSONObject("notion").getString("id"))
         assertEquals("focus", focalStudyCommand(active(), "start", 0,
             "11111111-1111-4111-8111-111111111111").getString("kind"))
+    }
+
+    @Test fun timerCheckpointsStayLocalButReflectionEditsPublishOnce() {
+        val device = "11111111-1111-4111-8111-111111111111"
+        val base = active().copy(synced = false, remotePayload = """{"state":"running","phase":"focus","kind":"focus","title":"Study","subject_id":"mm","metadata":{}}""")
+        val start = focalStudyCommand(base, "start", 7, device)
+        val state = FocalStudyState(entries = listOf(base), pendingSessionCommands = listOf(start.toString()))
+        val checkpoint = focalQueueEntryMutation(state, base.copy(changeId = "checkpoint", activeMillis = 90_000), device)
+        assertEquals(1, checkpoint.pendingSessionCommands.size)
+        val reflection = focalQueueEntryMutation(state, base.copy(changeId = "reflection", notes = "Remember this"), device)
+        assertEquals(2, reflection.pendingSessionCommands.size)
+        assertEquals("save_progress", JSONObject(reflection.pendingSessionCommands.last()).getString("action"))
     }
 
     @Test fun canonicalMetadataKeepsExamDetailsAndDropsDuplicateTimerBoundaries() {
@@ -105,6 +141,15 @@ class FocalStudyTests {
         assertEquals(recovered, focalMergeSession(recovered, remote))
     }
 
+    @Test fun recoveryDoesNotCountAnUncheckpointedOpenInterval() {
+        val focus = FocalFocus(notebookId = "notebook", title = "Study", subjectId = "mm",
+            startedAt = 0, resumedAt = 60_000, accumulatedMillis = 30_000,
+            intervals = listOf(FocalStudyInterval(0, 30_000), FocalStudyInterval(60_000, null)))
+        val recovered = focalRecoverFocus(active(), focus)
+        assertEquals(listOf(30_000L, 60_000L), recovered.intervals.map { it.endAt })
+        assertEquals(30_000L, recovered.activeMillis)
+    }
+
     @Test fun plannedCalendarRowsDoNotBlockFocus() {
         assertFalse(active().copy(planned = true).active)
         assertFalse(FocalStudyState(entries = listOf(active().copy(planned = true))).hasActiveSession)
@@ -120,6 +165,25 @@ class FocalStudyTests {
         assertTrue(state.canStartFocus)
         assertFalse(state.copy(focus = FocalFocus(notebookId = "new", title = "Study",
             subjectId = "mm", startedAt = 60_000, resumedAt = null)).canStartFocus)
+    }
+
+    @Test fun commandRebaseIsLimitedToValidNonterminalTransitions() {
+        assertTrue(focalMutationCanRebase("pause", "running"))
+        assertTrue(focalMutationCanRebase("resume", "paused"))
+        assertTrue(focalMutationCanRebase("complete", "planned"))
+        assertFalse(focalMutationCanRebase("pause", "completed"))
+        assertFalse(focalMutationCanRebase("start", "running"))
+        assertFalse(focalMutationCanRebase("create", "planned"))
+    }
+
+    @Test fun completedLocalSessionWithDurationStartsBeforeCompletion() {
+        val completed = active().copy(changeId = "finish", completed = true, synced = false,
+            remotePayload = null, revision = 0)
+        val queued = focalQueueEntryMutation(FocalStudyState(), completed,
+            "11111111-1111-4111-8111-111111111111")
+        assertEquals(listOf("start", "complete"), queued.pendingSessionCommands.map {
+            JSONObject(it).getString("action")
+        })
     }
 
     @Test fun pausedSharedEntriesCanBeFinishedOrDiscarded() {

@@ -2,6 +2,7 @@ package com.folio.notes
 
 import android.content.Context
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.AtomicFile
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -151,7 +152,12 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
 
 internal fun focalRecoverFocus(entry: FocalStudyEntry, focus: FocalFocus): FocalStudyEntry = entry.copy(
     changeId = UUID.randomUUID().toString(), synced = false, paused = true,
-    intervals = focus.intervals, activeMillis = focus.accumulatedMillis
+    // A persisted open interval proves only its start, not how long it ran before process death.
+    intervals = focus.intervals.mapIndexed { index, interval ->
+        if (index == focus.intervals.lastIndex && interval.endAt == null) interval.copy(endAt = interval.startAt)
+        else interval
+    },
+    activeMillis = focus.accumulatedMillis
 )
 
 /** A stable, readable title for a regular study session. */
@@ -358,7 +364,62 @@ data class FocalStudyState(
     }
 }
 
-internal fun focalQueueEntryMutation(state: FocalStudyState, entry: FocalStudyEntry, deviceId: String): FocalStudyState {
+internal data class FocalSessionCommandTiming(val occurredAt: String?, val elapsedMs: Long)
+
+internal fun focalElapsedSince(
+    previousElapsed: Long?, previousBootCount: Int, currentElapsed: Long, currentBootCount: Int,
+    fallbackElapsed: Long = 0L
+): Long = if (previousElapsed != null && previousBootCount >= 0 && previousBootCount == currentBootCount)
+    (currentElapsed - previousElapsed).coerceIn(0L, 604_800_000L)
+else fallbackElapsed.coerceIn(0L, 604_800_000L)
+
+internal fun focalRecoveryElapsed(activeMillis: Long, canonicalAccumulatedMillis: Long): Long =
+    (activeMillis - canonicalAccumulatedMillis).coerceIn(0L, 604_800_000L)
+
+internal fun focalElapsedFromServerBoundary(boundary: String?, serverNow: Long?): Long? {
+    if (boundary == null || serverNow == null) return null
+    val boundaryMillis = runCatching { Instant.parse(boundary).toEpochMilli() }.getOrNull() ?: return null
+    val elapsed = serverNow - boundaryMillis
+    return elapsed.takeIf { it in 0L..604_800_000L }
+}
+
+private fun focalJsonCanonical(value: Any?): String = when (value) {
+    is JSONObject -> value.keys().asSequence().toList().sorted().joinToString(",", "{", "}") { key ->
+        "${JSONObject.quote(key)}:${focalJsonCanonical(value.opt(key))}"
+    }
+    is JSONArray -> (0 until value.length()).joinToString(",", "[", "]") { index -> focalJsonCanonical(value.opt(index)) }
+    JSONObject.NULL -> "null"
+    is String -> JSONObject.quote(value)
+    else -> value.toString()
+}
+
+private fun focalProgressChanged(
+    entry: FocalStudyEntry,
+    pending: JSONObject?,
+    canonical: JSONObject?,
+    expectedRevision: Long,
+    deviceId: String
+): Boolean {
+    val candidate = focalStudyCommand(entry, "save_progress", expectedRevision, deviceId, entry.changeId)
+    val previousMetadata = pending?.optJSONObject("metadata") ?: canonical?.optJSONObject("metadata")
+        ?: canonical?.let { JSONObject().put("legacy_metadata", focalLegacyMetadata(it)) }
+        ?: return true
+    val candidateMetadata = candidate.optJSONObject("metadata") ?: JSONObject()
+    if (focalJsonCanonical(candidateMetadata) != focalJsonCanonical(previousMetadata)) return true
+    for (field in listOf("kind", "phase", "title")) {
+        if (candidate.optString(field) != (pending ?: canonical)?.optString(field)) return true
+    }
+    val candidateSubject = candidate.opt("subject_id")
+    val previousSubject = (pending ?: canonical)?.opt("subject_id")
+    return candidateSubject != previousSubject
+}
+
+internal fun focalQueueEntryMutation(
+    state: FocalStudyState,
+    entry: FocalStudyEntry,
+    deviceId: String,
+    timingForAction: (String) -> FocalSessionCommandTiming? = { null }
+): FocalStudyState {
     if (entry.synced) return state
     val pending = state.pendingSessionCommands.mapNotNull { raw -> runCatching { JSONObject(raw) }.getOrNull() }
     if (pending.any { it.optString("mutation_id") == entry.changeId }) return state
@@ -383,7 +444,7 @@ internal fun focalQueueEntryMutation(state: FocalStudyState, entry: FocalStudyEn
     fun append(action: String) {
         val id = if (first) entry.changeId else UUID.randomUUID().toString()
         first = false
-        val command = focalStudyCommand(entry, action, expected++, deviceId, id)
+        val command = focalStudyCommand(entry, action, expected++, deviceId, id, timingForAction(action))
         queued += command.toString()
         when (action) {
             "start", "resume" -> currentState = "running"
@@ -399,8 +460,14 @@ internal fun focalQueueEntryMutation(state: FocalStudyState, entry: FocalStudyEn
             "planned" -> append("create")
             "running" -> append("start")
             "paused" -> { append("start"); append("pause") }
-            "completed" -> { append("create"); append("complete") }
-            "cancelled" -> { append("create"); append("cancel") }
+            "completed" -> {
+                if (entry.activeMillis > 0L) append("start") else append("create")
+                append("complete")
+            }
+            "cancelled" -> {
+                if (entry.activeMillis > 0L) append("start") else append("create")
+                append("cancel")
+            }
         }
     } else if (currentState !in setOf("completed", "cancelled") || desired == currentState) {
         when {
@@ -411,7 +478,9 @@ internal fun focalQueueEntryMutation(state: FocalStudyState, entry: FocalStudyEn
             desired == "paused" && currentState == "planned" -> { append("start"); append("pause") }
             desired == "paused" && currentState == "running" -> append("pause")
             currentState == desired && currentPhase != focalEntryPhase(entry) -> append("phase_change")
-            currentState == desired -> append("save_progress")
+            currentState == desired && focalProgressChanged(entry, forSession.lastOrNull(), canonical,
+                expected - 1, deviceId) -> append("save_progress")
+            currentState == desired -> Unit
         }
     }
     return if (queued.size == state.pendingSessionCommands.size) state else state.copy(pendingSessionCommands = queued)
@@ -425,10 +494,14 @@ private fun focalEntryPhase(entry: FocalStudyEntry): String =
 /** Durable local sessions and an idempotent command outbox. */
 class FocalStudyManager(context: Context) {
     @Volatile private var serverClockAnchor: FocalServerClockAnchor? = null
+    private val localClockAnchor = FocalServerClockAnchor(System.currentTimeMillis(), SystemClock.elapsedRealtime())
+    private val timingPreferences = context.getSharedPreferences("focal-study-timing", Context.MODE_PRIVATE)
+    private val timingProcessId = UUID.randomUUID().toString()
+    private val timingBootCount = runCatching { Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun now(): Long = focalEstimatedServerNow(
-        serverClockAnchor, SystemClock.elapsedRealtime(), System.currentTimeMillis()
+        serverClockAnchor ?: localClockAnchor, SystemClock.elapsedRealtime(), System.currentTimeMillis()
     )
 
     private fun observeServerNow(value: String?) {
@@ -443,11 +516,7 @@ class FocalStudyManager(context: Context) {
     private val client = connection.client
     private val lifecycle = connection.lifecycle
     private val syncRemote = SupabaseSyncRemote(client)
-    private val deviceId = context.getSharedPreferences("focal-sync", Context.MODE_PRIVATE).let { preferences ->
-        preferences.getString("device-id", null) ?: UUID.randomUUID().toString().also {
-            check(preferences.edit().putString("device-id", it).commit()) { "Could not save Folio's sync device ID" }
-        }
-    }
+    private val deviceId = focalSyncDeviceId(context)
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
@@ -486,7 +555,7 @@ class FocalStudyManager(context: Context) {
                 // exam into dozens of immutable changes. The terminal update keeps the same
                 // row_id and replaces the in-progress record in a correct Focal consumer.
                 delay(30_000)
-                if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = System.currentTimeMillis())
+                if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = now())
                 if (_state.value.userId != null) sync()
             }
         }
@@ -561,7 +630,8 @@ class FocalStudyManager(context: Context) {
                     }.getOrNull() }
                 })
         }.getOrNull() }
-        // A process death must not turn an unseen gap into study time.
+        // Recovery closes at the last durable checkpoint. A new process cannot reuse the
+        // prior process's monotonic delta, and a reboot cannot reuse elapsedRealtime at all.
         val recoveredFocus = focus?.copy(resumedAt = null)?.takeUnless { current ->
             entries.any { it.id == current.sessionId && (it.deleted || it.completed) }
         }
@@ -633,7 +703,7 @@ class FocalStudyManager(context: Context) {
         }
     }
 
-    fun startFocus(note: Notebook, subjectId: String?, now: Long = System.currentTimeMillis()) {
+    fun startFocus(note: Notebook, subjectId: String?, now: Long = this.now()) {
         if (!_state.value.canStartFocus) return
         val focus = FocalFocus(notebookId = note.id,
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
@@ -641,7 +711,7 @@ class FocalStudyManager(context: Context) {
         _state.update { it.copy(focus = focus, error = null) }
         saveFocusEntry(focus, now)
     }
-    fun toggleFocus(now: Long = System.currentTimeMillis()) {
+    fun toggleFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         val next = if (focus.resumedAt == null) focus.resume(now) else focus.pause(now)
         _state.update { it.copy(focus = next, error = null) }
@@ -649,12 +719,12 @@ class FocalStudyManager(context: Context) {
         // time from the open interval's start and does not need a checkpoint every few seconds.
         saveFocusEntry(next, now, forceUpload = true)
     }
-    fun discardFocus(now: Long = System.currentTimeMillis()) {
+    fun discardFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         _state.update { it.copy(focus = null) }
         saveFocusEntry(focus.pause(now), now, deleted = true)
     }
-    fun finishFocus(notes: String, confidence: Int?, now: Long = System.currentTimeMillis()) {
+    fun finishFocus(notes: String, confidence: Int?, now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         val active = focus.elapsed(now)
         if (active < 1_000L) { discardFocus(); return }
@@ -680,12 +750,75 @@ class FocalStudyManager(context: Context) {
     private fun saveEntry(entry: FocalStudyEntry) {
         _state.update { state ->
             val updated = state.copy(entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null)
-            focalQueueEntryMutation(updated, entry, deviceId)
+            queueEntryMutation(updated, entry)
         }
         if (persist()) scope.launch { sync() }
     }
 
-    fun controlEntry(id: String, action: String, now: Long = System.currentTimeMillis()) {
+    private fun queueEntryMutation(state: FocalStudyState, entry: FocalStudyEntry): FocalStudyState {
+        val monoNow = SystemClock.elapsedRealtime()
+        var previousMono = timingPreferences.getLong("elapsed:${entry.id}", -1L).takeIf { it > 0L }
+        var previousBoot = timingPreferences.getInt("boot:${entry.id}", -1)
+        val previousProcess = timingPreferences.getString("process:${entry.id}", null)
+        val desired = focalDesiredState(entry)
+        val hasPendingForSession = state.pendingSessionCommands.any { raw -> runCatching {
+            JSONObject(raw).optString("session_id") == entry.id
+        }.getOrDefault(false) }
+        val serverNow = serverClockAnchor?.let { estimate ->
+            estimate.serverMillis + (monoNow - estimate.elapsedMillis).coerceAtLeast(0L)
+        }
+        val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val remoteBoundary = canonical?.optString("timing_at")?.takeIf { it.isNotBlank() }
+            ?: when (canonical?.optString("state")) {
+                "running" -> canonical.optString("segment_started_at").takeIf { it.isNotBlank() }
+                "paused" -> canonical.optString("paused_at").takeIf { it.isNotBlank() }
+                else -> null
+            }
+        val queuedState = state.pendingSessionCommands.lastOrNull { raw -> runCatching {
+            JSONObject(raw).optString("session_id") == entry.id
+        }.getOrDefault(false) }?.let { raw -> runCatching { JSONObject(raw).optString("action") }.getOrNull() }
+        val recoveredRunningFocus = _state.value.focus?.let { it.sessionId == entry.id && it.resumedAt == null } == true &&
+            entry.paused && (canonical?.optString("state") == "running" || queuedState in setOf("start", "resume"))
+        val serverElapsed = if (hasPendingForSession || recoveredRunningFocus) null
+            else focalElapsedFromServerBoundary(remoteBoundary, serverNow)
+        val monotonicContinuous = previousMono != null && previousBoot >= 0 && previousBoot == timingBootCount &&
+            previousProcess == timingProcessId
+        var synthesizedEnd = false
+        return focalQueueEntryMutation(state, entry, deviceId) { action ->
+            if (action !in setOf("start", "pause", "resume", "phase_change", "complete", "cancel")) return@focalQueueEntryMutation null
+            val fallbackElapsed = when {
+                recoveredRunningFocus -> focalRecoveryElapsed(entry.activeMillis, canonical?.optLong("accumulated_active_ms") ?: 0L)
+                serverElapsed != null -> serverElapsed
+                action in setOf("pause", "complete") && entry.remotePayload == null && !hasPendingForSession -> entry.activeMillis
+                else -> 0L
+            }
+            val elapsed = if (synthesizedEnd && entry.activeMillis > 0L)
+                entry.activeMillis.coerceAtMost(604_800_000L)
+            else focalElapsedSince(
+                previousMono.takeIf { monotonicContinuous },
+                if (monotonicContinuous) previousBoot else -1,
+                monoNow, timingBootCount, fallbackElapsed
+            )
+            val synthesized = action == "start" && desired != "running"
+            if (synthesized) synthesizedEnd = true
+            val occurrenceIsSafe = !synthesized && serverNow != null &&
+                (monotonicContinuous || serverElapsed != null ||
+                    (previousMono == null && entry.remotePayload == null && !hasPendingForSession))
+            val occurredAt = if (occurrenceIsSafe) Instant.ofEpochMilli(serverNow!!).toString() else null
+            previousMono = monoNow
+            previousBoot = timingBootCount
+            if (action in setOf("complete", "cancel")) {
+                timingPreferences.edit().remove("elapsed:${entry.id}").remove("boot:${entry.id}")
+                    .remove("process:${entry.id}").commit()
+            } else {
+                timingPreferences.edit().putLong("elapsed:${entry.id}", monoNow).putInt("boot:${entry.id}", timingBootCount)
+                    .putString("process:${entry.id}", timingProcessId).commit()
+            }
+            FocalSessionCommandTiming(occurredAt, elapsed)
+        }
+    }
+
+    fun controlEntry(id: String, action: String, now: Long = this.now()) {
         val current = _state.value.visibleEntries.firstOrNull { it.id == id && it.active } ?: return
         val focus = _state.value.focus
         if (focus?.sessionId == id) {
@@ -700,7 +833,7 @@ class FocalStudyManager(context: Context) {
     }
 
     /** Resolve multiple old paused rows in one durable write and one sync pass. */
-    fun controlPausedEntries(ids: Collection<String>, action: String, now: Long = System.currentTimeMillis()) {
+    fun controlPausedEntries(ids: Collection<String>, action: String, now: Long = this.now()) {
         if (action != "finish" && action != "discard") return
         val focusId = _state.value.focus?.sessionId
         val targets = _state.value.visibleEntries.filter { it.id in ids && it.active && it.paused && it.id != focusId }
@@ -708,12 +841,12 @@ class FocalStudyManager(context: Context) {
         val updated = targets.mapNotNull { focalControlledEntry(it, action, now) }.associateBy { it.id }
         _state.update { state ->
             val next = state.copy(entries = state.entries.map { updated[it.id] ?: it }, error = null)
-            updated.values.fold(next) { queued, entry -> focalQueueEntryMutation(queued, entry, deviceId) }
+            updated.values.fold(next) { queued, entry -> queueEntryMutation(queued, entry) }
         }
         if (persist()) scope.launch { sync() }
     }
 
-    fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis(), force: Boolean = false) {
+    fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = this.now(), force: Boolean = false) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
@@ -724,7 +857,7 @@ class FocalStudyManager(context: Context) {
         updateExam(examStudyEntry(note, timer, now, existing, forceUpload = phaseChanged, subjects = _state.value.subjects))
     }
 
-    fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = System.currentTimeMillis()) {
+    fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now()) {
         val started = timer.startedAt ?: return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
         if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedWriting(now) <= 0)) return
@@ -736,7 +869,7 @@ class FocalStudyManager(context: Context) {
             val present = state.entries.any { it.id == entry.id }
             val updated = state.copy(entries = if (present) state.entries.map { if (it.id == entry.id) entry else it }
                 else listOf(entry) + state.entries, error = null)
-            focalQueueEntryMutation(updated, entry, deviceId)
+            queueEntryMutation(updated, entry)
         }
         if (persist()) scope.launch { sync() }
     }
@@ -751,7 +884,7 @@ class FocalStudyManager(context: Context) {
     private fun add(entry: FocalStudyEntry) {
         _state.update { state ->
             val updated = state.copy(entries = listOf(entry) + state.entries, error = null)
-            focalQueueEntryMutation(updated, entry, deviceId)
+            queueEntryMutation(updated, entry)
         }
         if (persist()) scope.launch { sync() }
     }
@@ -870,8 +1003,13 @@ class FocalStudyManager(context: Context) {
                     if (reason == "stale_revision" && canonical != null) {
                         val state = canonical.optString("state")
                         val phase = canonical.optString("phase").takeIf { it.isNotBlank() }
-                        if (focalMutationSatisfied(command.optString("action"), state, phase,
+                        val action = command.optString("action")
+                        if (focalMutationSatisfied(action, state, phase,
                                 command.optString("phase").takeIf { it.isNotBlank() })) {
+                            removePendingSessionCommand(raw, command.optString("session_id"), terminal = state in setOf("completed", "cancelled"))
+                            break
+                        }
+                        if (state in setOf("completed", "cancelled") || !focalMutationCanRebase(action, state)) {
                             removePendingSessionCommand(raw, command.optString("session_id"), terminal = state in setOf("completed", "cancelled"))
                             break
                         }
@@ -886,8 +1024,12 @@ class FocalStudyManager(context: Context) {
                         raw = rebased
                         continue
                     }
-                    if (!result.optBoolean("ok") && reason == "session_terminal") {
+                    if (reason == "session_terminal") {
                         removePendingSessionCommand(raw, command.optString("session_id"), terminal = true)
+                        break
+                    }
+                    if (!result.optBoolean("ok") && reason in setOf("invalid_transition", "not_found")) {
+                        removePendingSessionCommand(raw, command.optString("session_id"), terminal = false)
                         break
                     }
                     if (!result.optBoolean("ok") && !(reason == "already_exists" && command.optString("action") == "create")) {
@@ -1083,7 +1225,8 @@ internal fun focalStudyCommand(
     action: String,
     expectedRevision: Long,
     deviceId: String,
-    mutationId: String = entry.changeId
+    mutationId: String = entry.changeId,
+    timing: FocalSessionCommandTiming? = null
 ): JSONObject {
     val raw = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
     val canonicalMetadata = raw?.optJSONObject("metadata")
@@ -1107,6 +1250,8 @@ internal fun focalStudyCommand(
         .put("app", "folio").put("kind", if (entry.kind == "exam") "exam" else "focus")
         .put("phase", phase).put("title", entry.title)
         .put("subject_id", entry.subjectId ?: JSONObject.NULL).put("metadata", metadata)
+        .put("occurred_at", timing?.occurredAt ?: JSONObject.NULL)
+        .put("elapsed_since_previous_ms", timing?.elapsedMs ?: 0L)
 }
 
 internal fun focalCanonicalState(payload: String?): String? = payload?.let { raw -> runCatching {
@@ -1126,6 +1271,16 @@ internal fun focalDesiredState(entry: FocalStudyEntry): String = when {
     entry.planned -> "planned"
     entry.paused -> "paused"
     else -> "running"
+}
+
+internal fun focalMutationCanRebase(action: String, state: String?): Boolean = when (action) {
+    "create" -> false
+    "start" -> state == "planned"
+    "pause" -> state == "running"
+    "resume" -> state == "paused"
+    "phase_change", "save_progress" -> state in setOf("running", "paused")
+    "complete", "cancel" -> state in setOf("planned", "running", "paused")
+    else -> false
 }
 
 internal fun focalMutationSatisfied(action: String, state: String?, phase: String?, requestedPhase: String? = null): Boolean = when (action) {

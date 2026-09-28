@@ -10,6 +10,8 @@ import org.json.JSONObject
 
 /** What the log says in reply to a batch: one receipt per change, with the sequence it was given. */
 data class ApplyReceipt(val changeId: String, val seq: Long, val replayed: Boolean)
+data class ApplyStale(val changeId: String, val current: SyncProtocol.RowState?)
+data class ApplyResult(val receipts: List<ApplyReceipt>, val stale: List<ApplyStale>, val head: Long)
 
 /** Either more log rows, or the whole materialized state when this cursor is too old to tail. */
 data class ReadResult(
@@ -26,7 +28,7 @@ data class ReadResult(
  * network, and so the mistakes sync and the notes sync share one implementation.
  */
 interface SyncRemote {
-    suspend fun apply(accountId: String, changes: List<SyncProtocol.QueuedChange>, clientId: String): Pair<List<ApplyReceipt>, Long>
+    suspend fun apply(accountId: String, changes: List<SyncProtocol.QueuedChange>, clientId: String): ApplyResult
     suspend fun read(accountId: String, cursor: Long, limit: Int = 500): ReadResult
     suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject
 }
@@ -44,7 +46,7 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
         accountId: String,
         changes: List<SyncProtocol.QueuedChange>,
         clientId: String
-    ): Pair<List<ApplyReceipt>, Long> {
+    ): ApplyResult {
         checkUser(accountId)
         val payload = JSONArray().apply {
             changes.forEach { change ->
@@ -57,25 +59,38 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
                         .put("operation", change.operation)
                         .put("payload", change.payload ?: JSONObject.NULL)
                         .put("lamport", change.lamport)
+                        .apply { change.expectedSeq?.let { put("expected_seq", it) } }
                 )
             }
         }
         val result = rpcObject(
-            client.postgrest.rpc("sync_apply_changes", mapOf("p_changes" to payload.toString()))
+            client.postgrest.rpc("sync_apply_changes", mapOf(
+                "p_changes" to kotlinx.serialization.json.Json.parseToJsonElement(payload.toString()),
+                "p_expected_user_id" to accountId,
+            ))
         )
         val receipts = result.optJSONArray("receipts") ?: JSONArray()
-        return (0 until receipts.length()).mapNotNull { index ->
+        val applied = (0 until receipts.length()).mapNotNull { index ->
             val receipt = receipts.optJSONObject(index) ?: return@mapNotNull null
             val changeId = receipt.optString("change_id")
             if (changeId.isEmpty()) null
             else ApplyReceipt(changeId, receipt.optLong("seq"), receipt.optBoolean("replayed"))
-        } to result.optLong("head")
+        }
+        val staleRows = result.optJSONArray("stale") ?: JSONArray()
+        val stale = (0 until staleRows.length()).mapNotNull { index ->
+            val row = staleRows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("change_id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            ApplyStale(id, row.optJSONObject("current")?.let(SyncProtocol::parseRowState))
+        }
+        return ApplyResult(applied, stale, result.optLong("head"))
     }
 
     override suspend fun read(accountId: String, cursor: Long, limit: Int): ReadResult {
         checkUser(accountId)
         val result = rpcObject(
-            client.postgrest.rpc("sync_read_changes", mapOf("p_after" to cursor, "p_limit" to limit))
+            client.postgrest.rpc("sync_read_changes", mapOf(
+                "p_after" to cursor, "p_limit" to limit, "p_expected_user_id" to accountId,
+            ))
         )
         val rows = result.optJSONArray("rows") ?: JSONArray()
         val snapshot = result.optString("mode") == "snapshot"
@@ -91,8 +106,9 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
 
     override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
         checkUser(accountId)
+        val request = JSONObject(command.toString()).put("expected_user_id", accountId)
         return rpcObject(client.postgrest.rpc(
-            "study_session_mutate", mapOf("p_command" to kotlinx.serialization.json.Json.parseToJsonElement(command.toString()))
+            "study_session_mutate", mapOf("p_command" to kotlinx.serialization.json.Json.parseToJsonElement(request.toString()))
         ))
     }
 }

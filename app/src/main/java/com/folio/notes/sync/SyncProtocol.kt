@@ -86,7 +86,8 @@ object SyncProtocol {
         val retryCount: Int = 0,
         val lastError: String? = null,
         val nextAttemptAt: String? = null,
-        val blockedAt: String? = null
+        val blockedAt: String? = null,
+        val expectedSeq: Long? = null
     ) {
         val key: String get() = "$entity:$rowId"
 
@@ -102,6 +103,7 @@ object SyncProtocol {
             .put("lastError", lastError ?: JSONObject.NULL)
             .put("nextAttemptAt", nextAttemptAt ?: JSONObject.NULL)
             .put("blockedAt", blockedAt ?: JSONObject.NULL)
+            .put("expectedSeq", expectedSeq ?: JSONObject.NULL)
 
         companion object {
             fun fromJson(o: JSONObject) = QueuedChange(
@@ -115,7 +117,8 @@ object SyncProtocol {
                 retryCount = o.optInt("retryCount"),
                 lastError = o.optStringOrNull("lastError"),
                 nextAttemptAt = o.optStringOrNull("nextAttemptAt"),
-                blockedAt = o.optStringOrNull("blockedAt")
+                blockedAt = o.optStringOrNull("blockedAt"),
+                expectedSeq = if (o.isNull("expectedSeq")) null else o.optLong("expectedSeq")
             )
         }
     }

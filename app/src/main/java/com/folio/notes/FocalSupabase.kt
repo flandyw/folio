@@ -12,6 +12,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import java.io.File
+import java.util.UUID
 
 /**
  * One Supabase connection for the whole app. Study sessions and mistake review live in the same
@@ -19,6 +20,13 @@ import java.io.File
  * The SDK is created once per process: two clients on one session file would each refresh tokens
  * independently and overwrite the other's ciphertext.
  */
+internal fun focalSyncDeviceId(context: Context): String = context.applicationContext
+    .getSharedPreferences("focal-sync", Context.MODE_PRIVATE).let { preferences ->
+        preferences.getString("device-id", null) ?: UUID.randomUUID().toString().also {
+            check(preferences.edit().putString("device-id", it).commit()) { "Could not save Folio's sync device ID" }
+        }
+    }
+
 class FocalSupabaseConnection(context: Context) {
     private val appContext = context.applicationContext
     val sessions = EncryptedExamTrackSession(appContext, "focal-session", "folio-focal")

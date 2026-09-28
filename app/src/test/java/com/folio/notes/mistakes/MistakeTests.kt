@@ -28,6 +28,7 @@ class MistakeTests {
     }
     private class Remote : ExamTrackRemote {
         private val changes = mutableListOf<SyncProtocol.Change>()
+        private val rowSeq = mutableMapOf<String, Long>()
         private var sequence = 0L
         val readCursors = mutableListOf<Long>()
         var rows = emptyList<RemoteMistakeRow>()
@@ -45,6 +46,7 @@ class MistakeTests {
         val deletes = mutableListOf<String>()
         private fun append(id: String, row: RemoteMistakeRow?) {
             sequence++
+            rowSeq[id] = sequence
             val deleted = row == null || row.deletedAt != null || row.payload == null
             changes += SyncProtocol.Change(sequence, "change-$sequence", "remote", "mistakes", id,
                 if (deleted) "delete" else "put", if (deleted) null else JSONObject(row!!.payload!!),
@@ -55,23 +57,33 @@ class MistakeTests {
             val page = changes.filter { it.seq > cursor }.take(limit)
             return ReadResult("changes", 0, sequence, page, emptyList())
         }
-        override suspend fun fetch(userId: String, ids: Set<String>): List<RemoteMistakeRow> {
+        override suspend fun apply(userId: String, change: SyncProtocol.QueuedChange): com.folio.notes.sync.ApplyResult {
             check(!offline)
-            return rows.filter { it.id in ids }
-        }
-        override suspend fun update(userId: String, expected: RemoteMistakeRow, payload: ExamTrackMistake): Boolean {
-            check(!offline)
-            if (conflict) return false
-            writes += payload
-            rows = rows.map { if (it.id == payload.id) RemoteMistakeRow(payload.id, payload.originalJson, payload.updatedAt, null) else it }
-            return true
-        }
-        override suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean {
-            check(!offline)
-            if (conflict) return false
-            deletes += expected.id
-            rows = rows.map { if (it.id == expected.id) it.copy(payload = null, updatedAt = deletedAt, deletedAt = deletedAt) else it }
-            return true
+            val remote = rows.firstOrNull { it.id == change.rowId }
+            val seq = rowSeq[change.rowId] ?: 0L
+            val current = remote?.let {
+                val deleted = it.deletedAt != null || it.payload == null
+                SyncProtocol.RowState("mistakes", it.id, if (deleted) "delete" else "put",
+                    if (deleted) null else JSONObject(it.payload!!), seq, "remote", seq)
+            }
+            if (conflict || change.expectedSeq != seq) {
+                return com.folio.notes.sync.ApplyResult(emptyList(),
+                    listOf(com.folio.notes.sync.ApplyStale(change.changeId, current)), sequence)
+            }
+            if (change.operation == "put") {
+                val payload = requireNotNull(change.payload)
+                val decoded = requireNotNull(ExamTrackMistakeCodec.decode(payload.toString(), change.rowId))
+                writes += decoded
+                rows = rows.filterNot { it.id == change.rowId } + RemoteMistakeRow(
+                    change.rowId, payload.toString(), decoded.updatedAt, null)
+            } else {
+                deletes += change.rowId
+                val stamp = change.createdAt
+                rows = rows.map { if (it.id == change.rowId) it.copy(payload = null, updatedAt = stamp, deletedAt = stamp) else it }
+            }
+            val appliedSeq = rowSeq[change.rowId] ?: sequence
+            return com.folio.notes.sync.ApplyResult(
+                listOf(com.folio.notes.sync.ApplyReceipt(change.changeId, appliedSeq, false)), emptyList(), sequence)
         }
     }
     @Test fun parsesAndRoundTripsUnknownFields() {
@@ -227,7 +239,7 @@ class MistakeTests {
         assertTrue(loaded.pendingDeletes.isEmpty())
         assertEquals(0L, loaded.remoteCursor)
         assertEquals("Q8c", loaded.mistakes["m"]!!.question)
-        assertEquals(3, MistakeCacheCodec.VERSION)
+        assertEquals(4, MistakeCacheCodec.VERSION)
     }
     @Test fun incrementalPullMergesRemoteContentWithQueuedLocalReview() = runBlocking {
         val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)

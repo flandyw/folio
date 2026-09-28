@@ -1,92 +1,48 @@
 # Sync
 
-Folio is moving onto the shared change log described in Focal's
-[`docs/sync-protocol.md`](../../focal/docs/sync-protocol.md). That document is the contract:
-the SQL migrations and both client implementations follow it, and anything that disagrees
-with it is a bug in the implementation.
+Folio uses the shared Focal Supabase project and follows the contract in
+[`focal/docs/sync-protocol.md`](../../focal/docs/sync-protocol.md). Supabase Auth identifies
+the account; Realtime is only a wakeup, while `sync_read_changes` and its cursor are the
+durable source of updates.
 
-## What is installed
+## Study sessions
 
-**ExamTrack's Supabase project** has `supabase/migrations/20260926020000_change_log.sql`
-(in the `examtrack` repository). It adds:
+Canonical sessions live in `study_sessions`, with active intervals in
+`study_session_segments`. Folio queues lifecycle mutations locally and publishes them through
+`study_session_mutate`; it never writes session records through `sync_apply_changes`, direct
+table CAS, or the compatibility view. Commands retain stable mutation IDs and order until a
+receipt or a safe stale-state reconciliation is received. Terminal sessions cannot be reopened.
 
-- `sync_log` — an append-only log. `seq` is the only ordering authority; `change_id` is the
-  idempotency key; `lamport` orders concurrent edits between devices that never see each other.
-- `sync_state` — the materialized current value of every row, tombstones included. A tombstone
-  is never dropped, so a stale device cannot resurrect a deleted row.
-- `sync_floors` — the sequence below which log rows have been compacted away, so a client that
-  fell too far behind is told to snapshot instead of silently missing changes.
-- `sync_apply_changes` and `sync_read_changes` — the only two calls a client needs. Both force
-  the caller's identity, so a client cannot publish or read on someone else's behalf.
-- Triggers that turn writes to `mistakes`, `attempts` and `user_state` into log entries, and
-  project log winners back into those tables. **ExamTrack's web app needs no changes** and keeps
-  its existing read/write behaviour; Folio's reviews show up on the web through the projection.
-- A `folio-pages` storage bucket for content-addressed page blocks: images, imported PDFs and
-  page snapshots, named by `sha256(bytes)` at `<user id>/<hash prefix>/<hash>`.
+Timing uses `SystemClock.elapsedRealtime()` deltas and a persisted boot count, plus a
+server-clock estimate when available. Device wall-clock time and reconnect receipt time are
+not used to infer offline duration. A process restart recovers an ordinary focus timer as
+paused at its last durable checkpoint; a device reboot breaks elapsed-realtime continuity.
 
-Apply it to the ExamTrack project before the wiring below can do anything:
+## Mistakes and attempts
+
+The mistake cache is account-scoped and stored atomically under
+`files/examtrack/<user-id>/cache.json`. It includes a cursor, per-row feed sequences and a
+persistent mutation outbox. Folio reads shared `mistakes` and ExamTrack `attempts` through
+`sync_read_changes`; queued mistake edits use `sync_apply_changes` with `expected_seq`.
+Folio's notebook practice attempts remain local. A stale scheduling update
+is rebased against the current remote row while retaining remote question content; review
+history is merged by stable review ID. Missing/deleted remote mistakes are not recreated by a
+stale local edit. Attempts and notebook references remain local data; only the supported
+shared entities are synchronized.
+
+Sync resumes after sign-in, foreground/network changes, ratings, manual retry and Realtime
+wakeup. Local edits are saved before network work and remain queued after failures. Cache and
+session data are isolated by account ID; sign-out hides the previous account's data without
+purging it.
+
+## Validation
 
 ```sh
-supabase db push          # or: psql -f supabase/migrations/20260926020000_change_log.sql
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
 ```
 
-The migration ends in assertions that fail loudly, so a half-installed protocol cannot pass
-unnoticed, and `examtrack/scripts/check-sync-migration.mjs` (`bun run check:sync`) checks its
-structure without a database.
-
-## What is implemented in the app
-
-| Piece | Where | State |
-| --- | --- | --- |
-| Protocol core: ordering, tombstones, echo suppression, coalescing, backoff | `sync/SyncProtocol.kt` | done, mirrors Focal's `src/lib/sync/reduce.ts` rule for rule |
-| Durable queue, cursor, lamport clock, applied versions | `sync/SyncStore.kt` | done, write-temp + fsync + rename |
-| Publish and read over the two RPCs | `sync/SyncRemote.kt` | done, behind an interface so the engine is testable offline |
-| Conformance vectors | `sync/SyncConformanceTests.kt` | done — runs the same `conformance.json` Focal runs |
-| Store durability | `sync/SyncStoreTests.kt` | done |
-
-Run them with `./gradlew :app:testDebugUnitTest`. The vector file is a copy of Focal's
-`src/lib/sync/vectors/conformance.json`; both copies record the same SHA-256, so editing one
-without the other fails a build.
-
-## What is not wired yet
-
-`SyncStore` and `SyncRemote` are the client half of the installed schema, but no screen calls
-them yet. The remaining work, in the order it should be done:
-
-1. **Mistakes.** Replace the full-table fetch and compare-and-set in
-   `mistakes/ExamTrackSyncService.kt` and `mistakes/MistakeRepository.kt` with
-   `read(cursor)` plus `apply(queued)`. Two domain rules have to survive the move, and both are
-   easy to lose:
-   - *Folio never creates a mistake.* Today a queued update is skipped when the row is missing
-     remotely. With an append-only log a `put` would create it, so the queue must only hold
-     puts for rows this device has seen come down from the log (track that in the cache).
-   - *Folio only edits scheduling.* `preserveRemoteFields` needs the last remote payload, which
-     the current cache does not keep — it stores the merged card. Keep the remote payload
-     alongside it, or the projection will write a card that drops the question text.
-   The cache becomes a protocol participant rather than a side store: `outbox`, `versions` and
-   `cursor` alongside today's `mistakes`, with a codec bump that re-queues anything a v2 cache
-   still had pending.
-2. **Notes, pages and strokes.** `folio_notebooks` and `folio_pages` are ordinary last-writer-wins
-   rows. `folio_strokes` is not: it is one row per stroke, merged by union, so two devices
-   writing the same page both keep their ink. This needs a stable id on `Stroke` — the model
-   currently identifies strokes by object reference — which means a `NoteStore`/`PageJournal`
-   codec bump, a migration for existing pages, and round-trip tests. Do that as its own change;
-   it touches the storage format the rest of the app depends on.
-3. **Focal study sessions** (`FocalStudy.kt`) keep working through the compatibility view on
-   Focal's project. They can move onto `sync_apply_changes`/`sync_read_changes` later; nothing
-   is blocked on it.
-
-## Rules that must not be broken
-
-These are the ones a future change can quietly undo:
-
-- The local write is durable and queued before the UI is told anything. Nothing waits on the
-  network, and the network never waits on the UI.
-- A change leaves the queue only on a receipt. A crash mid-push resends, which is free.
-- Pull is a cursor. There is no timestamp comparison and no full-table scan.
-- Echo suppression is by device id. Never by comparing payloads.
-- A tombstone is permanent.
-- A row with an unpublished local edit is never overwritten by a pull or a snapshot.
-
-The last one is the subtle one, and it is now covered by a shared vector so both clients fail
-loudly if it regresses.
+Database integration tests live in `focal/supabase/tests/` and run with
+`supabase test db` against a local Supabase stack. They require Docker and include canonical
+session lifecycle, offline timing, cursor and versioned-change cases. A live sync check also
+requires the shared Focal URL/key and a test account.

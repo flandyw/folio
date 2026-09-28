@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.folio.notes.focalSyncDeviceId
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
@@ -28,7 +29,8 @@ data class MistakesState(val userId: String? = null, val email: String? = null,
 
 class MistakesViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = ExamTrackAuthRepository(application)
-    private val repository = MistakeRepository(FileMistakeCacheStore(application), ExamTrackSyncService(auth.client))
+    private val repository = MistakeRepository(FileMistakeCacheStore(application),
+        ExamTrackSyncService(auth.client, focalSyncDeviceId(application)))
     val attachments = MistakeAttachmentRepository(application, auth.client)
     private val _state = MutableStateFlow(MistakesState())
     val state = _state.asStateFlow()
