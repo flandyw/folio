@@ -2,6 +2,7 @@
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -211,7 +214,10 @@ import androidx.compose.ui.unit.dp
     val identityHold = rememberLongPressGuard()
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClose, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
-        Column(Modifier.weight(1f).padding(vertical = 1.dp)) {
+        // Title and save status form one tight two-line block: 0dp gap between the
+        // title's line box and the status row (which hugs its text instead of using
+        // a 40dp TextButton), so the pair reads as a single stacked label.
+        Column(Modifier.weight(1f).padding(top = 2.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.longPressAction(identityHold, onRename))
             SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt,
@@ -271,15 +277,19 @@ import androidx.compose.ui.unit.dp
         else -> "Saved on device"
     }
     val statusColor = if (saveFailed && !retryingSave) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-    TextButton(onClick = { detailsOpen = true }, contentPadding = PaddingValues(horizontal = if (compact) 2.dp else 0.dp),
-        colors = ButtonDefaults.textButtonColors(contentColor = statusColor), shapes = ButtonDefaults.shapes()) {
+    // A slim clickable row rather than a TextButton: TextButton forces a 40dp min
+    // height, which pushed the status line away from the title in the wide layout.
+    Row(Modifier.clip(RoundedCornerShape(6.dp))
+        .clickable(role = Role.Button) { detailsOpen = true }
+        .padding(horizontal = if (compact) 2.dp else 1.dp, vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Icon(when {
             saveFailed && !retryingSave -> Icons.Rounded.ErrorOutline
             pendingSaves > 0 -> Icons.Rounded.Sync
             else -> Icons.Rounded.Check
-        }, null, Modifier.size(13.dp))
+        }, null, Modifier.size(12.dp), tint = statusColor)
         Spacer(Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = statusColor)
     }
     if (detailsOpen) AlertDialog(
         onDismissRequest = { detailsOpen = false }, modifier = Modifier.guardUiTouches(),
