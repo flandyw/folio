@@ -1,6 +1,7 @@
 package com.folio.notes
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.AtomicFile
 import com.folio.notes.mistakes.EncryptedExamTrackSession
 import com.folio.notes.mistakes.ExamTrackSessionLifecycle
@@ -12,9 +13,7 @@ import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.Realtime
@@ -42,13 +41,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import com.folio.notes.sync.rpcObject
+import com.folio.notes.sync.SupabaseSyncRemote
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
 import java.util.UUID
+
+internal data class FocalServerClockAnchor(val serverMillis: Long, val elapsedMillis: Long)
+
+internal fun focalEstimatedServerNow(anchor: FocalServerClockAnchor?, elapsedNow: Long, wallNow: Long): Long =
+    anchor?.let { it.serverMillis + (elapsedNow - it.elapsedMillis).coerceAtLeast(0L) } ?: wallNow
+
+internal fun focalApplyCustomSubject(
+    current: MutableMap<String, FocalSubject>, rowId: String, operation: String, payload: JSONObject?
+) {
+    when (operation) {
+        "delete" -> current.remove(rowId)
+        "put" -> payload?.let { row ->
+        val id = row.optString("id").ifBlank { rowId }
+        val name = row.optString("name")
+            if (id.isNotBlank() && name.isNotBlank()) current[id] = FocalSubject(id, name)
+        }
+    }
+}
 
 /** Focal's built-in subject IDs are stable sync IDs, not Folio enum names. */
 data class FocalSubject(val id: String, val name: String)
@@ -125,18 +142,14 @@ data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
  */
 internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
 
-/** A new boundary must sort after every version this account has seen. */
-internal fun focalNextLamport(state: FocalStudyState, user: String, entry: FocalStudyEntry): Long {
-    val observed = if (state.remoteRevisionUser == user) maxOf(state.remoteRevision, state.remoteLamport) else 0L
-    return maxOf(observed, entry.revision) + 1
-}
-
 /** Pending local boundaries beat an older echo; remote termination beats an active checkpoint. */
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
     if (local == null) return remote
     if (remote.revision < local.revision) return local
     if (!local.synced && local.changeId != remote.changeId &&
-        !(remote.deleted || (remote.completed && !local.deleted && !local.completed))) return local
+        !(remote.deleted || (remote.completed && !local.deleted && !local.completed))) {
+        return if (remote.revision > local.revision) local.copy(revision = remote.revision, remotePayload = remote.remotePayload) else local
+    }
     return remote.copy(kind = if (local.notebookId != null) local.kind else remote.kind,
         startedAt = if (local.notebookId != null) local.startedAt else remote.startedAt,
         notebookId = local.notebookId ?: remote.notebookId,
@@ -171,15 +184,16 @@ internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
     val raw = entry.remotePayload ?: return false
     return runCatching {
         val payload = JSONObject(raw)
-        if (payload.optJSONObject("integrations")?.optJSONObject("notion")?.optString("kind") == "event")
-            return@runCatching true
-        val intervals = payload.optJSONObject("execution")?.optJSONArray("intervals") ?: return@runCatching false
-        // Focal can synthesize an "imported" execution interval from a completed calendar
-        // block. Its duration (even when shorter than 24 hours) is scheduled time, not
-        // measured study. Do not mistake it for a timer or manually logged session.
+        val metadata = payload.optJSONObject("metadata")
+        val legacy = metadata?.optJSONObject("legacy_metadata") ?: payload
+        val integrations = legacy.optJSONObject("integrations") ?: metadata?.optJSONObject("integrations")
+        if (integrations?.optJSONObject("notion")?.optString("kind") == "event") return@runCatching true
+        val execution = legacy.optJSONObject("execution") ?: payload.optJSONObject("execution")
+        val intervals = execution?.optJSONArray("intervals") ?: return@runCatching false
+        // ponytail: imported calendar intervals are scheduled time, including after canonical metadata wrapping.
         intervals.length() > 0 && (0 until intervals.length()).all { index ->
             val source = intervals.getJSONObject(index).optString("source")
-            source == "imported" || (source.isBlank() && payload.optString("createdVia") == "notion")
+            source == "imported" || (source.isBlank() && legacy.optString("createdVia") == "notion")
         }
     }.getOrDefault(false)
 }
@@ -314,6 +328,9 @@ data class FocalStudyState(
     val remoteRevision: Long = 0L,
     val remoteRevisionUser: String? = null,
     val remoteLamport: Long = 0L,
+    val remoteSubjectsRevision: Long = 0L,
+    val remoteSubjectsUser: String? = null,
+    val pendingSessionCommands: List<String> = emptyList(),
     val subjects: List<FocalSubject> = FocalSubjects.builtIn,
     val userId: String? = null,
     val email: String? = null,
@@ -330,7 +347,13 @@ data class FocalStudyState(
         !BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
 ) {
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
-    val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) && focalShouldUpload(it) }
+    val pendingCount get() = maxOf(
+        pendingSessionCommands.count { raw -> runCatching {
+            val sessionId = JSONObject(raw).optString("session_id")
+            entries.firstOrNull { it.id == sessionId }?.let { it.userId == null || it.userId == userId } == true
+        }.getOrDefault(false) },
+        entries.count { !it.synced && (it.userId == null || it.userId == userId) && focalShouldUpload(it) }
+    )
     val hasActiveSession get() = focus != null || visibleEntries.any { it.active }
     val canStartFocus get() = focus == null
     val syncStatus get() = when {
@@ -342,9 +365,83 @@ data class FocalStudyState(
     }
 }
 
-/** Durable local sessions and an idempotent Focal sync_changes outbox. */
+internal fun focalQueueEntryMutation(state: FocalStudyState, entry: FocalStudyEntry, deviceId: String): FocalStudyState {
+    if (entry.synced) return state
+    val pending = state.pendingSessionCommands.mapNotNull { raw -> runCatching { JSONObject(raw) }.getOrNull() }
+    if (pending.any { it.optString("mutation_id") == entry.changeId }) return state
+    val forSession = pending.filter { it.optString("session_id") == entry.id }
+    val desired = focalDesiredState(entry)
+    val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+    var currentState = forSession.lastOrNull()?.let { command ->
+        when (command.optString("action")) {
+            "start", "resume" -> "running"
+            "pause" -> "paused"
+            "complete" -> "completed"
+            "cancel" -> "cancelled"
+            "create" -> "planned"
+            else -> null
+        }
+    } ?: focalCanonicalState(entry.remotePayload)
+    var currentPhase = forSession.lastOrNull()?.optString("phase")?.takeIf { it in setOf("focus", "reading", "writing") }
+        ?: canonical?.optString("phase")?.takeIf { it in setOf("focus", "reading", "writing") }
+    val queued = state.pendingSessionCommands.toMutableList()
+    var expected = entry.revision + forSession.size
+    var first = true
+    fun append(action: String) {
+        val id = if (first) entry.changeId else UUID.randomUUID().toString()
+        first = false
+        val command = focalStudyCommand(entry, action, expected++, deviceId, id)
+        queued += command.toString()
+        when (action) {
+            "start", "resume" -> currentState = "running"
+            "pause" -> currentState = "paused"
+            "complete" -> currentState = "completed"
+            "cancel" -> currentState = "cancelled"
+            "create" -> currentState = "planned"
+            "phase_change" -> currentPhase = command.optString("phase")
+        }
+    }
+    if (currentState == null) {
+        when (desired) {
+            "planned" -> append("create")
+            "running" -> append("start")
+            "paused" -> { append("start"); append("pause") }
+            "completed" -> { append("create"); append("complete") }
+            "cancelled" -> { append("create"); append("cancel") }
+        }
+    } else if (currentState !in setOf("completed", "cancelled") || desired == currentState) {
+        when {
+            desired == "cancelled" && currentState != "cancelled" -> append("cancel")
+            desired == "completed" && currentState != "completed" -> append("complete")
+            desired == "running" && currentState == "planned" -> append("start")
+            desired == "running" && currentState == "paused" -> append("resume")
+            desired == "paused" && currentState == "planned" -> { append("start"); append("pause") }
+            desired == "paused" && currentState == "running" -> append("pause")
+            currentState == desired && currentPhase != focalEntryPhase(entry) -> append("phase_change")
+            currentState == desired -> append("save_progress")
+        }
+    }
+    return if (queued.size == state.pendingSessionCommands.size) state else state.copy(pendingSessionCommands = queued)
+}
+
+private fun focalEntryPhase(entry: FocalStudyEntry): String =
+    entry.examPhaseBeforePause?.takeIf { entry.paused && it in setOf("reading", "writing") }
+        ?: entry.examPhase?.takeIf { it in setOf("reading", "writing") }
+        ?: if (entry.kind == "exam") "writing" else "focus"
+
+/** Durable local sessions and an idempotent command outbox. */
 class FocalStudyManager(context: Context) {
+    @Volatile private var serverClockAnchor: FocalServerClockAnchor? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun now(): Long = focalEstimatedServerNow(
+        serverClockAnchor, SystemClock.elapsedRealtime(), System.currentTimeMillis()
+    )
+
+    private fun observeServerNow(value: String?) {
+        val serverMillis = value?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return
+        serverClockAnchor = FocalServerClockAnchor(serverMillis, SystemClock.elapsedRealtime())
+    }
     private val file = AtomicFile(File(context.filesDir, "focal-study.json"))
     private val gate = Mutex()
     private val sessions = EncryptedExamTrackSession(context, "focal-session", "folio-focal")
@@ -361,6 +458,12 @@ class FocalStudyManager(context: Context) {
         install(Realtime)
     }
     private val lifecycle = ExamTrackSessionLifecycle(client, sessions)
+    private val syncRemote = SupabaseSyncRemote(client)
+    private val deviceId = context.getSharedPreferences("focal-sync", Context.MODE_PRIVATE).let { preferences ->
+        preferences.getString("device-id", null) ?: UUID.randomUUID().toString().also {
+            check(preferences.edit().putString("device-id", it).commit()) { "Could not save Folio's sync device ID" }
+        }
+    }
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
@@ -378,7 +481,8 @@ class FocalStudyManager(context: Context) {
                         is SessionStatus.Authenticated -> {
                             status.session.user?.let { user ->
                                 if (_state.value.userId != user.id) remoteNoticeReadyUser = null
-                                _state.update { it.copy(userId = user.id, email = user.email, error = null) }
+                                _state.update { it.copy(userId = user.id, email = user.email, error = null,
+                                    subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
                                 sync()
                                 if (visible) watchRemoteSessions(user.id)
                             }
@@ -409,10 +513,12 @@ class FocalStudyManager(context: Context) {
             val channel = client.realtime.channel("folio-study-$user")
             try {
                 coroutineScope {
-                    channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                        table = "sync_log"
-                        filter("entity", FilterOperator.EQ, "study_sessions")
-                    }.onEach { sync() }.launchIn(this)
+                    for (entity in listOf("study_sessions", "custom_subjects")) {
+                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                            table = "sync_log"
+                            filter("entity", FilterOperator.EQ, entity)
+                        }.onEach { sync() }.launchIn(this)
+                    }
                     // A reconnect can miss messages while the socket is down. Joining also
                     // closes the gap between the initial pull and this subscription.
                     channel.status.onEach { status ->
@@ -475,12 +581,24 @@ class FocalStudyManager(context: Context) {
         val recoveredFocus = focus?.copy(resumedAt = null)?.takeUnless { current ->
             entries.any { it.id == current.sessionId && (it.deleted || it.completed) }
         }
+        val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
+        val savedSubjects = (data.optJSONArray("subjects") ?: JSONArray()).let { array ->
+            (0 until array.length()).mapNotNull { index -> runCatching {
+                val subject = array.getJSONObject(index)
+                FocalSubject(subject.getString("id"), subject.getString("name"))
+            }.getOrNull() }.filterNot { it.id in builtInIds }
+        }
         FocalStudyState(entries = entries.map { entry ->
             if (recoveredFocus?.sessionId == entry.id && !entry.paused)
                 focalRecoverFocus(entry, recoveredFocus) else entry
-        }, focus = recoveredFocus,
+        }, focus = recoveredFocus, subjects = FocalSubjects.builtIn + savedSubjects,
             remoteRevision = data.optLong("remoteRevision"), remoteRevisionUser = data.optString("remoteRevisionUser").ifBlank { null },
-            remoteLamport = data.optLong("remoteLamport"))
+            remoteLamport = data.optLong("remoteLamport"),
+            remoteSubjectsRevision = data.optLong("remoteSubjectsRevision").coerceAtLeast(0L),
+            remoteSubjectsUser = data.optString("remoteSubjectsUser").ifBlank { null },
+            pendingSessionCommands = (data.optJSONArray("pendingSessionCommands") ?: JSONArray()).let { commands ->
+                (0 until commands.length()).mapNotNull { commands.optString(it).takeIf(String::isNotBlank) }
+            })
     }.getOrDefault(FocalStudyState())
 
     @Synchronized private fun persist(parkRunningAt: Long? = null): Boolean {
@@ -510,6 +628,11 @@ class FocalStudyManager(context: Context) {
         val bytes = JSONObject().put("entries", rows).put("focus", focus)
             .put("remoteRevision", snapshot.remoteRevision).put("remoteRevisionUser", snapshot.remoteRevisionUser)
             .put("remoteLamport", snapshot.remoteLamport)
+            .put("subjects", JSONArray(snapshot.subjects.filterNot { subject ->
+                FocalSubjects.builtIn.any { it.id == subject.id }
+            }.map { JSONObject().put("id", it.id).put("name", it.name) }))
+            .put("remoteSubjectsRevision", snapshot.remoteSubjectsRevision).put("remoteSubjectsUser", snapshot.remoteSubjectsUser)
+            .put("pendingSessionCommands", JSONArray(snapshot.pendingSessionCommands))
             .toString().toByteArray()
         return try {
             val stream = file.startWrite()
@@ -571,7 +694,10 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun saveEntry(entry: FocalStudyEntry) {
-        _state.update { state -> state.copy(entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null) }
+        _state.update { state ->
+            val updated = state.copy(entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null)
+            focalQueueEntryMutation(updated, entry, deviceId)
+        }
         if (persist()) scope.launch { sync() }
     }
 
@@ -596,7 +722,10 @@ class FocalStudyManager(context: Context) {
         val targets = _state.value.visibleEntries.filter { it.id in ids && it.active && it.paused && it.id != focusId }
         if (targets.isEmpty()) return
         val updated = targets.mapNotNull { focalControlledEntry(it, action, now) }.associateBy { it.id }
-        _state.update { state -> state.copy(entries = state.entries.map { updated[it.id] ?: it }, error = null) }
+        _state.update { state ->
+            val next = state.copy(entries = state.entries.map { updated[it.id] ?: it }, error = null)
+            updated.values.fold(next) { queued, entry -> focalQueueEntryMutation(queued, entry, deviceId) }
+        }
         if (persist()) scope.launch { sync() }
     }
 
@@ -621,8 +750,9 @@ class FocalStudyManager(context: Context) {
     private fun updateExam(entry: FocalStudyEntry) {
         _state.update { state ->
             val present = state.entries.any { it.id == entry.id }
-            state.copy(entries = if (present) state.entries.map { if (it.id == entry.id) entry else it }
+            val updated = state.copy(entries = if (present) state.entries.map { if (it.id == entry.id) entry else it }
                 else listOf(entry) + state.entries, error = null)
+            focalQueueEntryMutation(updated, entry, deviceId)
         }
         if (persist()) scope.launch { sync() }
     }
@@ -635,7 +765,10 @@ class FocalStudyManager(context: Context) {
             notes = notes.trim(), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
     }
     private fun add(entry: FocalStudyEntry) {
-        _state.update { it.copy(entries = listOf(entry) + it.entries, error = null) }
+        _state.update { state ->
+            val updated = state.copy(entries = listOf(entry) + state.entries, error = null)
+            focalQueueEntryMutation(updated, entry, deviceId)
+        }
         if (persist()) scope.launch { sync() }
     }
     fun retry() {
@@ -700,7 +833,9 @@ class FocalStudyManager(context: Context) {
                 client.auth.clearSession()
                 sessions.deleteSession()
                 remoteNoticeReadyUser = null
-                _state.update { it.copy(userId = null, email = null, subjects = FocalSubjects.builtIn) }
+                _state.update { it.copy(userId = null, email = null, subjects = FocalSubjects.builtIn,
+                    remoteSubjectsRevision = 0L, remoteSubjectsUser = null) }
+                persist()
             }
         }
     }
@@ -720,38 +855,63 @@ class FocalStudyManager(context: Context) {
                 error = "Your Focal session expired. Sign in again to sync your saved sessions.") }
             return@withLock
         }
+        _state.update { state -> state.copy(entries = state.entries.map { if (it.userId == null) it.copy(userId = user) else it }) }
         // Keep the last error visible while retrying. Clearing it at the start makes the chip
         // flash "synced" between every failed attempt, which is misleading and distracting.
         _state.update { it.copy(syncing = true, syncDetail = "Checking Focal for session changes…") }
         try {
-            // Focal v2 stores immutable changes. An active row is published once, then its
-            // timer checkpoints are deliberately coalesced locally. A terminal entry gets one
-            // final change with the same row_id; the stable change ID makes retries idempotent.
+            if (!persist()) error("Could not save the local account ownership")
             loadRemoteSessions(user)
-            val pending = _state.value.entries.filter {
-                !it.synced && (it.userId == null || it.userId == user) && focalShouldUpload(it)
-            }.asReversed()
-            for ((index, entry) in pending.withIndex()) {
+            // Upgrade any pre-command pending rows into the durable local command queue.
+            _state.update { state ->
+                state.entries.filter { !it.synced && (it.userId == null || it.userId == user) }
+                    .fold(state) { queued, entry -> focalQueueEntryMutation(queued, entry, deviceId) }
+            }
+            if (!persist()) error("Could not save the local session command queue")
+            val pending = _state.value.pendingSessionCommands.filter { raw -> runCatching {
+                val sessionId = JSONObject(raw).optString("session_id")
+                _state.value.entries.firstOrNull { it.id == sessionId }?.let { it.userId == null || it.userId == user } == true
+            }.getOrDefault(false) }
+            for ((index, original) in pending.withIndex()) {
                 _state.update { it.copy(syncDetail = "Sending saved session ${index + 1} of ${pending.size} to Focal…") }
                 if (client.auth.currentUserOrNull()?.id != user) break
-                if (_state.value.entries.none { it.id == entry.id && it.changeId == entry.changeId }) continue
-                val owned = entry.copy(userId = user)
-                _state.update { state -> state.copy(entries = state.entries.map {
-                    if (it.id == entry.id && it.changeId == entry.changeId) owned else it
-                }) }
-                if (!persist()) break
-                val change = focalSyncChange(owned, focalNextLamport(_state.value, user, owned))
-                val result = rpcObject(client.postgrest.rpc("sync_apply_changes", mapOf(
-                    "p_changes" to Json.parseToJsonElement(JSONArray().put(change).toString())
-                )))
-                val receipts = result.optJSONArray("receipts") ?: JSONArray()
-                check((0 until receipts.length()).any { receipts.optJSONObject(it)?.optString("change_id") == owned.changeId }) {
-                    "Focal did not confirm the session change"
+                var raw = original
+                var retries = 0
+                while (true) {
+                    val command = JSONObject(raw)
+                    val result = syncRemote.mutateStudySession(user, command)
+                    observeServerNow(result.optString("server_now").takeIf { it.isNotBlank() })
+                    val reason = result.optString("reason").takeIf { it.isNotBlank() }
+                    val canonical = result.optJSONObject("session")
+                    if (reason == "stale_revision" && canonical != null) {
+                        val state = canonical.optString("state")
+                        val phase = canonical.optString("phase").takeIf { it.isNotBlank() }
+                        if (focalMutationSatisfied(command.optString("action"), state, phase,
+                                command.optString("phase").takeIf { it.isNotBlank() })) {
+                            removePendingSessionCommand(raw, command.optString("session_id"), terminal = state in setOf("completed", "cancelled"))
+                            break
+                        }
+                        if (retries++ >= 2) error("Study session changed repeatedly; retry sync to rebase the command")
+                        command.put("mutation_id", UUID.randomUUID().toString())
+                            .put("expected_revision", canonical.optLong("revision"))
+                        val rebased = command.toString()
+                        _state.update { stateNow -> stateNow.copy(pendingSessionCommands = stateNow.pendingSessionCommands.map {
+                            if (it == raw) rebased else it
+                        }) }
+                        if (!persist()) error("Could not save the rebased session command")
+                        raw = rebased
+                        continue
+                    }
+                    if (!result.optBoolean("ok") && reason == "session_terminal") {
+                        removePendingSessionCommand(raw, command.optString("session_id"), terminal = true)
+                        break
+                    }
+                    if (!result.optBoolean("ok") && !(reason == "already_exists" && command.optString("action") == "create")) {
+                        error("study_session_mutate failed: ${reason ?: "server_unavailable"}")
+                    }
+                    removePendingSessionCommand(raw, command.optString("session_id"), terminal = false)
+                    break
                 }
-                _state.update { state -> state.copy(entries = state.entries.map {
-                    if (it.id == entry.id && it.changeId == entry.changeId) it.copy(synced = true) else it
-                }) }
-                persist()
             }
             _state.update { it.copy(syncDetail = "Checking that Focal received the changes…") }
             loadRemoteSessions(user)
@@ -773,112 +933,107 @@ class FocalStudyManager(context: Context) {
         finally { _state.update { it.copy(syncing = false, syncDetail = null) } }
     }
 
-    private suspend fun loadRemoteSessions(user: String) {
-        val priorState = _state.value
-        val startRevision = priorState.remoteRevision.takeIf { priorState.remoteRevisionUser == user } ?: 0L
-        val rows = JSONArray()
-        var offset = 0L
-        do {
-            val page = JSONArray(client.from("sync_changes").select {
-                filter { eq("user_id", user); eq("entity", "study_sessions"); gt("revision", startRevision) }
-                order("revision", Order.ASCENDING)
-                range(offset, offset + 499)
-            }.data)
-            repeat(page.length()) { rows.put(page.getJSONObject(it)) }
-            offset += page.length()
-        } while (page.length() == 500)
-        val latestRevision = (0 until rows.length()).maxOfOrNull { rows.getJSONObject(it).optLong("revision") } ?: startRevision
-        val latestLamport = (0 until rows.length()).maxOfOrNull { rows.getJSONObject(it).optLong("lamport") } ?: 0L
-        val latest = mutableMapOf<String, JSONObject>()
-        repeat(rows.length()) { index ->
-            val row = rows.getJSONObject(index)
-            val id = row.optString("row_id")
-            if (id.isNotBlank() && (latest[id]?.optLong("revision") ?: -1L) < row.optLong("revision")) latest[id] = row
+    private fun removePendingSessionCommand(raw: String, sessionId: String, terminal: Boolean) {
+        _state.update { state ->
+            val remaining = state.pendingSessionCommands.filterNot { queued ->
+                queued == raw || (terminal && runCatching { JSONObject(queued).optString("session_id") == sessionId }.getOrDefault(false))
+            }
+            val stillPending = remaining.any { queued -> runCatching { JSONObject(queued).optString("session_id") == sessionId }.getOrDefault(false) }
+            state.copy(pendingSessionCommands = remaining, entries = if (stillPending) state.entries else state.entries.map {
+                if (it.id == sessionId) it.copy(synced = true) else it
+            })
         }
-        val remote = latest.values.mapNotNull { row -> runCatching {
-            val id = row.optString("row_id")
-            if (id.isBlank()) return@runCatching null
-            if (row.optString("operation") == "delete") {
-                val existing = _state.value.entries.firstOrNull { it.id == id }
-                return@runCatching (existing ?: FocalStudyEntry(id = id, notebookId = null, title = "",
-                    subjectId = null, kind = "study", startedAt = 0, endedAt = 0, activeMillis = 0,
-                    userId = user)).copy(changeId = row.optString("change_id"), revision = row.optLong("revision"),
-                    userId = user, synced = true, deleted = true)
+        if (!persist()) error("Could not save the session command receipt")
+    }
+
+    private suspend fun loadRemoteSessions(user: String) {
+        val prior = _state.value
+        var cursor = prior.remoteRevision.takeIf { prior.remoteRevisionUser == user } ?: 0L
+        val startCursor = cursor
+        val latest = linkedMapOf<String, Pair<JSONObject, String>>()
+        val observedMutationIds = mutableSetOf<String>()
+        val observedSessionIds = mutableSetOf<String>()
+        var latestLamport = if (prior.remoteRevisionUser == user) prior.remoteLamport else 0L
+        var pages = 0
+        while (pages++ < 100) {
+            val page = syncRemote.read(user, cursor, 500)
+            observeServerNow(page.serverNow)
+            if (page.mode == "snapshot") {
+                latest.clear()
+                page.rows.filter { it.entity == "study_sessions" && it.payload != null }.forEach { row ->
+                    latest[row.rowId] = row.payload!! to "snapshot:${row.rowId}:${row.lamport}"
+                    latestLamport = maxOf(latestLamport, row.lamport)
+                }
+                val snapshots = latest.mapValues { it.value.first }
+                prior.pendingSessionCommands.forEach { raw -> runCatching {
+                    val command = JSONObject(raw)
+                    val owner = prior.entries.firstOrNull { it.id == command.optString("session_id") }?.userId
+                    if (owner != null && owner != user) return@runCatching
+                    val session = snapshots[command.optString("session_id")] ?: return@runCatching
+                    if (session.optLong("revision") > command.optLong("expected_revision") &&
+                        focalMutationSatisfied(command.optString("action"), session.optString("state"),
+                            session.optString("phase").takeIf { it.isNotBlank() },
+                            command.optString("phase").takeIf { it.isNotBlank() })) {
+                        observedMutationIds += command.optString("mutation_id")
+                    }
+                } }
+                cursor = page.head
+                break
             }
-            val payload = row.optJSONObject("payload") ?: return@runCatching null
-            val execution = payload.optJSONObject("execution") ?: JSONObject()
-            val blocks = payload.optJSONObject("schedule")?.optJSONArray("blocks") ?: JSONArray()
-            val now = System.currentTimeMillis()
-            fun epoch(value: String?): Long? = runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
-            val started = blocks.optJSONObject(0)?.optString("start")?.let(::epoch) ?: now
-            val intervals = (execution.optJSONArray("intervals") ?: JSONArray()).let { source ->
-                (0 until source.length()).mapNotNull { position -> runCatching {
-                    val item = source.getJSONObject(position)
-                    val begin = epoch(item.optString("start")) ?: return@runCatching null
-                    FocalStudyInterval(begin, item.optString("end").takeIf { it.isNotBlank() }?.let(::epoch))
-                }.getOrNull() }
+            page.changes.forEach { change ->
+                cursor = maxOf(cursor, change.seq)
+                if (change.entity == "study_sessions" && change.payload != null) {
+                    latest[change.rowId] = change.payload to change.changeId
+                    observedMutationIds += change.changeId
+                    observedSessionIds += change.rowId
+                    latestLamport = maxOf(latestLamport, change.lamport)
+                }
             }
-            val activeMillis = intervals.sumOf { ((it.endAt ?: now) - it.startAt).coerceAtLeast(0L) }
-            val integrations = payload.optJSONObject("integrations")
-            val integration = integrations?.optJSONObject("examtrack") ?: integrations?.optJSONObject("folio")
-            val subjectId = payload.optJSONArray("subjectIds")?.optString(0)?.takeIf { it.isNotBlank() }
-            val remoteDescription = payload.optString("description")
-            val notebookTitle = remoteDescription.substringAfter(" · ", "").trim()
-                .takeIf { it.isNotEmpty() && it !in setOf("reading", "writing", "paused") }
-            val phase = integration?.optString("phase")?.takeIf { it.isNotBlank() }
-                ?: remoteDescription.substringAfterLast("·", "").trim()
-                    .takeIf { it in setOf("reading", "writing", "paused") }
-            val executionState = execution.optString("state")
-            FocalStudyEntry(id = id, changeId = row.optString("change_id"), notebookId = null,
-                title = payload.optString("title", "Study session"), subjectId = subjectId,
-                kind = if (integration?.optString("kind") in setOf("exam", "sac") || payload.optString("createdVia") == "examtrack") "exam" else "study",
-                startedAt = started, endedAt = epoch(payload.optString("updated_at")) ?: now,
-                activeMillis = activeMillis, notes = payload.optJSONObject("reflection")?.optString("notes").orEmpty(),
-                confidence = payload.optJSONObject("reflection")?.optInt("confidence")?.takeIf { it in 1..5 },
-                userId = user, synced = true, revision = row.optLong("revision"), completed = executionState == "completed",
-                planned = executionState != "in-progress" && executionState != "completed",
-                deleted = payload.opt("deleted_at") is String,
-                paused = executionState == "in-progress" && (phase == "paused" ||
-                    (phase == null && intervals.isNotEmpty() && intervals.last().endAt != null)),
-                examPhase = phase,
-                examPhaseBeforePause = integration?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") },
-                intervals = intervals, remotePayload = payload.toString(), notebookTitle = notebookTitle)
-        }.getOrNull() }
+            if (page.changes.size < 500 || cursor >= page.head) break
+        }
         if (_state.value.userId != user) return
+        val remote = latest.mapNotNull { (id, value) -> focalEntryFromCanonical(id, value.first, value.second, user) }
         val previous = _state.value.entries.associateBy { it.id }
         val externalChanges = remote.filter { incoming ->
             val old = previous[incoming.id]
             old?.changeId != incoming.changeId && (old == null || incoming.revision > old.revision)
         }
         val notice = if (remoteNoticeReadyUser == user && externalChanges.isNotEmpty()) {
-            if (externalChanges.any { incoming ->
-                    incoming.completed && previous[incoming.id]?.active == true
-                }) "A Focal session finished on another device"
+            if (externalChanges.any { incoming -> incoming.completed && previous[incoming.id]?.active == true })
+                "A Focal session finished on another device"
             else if (externalChanges.size == 1) "A Focal session changed on another device"
             else "${externalChanges.size} Focal sessions changed on another device"
         } else null
         _state.update { state ->
-            val merged = state.entries.filter { it.userId == null || it.userId == user }
-                .associateBy { it.id }.toMutableMap()
-            remote.forEach { incoming ->
-                merged[incoming.id] = focalMergeSession(merged[incoming.id], incoming)
+            val remainingCommands = state.pendingSessionCommands.filterNot { raw ->
+                runCatching { JSONObject(raw).optString("mutation_id") in observedMutationIds }.getOrDefault(false)
             }
+            val remainingSessionIds = remainingCommands.mapNotNull { raw ->
+                runCatching { JSONObject(raw).optString("session_id").takeIf { it.isNotBlank() } }.getOrNull()
+            }.toSet()
+            val resolvedSessionIds = observedSessionIds + state.pendingSessionCommands.mapNotNull { raw -> runCatching {
+                val command = JSONObject(raw)
+                command.optString("session_id").takeIf { command.optString("mutation_id") in observedMutationIds }
+            }.getOrNull() }
+            val merged = state.entries.filter { it.userId == null || it.userId == user }
+                .map { entry -> if (entry.id in resolvedSessionIds && entry.id !in remainingSessionIds) entry.copy(synced = true) else entry }
+                .associateBy { it.id }.toMutableMap()
+            remote.forEach { incoming -> merged[incoming.id] = focalMergeSession(merged[incoming.id], incoming) }
             val otherAccounts = state.entries.filter { it.userId != null && it.userId != user }
             val focus = state.focus?.let { current ->
                 val session = merged[current.sessionId] ?: return@let current
                 if (!session.active) return@let null
-                // No new remote boundary: do not resume a locally recovered/paused timer.
                 if (remote.none { it.id == current.sessionId } || !session.synced) return@let current
                 val accumulated = session.intervals.filter { it.endAt != null }
                     .sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
                 val runningStart = session.intervals.lastOrNull()?.takeIf { it.endAt == null }?.startAt
                 current.copy(intervals = session.intervals, accumulatedMillis = accumulated,
-                    resumedAt = if (!session.paused) runningStart ?: System.currentTimeMillis() else null)
+                    resumedAt = if (!session.paused) runningStart ?: now() else null)
             }
             state.copy(entries = merged.values.toList() + otherAccounts, focus = focus,
-                remoteRevision = maxOf(startRevision, latestRevision), remoteRevisionUser = user,
-                remoteLamport = maxOf(if (state.remoteRevisionUser == user) state.remoteLamport else 0L,
-                    latestLamport),
+                pendingSessionCommands = remainingCommands,
+                remoteRevision = maxOf(startCursor, cursor), remoteRevisionUser = user,
+                remoteLamport = latestLamport,
                 remoteNotice = notice ?: state.remoteNotice,
                 remoteNoticeId = if (notice != null) state.remoteNoticeId + 1 else state.remoteNoticeId)
         }
@@ -887,105 +1042,152 @@ class FocalStudyManager(context: Context) {
     }
 
     private suspend fun loadCustomSubjects(user: String) {
-        val raw = client.from("sync_changes").select {
-            filter { eq("user_id", user); eq("entity", "custom_subjects") }
-        }.data
-        val rows = JSONArray(raw)
-        val latest = mutableMapOf<String, JSONObject>()
-        repeat(rows.length()) { index ->
-            val row = rows.getJSONObject(index)
-            val id = row.optString("row_id")
-            if (id.isNotBlank() && (latest[id]?.optLong("revision") ?: -1L) < row.optLong("revision")) latest[id] = row
-        }
-        val custom = latest.values.mapNotNull { row ->
-            if (row.optString("operation") == "delete") return@mapNotNull null
-            val payload = row.optJSONObject("payload") ?: return@mapNotNull null
-            val id = payload.optString("id").ifBlank { row.optString("row_id") }
-            val name = payload.optString("name")
-            if (id.isBlank() || name.isBlank()) null else FocalSubject(id, name)
-        }
-        if (_state.value.userId == user) _state.update { it.copy(subjects = FocalSubjects.builtIn + custom) }
-    }
-}
-
-/** Publish through Focal's authenticated v3 RPC; the compatibility view is read-only. */
-internal fun focalSyncChange(entry: FocalStudyEntry, lamport: Long): JSONObject = JSONObject()
-    .put("change_id", entry.changeId)
-    .put("client_id", "folio-android")
-    .put("entity", "study_sessions")
-    .put("row_id", entry.id)
-    .put("operation", if (entry.deleted) "delete" else "put")
-    .put("payload", if (entry.deleted) JSONObject.NULL else focalPayload(entry))
-    .put("lamport", lamport)
-
-internal fun focalPayload(entry: FocalStudyEntry): JSONObject {
-    fun iso(time: Long) = Instant.ofEpochMilli(time).toString()
-    val start = iso(entry.startedAt)
-    val end = iso(entry.endedAt.coerceAtLeast(entry.startedAt + 1_000L))
-    val intervals = JSONArray()
-    val writingIntervals = entry.intervals.ifEmpty {
-        if (entry.activeMillis > 0L) listOf(FocalStudyInterval(
-            (entry.endedAt - entry.activeMillis).coerceAtLeast(entry.startedAt), entry.endedAt))
-        else emptyList()
-    }
-    writingIntervals.forEachIndexed { index, interval ->
-        val open = !entry.completed && !entry.paused && !entry.deleted && index == writingIntervals.lastIndex && interval.endAt == null
-        val item = JSONObject().put("start", iso(interval.startAt)).put("source", "manual")
-        if (!open) item.put("end", iso(interval.endAt ?: entry.endedAt))
-        intervals.put(item)
-    }
-    val reflection = JSONObject()
-    if (entry.notes.isNotBlank()) reflection.put("notes", entry.notes)
-    entry.confidence?.let { reflection.put("confidence", it) }
-    val notebookContext = entry.notebookTitle?.trim()?.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
-    val description = when {
-        entry.kind != "exam" -> "Study in Folio$notebookContext"
-        entry.completed -> "Exam practice in Folio$notebookContext"
-        entry.paused -> "Exam practice in Folio$notebookContext · paused"
-        entry.examPhase == "reading" -> "Exam practice in Folio$notebookContext · reading"
-        else -> "Exam practice in Folio$notebookContext · writing"
-    }
-    val execution = JSONObject().put("state", if (entry.completed) "completed" else "in-progress")
-        .put("intervals", intervals)
-    if (entry.completed) execution.put("completedAt", end).put("reportedMinutes", entry.minutes)
-    entry.remotePayload?.let { raw ->
-        val payload = JSONObject(raw).put("execution", execution).put("updated_at", end)
-            .put("last_modified_device_id", "folio-android")
-        if (entry.notebookTitle != null) payload.put("description", description)
-        payload.put("reflection", (payload.optJSONObject("reflection") ?: JSONObject()).apply {
-            if (entry.notes.isNotBlank()) put("notes", entry.notes) else remove("notes")
-            if (entry.confidence != null) put("confidence", entry.confidence) else remove("confidence")
-        })
-        val integrations = payload.optJSONObject("integrations") ?: JSONObject().also { payload.put("integrations", it) }
-        if (entry.notebookId != null && !integrations.has("examtrack")) {
-            integrations.put("folio", (integrations.optJSONObject("folio") ?: JSONObject())
-                .put("type", "folio").put("id", entry.id).put("kind", entry.kind)
-                .put("subject", entry.subjectId ?: ""))
-        }
-        val integration = integrations.optJSONObject("examtrack") ?: integrations.optJSONObject("folio")
-        integration?.let {
-            if (entry.paused || entry.examPhase == "paused") {
-                if (it.optString("phase") != "paused") it.put("phaseBeforePause", entry.examPhaseBeforePause ?: it.optString("phase", "writing"))
-                it.put("phase", "paused")
-            } else if (!entry.completed) {
-                it.put("phase", entry.examPhase ?: "writing").remove("phaseBeforePause")
+        val prior = _state.value
+        val sameUser = prior.remoteSubjectsUser == user
+        var cursor = if (sameUser) prior.remoteSubjectsRevision else 0L
+        val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
+        val custom = (if (sameUser) prior.subjects else emptyList())
+            .filterNot { it.id in builtInIds }.associateBy { it.id }.toMutableMap()
+        var pages = 0
+        while (pages++ < 100) {
+            val page = syncRemote.read(user, cursor, 500)
+            observeServerNow(page.serverNow)
+            if (page.mode == "snapshot") {
+                custom.clear()
+                page.rows.filter { it.entity == "custom_subjects" }.forEach { row ->
+                    focalApplyCustomSubject(custom, row.rowId, row.operation, row.payload)
+                }
+                cursor = page.head
+                break
             }
+            page.changes.sortedBy { it.seq }.forEach { change ->
+                if (change.entity == "custom_subjects")
+                    focalApplyCustomSubject(custom, change.rowId, change.operation, change.payload)
+                cursor = maxOf(cursor, change.seq)
+            }
+            if (cursor >= page.head || page.changes.size < 500) break
         }
-        return payload
+        if (_state.value.userId == user) {
+            _state.update { it.copy(subjects = FocalSubjects.builtIn + custom.values,
+                remoteSubjectsRevision = if (sameUser) maxOf(it.remoteSubjectsRevision, cursor) else cursor,
+                remoteSubjectsUser = user) }
+            if (!persist()) error("Could not save the Folio subject sync cursor")
+        }
     }
-    val integrations = JSONObject()
-    integrations.put("folio", JSONObject().put("type", "folio").put("id", entry.id)
-        .put("kind", entry.kind).put("subject", entry.subjectId ?: "")
-        .put("phase", if (entry.paused) "paused" else entry.examPhase ?: "writing")
-        .put("phaseBeforePause", if (entry.paused) entry.examPhaseBeforePause ?: entry.examPhase ?: "writing" else JSONObject.NULL))
-    return JSONObject().put("schemaVersion", 2).put("id", entry.id)
-        .put("subjectIds", JSONArray().also { if (entry.subjectId != null) it.put(entry.subjectId) })
-        .put("title", entry.title).put("description", description)
-        .put("schedule", JSONObject().put("blocks", JSONArray().put(JSONObject().put("start", start).put("end", end))))
-        .put("execution", execution)
-        .put("integrations", integrations)
-        .put("reflection", reflection).put("createdVia", "manual")
-        .put("created_at", if (entry.kind == "exam") start else end)
-        .put("updated_at", end).put("deleted_at", JSONObject.NULL)
-        .put("last_modified_device_id", "folio-android")
 }
+
+private fun focalLegacyMetadata(raw: JSONObject?): JSONObject {
+    if (raw == null) return JSONObject()
+    val result = JSONObject()
+    val keys = listOf(
+        "integrations", "reflection", "createdVia", "description", "topics", "examtrack", "folio",
+        "provider", "examYear", "paper", "marks", "readingMinutes", "writingMinutes", "workspaceItems",
+        "unit", "scheduledAt", "durationMinutes", "maxScore"
+    )
+    val nested = raw.optJSONObject("metadata")
+    keys.forEach { key ->
+        when {
+            raw.has(key) -> result.put(key, raw.get(key))
+            nested?.has(key) == true -> result.put(key, nested.get(key))
+        }
+    }
+    return result
+}
+
+internal fun focalStudyCommand(
+    entry: FocalStudyEntry,
+    action: String,
+    expectedRevision: Long,
+    deviceId: String,
+    mutationId: String = entry.changeId
+): JSONObject {
+    val raw = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+    val canonicalMetadata = raw?.optJSONObject("metadata")
+    val metadata = if (canonicalMetadata != null) JSONObject(canonicalMetadata.toString())
+        else JSONObject().put("legacy_metadata", focalLegacyMetadata(raw))
+    val folio = metadata.optJSONObject("folio") ?: JSONObject().also { metadata.put("folio", it) }
+    folio.put("kind", if (entry.kind == "exam") "exam" else "focus")
+        .put("notebook_id", entry.notebookId ?: JSONObject.NULL)
+        .put("notebook_title", entry.notebookTitle ?: JSONObject.NULL)
+    val phase = entry.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
+        ?: entry.examPhase?.takeIf { it in setOf("reading", "writing") }
+        ?: if (entry.kind == "exam") "writing" else "focus"
+    folio.put("phase_before_pause", if (entry.paused) phase else JSONObject.NULL)
+    if (entry.completed && entry.intervals.isEmpty() && entry.activeMillis > 0L)
+        folio.put("reported_active_ms", entry.activeMillis)
+    val reflection = metadata.optJSONObject("reflection") ?: JSONObject().also { metadata.put("reflection", it) }
+    if (entry.notes.isBlank()) reflection.remove("notes") else reflection.put("notes", entry.notes)
+    if (entry.confidence == null) reflection.remove("confidence") else reflection.put("confidence", entry.confidence)
+    return JSONObject().put("mutation_id", mutationId).put("session_id", entry.id)
+        .put("expected_revision", expectedRevision).put("action", action).put("device_id", deviceId)
+        .put("app", "folio").put("kind", if (entry.kind == "exam") "exam" else "focus")
+        .put("phase", phase).put("title", entry.title)
+        .put("subject_id", entry.subjectId ?: JSONObject.NULL).put("metadata", metadata)
+}
+
+internal fun focalCanonicalState(payload: String?): String? = payload?.let { raw -> runCatching {
+    val value = JSONObject(raw)
+    value.optString("state").takeIf { it.isNotBlank() }
+        ?: when (value.optJSONObject("execution")?.optString("state") ?: value.optString("status")) {
+            "in-progress", "running" -> if (value.optJSONObject("integrations")?.optJSONObject("folio")?.optString("phase") == "paused") "paused" else "running"
+            "completed" -> "completed"
+            "planned" -> "planned"
+            else -> null
+        }
+}.getOrNull() }
+
+internal fun focalDesiredState(entry: FocalStudyEntry): String = when {
+    entry.deleted -> "cancelled"
+    entry.completed -> "completed"
+    entry.planned -> "planned"
+    entry.paused -> "paused"
+    else -> "running"
+}
+
+internal fun focalMutationSatisfied(action: String, state: String?, phase: String?, requestedPhase: String? = null): Boolean = when (action) {
+    "create" -> state != null
+    "start", "resume" -> state == "running"
+    "pause" -> state == "paused"
+    "complete" -> state == "completed"
+    "cancel" -> state == "cancelled"
+    "phase_change" -> phase == requestedPhase
+    else -> false
+}
+
+private fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: String, user: String): FocalStudyEntry? = runCatching {
+    val state = payload.optString("state")
+    val kind = payload.optString("kind")
+    val metadata = payload.optJSONObject("metadata") ?: JSONObject()
+    val legacy = metadata.optJSONObject("legacy_metadata")
+    val folio = metadata.optJSONObject("folio") ?: legacy?.optJSONObject("integrations")?.optJSONObject("folio")
+    fun epoch(key: String): Long? = payload.optString(key).takeIf { it.isNotBlank() }
+        ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+    val segments = payload.optJSONArray("segments") ?: JSONArray()
+    val intervals = (0 until segments.length()).mapNotNull { index -> runCatching {
+        val segment = segments.getJSONObject(index)
+        val started = Instant.parse(segment.getString("started_at")).toEpochMilli()
+        FocalStudyInterval(started, segment.optString("ended_at").takeIf { it.isNotBlank() }
+            ?.let { Instant.parse(it).toEpochMilli() })
+    }.getOrNull() }
+    val reflection = metadata.optJSONObject("reflection") ?: legacy?.optJSONObject("reflection")
+    val phase = payload.optString("phase").takeIf { it in setOf("reading", "writing") }
+    val started = epoch("started_at") ?: epoch("created_at") ?: 0L
+    val ended = epoch("completed_at") ?: epoch("cancelled_at") ?: epoch("paused_at") ?: epoch("updated_at") ?: started
+    val examtrack = legacy?.optJSONObject("integrations")?.optJSONObject("examtrack")
+    FocalStudyEntry(
+        id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() },
+        title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() },
+        kind = if (kind in setOf("exam", "sac")) "exam" else "study", startedAt = started, endedAt = ended,
+        activeMillis = payload.optLong("accumulated_active_ms").takeIf { it > 0L }
+            ?: folio?.optLong("reported_active_ms", 0L)?.coerceAtLeast(0L) ?: 0L,
+        notes = reflection?.optString("notes").orEmpty(), confidence = reflection?.optInt("confidence")?.takeIf { it in 1..5 },
+        userId = user, synced = true, revision = payload.optLong("revision"), completed = state == "completed",
+        planned = state == "planned", deleted = state == "cancelled", paused = state == "paused",
+        examPhase = phase, examPhaseBeforePause = metadata.optJSONObject("folio")?.optString("phase_before_pause")
+            ?.takeIf { it in setOf("reading", "writing") }
+            ?: metadata.optJSONObject("examtrack")?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
+            ?: examtrack?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") },
+        intervals = intervals, remotePayload = payload.toString(),
+        notebookTitle = folio?.optString("notebook_title")?.takeIf { it.isNotBlank() }
+    )
+}.getOrNull()

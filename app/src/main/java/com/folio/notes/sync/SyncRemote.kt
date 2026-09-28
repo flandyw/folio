@@ -17,7 +17,8 @@ data class ReadResult(
     val floor: Long,
     val head: Long,
     val changes: List<SyncProtocol.Change>,
-    val rows: List<SyncProtocol.RowState>
+    val rows: List<SyncProtocol.RowState>,
+    val serverNow: String? = null
 )
 
 /**
@@ -27,6 +28,7 @@ data class ReadResult(
 interface SyncRemote {
     suspend fun apply(accountId: String, changes: List<SyncProtocol.QueuedChange>, clientId: String): Pair<List<ApplyReceipt>, Long>
     suspend fun read(accountId: String, cursor: Long, limit: Int = 500): ReadResult
+    suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject
 }
 
 /**
@@ -82,8 +84,16 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
             floor = result.optLong("floor"),
             head = result.optLong("head"),
             changes = if (snapshot) emptyList() else (0 until rows.length()).mapNotNull { SyncProtocol.parseChange(rows.getJSONObject(it)) },
-            rows = if (snapshot) (0 until rows.length()).mapNotNull { SyncProtocol.parseRowState(rows.getJSONObject(it)) } else emptyList()
+            rows = if (snapshot) (0 until rows.length()).mapNotNull { SyncProtocol.parseRowState(rows.getJSONObject(it)) } else emptyList(),
+            serverNow = result.optString("server_now").takeIf { it.isNotBlank() }
         )
+    }
+
+    override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
+        checkUser(accountId)
+        return rpcObject(client.postgrest.rpc(
+            "study_session_mutate", mapOf("p_command" to kotlinx.serialization.json.Json.parseToJsonElement(command.toString()))
+        ))
     }
 }
 
@@ -95,7 +105,7 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
 internal fun rpcObject(response: PostgrestResult): JSONObject {
     val body = response.data
     val parsed = if (body.trimStart().startsWith("{")) JSONObject(body) else JSONObject()
-    if (!parsed.has("rows") && !parsed.has("receipts")) {
+    if (!parsed.has("rows") && !parsed.has("receipts") && !parsed.has("session") && !parsed.has("server_now")) {
         throw IllegalStateException(parsed.optString("message", "Sync request failed"))
     }
     return parsed

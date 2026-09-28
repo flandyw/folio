@@ -1,11 +1,29 @@
 package com.folio.notes
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FocalStudyTests {
+    @Test fun customSubjectsApplyOrderedFeedUpdatesAndTombstones() {
+        val subjects = mutableMapOf<String, FocalSubject>()
+        focalApplyCustomSubject(subjects, "custom-1", "put", JSONObject("""{"id":"custom-1","name":"Data Science"}"""))
+        assertEquals("Data Science", subjects["custom-1"]?.name)
+        focalApplyCustomSubject(subjects, "custom-1", "put", JSONObject("""{"name":"Statistics"}"""))
+        assertEquals("Statistics", subjects["custom-1"]?.name)
+        focalApplyCustomSubject(subjects, "custom-1", "delete", null)
+        assertTrue(subjects.isEmpty())
+    }
+
+    @Test fun timerProjectionUsesServerTimeAndMonotonicElapsedDespiteWallClockSkew() {
+        val serverStart = java.time.Instant.parse("2026-09-28T00:00:00Z").toEpochMilli()
+        val anchor = FocalServerClockAnchor(serverStart, 1_000L)
+        val wallClockTenMinutesFast = serverStart + 600_000L
+        assertEquals(serverStart + 10_000L, focalEstimatedServerNow(anchor, 11_000L, wallClockTenMinutesFast))
+    }
+
     private fun active() = FocalStudyEntry(id = "session", notebookId = "notebook", title = "Study",
         subjectId = "mm", kind = "study", startedAt = 0, endedAt = 60_000,
         activeMillis = 60_000, completed = false, synced = true, revision = 7)
@@ -18,11 +36,27 @@ class FocalStudyTests {
         assertEquals("exam", merged.kind)
         assertEquals(1234L, merged.startedAt)
         assertEquals("notebook", merged.notebookId)
-        val payload = focalPayload(merged.copy(paused = true))
-        assertEquals("paused", payload.getJSONObject("integrations").getJSONObject("folio").getString("phase"))
-        assertEquals("session", payload.getJSONObject("integrations").getJSONObject("folio").getString("id"))
-        assertEquals("page", payload.getJSONObject("integrations").getJSONObject("notion").getString("id"))
-        assertEquals("study", focalPayload(active()).getJSONObject("integrations").getJSONObject("folio").getString("kind"))
+        val command = focalStudyCommand(merged.copy(paused = true), "pause", 8,
+            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222")
+        val metadata = command.getJSONObject("metadata")
+        assertEquals("notebook", metadata.getJSONObject("folio").getString("notebook_id"))
+        assertEquals("page", metadata.getJSONObject("legacy_metadata").getJSONObject("integrations")
+            .getJSONObject("notion").getString("id"))
+        assertEquals("focus", focalStudyCommand(active(), "start", 0,
+            "11111111-1111-4111-8111-111111111111").getString("kind"))
+    }
+
+    @Test fun canonicalMetadataKeepsExamDetailsAndDropsDuplicateTimerBoundaries() {
+        val legacy = org.json.JSONObject("""{"provider":"VCAA","examYear":2026,"paper":"1","marks":100,"readingMinutes":15,"writingMinutes":165,"workspaceItems":[{"id":"q1"}],"execution":{"intervals":[{"startedAt":1}]},"status":"running"}""")
+        val command = focalStudyCommand(active().copy(kind = "exam", remotePayload = legacy.toString()), "start", 0,
+            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222")
+        val preserved = command.getJSONObject("metadata").getJSONObject("legacy_metadata")
+        assertEquals("VCAA", preserved.getString("provider"))
+        assertEquals(2026, preserved.getInt("examYear"))
+        assertEquals(100, preserved.getInt("marks"))
+        assertEquals("q1", preserved.getJSONArray("workspaceItems").getJSONObject(0).getString("id"))
+        assertFalse(preserved.has("execution"))
+        assertFalse(preserved.has("status"))
     }
 
     @Test fun pendingBoundariesSurviveServerEcho() {
@@ -31,7 +65,13 @@ class FocalStudyTests {
             active().copy(changeId = "pause", synced = false, paused = true),
             active().copy(changeId = "finish", synced = false, completed = true),
             active().copy(changeId = "discard", synced = false, deleted = true)
-        )) assertEquals(local, focalMergeSession(local, remote))
+        )) {
+            val merged = focalMergeSession(local, remote)
+            assertEquals(local.paused, merged.paused)
+            assertEquals(local.completed, merged.completed)
+            assertEquals(local.deleted, merged.deleted)
+            assertEquals(8L, merged.revision)
+        }
     }
 
     @Test fun remoteTerminationWinsAndRetainsLocalIdentity() {
@@ -89,7 +129,7 @@ class FocalStudyTests {
         assertTrue(finished.completed)
         assertFalse(finished.active)
         assertEquals(60_000L, finished.activeMillis)
-        assertEquals("completed", focalPayload(finished).getJSONObject("execution").getString("state"))
+        assertEquals("completed", focalDesiredState(finished))
 
         val discarded = focalControlledEntry(paused, "discard", 120_000)!!
         assertTrue(discarded.deleted)
@@ -123,32 +163,29 @@ class FocalStudyTests {
         assertTrue(focalShouldUpload(discarded))
     }
 
-    @Test fun pauseThenResumePublishesAnOpenSecondIntervalThroughTheRpcContract() {
-        val focus = FocalFocus(notebookId = "notebook", title = "Study", subjectId = "mm",
-            startedAt = 1_000, resumedAt = 1_000,
+    @Test fun pauseThenResumePublishesTheSharedProtocolVector() {
+        val fixture = javaClass.classLoader!!.getResourceAsStream("study-session-command-sequence.json")!!
+            .bufferedReader().use { org.json.JSONObject(it.readText()) }
+        val steps = fixture.getJSONArray("steps")
+        val deviceId = fixture.getString("device_id")
+        val sessionId = fixture.getString("session_id")
+        val focus = FocalFocus(notebookId = "notebook", title = fixture.getString("title"), subjectId = fixture.getString("subject_id"),
+            startedAt = 1_000, resumedAt = 1_000, sessionId = sessionId,
             intervals = listOf(FocalStudyInterval(1_000, null)))
-        val paused = focus.pause(61_000)
-        val resumed = paused.resume(121_000)
-        val entry = active().copy(id = focus.sessionId, changeId = "change", startedAt = 1_000,
-            endedAt = 121_000, activeMillis = resumed.elapsed(121_000),
-            intervals = resumed.intervals, paused = false, synced = false)
-        val change = focalSyncChange(entry, 9)
-        val intervals = change.getJSONObject("payload").getJSONObject("execution").getJSONArray("intervals")
+        val running = active().copy(id = sessionId, changeId = steps.getJSONObject(0).getString("mutation_id"),
+            title = fixture.getString("title"), startedAt = 1_000, endedAt = 121_000, paused = false, synced = false, revision = 0)
+        val started = focalQueueEntryMutation(FocalStudyState(), running, deviceId)
+        val paused = running.copy(changeId = steps.getJSONObject(1).getString("mutation_id"), paused = true)
+        val afterPause = focalQueueEntryMutation(started, paused, deviceId)
+        val resumed = paused.copy(changeId = steps.getJSONObject(2).getString("mutation_id"), paused = false)
+        val afterResume = focalQueueEntryMutation(afterPause, resumed, deviceId)
+        val commands = afterResume.pendingSessionCommands.map { org.json.JSONObject(it) }
 
-        assertEquals("study_sessions", change.getString("entity"))
-        assertEquals("put", change.getString("operation"))
-        assertEquals(9L, change.getLong("lamport"))
-        assertEquals(focus.sessionId, change.getString("row_id"))
-        assertEquals(2, intervals.length())
-        assertEquals("1970-01-01T00:01:01Z", intervals.getJSONObject(0).getString("end"))
-        assertFalse(intervals.getJSONObject(1).has("end"))
-    }
-
-    @Test fun resumedBoundarySortsAfterTheLatestRemoteLamport() {
-        val entry = active().copy(revision = 8)
-        val state = FocalStudyState(remoteRevision = 10, remoteRevisionUser = "user", remoteLamport = 40)
-        assertEquals(41L, focalNextLamport(state, "user", entry))
-        assertEquals(9L, focalNextLamport(state, "different-user", entry))
+        assertEquals(fixture.getString("protocol"), "study-session/1")
+        assertEquals((0 until steps.length()).map { steps.getJSONObject(it).getString("action") }, commands.map { it.getString("action") })
+        assertEquals((0 until steps.length()).map { steps.getJSONObject(it).getLong("expected_revision") }, commands.map { it.getLong("expected_revision") })
+        assertEquals(sessionId, commands.first().getString("session_id"))
+        assertTrue(commands.all { it.getString("device_id") == deviceId && !it.has("started_at") })
     }
 
     @Test fun importedAllDayCalendarIntervalDoesNotCountAsStudy() {
@@ -162,6 +199,8 @@ class FocalStudyTests {
             intervals = listOf(FocalStudyInterval(0, 79L * 60_000)))
 
         assertTrue(focalIsCalendarPlaceholder(allDay))
+        val canonicalCalendar = allDay.copy(remotePayload = """{"metadata":{"legacy_metadata":{"createdVia":"notion","integrations":{"notion":{"kind":"event"}}}}}""")
+        assertTrue(focalIsCalendarPlaceholder(canonicalCalendar))
         assertEquals(79L * 60_000, focalStudyMillisBetween(listOf(allDay, studied), 0, day))
         assertFalse(focalIsCalendarPlaceholder(allDay.copy(remotePayload =
             """{"createdVia":"manual","execution":{"intervals":[{"source":"manual"}]}}""")))

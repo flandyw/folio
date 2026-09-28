@@ -1,5 +1,6 @@
 package com.folio.notes.mistakes
 
+import com.folio.notes.sync.ReadResult
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -14,7 +15,9 @@ data class MistakeCache(
     val contexts: Map<String, ExamContext> = emptyMap(),
     val lastSyncedAt: String? = null,
     /** Local soft-deletes still waiting for their remote `deleted_at` write. */
-    val pendingDeletes: Set<String> = emptySet()
+    val pendingDeletes: Set<String> = emptySet(),
+    /** Durable cursor for the shared ordered sync feed. */
+    val remoteCursor: Long = 0L
 )
 data class ExamContext(val subject: String, val title: String, val paper: String)
 data class RemoteMistakeRow(val id: String, val payload: String?, val updatedAt: String, val deletedAt: String?)
@@ -26,12 +29,13 @@ interface MistakeCacheStore {
     suspend fun save(userId: String, cache: MistakeCache)
 }
 interface ExamTrackRemote {
-    suspend fun fetch(userId: String): List<RemoteMistakeRow>
+    suspend fun read(userId: String, cursor: Long, limit: Int = 500): ReadResult
+    /** Fetch only locally edited rows so direct-table CAS uses the current row stamp. */
+    suspend fun fetch(userId: String, ids: Set<String>): List<RemoteMistakeRow>
     /** Compare-and-set an existing active row. False means a concurrent web change: retry later. */
     suspend fun update(userId: String, expected: RemoteMistakeRow, payload: ExamTrackMistake): Boolean
     /** Soft-delete an existing active row via `deleted_at`. False means retry later, like [update]. */
     suspend fun delete(userId: String, expected: RemoteMistakeRow, deletedAt: String): Boolean
-    suspend fun contexts(userId: String): Map<String, ExamContext>
 }
 
 class MistakeRepository(private val store: MistakeCacheStore, private val remote: ExamTrackRemote) {
@@ -82,9 +86,70 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         val pending = initial.pending.toMutableSet()
         val tombstones = initial.tombstones.toMutableMap()
         val pendingDeletes = initial.pendingDeletes.toMutableSet()
+        val contexts = initial.contexts.toMutableMap()
         var invalid = 0
         var updated = 0
-        val rows = remote.fetch(user)
+        var cursor = initial.remoteCursor
+        var pages = 0
+
+        fun applyRow(entity: String, id: String, operation: String, rawPayload: String?, deletedStamp: String?) {
+            if (operation == "delete") {
+                if (entity == "mistakes") {
+                    if (mistakes.remove(id) != null) updated++
+                    pending.remove(id)
+                    pendingDeletes.remove(id)
+                    tombstones[id] = deletedStamp ?: tombstones[id] ?: ""
+                } else if (entity == "attempts") contexts.remove(id)
+                return
+            }
+            val raw = rawPayload ?: run { invalid++; return }
+            if (entity == "attempts") {
+                val payload = runCatching { JSONObject(raw) }.getOrElse { invalid++; return }
+                contexts[id] = ExamContext(payload.optString("subject", ""), payload.optString("title", ""), payload.optString("paper", ""))
+                return
+            }
+            if (entity != "mistakes") return
+            val incoming = ExamTrackMistakeCodec.decode(raw, id)
+            if (incoming == null || runCatching { timestamp(incoming.updatedAt) }.isFailure) { invalid++; return }
+            if (id in pendingDeletes) return
+            val next = if (id in pending && mistakes[id] != null) {
+                preserveRemoteFields(RemoteMistakeRow(id, raw, incoming.updatedAt, null), mistakes.getValue(id))
+            } else incoming
+            if (mistakes[id]?.originalJson != next.originalJson) updated++
+            mistakes[id] = next
+            // Feed order, rather than device timestamps, determines a later restore.
+            tombstones.remove(id)
+        }
+
+        while (pages++ < 100) {
+            val page = remote.read(user, cursor, 500)
+            if (page.mode == "snapshot") {
+                val localPending = mistakes.filterKeys { it in pending }
+                mistakes.clear(); mistakes.putAll(localPending)
+                contexts.clear()
+                tombstones.keys.retainAll(pendingDeletes)
+                page.rows.forEach { row ->
+                    if (row.entity == "mistakes" || row.entity == "attempts")
+                        applyRow(row.entity, row.rowId, row.operation, row.payload?.toString(), null)
+                }
+                cursor = page.head
+                break
+            }
+            page.changes.sortedBy { it.seq }.forEach { change ->
+                if (change.entity == "mistakes" || change.entity == "attempts")
+                    applyRow(change.entity, change.rowId, change.operation, change.payload?.toString(), change.createdAt)
+            }
+            cursor = page.changes.fold(cursor) { value, change -> maxOf(value, change.seq) }
+            if (cursor >= page.head || page.changes.size < 500) break
+        }
+
+        var c = initial.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
+            tombstones = tombstones.toMap(), contexts = contexts.toMap(), pendingDeletes = pendingDeletes.toSet(),
+            remoteCursor = maxOf(initial.remoteCursor, cursor))
+        // Persist feed rows and their cursor atomically before any network write.
+        store.save(user, c)
+
+        val rows = remote.fetch(user, pending + pendingDeletes)
         val activeRemoteIds = rows.filter { it.deletedAt == null }.mapTo(mutableSetOf()) { it.id }
         val usable = mutableMapOf<String, RemoteMistakeRow>()
         for (row in rows) {
@@ -98,18 +163,16 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             val m = row.payload?.let { ExamTrackMistakeCodec.decode(it, row.id) }
             if (m == null) { invalid++; continue }
             usable[row.id] = row
+            if (row.id in pending) {
+                val local = mistakes[row.id]
+                if (local != null) mistakes[row.id] = preserveRemoteFields(row, local)
+            }
             // A queued local delete wins over the still-active remote row: never resurrect it here.
             if (row.id in pendingDeletes) continue
-            if (tombstones[row.id]?.let { timestamp(it) >= timestamp(row.updatedAt) } == true) continue
-            tombstones.remove(row.id)
-            val local = mistakes[row.id]
-            if (local == null || timestamp(row.updatedAt) > timestamp(local.updatedAt)) {
-                mistakes[row.id] = m; pending.remove(row.id); updated++
-            }
         }
-        var c = initial.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
-            tombstones = tombstones.toMap(), pendingDeletes = pendingDeletes.toSet())
-        // Persist downloads/tombstones before uploading. An interrupted upload stays queued.
+        c = c.copy(mistakes = mistakes.toMap(), pending = pending.toSet(), tombstones = tombstones.toMap(),
+            pendingDeletes = pendingDeletes.toSet())
+        // Persist downloads, the cursor and tombstones before uploading. An interrupted upload stays queued.
         store.save(user, c)
         for (id in pending.toList()) {
             val expected = usable[id] ?: continue // Never recreate a missing or malformed remote row.
@@ -141,8 +204,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 store.save(user, c)
             }
         }
-        val contexts = remote.contexts(user)
-        store.save(user, c.copy(contexts = contexts, lastSyncedAt = isoTime()))
+        store.save(user, c.copy(contexts = contexts, lastSyncedAt = isoTime(), remoteCursor = maxOf(c.remoteCursor, cursor)))
         SyncResult(mistakes.size, updated, invalid, pending.size + pendingDeletes.size)
     }
     private fun preserveRemoteFields(remote: RemoteMistakeRow, local: ExamTrackMistake): ExamTrackMistake {
@@ -158,7 +220,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
 }
 
 object MistakeCacheCodec {
-    const val VERSION = 2
+    const val VERSION = 3
     fun encode(c: MistakeCache): String = JSONObject().put("version", VERSION).apply {
         put("mistakes", JSONArray(c.mistakes.values.map { JSONObject(it.originalJson) }))
         put("pending", JSONArray(c.pending.toList()))
@@ -168,11 +230,12 @@ object MistakeCacheCodec {
         put("contexts", JSONObject().apply { c.contexts.forEach { (id, v) -> put(id,
             JSONObject().put("subject", v.subject).put("title", v.title).put("paper", v.paper)) } })
         put("lastSyncedAt", c.lastSyncedAt)
+        put("remoteCursor", c.remoteCursor)
     }.toString()
     fun decode(raw: String): MistakeCache {
         val o = JSONObject(raw)
         val version = o.getInt("version")
-        require(version == 1 || version == VERSION) { "Unsupported mistake cache version" }
+        require(version in 1..VERSION) { "Unsupported mistake cache version" }
         val mistakes = o.getJSONArray("mistakes").let { a -> (0 until a.length()).mapNotNull {
             ExamTrackMistakeCodec.decode(a.getJSONObject(it).toString())
         } }.associateBy { it.id }
@@ -183,6 +246,7 @@ object MistakeCacheCodec {
             val v = c.getJSONObject(it); ExamContext(v.getString("subject"), v.getString("title"), v.getString("paper"))
         } }.orEmpty()
         val pendingDeletes = o.optJSONArray("pendingDeletes")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty()
-        return MistakeCache(mistakes, pending, tombstones, attempts, contexts, o.opt("lastSyncedAt") as? String, pendingDeletes)
+        return MistakeCache(mistakes, pending, tombstones, attempts, contexts, o.opt("lastSyncedAt") as? String,
+            pendingDeletes, o.optLong("remoteCursor").coerceAtLeast(0L))
     }
 }

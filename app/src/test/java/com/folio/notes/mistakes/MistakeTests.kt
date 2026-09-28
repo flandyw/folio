@@ -1,6 +1,8 @@
 package com.folio.notes.mistakes
 
 import com.folio.notes.*
+import com.folio.notes.sync.ReadResult
+import com.folio.notes.sync.SyncProtocol
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,13 +27,38 @@ class MistakeTests {
         override suspend fun save(userId: String, cache: MistakeCache) { values[userId] = MistakeCacheCodec.encode(cache) }
     }
     private class Remote : ExamTrackRemote {
+        private val changes = mutableListOf<SyncProtocol.Change>()
+        private var sequence = 0L
+        val readCursors = mutableListOf<Long>()
         var rows = emptyList<RemoteMistakeRow>()
+            set(value) {
+                val previous = field.associateBy { it.id }
+                val next = value.associateBy { it.id }
+                for ((id, row) in next) if (previous[id] != row) append(id, row)
+                for (id in previous.keys - next.keys) append(id, null)
+                field = value
+            }
         var offline = false
         var conflict = false
         var calls = 0
         val writes = mutableListOf<ExamTrackMistake>()
         val deletes = mutableListOf<String>()
-        override suspend fun fetch(userId: String): List<RemoteMistakeRow> { calls++; check(!offline); return rows }
+        private fun append(id: String, row: RemoteMistakeRow?) {
+            sequence++
+            val deleted = row == null || row.deletedAt != null || row.payload == null
+            changes += SyncProtocol.Change(sequence, "change-$sequence", "remote", "mistakes", id,
+                if (deleted) "delete" else "put", if (deleted) null else JSONObject(row!!.payload!!),
+                sequence, row?.updatedAt ?: "2026-09-16T02:00:00.000Z")
+        }
+        override suspend fun read(userId: String, cursor: Long, limit: Int): ReadResult {
+            calls++; readCursors += cursor; check(!offline)
+            val page = changes.filter { it.seq > cursor }.take(limit)
+            return ReadResult("changes", 0, sequence, page, emptyList())
+        }
+        override suspend fun fetch(userId: String, ids: Set<String>): List<RemoteMistakeRow> {
+            check(!offline)
+            return rows.filter { it.id in ids }
+        }
         override suspend fun update(userId: String, expected: RemoteMistakeRow, payload: ExamTrackMistake): Boolean {
             check(!offline)
             if (conflict) return false
@@ -46,7 +73,6 @@ class MistakeTests {
             rows = rows.map { if (it.id == expected.id) it.copy(payload = null, updatedAt = deletedAt, deletedAt = deletedAt) else it }
             return true
         }
-        override suspend fun contexts(userId: String) = emptyMap<String, ExamContext>()
     }
     @Test fun parsesAndRoundTripsUnknownFields() {
         val o = payload().put("questionText", "Find x").put("areaOfStudy", "Calculus").put("criterion", "C2")
@@ -194,21 +220,35 @@ class MistakeTests {
         assertTrue(remote.writes.isEmpty()) // The rating never uploads for a deleted card.
         assertEquals(listOf("m"), remote.deletes)
     }
-    @Test fun versionOneCacheStillLoadsWithoutPendingDeletes() {
+    @Test fun olderCachesStillLoadWithAnEmptyRemoteCursor() {
         val encoded = JSONObject(MistakeCacheCodec.encode(MistakeCache(mistakes = mapOf("m" to mistake()))))
         encoded.put("version", 1).remove("pendingDeletes")
         val loaded = MistakeCacheCodec.decode(encoded.toString())
         assertTrue(loaded.pendingDeletes.isEmpty())
+        assertEquals(0L, loaded.remoteCursor)
         assertEquals("Q8c", loaded.mistakes["m"]!!.question)
-        assertEquals(2, MistakeCacheCodec.VERSION)
+        assertEquals(3, MistakeCacheCodec.VERSION)
     }
-    @Test fun newerRemoteWinsOverQueuedLocalReviewButKeepsHandwriting() = runBlocking {
+    @Test fun incrementalPullMergesRemoteContentWithQueuedLocalReview() = runBlocking {
         val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)
         repo.sync("u"); repo.rate("u", attempt(), ReviewRating.GOOD, at)
         remote.rows = listOf(row(payload(updated = "2026-09-17T00:00:00.000Z").put("correction", "latest")))
         repo.sync("u")
         assertEquals("latest", repo.cache("u").mistakes["m"]!!.correction)
-        assertEquals(1, repo.cache("u").attempts.size); assertTrue(remote.writes.isEmpty())
+        assertEquals(1, repo.cache("u").attempts.size)
+        assertEquals(1, remote.writes.single().reviewHistory.size)
+        assertTrue(repo.cache("u").pending.isEmpty())
+    }
+
+    @Test fun mistakeSyncPersistsCursorAndReadsOnlyLaterFeedRows() = runBlocking {
+        val store = Store(); val remote = Remote().apply { rows = listOf(row()) }
+        val repo = MistakeRepository(store, remote)
+        repo.sync("u")
+        assertEquals(1L, repo.cache("u").remoteCursor)
+        remote.rows = listOf(row(), row(payload("m2")))
+        MistakeRepository(store, remote).sync("u")
+        assertEquals(1L, remote.readCursors.last())
+        assertEquals(setOf("m", "m2"), MistakeRepository(store, remote).cache("u").mistakes.keys)
     }
     @Test fun conditionalWriteConflictStaysQueued() = runBlocking {
         val remote = Remote().apply { rows = listOf(row()) }; val repo = MistakeRepository(Store(), remote)

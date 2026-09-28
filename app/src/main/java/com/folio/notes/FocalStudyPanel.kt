@@ -40,11 +40,11 @@ import java.util.Date
 fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(manager.now()) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(1_000)
-            now = System.currentTimeMillis()
+            now = manager.now()
         }
     }
     val examActive = timer.active && timer.startedAt != null
@@ -111,10 +111,10 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     var showAllShared by rememberSaveable { mutableStateOf(false) }
     var bulkAction by remember { mutableStateOf<String?>(null) }
     val emailValid = android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(manager.now()) }
     LaunchedEffect(Unit) {
         manager.retry()
-        while (true) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() }
+        while (true) { kotlinx.coroutines.delay(1000); now = manager.now() }
     }
     val focus = state.focus
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
