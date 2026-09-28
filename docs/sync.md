@@ -18,6 +18,12 @@ server-clock estimate when available. Device wall-clock time and reconnect recei
 not used to infer offline duration. A process restart recovers an ordinary focus timer as
 paused at its last durable checkpoint; a device reboot breaks elapsed-realtime continuity.
 
+A publish is acknowledged from the canonical session `study_session_mutate` returns: the entry
+takes the server revision, canonical payload and the change id the feed will echo, and every
+mutation id the device sent is remembered. A pull therefore never reads this device's own write
+back as another device's change. The "changed on another device" notice is also reported once
+per (session, change id), so a retried sync cannot repeat the same remote edit.
+
 ## Mistakes and attempts
 
 The mistake cache is account-scoped and stored atomically under

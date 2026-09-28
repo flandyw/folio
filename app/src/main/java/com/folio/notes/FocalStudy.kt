@@ -505,6 +505,25 @@ class FocalStudyManager(context: Context) {
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
     private var remoteNoticeReadyUser: String? = null
+    // Change ids this device authored, so their echo in the feed is never read as another device.
+    private val ownChangeIds = LinkedHashSet<String>()
+    // Session id to the change id already reported, so a loop that re-reads the same row cannot
+    // raise the same notice over and over.
+    private val noticedExternalChanges = HashMap<String, String>()
+
+    private fun rememberOwnChange(changeId: String) {
+        ownChangeIds += changeId
+        // Insertion order, so the oldest id is the one to drop once the window is full.
+        while (ownChangeIds.size > MAX_OWN_CHANGE_IDS) {
+            val oldest = ownChangeIds.firstOrNull() ?: return
+            ownChangeIds.remove(oldest)
+        }
+    }
+
+    private fun clearSyncMemory() {
+        ownChangeIds.clear()
+        noticedExternalChanges.clear()
+    }
 
     fun setForeground(value: Boolean) { foreground.value = value }
 
@@ -517,7 +536,7 @@ class FocalStudyManager(context: Context) {
                     when (status) {
                         is SessionStatus.Authenticated -> {
                             status.session.user?.let { user ->
-                                if (_state.value.userId != user.id) remoteNoticeReadyUser = null
+                                if (_state.value.userId != user.id) { remoteNoticeReadyUser = null; clearSyncMemory() }
                                 _state.update { it.copy(userId = user.id, email = user.email, error = null,
                                     subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
                                 sync()
@@ -526,6 +545,7 @@ class FocalStudyManager(context: Context) {
                         }
                         is SessionStatus.NotAuthenticated -> {
                             remoteNoticeReadyUser = null
+                            clearSyncMemory()
                             _state.update { it.copy(userId = null, email = null) }
                         }
                         else -> Unit
@@ -885,7 +905,10 @@ class FocalStudyManager(context: Context) {
         }
     }
 
-    companion object { private const val EXAM_SYNC_INTERVAL_MS = 30_000L }
+    companion object {
+        private const val EXAM_SYNC_INTERVAL_MS = 30_000L
+        private const val MAX_OWN_CHANGE_IDS = 200
+    }
 
     fun signIn(email: String, password: String) {
         if (_state.value.busy || !_state.value.configured) return
@@ -931,6 +954,7 @@ class FocalStudyManager(context: Context) {
                 client.auth.clearSession()
                 sessions.deleteSession()
                 remoteNoticeReadyUser = null
+                clearSyncMemory()
                 _state.update { it.copy(userId = null, email = null, subjects = FocalSubjects.builtIn,
                     remoteSubjectsRevision = 0L, remoteSubjectsUser = null) }
                 persist()
@@ -985,14 +1009,8 @@ class FocalStudyManager(context: Context) {
         gate.withLock {
             if (_state.value.userId != user) return@withLock
             try {
-                val sent = sendCommands(user, commands)
-                if (sent) {
-                    commitTimingAnchor(entry, commands)
-                    _state.update { state -> state.copy(entries = state.entries.map {
-                        if (it.id == entry.id) it.copy(synced = true) else it
-                    }) }
-                    persist()
-                }
+                val ack = sendCommands(user, commands)
+                if (ack.sent) { commitTimingAnchor(entry, commands); acknowledge(entry.id, ack) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending this session to Focal", e) }
         }
@@ -1007,7 +1025,8 @@ class FocalStudyManager(context: Context) {
             if (commands.isEmpty()) { markSynced(entry.id); continue }
             _state.update { it.copy(syncDetail = "Sending session ${index + 1} of ${pending.size} to Focal\u2026") }
             try {
-                if (sendCommands(user, commands)) { commitTimingAnchor(entry, commands); markSynced(entry.id) }
+                val ack = sendCommands(user, commands)
+                if (ack.sent) { commitTimingAnchor(entry, commands); acknowledge(entry.id, ack) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending a saved session to Focal", e); return }
         }
@@ -1020,36 +1039,71 @@ class FocalStudyManager(context: Context) {
         if (!persist()) error("Could not save the session receipt")
     }
 
+    /**
+     * Take the server's own word for a published session: its canonical payload, its revision and
+     * the change id the feed will echo. Without this the entry keeps the revision and change id it
+     * had before the publish, so the very next pull reads the device's own write back as somebody
+     * else's change and the "changed on another device" notice repeats.
+     */
+    private fun acknowledge(sessionId: String, ack: FocalPublishAck) {
+        if (!ack.sent) return
+        val mutationId = ack.mutationIds.lastOrNull()
+        val revision = ack.canonical?.optLong("revision")?.takeIf { it >= 0L }
+        val payload = ack.canonical?.toString()
+        ack.mutationIds.forEach { rememberOwnChange(it) }
+        _state.update { state -> state.copy(entries = state.entries.map { entry ->
+            when {
+                entry.id != sessionId -> entry
+                // A newer local edit replaced this entry while the request was in flight; it owns
+                // the row now and stays pending for the next pass.
+                entry.changeId !in ack.mutationIds -> entry
+                else -> entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
+                    revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
+            }
+        }) }
+        if (!persist()) error("Could not save the session receipt")
+    }
+
     /** Returns false when the server refused the change, true once the session is acknowledged. */
-    private suspend fun sendCommands(user: String, commands: List<JSONObject>): Boolean {
+    private suspend fun sendCommands(user: String, commands: List<JSONObject>): FocalPublishAck {
         var command = commands.first()
         var rest = commands.drop(1)
         var rebases = 0
+        // Every mutation id this device puts on the wire, including the ones a stale rebase
+        // mints. The feed echoes them back as change ids, so they are how a later pull knows
+        // that a row moved because of this device and not another one.
+        val mutationIds = mutableListOf<String>()
+        var canonical: JSONObject? = null
         while (true) {
             val result = syncRemote.mutateStudySession(user, command)
+            command.optString("mutation_id").takeIf { it.isNotBlank() }?.let { mutationIds += it }
             observeServerNow(result.optString("server_now").takeIf { it.isNotBlank() })
             val reason = result.optString("reason").takeIf { it.isNotBlank() }
-            val canonical = result.optJSONObject("session")
+            canonical = result.optJSONObject("session") ?: canonical
             if (reason == "stale_revision" && canonical != null) {
                 val state = canonical.optString("state")
                 val phase = canonical.optString("phase").takeIf { it.isNotBlank() }
                 val action = command.optString("action")
                 val satisfied = focalMutationSatisfied(action, state, phase, command.optString("phase").takeIf { it.isNotBlank() })
                 val terminal = state in setOf("completed", "cancelled")
-                if (satisfied || terminal || !focalMutationCanRebase(action, state)) return satisfied
+                if (satisfied || terminal || !focalMutationCanRebase(action, state)) {
+                    return FocalPublishAck(satisfied, canonical, mutationIds)
+                }
                 if (rebases++ >= 2) error("Study session changed repeatedly; retry sync to rebase the command")
                 command = JSONObject(command.toString())
                     .put("mutation_id", UUID.randomUUID().toString())
                     .put("expected_revision", canonical.optLong("revision"))
                 continue
             }
-            if (reason == "session_terminal") return true
-            if (reason == "not_found" || reason == "invalid_transition") return false
+            if (reason == "session_terminal") return FocalPublishAck(true, canonical, mutationIds)
+            if (reason == "not_found" || reason == "invalid_transition") {
+                return FocalPublishAck(false, canonical, mutationIds)
+            }
             if (!result.optBoolean("ok") && !(reason == "already_exists" && command.optString("action") == "create")) {
                 error("study_session_mutate failed: ${reason ?: "server_unavailable"}")
             }
             // The remaining commands are the ones the stale rebase invalidated; re-derive them.
-            if (rest.isEmpty()) return true
+            if (rest.isEmpty()) return FocalPublishAck(true, canonical, mutationIds)
             command = rest.first()
             rest = rest.drop(1)
         }
@@ -1097,18 +1151,17 @@ class FocalStudyManager(context: Context) {
             if (page.changes.size < 500 || cursor >= page.head) break
         }
         if (_state.value.userId != user) return
-        val remote = latest.mapNotNull { (id, value) -> focalEntryFromCanonical(id, value.first, value.second, user) }
         val previous = _state.value.entries.associateBy { it.id }
-        val externalChanges = remote.filter { incoming ->
-            val old = previous[incoming.id]
-            old?.changeId != incoming.changeId && (old == null || incoming.revision > old.revision)
-        }
+        val remote = latest.mapNotNull { (id, value) -> focalEntryFromCanonical(id, value.first, value.second, user) }
+        val externalChanges = focalExternalChanges(
+            previous.values.toList(), remote, ownChangeIds, noticedExternalChanges)
         val notice = if (remoteNoticeReadyUser == user && externalChanges.isNotEmpty()) {
             if (externalChanges.any { incoming -> incoming.completed && previous[incoming.id]?.active == true })
                 "A Focal session finished on another device"
             else if (externalChanges.size == 1) "A Focal session changed on another device"
             else "${externalChanges.size} Focal sessions changed on another device"
         } else null
+        externalChanges.forEach { noticedExternalChanges[it.id] = it.changeId }
         _state.update { state ->
             // A session the server echoed back is acknowledged; anything it did not echo is
             // still local truth and the next publish pass sends the difference.
@@ -1261,6 +1314,35 @@ internal fun focalMutationSatisfied(action: String, state: String?, phase: Strin
     "cancel" -> state == "cancelled"
     "phase_change" -> phase == requestedPhase
     else -> false
+}
+
+/** What one publish pass learned from the server about the session it just wrote. */
+internal data class FocalPublishAck(
+    val sent: Boolean,
+    val canonical: JSONObject?,
+    val mutationIds: List<String>
+)
+
+/**
+ * The remote sessions that somebody else moved. A row is external when the feed carries a change
+ * id the local entry has not seen, the server's revision moved past the local one, this device did
+ * not author that change id, and the same change was not already reported. Re-reading one change
+ * is not a new event, so a retried sync cannot turn one remote edit into a stream of notices.
+ */
+internal fun focalExternalChanges(
+    local: List<FocalStudyEntry>,
+    remote: List<FocalStudyEntry>,
+    ownChangeIds: Set<String> = emptySet(),
+    alreadyNoticed: Map<String, String> = emptyMap()
+): List<FocalStudyEntry> {
+    val previous = local.associateBy { it.id }
+    return remote.filter { incoming ->
+        val old = previous[incoming.id]
+        incoming.changeId !in ownChangeIds &&
+            alreadyNoticed[incoming.id] != incoming.changeId &&
+            old?.changeId != incoming.changeId &&
+            (old == null || incoming.revision > old.revision)
+    }
 }
 
 private fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: String, user: String): FocalStudyEntry? = runCatching {

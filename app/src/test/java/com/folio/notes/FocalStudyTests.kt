@@ -70,6 +70,30 @@ class FocalStudyTests {
             "11111111-1111-4111-8111-111111111111").getString("kind"))
     }
 
+    @Test fun thisDevicesOwnPublishIsNotReportedAsAnExternalChange() {
+        val local = listOf(active().copy(changeId = "local", revision = 3))
+        // The echo of a batch this device just sent: the feed carries the last mutation id and the
+        // revision the server reached, which is exactly the pair that used to raise a notice.
+        val echoed = active().copy(changeId = "server-side-last-mutation", revision = 5)
+        assertEquals(listOf(echoed), focalExternalChanges(local, listOf(echoed)))
+        assertTrue(focalExternalChanges(local, listOf(echoed), ownChangeIds = setOf("server-side-last-mutation")).isEmpty())
+    }
+
+    @Test fun aRepeatedRemoteChangeIsNoticedOnce() {
+        val remote = active().copy(changeId = "other-device", revision = 9)
+        assertEquals(1, focalExternalChanges(listOf(active()), listOf(remote)).size)
+        assertTrue(focalExternalChanges(listOf(active()), listOf(remote),
+            alreadyNoticed = mapOf("session" to "other-device")).isEmpty())
+        // A genuinely newer change from that device is still worth reporting.
+        assertEquals(1, focalExternalChanges(listOf(active()), listOf(remote.copy(changeId = "other-device-2", revision = 10)),
+            alreadyNoticed = mapOf("session" to "other-device")).size)
+    }
+
+    @Test fun aLocalCheckpointThatOnlyRotatesItsChangeIdIsNotExternal() {
+        val checkpointed = active().copy(changeId = "checkpoint", revision = 4)
+        assertTrue(focalExternalChanges(listOf(checkpointed), listOf(active().copy(changeId = "start", revision = 4))).isEmpty())
+    }
+
     @Test fun anUnsyncedEntryPublishesExactlyTheDifferenceFromTheServer() {
         val device = "11111111-1111-4111-8111-111111111111"
         val running = """{"state":"running","phase":"focus","kind":"focus","title":"Study","subject_id":"mm","metadata":{}}"""

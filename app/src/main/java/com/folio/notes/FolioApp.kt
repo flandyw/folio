@@ -129,7 +129,9 @@ import java.io.File
     val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val focalState by (context.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
-    var shownRemoteNoticeId by rememberSaveable { mutableLongStateOf(focalState.remoteNoticeId) }
+    // Not saveable on purpose: the counter lives in the manager and restarts at zero with the
+    // process, so a restored higher value would swallow every later notice.
+    var shownRemoteNoticeId by remember { mutableLongStateOf(focalState.remoteNoticeId) }
     LaunchedEffect(focalState.remoteNoticeId) {
         if (focalState.remoteNoticeId > shownRemoteNoticeId) focalState.remoteNotice?.let {
             shownRemoteNoticeId = focalState.remoteNoticeId
