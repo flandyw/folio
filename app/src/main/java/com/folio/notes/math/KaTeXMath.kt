@@ -79,6 +79,13 @@ private suspend fun loadDiskBitmap(appContext: Context, key: FormulaKey): Bitmap
                 runCatching { file.delete() }
                 return@runCatching null
             }
+            // Self-heal entries cached before captures were verified: a blank one is a stale frame,
+            // and keeping it would leave a permanent gap in every card rendered at this size.
+            if (!bitmap.hasInk()) {
+                runCatching { bitmap.recycle() }
+                runCatching { file.delete() }
+                return@runCatching null
+            }
             file.setLastModified(System.currentTimeMillis())
             bitmap
         }.getOrNull()
@@ -205,9 +212,14 @@ private fun FormulaContent(state: FormulaState, modifier: Modifier = Modifier) {
                         }
                     }
                     if (bitmap != null) {
-                        images.put(state.key, bitmap)
-                        state.bitmap = bitmap
-                        fresh = bitmap
+                        // render() already rejects blank captures; never let one into either cache.
+                        if (!bitmap.hasInk()) {
+                            runCatching { bitmap.recycle() }
+                        } else {
+                            images.put(state.key, bitmap)
+                            state.bitmap = bitmap
+                            fresh = bitmap
+                        }
                     }
                 } finally {
                     state.session = null

@@ -64,6 +64,12 @@ class KaTeXRenderingTests {
                         }
                     }
                     assertEquals("true", view.evaluate("Array.from(document.fonts).some(f => f.status === 'loaded')"))
+                    // Fully transparent ink is genuinely blank, not a dropped frame: it must not be
+                    // retried into an exception, and the renderer must keep working afterwards.
+                    view.render("\\alpha", false, 18f, "rgba(0,0,0,0.000)", density).recycle()
+                    val afterBlank = view.render("\\alpha+\\beta", false, 18f, "#202020", density)
+                    assertTrue("Blank capture poisoned the renderer", afterBlank.hasInk())
+                    afterBlank.recycle()
                     view.render("\\frac{", false, 18f, "#202020", density)
                     val malformed = JSONObject(view.evaluate("window.folioResult"))
                     assertTrue(malformed.getBoolean("error"))

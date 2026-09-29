@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import androidx.annotation.ColorInt
 import android.view.View
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -24,6 +25,33 @@ import kotlin.coroutines.resume
 import kotlin.math.ceil
 
 internal const val MATH_ORIGIN = "https://folio-math.invalid/"
+
+/** One render, plus two retries for a frame the renderer had not committed yet. */
+private const val CAPTURE_ATTEMPTS = 3
+
+/**
+ * Sparse ink probe. KaTeX output always paints glyphs, so an all-transparent bitmap means a stale or
+ * dropped frame rather than real content. Samples a grid instead of every pixel to stay cheap.
+ */
+internal fun Bitmap.hasInk(): Boolean {
+    if (width < 1 || height < 1) return false
+    val stepX = (width / 24).coerceAtLeast(1)
+    val stepY = (height / 24).coerceAtLeast(1)
+    var y = 0
+    while (y < height) {
+        var x = 0
+        while (x < width) {
+            if (alphaAt(x, y) > 0) return true
+            x += stepX
+        }
+        y += stepY
+    }
+    return false
+}
+
+@ColorInt
+private fun Bitmap.alphaAt(x: Int, y: Int): Int =
+    runCatching { Color.alpha(getPixel(x, y)) }.getOrDefault(0)
 
 /**
  * A tiny pool of pre-warmed renderers. Creating a WebView plus loading the local
@@ -147,8 +175,32 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
         evaluateJavascript(script) { if (continuation.isActive) continuation.resume(it) }
     }
 
-    /** Wait for local fonts before measuring; screenshot the actual KaTeX layout, never reimplement it. */
+    /**
+     * Wait for local fonts before measuring; screenshot the actual KaTeX layout, never reimplement it.
+     * A pooled renderer can hand back a stale (transparent) frame, so verify the capture has ink and
+     * re-render before giving up: an unrecoverable blank throws, and the caller keeps readable native
+     * source. Never return an empty bitmap — caching one shows a permanent gap in every list card.
+     */
     suspend fun render(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
+        val expectsInk = inkExpected(color)
+        var attempt = 0
+        while (true) {
+            val bitmap = capture(latex, display, fontSize, color, density)
+            if (!expectsInk || bitmap.hasInk()) return bitmap
+            bitmap.recycle()
+            if (++attempt >= CAPTURE_ATTEMPTS) throw IllegalStateException("Math render produced no pixels")
+            // The DOM had not been composited yet; let a frame land before asking again.
+            delay(40)
+        }
+    }
+
+    /** [color] is `rgba(r,g,b,a)` from the caller, or a hex string in tests; only a fully transparent ink is blank. */
+    private fun inkExpected(color: String): Boolean {
+        val alpha = color.substringAfterLast(',', "").substringBefore(')').trim().toFloatOrNull() ?: 1f
+        return alpha > 0f
+    }
+
+    private suspend fun capture(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
         loaded.await()
         val request = JSONObject().put("latex", latex).put("displayMode", display)
             .put("fontSize", fontSize).put("color", color)
