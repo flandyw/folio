@@ -99,6 +99,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var tool by rememberSaveable { mutableStateOf(session?.tool ?: AppPrefs.defaultTool(appPrefs.getString(AppPrefs.DEFAULT_TOOL, null))) }
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
+    var quickControlsExpanded by rememberSaveable { mutableStateOf(false) }
     var palmRejectMs by remember { mutableLongStateOf(AppPrefs.palmMs(appPrefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { appPrefs.contains(AppPrefs.PALM_MS) })) }
     DisposableEffect(appPrefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefsChanged, key ->
@@ -575,8 +576,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
             actions = {
-                IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Editor settings") }
-                IconButton(onExport, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Export or share") }
+                IconButton(onExport, modifier = Modifier.size(44.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
                 Box {
                     IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
                     PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
@@ -592,7 +592,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onInsertElement = { stampPicker = true },
                         onOrganize = { pageBrowser = true },
                         onBookmark = { model.togglePageBookmark(page.id) },
-                        onNamePage = { namedPage = page; pageTitle = page.title })
+                        onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
                 }
             }
         )
@@ -601,7 +601,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         // so switching between tools with/without a quick row glides instead of jumping.
         val showQuickBar = tool == Tool.PEN || tool == Tool.LINE || tool == Tool.RECTANGLE ||
             tool == Tool.ELLIPSE || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER || tool == Tool.TEXT
-        val floatingToolbarTop by animateDpAsState(if (showQuickBar) 112.dp else 64.dp, label = "toolbarOffset")
+        val floatingToolbarTop by animateDpAsState(if (showQuickBar && quickControlsExpanded) 112.dp else 64.dp, label = "toolbarOffset")
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -1055,7 +1055,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
-                    toolbarLayoutState = toolbarLayouts
+                    toolbarLayoutState = toolbarLayouts,
+                    quickExpanded = quickControlsExpanded,
+                    onQuickExpanded = { quickControlsExpanded = it }
                 )
             }
         }
@@ -1844,7 +1846,8 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
-    toolbarLayoutState: ToolbarLayoutState? = null
+    toolbarLayoutState: ToolbarLayoutState? = null,
+    quickExpanded: Boolean = false, onQuickExpanded: (Boolean) -> Unit = {}
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
@@ -2027,11 +2030,19 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 }
             }
         }
+        if (showQuickBar) {
+            ToolbarDivider()
+            IconButton({ onQuickExpanded(!quickExpanded) }, modifier = Modifier.size(40.dp)) {
+                Icon(if (quickExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.Palette,
+                    if (quickExpanded) "Hide quick tool controls" else "Show quick tool controls")
+            }
+        }
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
             IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
+                if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
                         listOf(
@@ -2052,6 +2063,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 }
                 if (toolbarLayout.overflow.isNotEmpty()) HorizontalDivider()
                 if (presets.isNotEmpty() && onApplyPreset != null) {
+                    Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     presets.forEach { preset ->
                         DropdownMenuItem(
                             { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
@@ -2065,6 +2077,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     DropdownMenuItem({ Text("Select all") }, { onSelectAll(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
                     HorizontalDivider()
                 }
+                Text("Tool behaviour", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 if (!isDrawing && tool != Tool.ERASER) {
                     DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
                     if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
@@ -2103,7 +2116,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
         AnimatedVisibility(
-            visible = showQuickBar,
+            visible = showQuickBar && quickExpanded,
             enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
             exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
         ) {
@@ -2331,15 +2344,17 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onStopwatch: () -> Unit = {}, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
     onFitAll: (() -> Unit)? = null
 ) {
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
+        Text("Page", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
         HorizontalDivider()
+        Text("Study", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem(
             { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
             { onDismiss(); onRedo() },
@@ -2350,11 +2365,14 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         DropdownMenuItem({ Text("Stopwatch") }, { onDismiss(); onStopwatch() }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) })
         HorizontalDivider()
+        Text("Insert & find", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
         DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
         DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
         DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
         DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+        HorizontalDivider()
+        Text("View & editing", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         if (onFitAll != null) {
             DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
             DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
@@ -2365,6 +2383,8 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
         DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onDismiss(); onSnap() }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
         DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
+        HorizontalDivider()
+        DropdownMenuItem({ Text("Editor settings") }, { onDismiss(); onSettings() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
         if (saveFailed) DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
     }
 }
