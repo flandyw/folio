@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
 import androidx.compose.foundation.layout.*
@@ -24,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.ImeAction
@@ -68,29 +67,31 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         else -> "Focal"
     }
     val syncStatus = state.syncStatus
-    val syncIcon = when {
-        state.syncing -> Icons.Rounded.Sync
-        state.error != null -> Icons.Rounded.ErrorOutline
-        state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
-        else -> Icons.Rounded.CloudDone
-    }
     val recording = examActive || focus != null || sharedActive != null
     val isPaused = when {
         examActive -> timer.paused
         focus != null -> focus.resumedAt == null
         else -> sharedActive?.paused == true
     }
-    Surface(onClick = onClick, shape = RoundedCornerShape(18.dp),
-        color = if (recording) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.semantics { contentDescription = "$label. $syncStatus. Open study sessions" }) {
-        Row(Modifier.heightIn(min = 36.dp).padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            Icon(if (recording && isPaused) Icons.Rounded.Pause
-                else if (recording) Icons.Rounded.PlayArrow else Icons.Rounded.School,
-                null, Modifier.size(16.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Icon(syncIcon, null, Modifier.size(15.dp),
-                tint = if (state.error != null && !state.syncing) MaterialTheme.colorScheme.error else LocalContentColor.current)
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(if (recording) label else "Focal · Study sessions") } },
+        state = rememberTooltipState()
+    ) {
+        FilledTonalIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(40.dp).semantics {
+                contentDescription = "$label. $syncStatus. Open study sessions"
+            },
+            shapes = IconButtonDefaults.shapes(),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = if (recording) MaterialTheme.colorScheme.primaryContainer
+                    else androidx.compose.ui.graphics.Color.Transparent,
+                contentColor = if (recording) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(if (recording && isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null)
         }
     }
 }

@@ -358,13 +358,20 @@ import java.io.File
     }
     fun checkForUpdates(showDialog: Boolean) {
         if (updateChecking || updateDownloading) return
-        // Unauthenticated GitHub API checks share 60 req/hour per IP: throttle background
-        // checks to once per day so restarts can't burn the quota and surface 403s.
-        // Manual checks always run; both record success/rate-limit to delay the next auto check.
-        if (!showDialog) {
-            val last = prefs.getLong(AppPrefs.LAST_UPDATE_CHECK, 0L)
-            if (!shouldAutoUpdateCheck(System.currentTimeMillis(), last)) return
+        // The unauthenticated 60/hour quota is shared by everyone on this IP.
+        // Manual retries must honour the server cooldown too.
+        val now = System.currentTimeMillis()
+        val retryAt = prefs.getLong(AppPrefs.UPDATE_RETRY_AT, 0L)
+        if (retryAt > now) {
+            if (showDialog) {
+                updateInfo = null
+                updateMessage = "Update check paused · try again in ${((retryAt - now) + 59_999) / 60_000} min"
+                updateFailure = false
+                updateDialog = true
+            }
+            return
         }
+        if (!showDialog && !shouldAutoUpdateCheck(now, prefs.getLong(AppPrefs.LAST_UPDATE_CHECK, 0L))) return
         updateChecking = true
         updateInfo = null
         updateReady = null
@@ -374,14 +381,18 @@ import java.io.File
         updateScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { updateChecker.check() }
-                prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis())
+                    .remove(AppPrefs.UPDATE_RETRY_AT).apply()
                 updateInfo = result
                 if (result != null) updateDialog = true
                 else if (showDialog) updateMessage = "You’re up to date."
             } catch (error: Exception) {
-                if (error is GithubHttpException && (error.code == 403 || error.code == 429)) {
-                    prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                }
+                // Rate-limit cooldown applies even to manual checks. Other failures only
+                // throttle automatic retries, so users can retry after restoring connectivity.
+                val rateRetry = (error as? GithubHttpException)?.retryAtMillis
+                if (rateRetry != null) prefs.edit().putLong(AppPrefs.UPDATE_RETRY_AT, rateRetry).apply()
+                else if (!showDialog) prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK,
+                    System.currentTimeMillis() - AUTO_UPDATE_CHECK_INTERVAL_MILLIS + UPDATE_FAILURE_RETRY_MILLIS).apply()
                 if (showDialog) {
                     updateMessage = error.message ?: "Could not check for updates."
                     updateFailure = true

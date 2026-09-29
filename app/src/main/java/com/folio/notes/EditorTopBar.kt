@@ -3,9 +3,8 @@ package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -15,13 +14,39 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Small independent controls instead of a full-width app bar. Share stays visible at every width. */
+/** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
+@Composable internal fun EditorGlassSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(28.dp)
+    Surface(
+        modifier = modifier.guardUiTouches(),
+        shape = shape,
+        color = colors.surfaceContainerHigh.copy(alpha = .9f),
+        contentColor = colors.onSurface,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, Brush.verticalGradient(listOf(
+            colors.surfaceBright.copy(alpha = .9f),
+            colors.outlineVariant.copy(alpha = .35f)
+        )))
+    ) {
+        Box(Modifier.background(Brush.verticalGradient(listOf(
+            colors.surface.copy(alpha = .28f), Color.Transparent
+        )))) { content() }
+    }
+}
+
+/** First row of the floating editor dock; secondary actions stay in anchored menus. */
 @Composable internal fun EditorTopBar(
     title: String,
     saveFailed: Boolean,
@@ -48,25 +73,34 @@ import androidx.compose.ui.unit.dp
     onAdd: () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
+    notebookActions: @Composable (() -> Unit) -> Unit = {},
     actions: @Composable RowScope.() -> Unit
 ) {
     var notebookMenu by remember { mutableStateOf(false) }
     var pageMenu by remember { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
-        val compact = maxWidth < 600.dp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < 840.dp
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                IconButton(onClose, modifier = Modifier.size(44.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+            EditorGlassSurface {
+                IconButton(onClose, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
             }
-            Box(Modifier.weight(1f, fill = false)) {
-                Surface(onClick = { notebookMenu = true }, shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                    Row(Modifier.padding(horizontal = if (compact) 6.dp else 12.dp).height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = if (compact) 58.dp else 200.dp))
-                        Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(18.dp))
+            Box(Modifier.weight(1f)) {
+                EditorGlassSurface(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable(role = Role.Button, onClickLabel = "Notebook actions") { notebookMenu = true }
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        if (saveFailed || pendingSaves > 0) {
+                            Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.Sync,
+                                if (saveFailed) "Save failed. Open notebook actions for details" else "Saving on device",
+                                Modifier.padding(start = 4.dp).size(16.dp),
+                                tint = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        }
+                        Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
                     }
                 }
                 DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
@@ -77,24 +111,28 @@ import androidx.compose.ui.unit.dp
                     Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                         SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, pendingSaves, onRetrySave, onClose)
                     }
+                    notebookActions { notebookMenu = false }
                     if (compact) {
                         HorizontalDivider()
                         Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { timer() }
                     }
                 }
             }
-            if (!compact) timer()
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            if (!compact) EditorGlassSurface { timer() }
+            EditorGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(36.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
+                    if (!compact) IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
                     Box {
-                        TextButton({ pageMenu = true }, contentPadding = PaddingValues(horizontal = 2.dp),
-                            modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Page actions" }) {
+                        TextButton({ pageMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Page actions" }) {
                             Text("${pageIndex + 1}/$pageCount", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
                             Text("Pages", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            if (compact) {
+                                DropdownMenuItem({ Text("Previous page") }, { pageMenu = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
+                                DropdownMenuItem({ Text("Next page") }, { pageMenu = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
+                            }
                             DropdownMenuItem({ Text("Browse pages") }, { pageMenu = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
                             DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, enabled = pageIndex > 0)
                             DropdownMenuItem({ Text("Last page") }, { pageMenu = false; onLastPage() }, enabled = pageIndex < pageCount - 1)
@@ -107,11 +145,10 @@ import androidx.compose.ui.unit.dp
                             if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { pageMenu = false; onFitAll() })
                         }
                     }
-                    IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(36.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
+                    if (!compact) IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
                 }
             }
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 3.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            EditorGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically, content = actions)
             }
         }

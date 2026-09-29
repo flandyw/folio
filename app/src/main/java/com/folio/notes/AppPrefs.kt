@@ -13,6 +13,7 @@ object AppPrefs {
     const val KEEP_SCREEN_ON = "editor.keepScreenOn"
     const val AUTO_UPDATE = "updates.auto"
     const val LAST_UPDATE_CHECK = "updates.lastCheck"
+    const val UPDATE_RETRY_AT = "updates.retryAt"
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"

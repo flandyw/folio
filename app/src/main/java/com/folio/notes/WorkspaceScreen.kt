@@ -27,61 +27,12 @@ import androidx.compose.ui.unit.dp
     haptics: Boolean, shapeRecognition: Boolean,
     onSettings: () -> Unit, onExport: () -> Unit) {
     var picker by remember { mutableStateOf<String?>(null) }
-    var tabMenuFor by remember { mutableStateOf<String?>(null) }
-    var compactTabMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
         val boxDensity = LocalDensity.current
         val totalWidthPx = with(boxDensity) { maxWidth.toPx() }
         val totalHeightPx = with(boxDensity) { maxHeight.toPx() }
         Column(Modifier.fillMaxSize()) {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-                Row(Modifier.fillMaxWidth().height(48.dp).guardUiTouches(), verticalAlignment = Alignment.CenterVertically) {
-                    if (compact) Box(Modifier.weight(1f)) {
-                        // Tap opens the document list; a hold offers closing tabs without leaving the page.
-                        val hold = rememberLongPressGuard()
-                        TextButton(hold.click { picker = "tabs" }, modifier = Modifier.fillMaxWidth().longPressAction(hold) { compactTabMenu = state.activeId != null }, shapes = ButtonDefaults.shapes()) {
-                            Text(state.active?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Icon(Icons.Rounded.ExpandMore, "Open documents")
-                        }
-                        DropdownMenu(compactTabMenu, { compactTabMenu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text("Close this tab") }, { compactTabMenu = false; state.activeId?.let { model.closeTab(it) } }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                            DropdownMenuItem({ Text("Close other tabs") }, { compactTabMenu = false; state.activeId?.let { model.closeOtherTabs(it) } }, leadingIcon = { Icon(Icons.Rounded.ClearAll, null) })
-                        }
-                    } else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                        state.tabs.forEach { tab ->
-                            val note = state.notes.find { it.id == tab.notebookId }
-                            if (note != null) {
-                                val hold = rememberLongPressGuard()
-                                Surface(color = if (state.activeId == tab.notebookId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                                    modifier = Modifier.longPressAction(hold) { tabMenuFor = tab.id }) {
-                                Box {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton(hold.click { model.open(tab.notebookId) }, modifier = Modifier.semantics { selected = state.activeId == tab.notebookId; role = Role.Tab }, shapes = ButtonDefaults.shapes()) {
-                                        val tabIsPdf = note.pages.any { it.pdfIndex != null }
-                                        Icon(if (tabIsPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (tabIsPdf) "PDF notebook" else "Notebook", Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(note.title, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    IconButton(hold.click { model.closeTab(tab.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}", Modifier.size(18.dp)) }
-                                }
-                                DropdownMenu(tabMenuFor == tab.id, { tabMenuFor = null }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("Close tab") }, { tabMenuFor = null; model.closeTab(tab.id) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                                    DropdownMenuItem({ Text("Close other tabs") }, { tabMenuFor = null; model.closeOtherTabs(tab.id) }, leadingIcon = { Icon(Icons.Rounded.ClearAll, null) })
-                                    HorizontalDivider()
-                                    DropdownMenuItem({ Text("Open beside editor") }, { tabMenuFor = null; model.showCompanion(tab.notebookId, CompanionMode.SPLIT) }, leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null) })
-                                    DropdownMenuItem({ Text("Open as reference") }, { tabMenuFor = null; model.showCompanion(tab.notebookId, CompanionMode.REFERENCE) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
-                                }
-                                }
-                                }
-                            }
-                        }
-                    }
-                    IconButton({ picker = "open" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Open document") }
-                    IconButton({ picker = "split" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.VerticalSplit, "Split view") }
-                    IconButton({ picker = "reference" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Reference view") }
-                }
-            }
             val companion = state.companion
             val note = state.notes.find { it.id == companion?.notebookId }
             // Key on the active document only: including navigationRequest discarded the whole
@@ -89,7 +40,25 @@ import androidx.compose.ui.unit.dp
             // Page jumps scroll via LaunchedEffect in EditorScreen instead.
             val editor: @Composable () -> Unit = {
                 key(state.activeId) {
-                    EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport)
+                    EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
+                        notebookActions = { dismiss ->
+                            HorizontalDivider()
+                            Text("Workspace", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = "tabs" },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
+                            DropdownMenuItem({ Text("Open another document") }, { dismiss(); picker = "open" },
+                                leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text("Split view") }, { dismiss(); picker = "split" },
+                                leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null) })
+                            DropdownMenuItem({ Text("Reference view") }, { dismiss(); picker = "reference" },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
+                            DropdownMenuItem({ Text("Close this tab") }, { dismiss(); state.activeId?.let(model::closeTab) },
+                                leadingIcon = { Icon(Icons.Rounded.Close, null) })
+                            DropdownMenuItem({ Text("Close other tabs") }, { dismiss(); state.activeId?.let(model::closeOtherTabs) },
+                                enabled = state.tabs.size > 1,
+                                leadingIcon = { Icon(Icons.Rounded.ClearAll, null) })
+                        })
                 }
             }
             val secondary: @Composable () -> Unit = {

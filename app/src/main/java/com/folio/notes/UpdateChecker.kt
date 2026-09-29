@@ -18,8 +18,10 @@ data class FolioUpdate(
     val releaseUrl: String
 )
 
-/** Thrown for non-2xx GitHub responses so callers can distinguish "no release" from errors. */
-internal class GithubHttpException(val code: Int, message: String) : IOException(message)
+/** Carries GitHub's cooldown so restarts and manual retries don't immediately re-hit a shared IP quota. */
+internal class GithubHttpException(
+    val code: Int, message: String, val retryAtMillis: Long? = null
+) : IOException(message)
 
 /**
  * User-facing message for a GitHub update failure. Never includes response bodies:
@@ -64,6 +66,15 @@ internal fun shouldAutoUpdateCheck(nowMillis: Long, lastCheckMillis: Long): Bool
 }
 
 internal const val AUTO_UPDATE_CHECK_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
+internal const val UPDATE_FAILURE_RETRY_MILLIS = 60L * 60 * 1000
+
+internal fun updateRetryAtMillis(code: Int, remaining: String?, resetSeconds: Long?, retrySeconds: Long?, rateLimitedBody: Boolean, nowMillis: Long): Long? {
+    if (code != 429 && (code != 403 || (!rateLimitedBody && remaining?.trim() != "0"))) return null
+    val reset = resetSeconds?.takeIf { it > nowMillis / 1000 }?.times(1000)
+    val retry = retrySeconds?.takeIf { it > 0 }?.let { nowMillis + it * 1000 }
+    return maxOf(reset ?: 0L, retry ?: 0L).takeIf { it > nowMillis }
+        ?: nowMillis + UPDATE_FAILURE_RETRY_MILLIS
+}
 
 internal fun releaseVersionCode(tag: String): Long? {
     val parts = tag.removePrefix("v").split('.')
@@ -243,13 +254,13 @@ class FolioUpdateChecker(private val context: Context) {
                 throw GithubHttpException(code, "GitHub update failed (HTTP $code) · try again later")
             }
             if (code in 200..299) return connection
-            val message = readGithubError(connection, code)
+            val error = readGithubError(connection, code)
             connection.disconnect()
-            throw GithubHttpException(code, message)
+            throw error
         }
     }
 
-    private fun readGithubError(connection: HttpURLConnection, code: Int): String {
+    private fun readGithubError(connection: HttpURLConnection, code: Int): GithubHttpException {
         val remaining = connection.getHeaderField("X-RateLimit-Remaining")
         val reset = connection.getHeaderField("X-RateLimit-Reset")?.trim()?.toLongOrNull()
             ?: connection.getHeaderField("X-Ratelimit-Reset")?.trim()?.toLongOrNull()
@@ -265,14 +276,15 @@ class FolioUpdateChecker(private val context: Context) {
         }
         val rateLimitedBody = body.contains("rate limit", ignoreCase = true) ||
             body.contains("abuse", ignoreCase = true)
-        return githubUpdateErrorMessage(
+        val now = System.currentTimeMillis()
+        return GithubHttpException(code, githubUpdateErrorMessage(
             responseCode = code,
             rateRemaining = remaining,
             rateResetEpochSeconds = reset,
             retryAfterSeconds = retryAfter,
             rateLimitedBody = rateLimitedBody,
-            nowEpochSeconds = System.currentTimeMillis() / 1000
-        )
+            nowEpochSeconds = now / 1000
+        ), updateRetryAtMillis(code, remaining, reset, retryAfter, rateLimitedBody, now))
     }
 
     private fun requireTrustedDownload(url: String) {

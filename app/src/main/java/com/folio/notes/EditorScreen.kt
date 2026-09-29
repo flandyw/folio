@@ -8,12 +8,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.*
@@ -56,6 +50,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontFamily
@@ -89,7 +84,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit) {
+@Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -543,65 +538,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
-        EditorTopBar(
-            title = note.title,
-            saveFailed = state.saveFailed,
-            retryingSave = state.retryingSave,
-            saveFailureReason = state.saveFailureReason,
-            lastSaveProgressAt = state.lastSaveProgressAt,
-            pendingSaves = state.pendingSaves,
-            starred = note.starred,
-            onStar = { model.star(note) },
-            onRename = { renameTitle = note.title; rename = true },
-            onRetrySave = model::retrySave,
-            onClose = model::close,
-            timer = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
-                    StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
-                    FocalStudyChip(state.timer) { studyPanel = true }
-                }
-            },
-            pageIndex = state.pageIndex,
-            pageCount = note.pages.size,
-            onPrevious = { jumpTo(state.pageIndex - 1) },
-            onNext = { jumpTo(state.pageIndex + 1) },
-            onPages = { pageBrowser = true },
-            onFirstPage = { jumpTo(0) },
-            onLastPage = { jumpTo(note.pages.size - 1) },
-            zoomPercent = (documentZoom * 100).roundToInt(),
-            onFit = ::resetZoom,
-            onFitAll = if (page.infinite) ::fitAllContent else null,
-            onAdd = ::addPage,
-            onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
-            onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
-            actions = {
-                IconButton(onExport, modifier = Modifier.size(44.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
-                Box {
-                    IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
-                    PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
-                        onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                        onClear = { clear = true }, onRetry = model::retrySave,
-                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                        onStopwatch = { stopwatchPanel = true },
-                        onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                        onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
-                        onContents = { pdfContentsOpen = true; loadOutline() },
-                        onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                        onInsertElement = { stampPicker = true },
-                        onOrganize = { pageBrowser = true },
-                        onBookmark = { model.togglePageBookmark(page.id) },
-                        onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
-                }
-            }
-        )
-        // The ink toolbar floats over the page, not inside the top bar, so no
-        // top-bar background ever stretches behind the pills. The offset animates
-        // so switching between tools with/without a quick row glides instead of jumping.
-        val showQuickBar = tool == Tool.PEN || tool == Tool.LINE || tool == Tool.RECTANGLE ||
-            tool == Tool.ELLIPSE || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER || tool == Tool.TEXT
-        val floatingToolbarTop by animateDpAsState(if (showQuickBar && quickControlsExpanded) 112.dp else 64.dp, label = "toolbarOffset")
+        // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
+        // stay reachable with larger accessibility text as well as compact windows.
+        var floatingToolbarTop by remember { mutableStateOf(120.dp) }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
             val density = LocalDensity.current
             val viewportWidth = with(density) { maxWidth.toPx() }
@@ -1024,12 +963,68 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
-            // Floating ink tools: centred over the page with nothing behind them
-            // but the page itself, so the top bar never shows through.
-            Box(
-                Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 12.dp, end = 12.dp).zIndex(11f),
-                contentAlignment = Alignment.TopCenter
+            Column(
+                Modifier.align(Alignment.TopCenter).zIndex(11f)
+                    .widthIn(max = 1000.dp).fillMaxWidth()
+                    .padding(top = 8.dp, start = 12.dp, end = 12.dp)
+                    .onSizeChanged { floatingToolbarTop = with(density) { it.height.toDp() } + 8.dp },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                EditorTopBar(
+                    title = note.title,
+                    notebookActions = notebookActions,
+                    saveFailed = state.saveFailed,
+                    retryingSave = state.retryingSave,
+                    saveFailureReason = state.saveFailureReason,
+                    lastSaveProgressAt = state.lastSaveProgressAt,
+                    pendingSaves = state.pendingSaves,
+                    starred = note.starred,
+                    onStar = { model.star(note) },
+                    onRename = { renameTitle = note.title; rename = true },
+                    onRetrySave = model::retrySave,
+                    onClose = model::close,
+                    timer = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
+                            StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
+                            FocalStudyChip(state.timer) { studyPanel = true }
+                        }
+                    },
+                    pageIndex = state.pageIndex,
+                    pageCount = note.pages.size,
+                    onPrevious = { jumpTo(state.pageIndex - 1) },
+                    onNext = { jumpTo(state.pageIndex + 1) },
+                    onPages = { pageBrowser = true },
+                    onFirstPage = { jumpTo(0) },
+                    onLastPage = { jumpTo(note.pages.size - 1) },
+                    zoomPercent = (documentZoom * 100).roundToInt(),
+                    onFit = ::resetZoom,
+                    onFitAll = if (page.infinite) ::fitAllContent else null,
+                    onAdd = ::addPage,
+                    onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
+                    onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
+                    actions = {
+                        IconButton(onExport, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
+                        Box {
+                            IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
+                            PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
+                                onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
+                                onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
+                                onClear = { clear = true }, onRetry = model::retrySave,
+                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                                onStopwatch = { stopwatchPanel = true },
+                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                                onContents = { pdfContentsOpen = true; loadOutline() },
+                                onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
+                                onInsertElement = { stampPicker = true },
+                                onOrganize = { pageBrowser = true },
+                                onBookmark = { model.togglePageBookmark(page.id) },
+                                onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
+                        }
+                    }
+                )
                 FloatingInkToolbar(
                     modifier = Modifier,
                     tool = tool,
@@ -1872,7 +1867,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     val isShape = tool in ShapeTools
     val isDrawing = tool in DrawingTools
-    // The text tool gets its own quick row for the colour new boxes are created with.
+    // Text quick controls change the colour used for new text boxes.
     val showQuickBar = isDrawing || tool == Tool.ERASER || (tool == Tool.TEXT && onTextColor != null)
     val feedback = LocalHapticFeedback.current
     /** A light tick on real tool changes; tapping the active tool stays silent. */
@@ -1880,7 +1875,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         if (next != tool) feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onTool(next)
     }
-    // The highlighter gets its own quick row and presets; every other ink tool shares one.
+    // The highlighter has its own quick colours and presets; other ink tools share them.
     val colorGroup = InkColors.groupOf(tool)
     // Dots on the pen/highlighter show their own stored colours, not the active tool's, so the
     // inactive button still reads correctly. Reads are in-memory SharedPreferences lookups.
@@ -2033,8 +2028,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         if (showQuickBar) {
             ToolbarDivider()
             IconButton({ onQuickExpanded(!quickExpanded) }, modifier = Modifier.size(40.dp)) {
-                Icon(if (quickExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.Palette,
-                    if (quickExpanded) "Hide quick tool controls" else "Show quick tool controls")
+                Icon(Icons.Rounded.Tune, "Quick tool controls")
             }
         }
         ToolbarDivider()
@@ -2099,31 +2093,28 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
         }
     }
-    // Both surfaces hug their content within the available viewport. Only the tool tray
-    // and contextual settings scroll, leaving history and More fixed at either end.
+    // Contextual controls replace the tools in-place, keeping the entire dock at two rows.
+    // The back control stays fixed while colours and settings scroll on narrow windows.
     // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
     // A tool or preset's own long-press claims the gesture instead (see claimStripLongPress).
-    Column(modifier.guardUiTouches().widthIn(max = 520.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            Modifier.height(50.dp).longPressAction(stripGuard) {
+    Box(modifier.guardUiTouches().widthIn(max = 760.dp)) {
+        if (!showQuickBar || !quickExpanded) EditorGlassSurface(
+            Modifier.height(56.dp).longPressAction(stripGuard) {
                 if (System.currentTimeMillis() - childLongPressAt <= 400) {
                     // A tool or preset claimed the gesture first; its own action stands alone.
                     stripGuard.begin()
                 } else if (toolbarLayoutState != null) editToolbar = true
-            },
-            shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            }
         ) {
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
-        AnimatedVisibility(
-            visible = showQuickBar && quickExpanded,
-            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
-        ) {
-            Column {
-                Spacer(Modifier.height(4.dp))
-                Surface(Modifier.widthIn(max = 520.dp).height(44.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp, tonalElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (showQuickBar && quickExpanded) {
+            EditorGlassSurface(Modifier.height(56.dp)) {
+                Row(Modifier.padding(horizontal = 6.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton({ onQuickExpanded(false) }) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to drawing tools")
+                    }
+                    Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
                             quick.colors(colorGroup).forEachIndexed { index, c ->
                                 InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}", onLongClick = { onPalette(true) })
