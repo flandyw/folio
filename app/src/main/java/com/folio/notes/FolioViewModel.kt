@@ -1371,12 +1371,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     private fun timerNow(): Long = (getApplication<FolioApplication>()).focalStudy.now()
 
-    private fun recordTimerInFocal(timer: ExamTimerState, now: Long, force: Boolean = false) {
+    private fun recordTimerInFocal(timer: ExamTimerState, now: Long, force: Boolean = false, phaseAt: Long? = null) {
         val note = _state.value.active ?: return
         if (timer.startedAt == null) return
         val focal = (getApplication<FolioApplication>()).focalStudy
-        if (timer.phase == ExamTimerPhase.DONE) focal.finishExam(note, timer, now)
-        else if (timer.active) focal.recordExamProgress(note, timer, now, force)
+        if (timer.phase == ExamTimerPhase.DONE) focal.finishExam(note, timer, now, phaseAt)
+        else if (timer.active) focal.recordExamProgress(note, timer, now, force, phaseAt)
     }
 
     /**
@@ -1444,7 +1444,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         val latest = _state.value.timer
         if (latest.active || latest.phase == ExamTimerPhase.DONE) {
-            recordTimerInFocal(latest, now, force = latest.phase != current.phase || latest.paused != current.paused)
+            // A throttled tick can notice the end minutes late. The automatic finish
+            // happened when the countdown reached zero, not when this tick ran.
+            val boundaryAt = if (latest.phase == ExamTimerPhase.DONE && current.active && current.startedAt != null)
+                (current.startedAt + current.pausedMillis +
+                    (current.preset.readingSeconds.toLong() + current.preset.writingSeconds) * 1_000L).coerceAtMost(now)
+            else now
+            recordTimerInFocal(latest, boundaryAt,
+                force = latest.phase != current.phase || latest.paused != current.paused)
         }
     }
     /**
@@ -1514,10 +1521,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun adjustTimer(seconds: Int) {
         if (_state.value.active == null) return
-        val adjusted = _state.value.timer.adjust(seconds)
+        val now = timerNow()
+        val prior = _state.value.timer
+        val adjusted = prior.adjust(seconds, now)
         saveSitting(adjusted)
         _state.update { it.copy(timer = adjusted) }
-        recordTimerInFocal(adjusted, timerNow(), force = true)
+        recordTimerInFocal(adjusted, now, force = true,
+            phaseAt = now.takeIf { prior.phase == ExamTimerPhase.READING && adjusted.phase != ExamTimerPhase.READING })
     }
     /** Pauses the clock; the next pen stroke resumes it while the auto-start setting is on. */
     fun toggleTimerPause() {
@@ -1532,10 +1542,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun skipTimerPhase() {
         if (_state.value.active == null) return
-        val skipped = _state.value.timer.skip()
+        val now = timerNow()
+        val prior = _state.value.timer
+        val skipped = prior.skip(now)
         saveSitting(skipped)
         _state.update { it.copy(timer = skipped) }
-        recordTimerInFocal(skipped, timerNow(), force = true)
+        recordTimerInFocal(skipped, now, force = true,
+            phaseAt = now.takeIf { prior.phase == ExamTimerPhase.READING && skipped.phase != ExamTimerPhase.READING })
     }
     /** Stops the timer, keeping how long the writing phase ran for the attempt record. */
     fun stopTimer() {

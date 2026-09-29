@@ -122,13 +122,53 @@ data class FocalStudyEntry(
     val examPhaseBeforePause: String? = null,
     val intervals: List<FocalStudyInterval> = emptyList(),
     val remotePayload: String? = null,
-    val notebookTitle: String? = null
+    val notebookTitle: String? = null,
+    /** Only unacknowledged exam lifecycle boundaries. Focus uses its durable intervals. */
+    val examBoundaries: List<FocalExamBoundary> = emptyList(),
+    val examLastBoundaryAt: Long? = null
 ) {
     val active: Boolean get() = !completed && !planned && !deleted
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
 }
 
 data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
+
+/** A single exam boundary, retained only until its canonical mutation is acknowledged. */
+data class FocalExamBoundary(
+    val id: String = UUID.randomUUID().toString(),
+    val action: String,
+    val phase: String,
+    val at: Long,
+    val elapsedMs: Long,
+    /** Monotonic instant of the boundary when it was recorded, for an unskewed offline start. */
+    val monotonicAt: Long? = null,
+    val bootCount: Int = -1,
+    /** Frozen before the RPC, so a lost response can be retried with the same receipt. */
+    val request: String? = null
+)
+
+internal fun focalAppendExamBoundaries(entry: FocalStudyEntry, events: List<Triple<String, String, Long>>,
+                                       now: Long? = null, monotonicNow: Long? = null, bootCount: Int = -1): FocalStudyEntry {
+    var lastAt = entry.examLastBoundaryAt ?: entry.remotePayload?.let { raw -> runCatching {
+        val canonical = JSONObject(raw)
+        val stamp = canonical.optString("timing_at").takeIf { it.isNotBlank() && it != "null" }
+            ?: canonical.optString("segment_started_at").takeIf { it.isNotBlank() && it != "null" }
+            ?: canonical.optString("paused_at").takeIf { it.isNotBlank() && it != "null" }
+        stamp?.let { Instant.parse(it).toEpochMilli() }
+    }.getOrNull() }
+    val added = events.map { (action, phase, at) ->
+        // A negative gap is not a zero-length command. Keep it invalid so the publisher
+        // reports a timing conflict rather than inventing a boundary on the server.
+        val elapsed = if (lastAt == null) 0L else at - lastAt!!
+        lastAt = at
+        val age = now?.minus(at)
+        FocalExamBoundary(action = action, phase = phase, at = at, elapsedMs = elapsed,
+            monotonicAt = if (monotonicNow != null && age != null && age in 0L..monotonicNow)
+                monotonicNow - age else null, bootCount = bootCount)
+    }
+    return entry.copy(examBoundaries = entry.examBoundaries + added, examLastBoundaryAt = lastAt,
+        synced = if (added.isEmpty()) entry.synced else false)
+}
 
 /**
  * A newly-created active row is uploaded so other Focal clients can show it immediately.
@@ -140,6 +180,10 @@ internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
     if (local == null) return remote
     if (remote.revision < local.revision) return local
+    // A pending exam boundary is a durable intent. A feed echo (even a terminal one)
+    // cannot acknowledge it: only retrying the same mutation receipt can do that.
+    if (local.examBoundaries.isNotEmpty()) return local.copy(revision = remote.revision,
+        remotePayload = remote.remotePayload)
     // The first mutation in an offline replay can have this entry's changeId even though
     // later intervals have not landed yet. Matching an echo is safe only when the entire
     // local timeline is already present; otherwise the remaining boundaries stay pending.
@@ -224,6 +268,47 @@ internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until:
     }.coerceAtMost(activeLimit)
 }
 
+/** Keep exam lifecycle boundaries apart from writing-only analytics intervals. Every boundary is
+ *  written with the entry before any RPC, including automatic phase changes and auto-parks. */
+internal fun focalExamBoundariesFor(
+    previous: FocalStudyEntry?, timer: ExamTimerState, now: Long, terminal: String? = null,
+    phaseAt: Long? = null
+): List<Triple<String, String, Long>> {
+    val started = timer.startedAt ?: return emptyList()
+    // Pre-journal entries keep their legacy sync path. Guessing boundaries they did not
+    // record would manufacture offline history rather than recover it.
+    if (previous != null && previous.examLastBoundaryAt == null && previous.examBoundaries.isEmpty() &&
+        previous.remotePayload == null) return emptyList()
+    val initialPhase = if (timer.preset.readingSeconds > 0) "reading" else "writing"
+    val currentPhase = when (timer.phase) {
+        ExamTimerPhase.WRITING -> "writing"
+        ExamTimerPhase.READING -> "reading"
+        else -> previous?.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
+            ?: previous?.examPhase?.takeIf { it in setOf("reading", "writing") } ?: initialPhase
+    }
+    val oldPhase = previous?.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
+        ?: previous?.examPhase?.takeIf { it in setOf("reading", "writing") } ?: initialPhase
+    val events = mutableListOf<Triple<String, String, Long>>()
+    if (previous == null) events += Triple("start", initialPhase, started)
+    val phaseChanged = oldPhase == "reading" && (currentPhase == "writing" ||
+        (timer.phase == ExamTimerPhase.DONE && timer.elapsedWriting(now) > 0))
+    if (phaseChanged) {
+        // The countdown cannot cross phases while paused. A skip in a parked exam (or a
+        // resume right on the threshold) changes phase at the button press, before resume.
+        val calculated = if (previous?.paused == true) now else
+            phaseAt ?: started + timer.pausedMillis + timer.preset.readingSeconds * 1_000L
+        events += Triple("phase_change", "writing", calculated.coerceIn(started, now))
+    }
+    if (previous?.paused == true && !timer.paused && terminal == null)
+        events += Triple("resume", if (phaseChanged) "writing" else oldPhase, now)
+    if (timer.paused && previous?.paused != true && terminal == null)
+        events += Triple("pause", if (events.any { it.first == "phase_change" }) "writing" else currentPhase,
+            timer.pausedAt ?: now)
+    if (terminal != null) events += Triple(terminal,
+        if (events.any { it.first == "phase_change" }) "writing" else currentPhase, now)
+    return events
+}
+
 /** Preserve one Focal row through reading, writing, pauses and completion. */
 internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                             existing: FocalStudyEntry?, completed: Boolean = false,
@@ -251,7 +336,9 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
         title = focalSessionTitle(subject, subjects), subjectId = subject, kind = "exam",
         endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing, notebookTitle = note.title,
         completed = completed, deleted = completed && writing == 0L,
-        paused = timer.paused, examPhase = timer.phase.name.lowercase(), intervals = intervals,
+        paused = timer.paused, examPhase = timer.phase.name.lowercase(),
+        examPhaseBeforePause = if (timer.paused) timer.phase.name.lowercase() else null,
+        intervals = intervals,
         // Publish the first checkpoint so another Focal client can see the active sitting, but
         // keep later timer checkpoints local. The stable row_id lets the terminal update replace
         // that in-progress record in clients that understand the change log.
@@ -670,6 +757,18 @@ class FocalStudyManager(context: Context) {
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
                 remotePayload = row.optString("remotePayload").ifBlank { null },
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
+                examLastBoundaryAt = row.optLong("examLastBoundaryAt").takeIf { it > 0L },
+                examBoundaries = (row.optJSONArray("examBoundaries") ?: JSONArray()).let { saved ->
+                    (0 until saved.length()).mapNotNull { position -> runCatching {
+                        val event = saved.getJSONObject(position)
+                        FocalExamBoundary(id = event.getString("id"), action = event.getString("action"),
+                            phase = event.getString("phase"), at = event.getLong("at"),
+                            elapsedMs = event.getLong("elapsedMs"),
+                            monotonicAt = event.optLong("monotonicAt").takeIf { it > 0L },
+                            bootCount = event.optInt("bootCount", -1),
+                            request = event.optString("request").takeIf { it.isNotBlank() && it != "null" })
+                    }.getOrNull() }
+                },
                 intervals = (row.optJSONArray("intervals") ?: JSONArray()).let { saved ->
                     (0 until saved.length()).mapNotNull { position -> runCatching {
                         val interval = saved.getJSONObject(position)
@@ -728,6 +827,13 @@ class FocalStudyManager(context: Context) {
             .put("paused", entry.paused).put("examPhase", entry.examPhase)
             .put("examPhaseBeforePause", entry.examPhaseBeforePause)
             .put("remotePayload", entry.remotePayload).put("notebookTitle", entry.notebookTitle)
+            .put("examLastBoundaryAt", entry.examLastBoundaryAt)
+            .put("examBoundaries", JSONArray().also { array -> entry.examBoundaries.forEach { event ->
+                array.put(JSONObject().put("id", event.id).put("action", event.action)
+                    .put("phase", event.phase).put("at", event.at).put("elapsedMs", event.elapsedMs)
+                    .put("monotonicAt", event.monotonicAt).put("bootCount", event.bootCount)
+                    .put("request", event.request))
+            } })
             .put("intervals", JSONArray().also { array -> entry.intervals.forEach { interval ->
                 array.put(JSONObject().put("startAt", interval.startAt).put("endAt", interval.endAt))
             } })) }
@@ -925,7 +1031,8 @@ class FocalStudyManager(context: Context) {
         if (persist()) scope.launch { updated.values.forEach { publishEntry(it) } }
     }
 
-    fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = this.now(), force: Boolean = false) {
+    fun recordExamProgress(note: Notebook, timer: ExamTimerState, now: Long = this.now(), force: Boolean = false,
+                           phaseAt: Long? = null) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
@@ -933,14 +1040,19 @@ class FocalStudyManager(context: Context) {
         if (!force && existing != null && existing.examPhase == timer.phase.name.lowercase() && existing.paused == timer.paused &&
             now - existing.endedAt < EXAM_SYNC_INTERVAL_MS) return
         val phaseChanged = existing != null && (existing.examPhase != timer.phase.name.lowercase() || existing.paused != timer.paused)
-        updateExam(examStudyEntry(note, timer, now, existing, forceUpload = phaseChanged, subjects = _state.value.subjects))
+        val entry = examStudyEntry(note, timer, now, existing, forceUpload = phaseChanged, subjects = _state.value.subjects)
+        updateExam(focalAppendExamBoundaries(entry, focalExamBoundariesFor(existing, timer, now, phaseAt = phaseAt),
+            now, SystemClock.elapsedRealtime(), timingBootCount))
     }
 
-    fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now()) {
+    fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now(), phaseAt: Long? = null) {
         val started = timer.startedAt ?: return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
         if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedWriting(now) <= 0)) return
-        updateExam(examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects))
+        val entry = examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects)
+        updateExam(focalAppendExamBoundaries(entry, focalExamBoundariesFor(existing, timer, now,
+            terminal = if (entry.deleted) "cancel" else "complete", phaseAt = phaseAt),
+            now, SystemClock.elapsedRealtime(), timingBootCount))
     }
 
     private fun updateExam(entry: FocalStudyEntry) {
@@ -1069,6 +1181,62 @@ class FocalStudyManager(context: Context) {
         finally { _state.update { it.copy(syncing = false, syncDetail = null) } }
     }
 
+    /** Send only the outstanding exam boundaries. Freezing each request before its RPC means
+     * a timeout after server acceptance is retried against the exact same mutation receipt.
+     * The mutex belongs to the caller, so button presses cannot overtake each other. */
+    private suspend fun publishExamBoundaries(user: String, sessionId: String) {
+        while (_state.value.userId == user) {
+            val entry = _state.value.entries.firstOrNull {
+                it.id == sessionId && (it.userId == null || it.userId == user)
+            } ?: return
+            val boundary = entry.examBoundaries.firstOrNull() ?: return
+            val command = boundary.request?.let(::JSONObject) ?: run {
+                val serverNow = serverClockAnchor?.let { focalEstimatedServerNow(it,
+                    SystemClock.elapsedRealtime(), System.currentTimeMillis()) }
+                val created = focalStudyCommand(entry, boundary.action, entry.revision, deviceId,
+                    boundary.id, FocalSessionCommandTiming(
+                        if (boundary.action == "start" && serverNow != null) {
+                            val monoNow = SystemClock.elapsedRealtime()
+                            val eventAt = if (boundary.bootCount >= 0 && boundary.bootCount == timingBootCount &&
+                                boundary.monotonicAt != null && boundary.monotonicAt <= monoNow)
+                                serverNow - (monoNow - boundary.monotonicAt)
+                            else boundary.at
+                            val age = serverNow - eventAt
+                            if (age !in -5_000L..(30L * 24 * 60 * 60 * 1_000))
+                                error("This offline timer is outside the server's 30-day timing window; it cannot be replayed accurately")
+                            Instant.ofEpochMilli(eventAt).toString()
+                        } else null, boundary.elapsedMs.also { elapsed ->
+                            if (elapsed !in 0L..604_800_000L)
+                                error("This offline timer boundary is outside the server's seven-day timing window")
+                        }))
+                    .put("phase", boundary.phase)
+                _state.update { state -> state.copy(entries = state.entries.map { row ->
+                    if (row.id != sessionId || row.examBoundaries.firstOrNull()?.id != boundary.id) row
+                    else row.copy(examBoundaries = listOf(boundary.copy(request = created.toString())) +
+                        row.examBoundaries.drop(1))
+                }) }
+                if (!persist()) error("Could not save the exam mutation before sending it")
+                created
+            }
+            val result = syncRemote.mutateStudySession(user, command)
+            observeServerNow(result.optString("server_now"))
+            val canonical = result.optJSONObject("session") ?: error("Focal sent no canonical exam session")
+            if (!result.optBoolean("applied"))
+                error("This exam session changed on another device (${result.optString("reason")}); its local boundaries were kept")
+            rememberOwnChange(boundary.id)
+            _state.update { state -> state.copy(entries = state.entries.map { row ->
+                if (row.id != sessionId || row.examBoundaries.firstOrNull()?.id != boundary.id) row
+                else {
+                    val remaining = row.examBoundaries.drop(1)
+                    row.copy(examBoundaries = remaining, revision = canonical.optLong("revision"),
+                        remotePayload = canonical.toString(), synced = remaining.isEmpty(),
+                        changeId = if (remaining.isEmpty()) boundary.id else row.changeId)
+                }
+            }) }
+            if (!persist()) error("Could not save the exam mutation receipt")
+        }
+    }
+
     /**
      * Publish the latest entry: derive the missing boundaries from its durable intervals, send
      * them, and retain the canonical answer. A failed request leaves the entry unsynced.
@@ -1079,10 +1247,15 @@ class FocalStudyManager(context: Context) {
         gate.withLock {
             if (_state.value.userId != user) return@withLock
             try {
+                if (_state.value.entries.any { it.id == entry.id && it.examBoundaries.isNotEmpty() }) {
+                    publishExamBoundaries(user, entry.id)
+                    return@withLock
+                }
                 // Derive under the gate from the latest local entry. A start, pause and resume
                 // can each schedule a publish before the first RPC returns; an earlier snapshot
                 // must not overtake the later one or reuse its stale revision.
-                val latest = _state.value.entries.firstOrNull { it.id == entry.id && !it.synced } ?: return@withLock
+                val latest = _state.value.entries.firstOrNull { it.id == entry.id && !it.synced &&
+                    (it.userId == null || it.userId == user) } ?: return@withLock
                 val commands = commandsFor(latest)
                 if (commands.isEmpty()) return@withLock
                 val ack = sendCommands(user, commands)
@@ -1100,12 +1273,16 @@ class FocalStudyManager(context: Context) {
             _state.update { it.copy(syncDetail = "Sending session ${index + 1} of ${pending.size} to Focal\u2026") }
             try {
                 val latest = _state.value.entries.firstOrNull { it.id == entry.id && !it.synced } ?: continue
+                if (latest.examBoundaries.isNotEmpty()) {
+                    publishExamBoundaries(user, latest.id)
+                    continue
+                }
                 val commands = commandsFor(latest)
                 if (commands.isEmpty()) { markSynced(latest.id); continue }
                 val ack = sendCommands(user, commands)
                 if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { reportPublishFailure("Sending a saved session to Focal", e); return }
+            catch (e: Exception) { throw e }
         }
     }
 
@@ -1199,7 +1376,8 @@ class FocalStudyManager(context: Context) {
         val causes = generateSequence(e as Throwable?) { it.cause }.toList()
         val reason = when {
             e.message?.startsWith("This offline timer") == true ||
-                e.message?.startsWith("This session") == true -> e.message!!
+                e.message?.startsWith("This session") == true ||
+                e.message?.startsWith("This exam session") == true -> e.message!!
             causes.any { it is java.net.UnknownHostException } -> "Focal could not be reached. Check your internet connection."
             causes.any { it is java.net.SocketTimeoutException } -> "Focal did not respond in time. Check your connection and try again."
             causes.any { it is java.io.IOException } -> "The connection to Focal was interrupted. Check your connection and try again."
