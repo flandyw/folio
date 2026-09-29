@@ -131,8 +131,8 @@ data class FocalStudyEntry(
 data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
 
 /**
- * A newly-created active row is uploaded once so other Focal clients can show it immediately.
- * Once that row exists, timer checkpoints stay local and only the terminal row is uploaded.
+ * A newly-created active row is uploaded so other Focal clients can show it immediately.
+ * Timer checkpoints stay local, but pause/resume and terminal boundaries are published.
  */
 internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
 
@@ -140,7 +140,14 @@ internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
     if (local == null) return remote
     if (remote.revision < local.revision) return local
-    if (!local.synced && local.changeId != remote.changeId &&
+    // The first mutation in an offline replay can have this entry's changeId even though
+    // later intervals have not landed yet. Matching an echo is safe only when the entire
+    // local timeline is already present; otherwise the remaining boundaries stay pending.
+    if (!local.synced && local.changeId == remote.changeId && local.intervals == remote.intervals &&
+        local.paused == remote.paused && local.completed == remote.completed && local.deleted == remote.deleted)
+        return remote.copy(notebookId = local.notebookId ?: remote.notebookId,
+            notebookTitle = local.notebookTitle ?: remote.notebookTitle)
+    if (!local.synced &&
         !(remote.deleted || (remote.completed && !local.deleted && !local.completed))) {
         return if (remote.revision > local.revision) local.copy(revision = remote.revision, remotePayload = remote.remotePayload) else local
     }
@@ -409,14 +416,13 @@ private fun focalProgressChanged(
 
 /**
  * The commands implied by the difference between the server's view of this session and the
- * local entry. This is a pure diff, not a queue: an empty list means the server is already
- * there, and sending the same commands again is harmless, so an offline edit is published by
- * the next sync pass with no replay list to keep in step.
+ * local entry. The durable active intervals carry offline timer boundaries; while online the
+ * diff is just one lifecycle command per button press. No separate command queue is needed.
  */
 internal fun focalCommandsFor(
     entry: FocalStudyEntry,
     deviceId: String,
-    timingForAction: (String) -> FocalSessionCommandTiming? = { null }
+    timingForAction: (String, Long?, Long?) -> FocalSessionCommandTiming? = { _, _, _ -> null }
 ): List<JSONObject> {
     if (entry.synced) return emptyList()
     val desired = focalDesiredState(entry)
@@ -426,10 +432,10 @@ internal fun focalCommandsFor(
     val commands = mutableListOf<JSONObject>()
     var expected = entry.revision
     var first = true
-    fun append(action: String) {
+    fun append(action: String, at: Long? = null, previousAt: Long? = null) {
         val id = if (first) entry.changeId else UUID.randomUUID().toString()
         first = false
-        val command = focalStudyCommand(entry, action, expected++, deviceId, id, timingForAction(action))
+        val command = focalStudyCommand(entry, action, expected++, deviceId, id, timingForAction(action, at, previousAt))
         commands += command
         when (action) {
             "start", "resume" -> currentState = "running"
@@ -438,6 +444,57 @@ internal fun focalCommandsFor(
             "cancel" -> currentState = "cancelled"
             "create" -> currentState = "planned"
             "phase_change" -> currentPhase = command.optString("phase")
+        }
+    }
+    // Folio already persists each active interval. Reconstruct only the boundaries missing
+    // from the canonical segments, even when the final state happens to equal the server's.
+    // A server row without segments may be a legacy/imported row: use the normal diff there.
+    val segments = canonical?.optJSONArray("segments")
+    val intervals = entry.intervals
+    if (entry.notebookId != null && entry.kind == "study" && intervals.isNotEmpty() &&
+        (canonical == null || segments != null) && currentState !in setOf("completed", "cancelled")) {
+        val count = segments?.length() ?: 0
+        // Another client may have added segments that Folio has never observed locally.
+        // A final-state diff cannot reconcile two incompatible timelines safely.
+        if (count > intervals.size || (currentState in setOf("running", "paused") && count == 0))
+            error("This session has server timer boundaries Folio cannot match to its local intervals")
+        if (intervals.zipWithNext().all { (a, b) ->
+                a.endAt != null && a.endAt >= a.startAt && b.startAt >= a.endAt
+            } && intervals.all { it.endAt == null || it.endAt >= it.startAt }) {
+            var index = if (currentState == null || currentState == "planned") 0 else count - 1
+            var boundary = when (currentState) {
+                null, "planned" -> null
+                "running" -> intervals.getOrNull(index)?.startAt
+                "paused" -> intervals.getOrNull(index)?.endAt
+                else -> null
+            }
+            if (currentState in setOf("running", "paused") && boundary == null)
+                error("This session's last server boundary cannot be matched to a local interval")
+            if (currentState == null || currentState == "planned" || count > 0) {
+                if (currentState == null || currentState == "planned") {
+                    append("start", intervals[0].startAt, null)
+                    boundary = intervals[0].startAt
+                }
+                while (index < intervals.size) {
+                    val interval = intervals[index]
+                    if (currentState == "running") {
+                        val end = interval.endAt ?: break
+                        val terminal = index == intervals.lastIndex && desired in setOf("completed", "cancelled") &&
+                            entry.endedAt == end
+                        append(if (terminal) if (desired == "cancelled") "cancel" else "complete" else "pause", end, boundary)
+                        boundary = end
+                        if (terminal) return commands
+                    }
+                    if (index == intervals.lastIndex) break
+                    index++
+                    val start = intervals[index].startAt
+                    append("resume", start, boundary)
+                    boundary = start
+                }
+                if (desired in setOf("completed", "cancelled") && currentState !in setOf("completed", "cancelled"))
+                    append(if (desired == "cancelled") "cancel" else "complete", entry.endedAt, boundary)
+                if (commands.isNotEmpty()) return commands
+            }
         }
     }
     if (currentState == null) {
@@ -752,8 +809,8 @@ class FocalStudyManager(context: Context) {
         _state.update { state ->
             state.copy(entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null)
         }
-        // Local first, then straight at the server. An offline write simply stays unsynced;
-        // the next sync pass sends the difference, so nothing needs a durable intent list.
+        // Local first, then straight at the server. An offline write stays unsynced;
+        // the durable intervals reconstruct every missing boundary on the next sync pass.
         if (persist()) scope.launch { publishEntry(entry) }
     }
 
@@ -780,7 +837,24 @@ class FocalStudyManager(context: Context) {
         val monotonicContinuous = previousMono != null && previousBoot >= 0 && previousBoot == timingBootCount &&
             previousProcess == timingProcessId
         var synthesizedEnd = false
-        return focalCommandsFor(entry, deviceId) { action ->
+        return focalCommandsFor(entry, deviceId) { action, boundaryAt, previousAt ->
+            if (boundaryAt != null) {
+                // An offline boundary is durable in the intervals, not inferred from the
+                // final running/paused state. The server advances from its last boundary
+                // by exactly this gap; a fresh start can be placed using the server clock.
+                if (previousAt != null) {
+                    val gap = boundaryAt - previousAt
+                    if (gap !in 0L..604_800_000L)
+                        error("This offline timer boundary is outside the server's seven-day timing window")
+                    return@focalCommandsFor FocalSessionCommandTiming(null, gap)
+                }
+                val anchored = serverClockAnchor
+                val age = serverNow?.minus(boundaryAt)
+                if (anchored != null && age != null && age !in -5_000L..(30L * 24 * 60 * 60 * 1_000))
+                    error("This offline timer is outside the server's 30-day timing window; it cannot be replayed accurately")
+                return@focalCommandsFor FocalSessionCommandTiming(
+                    if (anchored != null && age != null && age >= -5_000L) Instant.ofEpochMilli(boundaryAt).toString() else null, 0L)
+            }
             if (action !in setOf("start", "pause", "resume", "phase_change", "complete", "cancel")) return@focalCommandsFor null
             val fallbackElapsed = when {
                 recoveredRunningFocus -> focalRecoveryElapsed(entry.activeMillis, canonical?.optLong("accumulated_active_ms") ?: 0L)
@@ -996,21 +1070,23 @@ class FocalStudyManager(context: Context) {
     }
 
     /**
-     * Publish one entry now: derive the commands the server is missing, send them, take the
-     * canonical session back. Nothing is stored on the way out, so a failure costs nothing but
-     * the round trip and the entry simply stays unsynced for the next pass.
+     * Publish the latest entry: derive the missing boundaries from its durable intervals, send
+     * them, and retain the canonical answer. A failed request leaves the entry unsynced.
      */
     private suspend fun publishEntry(entry: FocalStudyEntry) {
         val user = _state.value.userId ?: return
         if (!_state.value.configured) return
-        // Derived once: commandsFor stamps this session's elapsed time as a side effect.
-        val commands = commandsFor(entry)
-        if (commands.isEmpty()) return
         gate.withLock {
             if (_state.value.userId != user) return@withLock
             try {
+                // Derive under the gate from the latest local entry. A start, pause and resume
+                // can each schedule a publish before the first RPC returns; an earlier snapshot
+                // must not overtake the later one or reuse its stale revision.
+                val latest = _state.value.entries.firstOrNull { it.id == entry.id && !it.synced } ?: return@withLock
+                val commands = commandsFor(latest)
+                if (commands.isEmpty()) return@withLock
                 val ack = sendCommands(user, commands)
-                if (ack.sent) { commitTimingAnchor(entry, commands); acknowledge(entry.id, ack) }
+                if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending this session to Focal", e) }
         }
@@ -1021,12 +1097,13 @@ class FocalStudyManager(context: Context) {
         val pending = _state.value.entries.filter { !it.synced && (it.userId == null || it.userId == user) }
         for ((index, entry) in pending.withIndex()) {
             if (_state.value.userId != user) return
-            val commands = commandsFor(entry)
-            if (commands.isEmpty()) { markSynced(entry.id); continue }
             _state.update { it.copy(syncDetail = "Sending session ${index + 1} of ${pending.size} to Focal\u2026") }
             try {
+                val latest = _state.value.entries.firstOrNull { it.id == entry.id && !it.synced } ?: continue
+                val commands = commandsFor(latest)
+                if (commands.isEmpty()) { markSynced(latest.id); continue }
                 val ack = sendCommands(user, commands)
-                if (ack.sent) { commitTimingAnchor(entry, commands); acknowledge(entry.id, ack) }
+                if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending a saved session to Focal", e); return }
         }
@@ -1054,9 +1131,11 @@ class FocalStudyManager(context: Context) {
         _state.update { state -> state.copy(entries = state.entries.map { entry ->
             when {
                 entry.id != sessionId -> entry
-                // A newer local edit replaced this entry while the request was in flight; it owns
-                // the row now and stays pending for the next pass.
-                entry.changeId !in ack.mutationIds -> entry
+                // A newer button press replaced the snapshot while this RPC was in flight.
+                // Keep its intervals pending, but retain the accepted server revision so its
+                // next publish starts at the right canonical boundary, not revision zero.
+                entry.changeId !in ack.mutationIds -> entry.copy(
+                    revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
                 else -> entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
                     revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
             }
@@ -1086,8 +1165,14 @@ class FocalStudyManager(context: Context) {
                 val action = command.optString("action")
                 val satisfied = focalMutationSatisfied(action, state, phase, command.optString("phase").takeIf { it.isNotBlank() })
                 val terminal = state in setOf("completed", "cancelled")
-                if (satisfied || terminal || !focalMutationCanRebase(action, state)) {
-                    return FocalPublishAck(satisfied, canonical, mutationIds)
+                if (satisfied) {
+                    if (rest.isEmpty()) return FocalPublishAck(true, canonical, mutationIds)
+                    command = JSONObject(rest.first().toString()).put("expected_revision", canonical.optLong("revision"))
+                    rest = rest.drop(1)
+                    continue
+                }
+                if (terminal || !focalMutationCanRebase(action, state)) {
+                    return FocalPublishAck(false, canonical, mutationIds)
                 }
                 if (rebases++ >= 2) error("Study session changed repeatedly; retry sync to rebase the command")
                 command = JSONObject(command.toString())
@@ -1095,16 +1180,17 @@ class FocalStudyManager(context: Context) {
                     .put("expected_revision", canonical.optLong("revision"))
                 continue
             }
-            if (reason == "session_terminal") return FocalPublishAck(true, canonical, mutationIds)
+            if (reason == "session_terminal") return FocalPublishAck(false, canonical, mutationIds)
             if (reason == "not_found" || reason == "invalid_transition") {
                 return FocalPublishAck(false, canonical, mutationIds)
             }
-            if (!result.optBoolean("ok") && !(reason == "already_exists" && command.optString("action") == "create")) {
+            val satisfied = canonical?.let { row -> focalMutationSatisfied(command.optString("action"),
+                row.optString("state"), row.optString("phase"), command.optString("phase")) } == true
+            if (!result.optBoolean("applied") && !satisfied) {
                 error("study_session_mutate failed: ${reason ?: "server_unavailable"}")
             }
-            // The remaining commands are the ones the stale rebase invalidated; re-derive them.
             if (rest.isEmpty()) return FocalPublishAck(true, canonical, mutationIds)
-            command = rest.first()
+            command = JSONObject(rest.first().toString()).put("expected_revision", canonical?.optLong("revision"))
             rest = rest.drop(1)
         }
     }
@@ -1112,12 +1198,16 @@ class FocalStudyManager(context: Context) {
     private fun reportPublishFailure(step: String, e: Exception) {
         val causes = generateSequence(e as Throwable?) { it.cause }.toList()
         val reason = when {
+            e.message?.startsWith("This offline timer") == true ||
+                e.message?.startsWith("This session") == true -> e.message!!
             causes.any { it is java.net.UnknownHostException } -> "Focal could not be reached. Check your internet connection."
             causes.any { it is java.net.SocketTimeoutException } -> "Focal did not respond in time. Check your connection and try again."
             causes.any { it is java.io.IOException } -> "The connection to Focal was interrupted. Check your connection and try again."
             else -> "Focal could not complete the request. A server or account issue may be involved. Try again, or sign out and reconnect your account."
         }
-        _state.update { it.copy(error = "$step failed. $reason Sessions remain saved on this device and will be sent when you are back online.") }
+        val advice = if (reason == e.message) "This session remains saved on this device; review it before retrying."
+            else "Sessions remain saved on this device and will be sent when you are back online."
+        _state.update { it.copy(error = "$step failed. $reason $advice") }
     }
 
     private suspend fun loadRemoteSessions(user: String) {
@@ -1166,7 +1256,6 @@ class FocalStudyManager(context: Context) {
             // A session the server echoed back is acknowledged; anything it did not echo is
             // still local truth and the next publish pass sends the difference.
             val merged = state.entries.filter { it.userId == null || it.userId == user }
-                .map { entry -> if (entry.id in observedSessionIds) entry.copy(synced = true) else entry }
                 .associateBy { it.id }.toMutableMap()
             remote.forEach { incoming -> merged[incoming.id] = focalMergeSession(merged[incoming.id], incoming) }
             val otherAccounts = state.entries.filter { it.userId != null && it.userId != user }

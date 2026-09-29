@@ -111,6 +111,103 @@ class FocalStudyTests {
         assertEquals(listOf("start"), fresh.map { it.getString("action") })
     }
 
+    @Test fun offlinePauseResumePauseReplaysEachRealBoundaryInOrder() {
+        val minute = 60_000L
+        val device = "11111111-1111-4111-8111-111111111111"
+        val server = JSONObject().put("state", "running").put("phase", "focus").put("revision", 1)
+            .put("segments", org.json.JSONArray().put(JSONObject().put("started_at", "2026-09-28T00:00:00Z")))
+        val local = active().copy(paused = true, synced = false, revision = 1,
+            remotePayload = server.toString(), activeMillis = 15 * minute, endedAt = 20 * minute,
+            intervals = listOf(FocalStudyInterval(0, 5 * minute), FocalStudyInterval(10 * minute, 20 * minute)))
+        val commands = focalCommandsFor(local, device) { _, at, previous ->
+            previous?.let { FocalSessionCommandTiming(null, at!! - it) }
+        }
+        assertEquals(listOf("pause", "resume", "pause"), commands.map { it.getString("action") })
+        assertEquals(listOf(1L, 2L, 3L), commands.map { it.getLong("expected_revision") })
+        assertEquals(listOf(5L, 5L, 10L).map { it * minute },
+            commands.map { it.getLong("elapsed_since_previous_ms") })
+        assertTrue(commands.all { it.isNull("occurred_at") })
+        // An echo after only the first pause is not the whole offline timeline.
+        val echo = local.copy(changeId = local.changeId, synced = true, revision = 2,
+            intervals = listOf(FocalStudyInterval(0, 5 * minute)))
+        assertEquals(local.intervals, focalMergeSession(local, echo).intervals)
+        assertFalse(focalMergeSession(local, echo).synced)
+    }
+
+    @Test fun offlinePauseAndResumeDoNotDisappearWhenFinalStateIsRunning() {
+        val minute = 60_000L
+        val server = JSONObject().put("state", "running").put("phase", "focus").put("revision", 3)
+            .put("segments", org.json.JSONArray().put(JSONObject().put("started_at", "2026-09-28T00:00:00Z")))
+        val local = active().copy(paused = false, synced = false, revision = 3,
+            remotePayload = server.toString(), intervals = listOf(
+                FocalStudyInterval(0, 5 * minute), FocalStudyInterval(10 * minute, null)))
+        val commands = focalCommandsFor(local, "11111111-1111-4111-8111-111111111111") { _, at, previous ->
+            previous?.let { FocalSessionCommandTiming(null, at!! - it) }
+        }
+        assertEquals(listOf("pause", "resume"), commands.map { it.getString("action") })
+        assertEquals(listOf(5 * minute, 5 * minute), commands.map { it.getLong("elapsed_since_previous_ms") })
+        // Once both commands were accepted, there is nothing to replay.
+        val caughtUp = server.put("revision", 5).put("segments", org.json.JSONArray()
+            .put(JSONObject().put("started_at", "2026-09-28T00:00:00Z").put("ended_at", "2026-09-28T00:05:00Z"))
+            .put(JSONObject().put("started_at", "2026-09-28T00:10:00Z")))
+        assertTrue(focalCommandsFor(local.copy(remotePayload = caughtUp.toString(), revision = 5),
+            "11111111-1111-4111-8111-111111111111").none { it.getString("action") in listOf("pause", "resume") })
+    }
+
+    @Test fun partiallyPublishedOfflineIntervalsResumeAtTheFirstMissingBoundary() {
+        val minute = 60_000L
+        val server = JSONObject().put("state", "paused").put("phase", "focus").put("revision", 2)
+            .put("segments", org.json.JSONArray().put(JSONObject().put("started_at", "2026-09-28T00:00:00Z")
+                .put("ended_at", "2026-09-28T00:05:00Z")))
+        val local = active().copy(paused = true, synced = false, revision = 2,
+            remotePayload = server.toString(), intervals = listOf(
+                FocalStudyInterval(0, 5 * minute), FocalStudyInterval(10 * minute, 20 * minute)))
+        val commands = focalCommandsFor(local, "11111111-1111-4111-8111-111111111111") { _, at, previous ->
+            previous?.let { FocalSessionCommandTiming(null, at!! - it) }
+        }
+        assertEquals(listOf("resume", "pause"), commands.map { it.getString("action") })
+        assertEquals(listOf(5L, 10L).map { it * minute }, commands.map { it.getLong("elapsed_since_previous_ms") })
+    }
+
+    @Test fun offlineNewCompletedSittingReplaysBothIntervalsBeforeCompletion() {
+        val minute = 60_000L
+        val local = active().copy(completed = true, paused = true, synced = false, revision = 0,
+            remotePayload = null, endedAt = 20 * minute, intervals = listOf(
+                FocalStudyInterval(0, 5 * minute), FocalStudyInterval(10 * minute, 20 * minute)))
+        val commands = focalCommandsFor(local, "11111111-1111-4111-8111-111111111111") { _, at, previous ->
+            FocalSessionCommandTiming(if (previous == null) "2026-09-28T00:00:00Z" else null,
+                if (previous == null) 0L else at!! - previous)
+        }
+        assertEquals(listOf("start", "pause", "resume", "complete"), commands.map { it.getString("action") })
+        assertEquals(listOf(0L, 5L, 5L, 10L).map { it * minute },
+            commands.map { it.getLong("elapsed_since_previous_ms") })
+    }
+
+    @Test fun finishingAnAlreadyPausedOfflineSittingDoesNotCreateAnotherActiveSegment() {
+        val minute = 60_000L
+        val server = JSONObject().put("state", "running").put("phase", "focus").put("revision", 1)
+            .put("segments", org.json.JSONArray().put(JSONObject().put("started_at", "2026-09-28T00:00:00Z")))
+        val local = active().copy(completed = true, paused = true, synced = false, revision = 1,
+            remotePayload = server.toString(), endedAt = 20 * minute,
+            intervals = listOf(FocalStudyInterval(0, 5 * minute)))
+        val commands = focalCommandsFor(local, "11111111-1111-4111-8111-111111111111") { _, at, previous ->
+            previous?.let { FocalSessionCommandTiming(null, at!! - it) }
+        }
+        assertEquals(listOf("pause", "complete"), commands.map { it.getString("action") })
+        assertEquals(listOf(5 * minute, 15 * minute), commands.map { it.getLong("elapsed_since_previous_ms") })
+    }
+
+    @Test fun unrecognisedServerIntervalsAreNotSilentlyFlattenedIntoTheFinalState() {
+        val server = JSONObject().put("state", "running").put("revision", 3)
+            .put("segments", org.json.JSONArray().put(JSONObject()).put(JSONObject()))
+        val local = active().copy(paused = true, synced = false, remotePayload = server.toString(),
+            intervals = listOf(FocalStudyInterval(0, 5_000)))
+        val failed = runCatching {
+            focalCommandsFor(local, "11111111-1111-4111-8111-111111111111")
+        }
+        assertTrue(failed.isFailure)
+    }
+
     @Test fun canonicalMetadataKeepsExamDetailsAndDropsDuplicateTimerBoundaries() {
         val legacy = org.json.JSONObject("""{"provider":"VCAA","examYear":2026,"paper":"1","marks":100,"readingMinutes":15,"writingMinutes":165,"workspaceItems":[{"id":"q1"}],"execution":{"intervals":[{"startedAt":1}]},"status":"running"}""")
         val command = focalStudyCommand(active().copy(kind = "exam", remotePayload = legacy.toString()), "start", 0,
