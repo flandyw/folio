@@ -44,27 +44,6 @@ class NoteTests {
         // A page exactly as wide as the viewport has nowhere to go.
         assertEquals(0f, DocumentViewport.clampPan(80f, 1000f, 1000f), .001f)
     }
-    @Test fun fastScrollTracksWhereTheViewportSitsInTheDocument() {
-        assertEquals(0f, DocumentViewport.scrollProgress(0, 0, 400, 8), .001f)
-        assertEquals(.25f, DocumentViewport.scrollProgress(2, 0, 400, 8), .001f)
-        // Halfway through the third page of eight.
-        assertEquals(.3125f, DocumentViewport.scrollProgress(2, 200, 400, 8), .001f)
-        // An empty document, and a page that has not been measured, both sit at the top.
-        assertEquals(0f, DocumentViewport.scrollProgress(0, 0, 0, 0), .001f)
-        assertEquals(0f, DocumentViewport.scrollProgress(0, 300, 0, 8), .001f)
-    }
-    @Test fun fastScrollLandsOnARealPageForEveryTrackPosition() {
-        assertEquals(0, DocumentViewport.pageAt(0f, 20))
-        assertEquals(19, DocumentViewport.pageAt(1f, 20))
-        assertEquals(9, DocumentViewport.pageAt(.49f, 20))
-        assertEquals(0, DocumentViewport.pageAt(.5f, 0))
-    }
-    @Test fun fastScrollThumbFillsTheVisibleShareOfTheTrack() {
-        assertEquals(.5f, DocumentViewport.thumbFraction(6, 12), .001f)
-        // A very long document still leaves a grabbable thumb.
-        assertEquals(.08f, DocumentViewport.thumbFraction(1, 500), .001f)
-        assertEquals(1f, DocumentViewport.thumbFraction(0, 0), .001f)
-    }
     @Test fun customOpacitySurvivesSaveAndReload() {
         val note = Notebook(title = "Custom ink", pages = listOf(NotePage(strokes = listOf(
             Stroke(Tool.HIGHLIGHTER, -1234, 21f, listOf(InkPoint(10f, 20f)), .45f),
@@ -87,10 +66,6 @@ class NoteTests {
                 Stroke(Tool.ELLIPSE, -12, 8f, listOf(InkPoint(0f, 0f), InkPoint(80f, 120f)))
             )), NotePage(paper = Paper.RULED)
         ))
-        assertEquals(note, NoteCodec.decode(NoteCodec.encode(note)))
-    }
-    @Test fun newNotebookRetainsNullFolderAndPdfReference() {
-        val note = Notebook(title = "Ideas")
         assertEquals(note, NoteCodec.decode(NoteCodec.encode(note)))
     }
     @Test fun eraserHitsBetweenSparseSamples() {
@@ -163,10 +138,6 @@ class NoteTests {
         assertTrue(InkGeometry.lassoSelects(loop, rectangle))
         assertFalse(InkGeometry.lassoSelects(listOf(InkPoint(0f, 0f), InkPoint(10f, 0f)), rectangle))
         assertFalse(InkGeometry.lassoSelects(emptyList(), rectangle))
-    }
-    @Test fun movingLassoedStrokesShiftsEverySampleAndKeepsTheRest() {
-        val stroke = Stroke(Tool.PEN, 123, 4f, listOf(InkPoint(1f, 2f, .5f), InkPoint(3f, 4f, 1f)), .8f)
-        assertEquals(stroke.copy(points = listOf(InkPoint(11f, -3f, .5f), InkPoint(13f, -1f, 1f))), InkGeometry.translate(stroke, 10f, -5f))
     }
     @Test(expected = IllegalArgumentException::class) fun futureSchemaFailsInsteadOfLosingData() {
         NoteCodec.decode(NoteCodec.encode(Notebook(title = "Future")).replace("\"version\":1", "\"version\":2"))

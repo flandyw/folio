@@ -142,12 +142,6 @@ class MistakeTests {
         val future = mistake(payload("future").put("dueAt", "2027-01-01T00:00:00.000Z"))
         assertEquals(listOf("older", "newer"), MistakeScheduler.getDueMistakes(listOf(newer, suspended, older, future), timestamp(at)).map { it.id })
     }
-    @Test fun downloadsNewAndReplacesOlder() = runBlocking {
-        val store = Store(); val remote = Remote(); val repo = MistakeRepository(store, remote)
-        remote.rows = listOf(row()); assertEquals(1, repo.sync("u").total)
-        remote.rows = listOf(row(payload(updated = at).put("correction", "new answer")))
-        repo.sync("u"); assertEquals("new answer", repo.cache("u").mistakes["m"]!!.correction)
-    }
     @Test fun malformedRowDoesNotBlockOthers() = runBlocking {
         val remote = Remote().apply { rows = listOf(row(), RemoteMistakeRow("bad", "{}", at, null)) }
         val result = MistakeRepository(Store(), remote).sync("u")

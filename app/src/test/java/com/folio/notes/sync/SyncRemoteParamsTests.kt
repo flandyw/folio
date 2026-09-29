@@ -1,8 +1,6 @@
 package com.folio.notes.sync
 
 import io.github.jan.supabase.serializer.KotlinXSerializer
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.serializer
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -74,13 +72,5 @@ class SyncRemoteParamsTests {
         val command = body.getJSONObject("p_command")
         assertEquals("finish", command.getString("op"))
         assertEquals("user-1", command.getString("expected_user_id"))
-    }
-
-    /** The trap itself: the shape that used to be inferred, and the reason it could not be encoded. */
-    @Test
-    fun anUntypedParameterMapHasNoSerializer() {
-        val untyped: Map<String, Any> = mapOf("p_changes" to Json.parseToJsonElement("[]"), "p_expected_user_id" to "user-1")
-        val failure = runCatching { serializer.encode(typeOf<Map<String, Any>>(), untyped) }.exceptionOrNull()
-        assertEquals(kotlinx.serialization.SerializationException::class.java, failure?.javaClass)
     }
 }

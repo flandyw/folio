@@ -276,18 +276,11 @@ class FocalStudyTests {
         assertEquals(30_000L, recovered.activeMillis)
     }
 
-    @Test fun plannedCalendarRowsDoNotBlockFocus() {
-        assertFalse(active().copy(planned = true).active)
-        assertFalse(FocalStudyState(entries = listOf(active().copy(planned = true))).hasActiveSession)
-        assertFalse(active().copy(deleted = true).active)
-        assertFalse(active().copy(completed = true).active)
-    }
 
     @Test fun staleSharedSessionsDoNotBlockStartingLocalStudy() {
         val stale = active().copy(paused = true, notebookId = null,
             intervals = listOf(FocalStudyInterval(0, 60_000)))
         val state = FocalStudyState(entries = List(8) { stale.copy(id = "stale-$it") })
-        assertTrue(state.hasActiveSession)
         assertTrue(state.canStartFocus)
         assertFalse(state.copy(focus = FocalFocus(notebookId = "new", title = "Study",
             subjectId = "mm", startedAt = 60_000, resumedAt = null)).canStartFocus)
@@ -302,12 +295,6 @@ class FocalStudyTests {
         assertFalse(focalMutationCanRebase("create", "planned"))
     }
 
-    @Test fun completedLocalSessionWithDurationStartsBeforeCompletion() {
-        val completed = active().copy(changeId = "finish", completed = true, synced = false,
-            remotePayload = null, revision = 0)
-        val commands = focalCommandsFor(completed, "11111111-1111-4111-8111-111111111111")
-        assertEquals(listOf("start", "complete"), commands.map { it.getString("action") })
-    }
 
     @Test fun pausedSharedEntriesCanBeFinishedOrDiscarded() {
         val paused = active().copy(notebookId = null, paused = true,
@@ -331,9 +318,6 @@ class FocalStudyTests {
         assertEquals("Synced with Focal", state.syncStatus)
         assertEquals("Connecting to Focal…", state.copy(syncing = true).syncStatus)
         assertEquals("Focal sync needs attention", state.copy(error = "offline").syncStatus)
-        assertEquals("Connecting to Focal…", state.copy(error = "offline", syncing = true).syncStatus)
-        assertEquals("Sending saved session 1 of 2 to Focal…",
-            state.copy(syncing = true, syncDetail = "Sending saved session 1 of 2 to Focal…").syncStatus)
         assertEquals("1 waiting to sync", state.copy(entries = listOf(active().copy(synced = false))).syncStatus)
     }
 

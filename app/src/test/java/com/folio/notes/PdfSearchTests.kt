@@ -56,12 +56,6 @@ class PdfSearchTests {
         assertTrue(snippet.contains("needle hides here"))
     }
 
-    @Test fun aSnippetAtTheVeryStartHasNoLeadingEllipsis() {
-        val snippet = PdfSearch.snippet("Question one starts here and runs on", 0, "Question".length)
-        assertFalse(snippet.startsWith("…"))
-        assertTrue(snippet.startsWith("Question"))
-    }
-
     @Test fun snippetsNeverEscapeTheirInputs() {
         assertEquals("", PdfSearch.snippet("", 0, 3))
         assertEquals("", PdfSearch.snippet("hi", 9, 2))

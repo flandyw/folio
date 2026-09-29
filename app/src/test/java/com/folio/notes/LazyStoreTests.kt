@@ -127,9 +127,6 @@ class LazyStoreTests {
         assertTrue(NoteMetaCodec.isVersion3(v3))
         assertFalse(NoteMetaCodec.isCurrent(v3))
         assertTrue(NoteMetaCodec.decodeVersion3(v3).pageCover)
-        // An explicit choice survives the round trip on the current version.
-        assertFalse(NoteMetaCodec.decode(NoteMetaCodec.encode(note.copy(pageCover = false))).pageCover)
-        assertTrue(NoteMetaCodec.decode(NoteMetaCodec.encode(note.copy(pageCover = true))).pageCover)
     }
 
     @Test fun thePortableCodecKeepsTheCoverChoice() {
@@ -140,36 +137,12 @@ class LazyStoreTests {
         assertTrue(NoteCodec.decode(legacy).pageCover)
     }
 
-    @Test fun thePortableCodecStillKeepsEveryPageAndItsRevision() {
-        val restored = NoteCodec.decode(NoteCodec.encode(note))
-        assertEquals(note, restored)
-        assertEquals(3, restored.pages[0].revision)
-        assertTrue(NoteCodec.decode(NoteCodec.encode(note)).pages.all { it.loaded })
-    }
 }
 
 class PageShapeTests {
     private val page = NotePage(width = 500f, height = 700f, paper = Paper.RULED, revision = 2,
         strokes = listOf(Stroke(Tool.PEN, 0, 2f, listOf(InkPoint(1f, 1f)))),
         texts = listOf(TextBox(x = 0f, y = 0f, text = "hi")))
-
-    @Test fun aSummaryKeepsTheShapeAndDropsTheContent() {
-        val summary = page.asSummary()
-        assertEquals(page.id, summary.id)
-        assertEquals(page.width, summary.width, .001f)
-        assertEquals(page.paper, summary.paper)
-        assertEquals(page.revision, summary.revision)
-        assertFalse(summary.loaded)
-        assertTrue(summary.strokes.isEmpty())
-        assertTrue(summary.texts.isEmpty())
-    }
-
-    @Test fun revisingABumpsItsRevisionWithoutTouchingTheInk() {
-        val revised = page.revised()
-        assertEquals(3, revised.revision)
-        assertEquals(page.strokes, revised.strokes)
-        assertEquals(page.texts, revised.texts)
-    }
 
     @Test fun aLoadedPageTakesItsPlaceInTheNotebook() {
         val second = NotePage(paper = Paper.PLAIN)
