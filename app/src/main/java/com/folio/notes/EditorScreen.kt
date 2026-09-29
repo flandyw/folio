@@ -94,7 +94,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     var tool by rememberSaveable { mutableStateOf(session?.tool ?: AppPrefs.defaultTool(appPrefs.getString(AppPrefs.DEFAULT_TOOL, null))) }
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
-    var quickControlsExpanded by rememberSaveable { mutableStateOf(false) }
     var palmRejectMs by remember { mutableLongStateOf(AppPrefs.palmMs(appPrefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { appPrefs.contains(AppPrefs.PALM_MS) })) }
     DisposableEffect(appPrefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefsChanged, key ->
@@ -965,7 +964,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
-                    .widthIn(max = 1000.dp).fillMaxWidth()
+                    .fillMaxWidth()
                     .padding(top = 8.dp, start = 12.dp, end = 12.dp)
                     .onSizeChanged { floatingToolbarTop = with(density) { it.height.toDp() } + 8.dp },
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1050,9 +1049,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
-                    toolbarLayoutState = toolbarLayouts,
-                    quickExpanded = quickControlsExpanded,
-                    onQuickExpanded = { quickControlsExpanded = it }
+                    toolbarLayoutState = toolbarLayouts
                 )
             }
         }
@@ -1841,8 +1838,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
-    toolbarLayoutState: ToolbarLayoutState? = null,
-    quickExpanded: Boolean = false, onQuickExpanded: (Boolean) -> Unit = {}
+    toolbarLayoutState: ToolbarLayoutState? = null
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
@@ -2025,12 +2021,6 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 }
             }
         }
-        if (showQuickBar) {
-            ToolbarDivider()
-            IconButton({ onQuickExpanded(!quickExpanded) }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Rounded.Tune, "Quick tool controls")
-            }
-        }
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
@@ -2093,13 +2083,15 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
         }
     }
-    // Contextual controls replace the tools in-place, keeping the entire dock at two rows.
-    // The back control stays fixed while colours and settings scroll on narrow windows.
-    // Long-press anywhere on the strip opens Edit toolbar; the overflow menu offers it too.
-    // A tool or preset's own long-press claims the gesture instead (see claimStripLongPress).
-    Box(modifier.guardUiTouches().widthIn(max = 760.dp)) {
-        if (!showQuickBar || !quickExpanded) EditorGlassSurface(
-            Modifier.height(56.dp).longPressAction(stripGuard) {
+    // Tools and quick colours share one row, each in an equally tall floating capsule.
+    // Both trays scroll independently on narrow windows; colours never need a reveal tap.
+    Row(
+        modifier.guardUiTouches().widthIn(max = 1120.dp).fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+    ) {
+        EditorGlassSurface(
+            Modifier.weight(if (showQuickBar) .55f else 1f, fill = false).longPressAction(stripGuard) {
                 if (System.currentTimeMillis() - childLongPressAt <= 400) {
                     // A tool or preset claimed the gesture first; its own action stands alone.
                     stripGuard.begin()
@@ -2108,12 +2100,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ) {
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
-        if (showQuickBar && quickExpanded) {
-            EditorGlassSurface(Modifier.height(56.dp)) {
+        if (showQuickBar) {
+            EditorGlassSurface(Modifier.weight(.45f, fill = false)) {
                 Row(Modifier.padding(horizontal = 6.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ onQuickExpanded(false) }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to drawing tools")
-                    }
                     Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
                             quick.colors(colorGroup).forEachIndexed { index, c ->

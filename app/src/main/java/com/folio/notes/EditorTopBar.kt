@@ -22,6 +22,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+internal val EditorFloatingGroupHeight = 56.dp
+
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(
     modifier: Modifier = Modifier,
@@ -30,7 +32,7 @@ import androidx.compose.ui.unit.dp
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(28.dp)
     Surface(
-        modifier = modifier.guardUiTouches(),
+        modifier = modifier.height(EditorFloatingGroupHeight).guardUiTouches(),
         shape = shape,
         color = colors.surfaceContainerHigh.copy(alpha = .9f),
         contentColor = colors.onSurface,
@@ -40,9 +42,12 @@ import androidx.compose.ui.unit.dp
             colors.outlineVariant.copy(alpha = .35f)
         )))
     ) {
-        Box(Modifier.background(Brush.verticalGradient(listOf(
-            colors.surface.copy(alpha = .28f), Color.Transparent
-        )))) { content() }
+        Box(
+            Modifier.fillMaxHeight().background(Brush.verticalGradient(listOf(
+                colors.surface.copy(alpha = .28f), Color.Transparent
+            ))),
+            contentAlignment = Alignment.Center
+        ) { content() }
     }
 }
 
@@ -81,19 +86,21 @@ import androidx.compose.ui.unit.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 840.dp
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            EditorGlassSurface {
+            EditorGlassSurface(Modifier.width(EditorFloatingGroupHeight)) {
                 IconButton(onClose, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
             }
+            // This slot takes the spare width; the capsule itself hugs the notebook name.
+            // The timer, page and action groups are consequently anchored to the right.
             Box(Modifier.weight(1f)) {
-                EditorGlassSurface(Modifier.fillMaxWidth()) {
+                EditorGlassSurface() {
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        Modifier.height(EditorFloatingGroupHeight)
                             .clickable(role = Role.Button, onClickLabel = "Notebook actions") { notebookMenu = true }
                             .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (saveFailed || pendingSaves > 0) {
                             Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.Sync,
                                 if (saveFailed) "Save failed. Open notebook actions for details" else "Saving on device",
