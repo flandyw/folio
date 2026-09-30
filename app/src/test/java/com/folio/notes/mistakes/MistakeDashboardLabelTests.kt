@@ -24,4 +24,27 @@ class MistakeDashboardLabelTests {
         assertEquals(false, preview.contains('\n'))
         assertEquals(true, preview.endsWith("…"))
     }
+
+    @Test fun previewPreservesMathAcrossParagraphsAndListsAsOneInlineParagraph() {
+        val source = "Let \\(f\\) be differentiable.\n\n\\[\\boxed{\\frac{1}{2}}\\]\n\n" +
+            "- Find \\(g'(7)\\).\n- **Explain** your answer."
+        val preview = RichTextParser.previewInlines(source)
+        assertEquals(listOf("f", "\\boxed{\\frac{1}{2}}", "g'(7)"),
+            preview.filterIsInstance<RichInline.Math>().map { it.latex })
+        assertEquals(true, preview.filterIsInstance<RichInline.Math>().all { !it.display })
+        assertEquals(false, preview.any { it == RichInline.Break })
+        assertEquals(true, preview.filterIsInstance<RichInline.Run>().all { '\n' !in it.text })
+        assertEquals(true, preview.filterIsInstance<RichInline.Run>().any { it.bold && it.text == "Explain" })
+    }
+
+    @Test fun previewBudgetNeverCutsThroughMathAndKeepsCodeLiteral() {
+        val latex = "\\boxed{\\frac{1}{2}}"
+        val preview = RichTextParser.previewInlines("Answer \\($latex\\) and explain", maxLength = 10)
+        assertEquals(listOf(latex), preview.filterIsInstance<RichInline.Math>().map { it.latex })
+        assertEquals(RichInline.Run("…"), preview.last())
+        val code = RichTextParser.previewInlines("`\\frac{1}{2}`")
+        assertEquals(true, code.none { it is RichInline.Math })
+        assertEquals(true, code.filterIsInstance<RichInline.Run>().any { it.code })
+    }
+
 }

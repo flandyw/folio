@@ -108,9 +108,8 @@ import com.folio.notes.rememberLongPressGuard
     var menu by remember { mutableStateOf(false) }
     val hold = rememberLongPressGuard()
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-    val preview = remember(mistake.questionText) {
-        mistake.questionText?.let { RichTextParser.plainText(it, maxLength = 420) }.orEmpty()
-    }
+    val previewStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
+    val previewHeight = with(LocalDensity.current) { (previewStyle.lineHeight * 4).toDp() }
     val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question"
     val overdue = !mistake.suspended && dueText.contains("overdue")
     Box {
@@ -123,10 +122,8 @@ import com.folio.notes.rememberLongPressGuard
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(mistake.question, style = MaterialTheme.typography.titleMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            // RichText's maxLines applies per block, not to the whole question. Use its native
-            // preview fallback here; full Markdown and KaTeX remain available in question details.
-            Text(preview, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
-                minLines = 4, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            RichTextPreview(mistake.questionText.orEmpty(), style = previewStyle,
+                modifier = Modifier.fillMaxWidth().height(previewHeight))
             Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(8.dp),

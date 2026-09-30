@@ -216,6 +216,54 @@ object RichTextParser {
         return end
     }
 
+    /** One paragraph for bounded cards. Math stays atomic and is rendered inline, even from a block. */
+    fun previewInlines(source: String, maxLength: Int = 420): List<RichInline> {
+        require(maxLength > 0)
+        val flattened = parse(source).flatMap { block ->
+            val items = when (block) {
+                is RichBlock.Para -> block.inlines
+                is RichBlock.Heading -> block.inlines
+                is RichBlock.Quote -> block.inlines
+                is RichBlock.Bullets -> block.items.flatMap { it + RichInline.Break }
+                is RichBlock.Numbers -> block.items.flatMap { it + RichInline.Break }
+                is RichBlock.Code -> listOf(RichInline.Run(block.code, code = true))
+                is RichBlock.DisplayMath -> listOf(RichInline.Math(block.latex))
+                RichBlock.Divider -> emptyList()
+            }
+            items + RichInline.Break
+        }
+        val result = mutableListOf<RichInline>()
+        var remaining = maxLength
+        for (item in flattened) {
+            val normalized = when (item) {
+                is RichInline.Math -> item.copy(display = false)
+                is RichInline.Run -> item.copy(text = item.text.replace(Regex("\\s+"), " "))
+                RichInline.Break -> RichInline.Run(" ")
+            }
+            if (remaining <= 0) {
+                result += RichInline.Run("…")
+                break
+            }
+            when (normalized) {
+                is RichInline.Math -> {
+                    // A soft source budget: never split a command or lose closing braces.
+                    result += normalized
+                    remaining -= normalized.latex.length
+                }
+                is RichInline.Run -> {
+                    result += normalized.copy(text = normalized.text.take(remaining))
+                    remaining -= normalized.text.length
+                    if (remaining < 0) {
+                        result += RichInline.Run("…")
+                        break
+                    }
+                }
+                RichInline.Break -> error("Breaks have been flattened")
+            }
+        }
+        return result
+    }
+
     /** Readable one-line fallback for previews, semantics and notifications. */
     fun plainText(source: String, maxLength: Int = 160): String {
         if (source.isBlank()) return ""

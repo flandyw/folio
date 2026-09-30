@@ -122,6 +122,13 @@ fun RichText(
     }
 }
 
+/** A single ellipsized paragraph, retaining KaTeX without a separate line budget per block. */
+@Composable
+internal fun RichTextPreview(source: String, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
+    val inlines = remember(source) { RichTextParser.previewInlines(source) }
+    InlineParagraph(inlines, style, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = modifier)
+}
+
 @Composable
 private fun InlineParagraph(
     inlines: List<RichInline>,
