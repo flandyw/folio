@@ -1,7 +1,15 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.HourglassEmpty
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,9 +32,18 @@ internal fun TimingPanel(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && stopwatch.active) 1 else 0) }
     FolioPanel(title = "Timer & stopwatch", onDismissRequest = onDismiss) {
-        PrimaryTabRow(selectedTabIndex = selectedTab) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Exam timer") })
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Stopwatch") })
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedTab == 0, onClick = { selectedTab = 0 },
+                label = { Text("Exam timer") }, leadingIcon = { Icon(Icons.Rounded.Timer, null) }
+            )
+            FilterChip(
+                selected = selectedTab == 1, onClick = { selectedTab = 1 },
+                label = { Text("Stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
+            )
         }
         Box(Modifier.weight(1f, fill = false)) {
             if (selectedTab == 0) {
