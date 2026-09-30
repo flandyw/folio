@@ -119,6 +119,9 @@ internal val EditorFloatingGroupHeight = 56.dp
                             verticalAlignment = Alignment.CenterVertically) { timer() }
                     }
                 }
+                EditorGlassSurface(Modifier.width(48.dp)) {
+                    IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Share or export") }
+                }
                 Box {
                     EditorGlassSurface(Modifier.width(48.dp)) {
                         IconButton({ overflow = true }) {
@@ -130,8 +133,6 @@ internal val EditorFloatingGroupHeight = 56.dp
                     DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
                         Text(title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.titleSmall)
-                        DropdownMenuItem({ Text("Share or export") }, { overflow = false; onExport() },
-                            leadingIcon = { Icon(Icons.Rounded.IosShare, null) })
                         DropdownMenuItem({ Text("Page options") }, { overflow = false; onPageOptions() },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()

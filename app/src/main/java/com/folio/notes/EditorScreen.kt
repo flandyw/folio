@@ -360,7 +360,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     var paperMenu by remember { mutableStateOf(false) }
     var timerPanel by remember { mutableStateOf(false) }
     var studyPanel by remember { mutableStateOf(false) }
-    var stopwatchPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
     var markDialog by remember { mutableStateOf(false) }
     var pdfSearchOpen by remember { mutableStateOf(false) }
@@ -1014,8 +1013,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onClose = model::close,
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
-                                    StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
+                                    TimingChip(state.timer, state.stopwatch, onLongClick = {
+                                        if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
+                                        else model.toggleStopwatchPause()
+                                    }) { timerPanel = true }
                                     FocalStudyChip(state.timer) { studyPanel = true }
                                 }
                             },
@@ -1040,7 +1041,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
                                         onClear = { clear = true }, onRetry = model::retrySave,
                                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                                        onStopwatch = { stopwatchPanel = true },
                                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                         onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                         onContents = { pdfContentsOpen = true; loadOutline() },
@@ -1223,23 +1223,20 @@ private fun paperLabel(p: Paper): String = when (p) {
     }, confirmButton = { TextButton({ paperMenu = false }, shapes = ButtonDefaults.shapes()) { Text("Done") } })
     if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false },
         icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }, shapes = ButtonDefaults.shapes()) { Text("Clear page") } })
-    if (timerPanel) ExamTimerPanel(
+    if (timerPanel) TimingPanel(
         timer = state.timer,
+        stopwatch = state.stopwatch,
         onDismiss = { timerPanel = false },
-        onStart = { model.startTimer(it) },
-        onStop = { model.stopTimer() },
-        onAdjust = model::adjustTimer,
-        onSkip = model::skipTimerPhase,
-        onPauseResume = model::toggleTimerPause
+        onStartTimer = model::startTimer,
+        onStopTimer = { model.stopTimer() },
+        onAdjustTimer = model::adjustTimer,
+        onSkipTimer = model::skipTimerPhase,
+        onPauseTimer = model::toggleTimerPause,
+        onStartStopwatch = model::startStopwatch,
+        onPauseStopwatch = model::toggleStopwatchPause,
+        onResetStopwatch = model::resetStopwatch
     )
     if (studyPanel) FocalStudyPanel(note, state.timer, onDismiss = { studyPanel = false })
-    if (stopwatchPanel) StopwatchPanel(
-        stopwatch = state.stopwatch,
-        onDismiss = { stopwatchPanel = false },
-        onStart = model::startStopwatch,
-        onPauseResume = model::toggleStopwatchPause,
-        onReset = model::resetStopwatch
-    )
     if (examPanel) ExamDetailsPanel(
         note = note,
         onDismiss = { examPanel = false },
@@ -1522,56 +1519,16 @@ private fun paperLabel(p: Paper): String = when (p) {
 }
 
 /**
- * The stopwatch's place in the editor chrome: an icon while idle, the live count-up
- * while it runs, so elapsed time stays visible without covering any of the page.
+ * One timing action while idle, with live countdown and elapsed clocks when active.
  */
-@Composable private fun StopwatchChip(stopwatch: StopwatchState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
-    // The hold claims the gesture so the release after it never also opens the stopwatch panel.
-    val hold = rememberLongPressGuard()
-    Crossfade(targetState = stopwatch.active, label = "stopwatchChip") { isActive ->
-        if (!isActive) {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.HourglassEmpty, "Stopwatch") }
-            }
-        } else {
-            Surface(
-                onClick = hold.click(onClick),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                tonalElevation = 1.dp,
-                shadowElevation = 1.dp,
-                modifier = Modifier.height(36.dp)
-                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)
-            ) {
-                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(
-                        if (stopwatch.paused) Icons.Rounded.Pause else Icons.Rounded.HourglassEmpty,
-                        null, Modifier.size(15.dp)
-                    )
-                    Text(
-                        if (stopwatch.paused) "${if (stopwatch.autoParked) "Stopped" else "Paused"} · ${stopwatch.clockText()}"
-                        else stopwatch.clockText(),
-                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * The exam timer's place in the editor chrome: an icon while idle, the live clock while a sitting
- * is running, so the countdown stays visible without covering any of the page.
- */
-@Composable private fun ExamTimerChip(timer: ExamTimerState, height: androidx.compose.ui.unit.Dp, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+@Composable private fun TimingChip(timer: ExamTimerState, stopwatch: StopwatchState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     // The hold claims the gesture so the release after it never also opens the timer panel.
     val hold = rememberLongPressGuard()
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
-    Crossfade(targetState = active, label = "timerChip") { isActive ->
+    Crossfade(targetState = active || stopwatch.active, label = "timingChip") { isActive ->
         if (!isActive) {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Exam timer") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Exam timer") }
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
+                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch") }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
@@ -1587,14 +1544,21 @@ private fun paperLabel(p: Paper): String = when (p) {
             ) {
                 Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(
-                        if (timer.paused) Icons.Rounded.Pause else if (done) Icons.Rounded.Flag else Icons.Rounded.Timer,
+                        if (done) Icons.Rounded.Flag
+                        else if (if (active) timer.paused else stopwatch.paused) Icons.Rounded.Pause
+                        else Icons.Rounded.Timer,
                         null, Modifier.size(15.dp)
                     )
                     Text(
-                        if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
-                        else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
-                        else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
-                        else "Pens down",
+                        listOfNotNull(
+                            if (!active) null
+                            else if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
+                            else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
+                            else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
+                            else "Pens down",
+                            if (!stopwatch.active) null
+                            else "${if (stopwatch.paused) "Paused · " else ""}↑ ${stopwatch.clockText()}"
+                        ).joinToString(" · "),
                         style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
                     )
                 }
@@ -2350,7 +2314,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
     canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
     onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onStopwatch: () -> Unit = {}, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
@@ -2370,8 +2334,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         )
         DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
         DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
-        DropdownMenuItem({ Text("Exam timer") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
-        DropdownMenuItem({ Text("Stopwatch") }, { onDismiss(); onStopwatch() }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) })
+        DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         HorizontalDivider()
         Text("Insert & find", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })

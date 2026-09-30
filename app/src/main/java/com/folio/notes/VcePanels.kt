@@ -690,11 +690,11 @@ private fun ProgressRow(label: String, share: Float) {
  * leaving the editor parks it, and the parked time never counts.
  */
 @Composable
-fun StopwatchPanel(
-    stopwatch: StopwatchState, onDismiss: () -> Unit,
+internal fun StopwatchContent(
+    stopwatch: StopwatchState,
     onStart: () -> Unit, onPauseResume: () -> Unit, onReset: () -> Unit
 ) {
-    FolioPanel(title = "Stopwatch", onDismissRequest = onDismiss) {
+    Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp).padding(bottom = 24.dp),
@@ -757,7 +757,7 @@ fun StopwatchPanel(
 
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
 @Composable
-fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit, onPauseResume: () -> Unit) {
+internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit, onPauseResume: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val timerPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     val defaultCustom = AppPrefs.timerCustomMinutes(timerPrefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_CUSTOM_MIN) })
@@ -766,7 +766,7 @@ fun ExamTimerPanel(timer: ExamTimerState, onDismiss: () -> Unit, onStart: (ExamT
     var customMinutes by rememberSaveable { mutableStateOf("$defaultCustom") }
     var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
     LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
-    FolioPanel(title = "Exam timer", onDismissRequest = onDismiss) {
+    Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp).padding(bottom = 24.dp),
