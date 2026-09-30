@@ -205,7 +205,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                         Text(if (manualLog) "Cancel manual entry" else "Log without timer", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                if (manualLog) {
+                FolioExpand(manualLog) {
                     OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
                         Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))

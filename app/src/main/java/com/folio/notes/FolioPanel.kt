@@ -45,7 +45,7 @@ import androidx.core.view.WindowInsetsControllerCompat
             val panelWidth = minOf(if (landscape) 920.dp else 640.dp, maxWidth)
             val panelMaxHeight = minOf(if (landscape) 600.dp else 720.dp, maxHeight)
             Surface(
-                modifier = Modifier.width(panelWidth).heightIn(max = panelMaxHeight),
+                modifier = Modifier.folioEntrance().width(panelWidth).heightIn(max = panelMaxHeight),
                 shape = RoundedCornerShape(if (landscape) 28.dp else 24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column {

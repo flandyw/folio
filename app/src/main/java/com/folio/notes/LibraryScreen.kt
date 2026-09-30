@@ -328,7 +328,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     if (listView) Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.combinedClickable(onClick = open, onLongClick = longPress)
+                        modifier = Modifier.animateItem(placementSpec = folioSpring()).combinedClickable(onClick = open, onLongClick = longPress)
                     ) {
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 if (selecting) {
@@ -350,7 +350,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                             selecting, note.pages.count { it.redoFlag },
                             selected = note.id in selection, onLongPress = longPress,
                             pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
-                            duplicate = { model.duplicateNotebook(note) }
+                            duplicate = { model.duplicateNotebook(note) },
+                            modifier = Modifier.animateItem(placementSpec = folioSpring())
                         )
                 }
 
@@ -472,14 +473,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     val hold = rememberLongPressGuard()
     Surface(onClick = hold.click(action), modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, null, Modifier.size(20.dp)); Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(icon, null, Modifier.size(20.dp).folioSelected(selected)); Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             count?.let { Text("$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}) {
-    Column {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, modifier: Modifier = Modifier) {
+    Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = "Open ${note.title}", onClick = open, onLongClick = onLongPress))
             if (selecting) {

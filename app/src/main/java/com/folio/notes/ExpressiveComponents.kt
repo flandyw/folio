@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
             // Tapping the active pen still opens its options rather than deselecting the tool.
             onCheckedChange = { hold.click(onClick)() },
             shapes = IconButtonDefaults.toggleableShapes(),
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(44.dp).folioSelected(selected),
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,

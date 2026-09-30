@@ -1641,7 +1641,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     val chipAlpha by animateFloatAsState(if (chipActive) 1f else 0f, label = "fastScrollChipAlpha")
     // The thumb brightens and thickens smoothly when grabbed instead of snapping.
     val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
-    val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, label = "fastScrollWidth")
+    val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, animationSpec = folioSpring(), label = "fastScrollWidth")
     BoxWithConstraints(modifier) {
         val geometry = fastScrollGeometry(pages, pageCount, constraints.maxHeight.toFloat(), with(density) { 28.dp.toPx() })
             ?: return@BoxWithConstraints
@@ -2103,7 +2103,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
         }
-        if (showQuickBar) {
+        FolioExpand(showQuickBar) {
             EditorGlassSurface(Modifier.widthIn(max = 640.dp)) {
                 Row(Modifier.padding(horizontal = 6.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2465,7 +2465,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     val feedback = LocalHapticFeedback.current
     // Pops in instead of snapping: a fresh selection feels confirmed, not pasted on.
     var entered by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (entered) 1f else 0.92f, label = "pillScale")
+    val scale by animateFloatAsState(if (entered) 1f else 0.92f, animationSpec = folioSpring(), label = "pillScale")
     val alpha by animateFloatAsState(if (entered) 1f else 0f, label = "pillAlpha")
     LaunchedEffect(Unit) { entered = true }
     fun tap(action: () -> Unit) {

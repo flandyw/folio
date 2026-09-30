@@ -415,18 +415,27 @@ import java.io.File
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }, contentWindowInsets = WindowInsets.safeDrawing) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                when {
-                    state.loading -> LoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
-                    state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
-                        Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
-                        Text("Your stored files have been kept. Retry to open them.")
-                        Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
+                val screen = when {
+                    state.loading -> "loading"
+                    state.loadFailed -> "failed"
+                    showMistakes -> "mistakes"
+                    state.active != null -> "editor"
+                    else -> "library"
+                }
+                Box(Modifier.fillMaxSize().folioEntrance(screen)) {
+                    when {
+                        state.loading -> LoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
+                        state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
+                            Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
+                            Text("Your stored files have been kept. Retry to open them.")
+                            Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
+                        }
+                        showMistakes -> com.folio.notes.mistakes.MistakesScreen(mistakes, model, state, finger, haptics, shapeRecognition,
+                            onBack = { showMistakes = false }, onSettings = { settings = true }, onExport = { exportMenu = true })
+                        state.active != null -> WorkspaceScreen(state, model, finger, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
+                        else -> LibraryScreen(state.copy(notes = state.notes.filterNot { it.mistakePractice }), model, onMistakes = { showMistakes = true }, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
                     }
-                    showMistakes -> com.folio.notes.mistakes.MistakesScreen(mistakes, model, state, finger, haptics, shapeRecognition,
-                        onBack = { showMistakes = false }, onSettings = { settings = true }, onExport = { exportMenu = true })
-                    state.active != null -> WorkspaceScreen(state, model, finger, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
-                    else -> LibraryScreen(state.copy(notes = state.notes.filterNot { it.mistakePractice }), model, onMistakes = { showMistakes = true }, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
                         Surface(shape = RoundedCornerShape(28.dp)) {
