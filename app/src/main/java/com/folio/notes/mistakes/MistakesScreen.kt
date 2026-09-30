@@ -492,7 +492,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 if (!standaloneDetail) {
                     val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
                     val tab = destination.takeIf { it in tabs } ?: tabs.first()
-                    MistakesDestinationToolbar(tabs, tab, tablet) { destination = it; detail = null }
+                    MistakesDestinationToolbar(tabs, tab) { destination = it; detail = null }
                 }
             },
             snackbarHost = { SnackbarHost(snackbar) }
@@ -533,6 +533,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        // M3e contained loading indicator while a sync is actually running.
+                                        if (state.status == "Syncing…") ContainedLoadingIndicator(Modifier.size(22.dp))
                                         Text(
                                             if (isSyncTrouble(state.status)) state.status
                                             else "${state.cache.pending.size} reviews saved locally · view sync",
@@ -683,7 +685,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
 private fun MistakesDestinationToolbar(
     destinations: List<String>,
     selected: String,
-    tablet: Boolean,
     onSelect: (String) -> Unit
 ) {
     val toolbarState = rememberFloatingToolbarState()
@@ -703,33 +704,35 @@ private fun MistakesDestinationToolbar(
             }
         }
     }
-    HorizontalFloatingToolbar(
-        expanded = true,
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
-            .padding(horizontal = if (tablet) 48.dp else 16.dp, vertical = 8.dp),
-        scrollBehavior = scrollBehavior,
-        colors = standard,
-        content = {
-            destinations.forEach { title ->
-                val isSelected = title == selected
-                Surface(
-                    onClick = { onSelect(title) },
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) vibrant.toolbarContainerColor else Color.Transparent,
-                    contentColor = if (isSelected) vibrant.toolbarContentColor else standard.toolbarContentColor,
-                ) {
-                    Column(
-                        Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
+    // A floating toolbar hugs its content and sits centred on the bottom edge; Scaffold's
+    // bottomBar slot lays out from the start, so the centring is done by this box.
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
+        HorizontalFloatingToolbar(
+            expanded = true,
+            scrollBehavior = scrollBehavior,
+            colors = standard,
+            content = {
+                destinations.forEach { title ->
+                    val isSelected = title == selected
+                    Surface(
+                        onClick = { onSelect(title) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) vibrant.toolbarContainerColor else Color.Transparent,
+                        contentColor = if (isSelected) vibrant.toolbarContentColor else standard.toolbarContentColor,
                     ) {
-                        Icon(icons[title] ?: Icons.Rounded.Draw, title, Modifier.size(20.dp))
-                        Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        Column(
+                            Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            Icon(icons[title] ?: Icons.Rounded.Draw, title, Modifier.size(20.dp))
+                            Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 // ---- Login + account ---------------------------------------------------------------------------

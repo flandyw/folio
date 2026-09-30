@@ -132,10 +132,11 @@ object EditorQuickPrefs {
                     AssistChip({ onChange(options.copy(width = 3.5f)) }, { Text("Heavy") })
                 }
                 Text("Line style", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(options.style == StrokeStyle.SOLID, { onChange(options.copy(style = StrokeStyle.SOLID)) }, { Text("Solid") })
-                    FilterChip(options.style == StrokeStyle.DASHED, { onChange(options.copy(style = StrokeStyle.DASHED)) }, { Text("Dashed") })
-                    FilterChip(options.style == StrokeStyle.DOTTED, { onChange(options.copy(style = StrokeStyle.DOTTED)) }, { Text("Dotted") })
+                // M3e button group: these three are one choice, so they read as connected toggles.
+                FolioButtonGroup {
+                    toggleableItem(options.style == StrokeStyle.SOLID, "Solid", { onChange(options.copy(style = StrokeStyle.SOLID)) })
+                    toggleableItem(options.style == StrokeStyle.DASHED, "Dashed", { onChange(options.copy(style = StrokeStyle.DASHED)) })
+                    toggleableItem(options.style == StrokeStyle.DOTTED, "Dotted", { onChange(options.copy(style = StrokeStyle.DOTTED)) })
                 }
                 Text("Dashed and dotted lines suit diagrams and maths sketches. Freehand pen stays solid.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle snap in the editor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

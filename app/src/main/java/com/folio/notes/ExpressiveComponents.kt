@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +18,37 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+
+/**
+ * Material 3e button group with the standard overflow affordance: connected buttons that grow on
+ * press, and anything that no longer fits moves into a trailing menu. [menuItems] are shown there
+ * when the row runs out of room, so callers can offer the full choice on narrow shelves.
+ */
+@Composable internal fun FolioButtonGroup(
+    modifier: Modifier = Modifier,
+    menuItems: List<Pair<String, () -> Unit>> = emptyList(),
+    content: ButtonGroupScope.() -> Unit
+) {
+    ButtonGroup(
+        overflowIndicator = { overflow ->
+            Box {
+                FilledIconButton({ overflow.show() }, shapes = IconButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.MoreVert, "More options", Modifier.size(18.dp))
+                }
+                DropdownMenu(overflow.isExpanded, overflow::dismiss, modifier = Modifier.guardUiTouches()) {
+                    if (menuItems.isEmpty()) {
+                        DropdownMenuItem({ Text("Nothing else") }, {}, enabled = false)
+                    }
+                    menuItems.forEach { (label, action) ->
+                        DropdownMenuItem({ Text(label) }, { overflow.dismiss(); action() })
+                    }
+                }
+            }
+        },
+        modifier = modifier,
+        content = content
+    )
+}
 
 /**
  * Keep one toggle mounted so press and selection changes morph between Expressive shapes.
@@ -81,6 +113,13 @@ import androidx.compose.ui.unit.dp
                     }
                 }
                 LoadingIndicator()
+                FolioButtonGroup {
+                    toggleableItem(checked = true, onCheckedChange = {}, label = "Solid",
+                        icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) })
+                    toggleableItem(checked = false, onCheckedChange = {}, label = "Dashed")
+                    toggleableItem(checked = false, onCheckedChange = {}, label = "Dotted")
+                }
+                ContainedLoadingIndicator(Modifier.size(56.dp))
             }
         }
     }

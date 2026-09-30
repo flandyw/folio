@@ -108,7 +108,9 @@ import androidx.compose.ui.unit.dp
     }
     picker?.let { kind ->
         FolioPanel(title = when (kind) { "split" -> "Open beside editor"; "reference" -> "Choose a reference"; "tabs" -> "Open documents"; else -> "Open document" }, onDismissRequest = { picker = null }) {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+            // ListItem brings its own content padding, so the gutter here is deliberately small;
+            // without it the rows run straight into the panel's rounded edges.
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp).padding(horizontal = 8.dp)) {
                 val notes = if (kind == "tabs") state.notes.filter { n -> state.tabs.any { it.notebookId == n.id } } else state.notes
                 items(notes, key = { it.id }) { note ->
                     ListItem(headlineContent = { Text(note.title) },

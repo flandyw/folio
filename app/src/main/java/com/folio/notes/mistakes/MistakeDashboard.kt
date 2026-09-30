@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.FolioButtonGroup
 import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
 import com.folio.notes.rememberLongPressGuard
@@ -37,14 +38,13 @@ import com.folio.notes.rememberLongPressGuard
             }
         }
         @Composable fun SessionChoices(modifier: Modifier = Modifier) {
-            FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // M3e connected button group: one choice for the session size, plus the shuffle toggle.
+            FolioButtonGroup(modifier) {
                 listOf(5, 10, Int.MAX_VALUE).forEach { count ->
-                    FilterChip(limit == count, { onLimit(count) }, { Text(if (count == Int.MAX_VALUE) "All due" else "$count") },
-                        colors = FilterChipDefaults.filterChipColors(labelColor = MaterialTheme.colorScheme.onPrimaryContainer))
+                    toggleableItem(limit == count, if (count == Int.MAX_VALUE) "All due" else "$count", { onLimit(count) })
                 }
-                FilterChip(shuffle, onShuffle, { Text("Shuffle") },
-                    leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) },
-                    colors = FilterChipDefaults.filterChipColors(labelColor = MaterialTheme.colorScheme.onPrimaryContainer))
+                toggleableItem(shuffle, "Shuffle", { onShuffle() },
+                    icon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
             }
         }
         @Composable fun SessionControls(modifier: Modifier) {
@@ -62,7 +62,7 @@ import com.folio.notes.rememberLongPressGuard
             }
         }
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Introduction(Modifier.fillMaxWidth())
                 if (horizontal && due > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)) {

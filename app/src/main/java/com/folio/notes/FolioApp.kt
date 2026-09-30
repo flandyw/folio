@@ -424,7 +424,7 @@ import java.io.File
                 }
                 Box(Modifier.fillMaxSize().folioEntrance(screen)) {
                     when {
-                        state.loading -> LoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
+                        state.loading -> ContainedLoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
                         state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
                             Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
@@ -609,7 +609,7 @@ import java.io.File
     }
     FolioPanel(title = "A fresh start", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

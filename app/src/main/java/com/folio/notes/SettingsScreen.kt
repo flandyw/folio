@@ -519,15 +519,15 @@ private enum class SettingsCategory(
         }
     }
     Text("Library layout", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(!listView, {
+    FolioButtonGroup {
+        toggleableItem(!listView, "Covers", {
             listView = false
             p.edit().putBoolean(AppPrefs.LIB_LIST, false).apply()
-        }, { Text("Covers") })
-        FilterChip(listView, {
+        })
+        toggleableItem(listView, "Compact list", {
             listView = true
             p.edit().putBoolean(AppPrefs.LIB_LIST, true).apply()
-        }, { Text("Compact list") })
+        })
     }
     HorizontalDivider()
     SectionTitle("New notebooks")
@@ -669,37 +669,37 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         p.edit().putBoolean("writingFollow", it).apply()
     })
     Text("Follow mode", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(mode == FollowMode.TEXT, {
+    FolioButtonGroup {
+        toggleableItem(mode == FollowMode.TEXT, "Text", {
             mode = FollowMode.TEXT
             p.edit().putString("follow.mode", FollowMode.TEXT.name).apply()
-        }, { Text("Text") })
-        FilterChip(mode == FollowMode.MATH, {
+        })
+        toggleableItem(mode == FollowMode.MATH, "Maths", {
             mode = FollowMode.MATH
             p.edit().putString("follow.mode", FollowMode.MATH.name).apply()
-        }, { Text("Maths") })
+        })
     }
     Text("Reading direction", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(direction == WritingDirection.LTR, {
+    FolioButtonGroup {
+        toggleableItem(direction == WritingDirection.LTR, "Left → right", {
             direction = WritingDirection.LTR
             p.edit().putString("follow.direction", WritingDirection.LTR.name).apply()
-        }, { Text("Left → right") })
-        FilterChip(direction == WritingDirection.RTL, {
+        })
+        toggleableItem(direction == WritingDirection.RTL, "Right → left", {
             direction = WritingDirection.RTL
             p.edit().putString("follow.direction", WritingDirection.RTL.name).apply()
-        }, { Text("Right → left") })
+        })
     }
     Text("Hand holding the pen", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(hand == WritingHand.RIGHT, {
+    FolioButtonGroup {
+        toggleableItem(hand == WritingHand.RIGHT, "Right hand", {
             hand = WritingHand.RIGHT
             p.edit().putString("writingHand", WritingHand.RIGHT.name).apply()
-        }, { Text("Right hand") })
-        FilterChip(hand == WritingHand.LEFT, {
+        })
+        toggleableItem(hand == WritingHand.LEFT, "Left hand", {
             hand = WritingHand.LEFT
             p.edit().putString("writingHand", WritingHand.LEFT.name).apply()
-        }, { Text("Left hand") })
+        })
     }
     PreferenceSwitch("Automatic line return", "Finishing near the edge shows “Next line…” and glides by itself. Touch the pen down quickly to cancel.", autoReturn, {
         autoReturn = it

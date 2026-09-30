@@ -105,274 +105,285 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     val folderName = state.folders.find { it.id == state.folderId }?.name
     BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
         val wide = maxWidth >= 840.dp
-        Row(Modifier.fillMaxSize()) {
-            if (wide) Surface(Modifier.width(200.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Brand(); Spacer(Modifier.height(16.dp))
-                    Box {
-                        FilledTonalButton(newHold.click(onNew), shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).longPressAction(newHold) { sidebarNewMenu = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New notebook") }
-                        DropdownMenu(sidebarNewMenu, { sidebarNewMenu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text("New notebook") }, { sidebarNewMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Import PDF document") }, { sidebarNewMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
-                            DropdownMenuItem({ Text("Import Folio backup") }, { sidebarNewMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
-                            DropdownMenuItem({ Text("New folder") }, { sidebarNewMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (wide) NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    header = {
+                        // MDC's rail puts the logo and primary action in its header; the hold opens
+                        // the same create/import menu the narrow layout shows behind its add button.
+                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary) {
+                            Icon(Icons.AutoMirrored.Rounded.MenuBook, "folio", Modifier.padding(9.dp).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Box {
+                            FloatingActionButton(onClick = newHold.click(onNew),
+                                modifier = Modifier.longPressAction(newHold) { sidebarNewMenu = true }) {
+                                Icon(Icons.Rounded.Add, "New notebook")
+                            }
+                            DropdownMenu(sidebarNewMenu, { sidebarNewMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("New notebook") }, { sidebarNewMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                                DropdownMenuItem({ Text("Import PDF document") }, { sidebarNewMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
+                                DropdownMenuItem({ Text("Import Folio backup") }, { sidebarNewMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
+                                DropdownMenuItem({ Text("New folder") }, { sidebarNewMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
+                            }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    NavItem("Library", Icons.Rounded.GridView, section == LibrarySection.LIBRARY && !starred && state.folderId == null, state.notes.size) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) }
-                    NavItem("Mistakes", Icons.Rounded.School, false, null) { onMistakes() }
-                    NavItem("Progress", Icons.Rounded.Insights, section == LibrarySection.PROGRESS, null) { section = LibrarySection.PROGRESS }
-                    NavItem("Favorites", Icons.Rounded.StarOutline, section == LibrarySection.LIBRARY && starred, state.notes.count { it.starred }) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null) }
+                ) {
+                    RailItem("Library", Icons.Rounded.GridView, section == LibrarySection.LIBRARY && !starred && state.folderId == null) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) }
+                    RailItem("Mistakes", Icons.Rounded.School, false) { onMistakes() }
+                    RailItem("Progress", Icons.Rounded.Insights, section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS }
+                    RailItem("Favorites", Icons.Rounded.StarOutline, section == LibrarySection.LIBRARY && starred) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null) }
+                    // Folders live in the shelf's filter row, as they already did on narrow screens:
+                    // a rail is icon-only, so folder names have no room here.
+                    Spacer(Modifier.height(4.dp))
+                    HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                    Spacer(Modifier.weight(1f))
                     Box {
-                        NavItem("Import", Icons.Rounded.FileOpen, false, null) { sidebarImportMenu = true }
+                        RailItem("Import", Icons.Rounded.FileOpen, false) { sidebarImportMenu = true }
                         DropdownMenu(sidebarImportMenu, { sidebarImportMenu = false }, modifier = Modifier.guardUiTouches()) {
                             DropdownMenuItem({ Text("PDF document") }, { sidebarImportMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                             DropdownMenuItem({ Text("Folio backup") }, { sidebarImportMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Row(Modifier.padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Folders", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        IconButton(onFolder, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp))
-                        }
-                    }
-                    Surface(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
-                        Column(Modifier.fillMaxSize().padding(6.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            state.folders.forEach { folder -> Box {
-                                NavItem(folder.name, Icons.Rounded.FolderOpen, section == LibrarySection.LIBRARY && state.folderId == folder.id, state.notes.count { it.folderId == folder.id }, onLongClick = { menuFolder = folder }) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(folder.id) }
-                                DropdownMenu(menuFolder?.id == folder.id, { menuFolder = null }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("Rename folder") }, { menuFolder = null; renameFolder = folder }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                    DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
-                                }
-                            } }
-                            if (state.folders.isEmpty()) {
-                                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("No folders yet", style = MaterialTheme.typography.labelLarge)
-                                    Text("Keep related notebooks together.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider(Modifier.padding(horizontal = 4.dp))
-                    NavItem("Settings", Icons.Rounded.Tune, false, null) { onSettings() }
+                    RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
-            }
-            if (section == LibrarySection.LIBRARY) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                            if (!wide) Spacer(Modifier.weight(1f))
-                            if (!wide) Box {
-                                FilledTonalIconButton(newHold.click(onNew), shapes = IconButtonDefaults.shapes(), modifier = Modifier.longPressAction(newHold) { newButtonMenu = true }) { Icon(Icons.Rounded.Add, "New notebook") }
-                                DropdownMenu(newButtonMenu, { newButtonMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("New notebook") }, { newButtonMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                                    DropdownMenuItem({ Text("Import PDF document") }, { newButtonMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
-                                    DropdownMenuItem({ Text("Import Folio backup") }, { newButtonMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
-                                    DropdownMenuItem({ Text("New folder") }, { newButtonMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
-                                }
-                            }
-                            if (!wide) Box {
-                                var importMenu by remember { mutableStateOf(false) }
-                                IconButton({ importMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
-                                DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
-                                    DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
-                                }
-                            }
-                            if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
-                        }
-                        // Narrow devices have no sidebar: section tabs live here instead.
-                        if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(section == LibrarySection.LIBRARY, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
-                            FilterChip(false, onMistakes, { Text("Mistakes") }, leadingIcon = { Icon(Icons.Rounded.School, null, Modifier.size(16.dp)) })
-                            FilterChip(section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS }, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
-                        }
-                        if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(state.folderId == null && !starred && !unfiled, { model.folder(null); starred = false; unfiled = false }, { Text("All notebooks") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
-                            FilterChip(starred, { model.folder(null); starred = !starred; unfiled = false }, { Text("Favorites") }, leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
-                            state.folders.forEach { folder -> FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) }) }
-                            AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
-                        }
-                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.width(8.dp))
-                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
-                            Box {
-                                IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
-                                DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    LibrarySort.entries.forEach { option ->
-                                        DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
+                if (section == LibrarySection.LIBRARY) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                                if (!wide) Spacer(Modifier.weight(1f))
+                                if (!wide) Box {
+                                    // M3e split button: tap creates a notebook, the trailing half opens
+                                    // the related import and folder actions.
+                                    SplitButtonLayout(
+                                        leadingButton = { SplitButtonDefaults.LeadingButton(onNew) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New") } },
+                                        trailingButton = { SplitButtonDefaults.TrailingButton({ newButtonMenu = true }) { Icon(Icons.Rounded.ArrowDropDown, "More ways to create") } },
+                                    )
+                                    DropdownMenu(newButtonMenu, { newButtonMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                        DropdownMenuItem({ Text("New notebook") }, { newButtonMenu = false; onNew() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                                        DropdownMenuItem({ Text("Import PDF document") }, { newButtonMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
+                                        DropdownMenuItem({ Text("Import Folio backup") }, { newButtonMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
+                                        DropdownMenuItem({ Text("New folder") }, { newButtonMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
                                     }
                                 }
-                            }
-                            IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) { Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Show covers" else "Show compact list") }
-                            state.folders.find { it.id == state.folderId }?.let { folder -> Box {
-                                IconButton({ folderMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Folder options") }
-                                DropdownMenu(folderMenu, { folderMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("Rename folder") }, { folderMenu = false; renameFolder = folder })
-                                    DropdownMenuItem({ Text("Remove folder") }, { folderMenu = false; deleteFolder = folder })
+                                if (!wide) Box {
+                                    var importMenu by remember { mutableStateOf(false) }
+                                    IconButton({ importMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
+                                    DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                        DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
+                                        DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
+                                    }
                                 }
-                            } }
-                        }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
-                                modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
-                                leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
-                                trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-                            TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
-                                modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
-                                shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
-                        }
-                        if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
-                        }
-                        state.daysToExam?.let { days ->
-                            Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
-                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-                        }
-                        if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
+                            }
+                            // Narrow devices have no sidebar: destinations live in the short
+                            // navigation bar pinned to the bottom instead.
+                            // Folders are a rail cannot carry, so every width filters them from the shelf.
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
-                                LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
+                                FilterChip(state.folderId == null && !starred && !unfiled, { model.folder(null); starred = false; unfiled = false }, { Text("All notebooks") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
+                                FilterChip(starred, { model.folder(null); starred = !starred; unfiled = false }, { Text("Favorites") }, leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
+                                state.folders.forEach { folder -> Box {
+                                    FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) },
+                                        leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
+                                        trailingIcon = {
+                                            // Rename/remove moved here from the old sidebar list, so every
+                                            // width can still reach a folder's own menu from its chip.
+                                            IconButton({ menuFolder = folder }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
+                                                Icon(Icons.Rounded.MoreVert, "Options for ${folder.name}", Modifier.size(14.dp))
+                                            }
+                                        })
+                                    DropdownMenu(menuFolder?.id == folder.id, { menuFolder = null }, modifier = Modifier.guardUiTouches()) {
+                                        DropdownMenuItem({ Text("Rename folder") }, { menuFolder = null; renameFolder = folder }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                        DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                                    }
+                                } }
+                                AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                             }
-                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilterChip(examFilter.incomplete, {
-                                    model.setExamFilter(if (examFilter.incomplete) examFilter.copy(incomplete = false) else examFilter.copy(incomplete = true))
-                                }, { Text("Incomplete") })
-                            }
-                            // Exam filters: one chip per subject that is actually in use, then year,
-                            // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
-                            val examNotes = state.notes.filter { it.exam.isTagged }
-                            if (examNotes.isNotEmpty()) {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    VceSubject.entries.forEach { subject ->
-                                        val count = examNotes.count { it.exam.subject == subject }
-                                        if (count > 0) {
-                                            SubjectChip(subject, examFilter.subject == subject, {
-                                                model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
-                                            })
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.width(8.dp))
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
+                                Box {
+                                    IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
+                                    DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                        LibrarySort.entries.forEach { option ->
+                                            DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
                                         }
                                     }
                                 }
+                                FolioButtonGroup {
+                                    toggleableItem(listView, "Compact list", { listView = true },
+                                        icon = { Icon(Icons.AutoMirrored.Rounded.ViewList, null, Modifier.size(18.dp)) })
+                                    toggleableItem(!listView, "Covers", { listView = false },
+                                        icon = { Icon(Icons.Rounded.GridView, null, Modifier.size(18.dp)) })
+                                }
+                                state.folders.find { it.id == state.folderId }?.let { folder -> Box {
+                                    IconButton({ folderMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Folder options") }
+                                    DropdownMenu(folderMenu, { folderMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                        DropdownMenuItem({ Text("Rename folder") }, { folderMenu = false; renameFolder = folder })
+                                        DropdownMenuItem({ Text("Remove folder") }, { folderMenu = false; deleteFolder = folder })
+                                    }
+                                } }
+                            }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
+                                    modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
+                                    leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
+                                    trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+                                TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
+                                    modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
+                                    shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
+                            }
+                            if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
+                            }
+                            state.daysToExam?.let { days ->
+                                Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
+                                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                            }
+                            if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
+                                    LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
+                                }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
-                                        FilterChip(examFilter.year == year, {
-                                            model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
-                                        }, { Text("$year") })
+                                    FilterChip(examFilter.incomplete, {
+                                        model.setExamFilter(if (examFilter.incomplete) examFilter.copy(incomplete = false) else examFilter.copy(incomplete = true))
+                                    }, { Text("Incomplete") })
+                                }
+                                // Exam filters: one chip per subject that is actually in use, then year,
+                                // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
+                                val examNotes = state.notes.filter { it.exam.isTagged }
+                                if (examNotes.isNotEmpty()) {
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        VceSubject.entries.forEach { subject ->
+                                            val count = examNotes.count { it.exam.subject == subject }
+                                            if (count > 0) {
+                                                SubjectChip(subject, examFilter.subject == subject, {
+                                                    model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
+                                                })
+                                            }
+                                        }
                                     }
-                                    examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
-                                        FilterChip(examFilter.company == company, {
-                                            model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
-                                        }, { Text(company) })
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
+                                            FilterChip(examFilter.year == year, {
+                                                model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
+                                            }, { Text("$year") })
+                                        }
+                                        examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
+                                            FilterChip(examFilter.company == company, {
+                                                model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
+                                            }, { Text(company) })
+                                        }
+                                        ExamStatus.entries.forEach { status ->
+                                            FilterChip(examFilter.status == status, {
+                                                model.setExamFilter(if (examFilter.status == status) examFilter.copy(status = null) else examFilter.copy(status = status))
+                                            }, { Text(status.label) })
+                                        }
+                                        FilterChip(examFilter.belowShare != null, {
+                                            model.setExamFilter(if (examFilter.belowShare != null) examFilter.copy(belowShare = null) else examFilter.copy(belowShare = 0.7f))
+                                        }, { Text("Under 70%") })
                                     }
-                                    ExamStatus.entries.forEach { status ->
-                                        FilterChip(examFilter.status == status, {
-                                            model.setExamFilter(if (examFilter.status == status) examFilter.copy(status = null) else examFilter.copy(status = status))
-                                        }, { Text(status.label) })
-                                    }
-                                    FilterChip(examFilter.belowShare != null, {
-                                        model.setExamFilter(if (examFilter.belowShare != null) examFilter.copy(belowShare = null) else examFilter.copy(belowShare = 0.7f))
-                                    }, { Text("Under 70%") })
                                 }
                             }
-                        }
-                        if (selecting) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
-                                Spacer(Modifier.weight(1f))
-                                TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
-                                TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
+                            if (selecting) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
+                                    Spacer(Modifier.weight(1f))
+                                    TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                                    TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
+                                }
+                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
+                                    TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
+                                    TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
+                                    val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
+                                    TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
+                                    TextButton(
+                                        { bulkDelete = true },
+                                        enabled = selection.isNotEmpty(),
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        shapes = ButtonDefaults.shapes()) { Text("Delete") }
+                                }
                             }
-                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
-                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
-                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
-                                val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
-                                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
-                                TextButton(
-                                    { bulkDelete = true },
-                                    enabled = selection.isNotEmpty(),
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
-                            }
+                            if (state.saveFailed) FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
                         }
-                        if (state.saveFailed) FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
                     }
-                }
-                if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
-                            Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
-                            Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
-                            if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                    if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                        Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
+                                Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
+                                Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
+                                if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                            }
                         }
                     }
-                }
-                items(notes, key = { it.id }) { note ->
-                    val open = { if (selecting) toggleSelection(note.id) else model.open(note.id) }
-                    val longPress = { enterSelecting(note.id) }
-                    val folder = state.folders.find { it.id == note.folderId }?.name
-                    if (listView) Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.animateItem(placementSpec = folioSpring()).combinedClickable(onClick = open, onLongClick = longPress)
-                    ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                if (selecting) {
-                                    Checkbox(note.id in selection, { toggleSelection(note.id) }, Modifier.semanticsLabel(if (note.id in selection) "Deselect ${note.title}" else "Select ${note.title}"))
+                    items(notes, key = { it.id }) { note ->
+                        val open = { if (selecting) toggleSelection(note.id) else model.open(note.id) }
+                        val longPress = { enterSelecting(note.id) }
+                        val folder = state.folders.find { it.id == note.folderId }?.name
+                        if (listView) Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.animateItem(placementSpec = folioSpring()).combinedClickable(onClick = open, onLongClick = longPress)
+                        ) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    if (selecting) {
+                                        Checkbox(note.id in selection, { toggleSelection(note.id) }, Modifier.semanticsLabel(if (note.id in selection) "Deselect ${note.title}" else "Select ${note.title}"))
+                                    }
+                                    NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                                        Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (!selecting) {
+                                        IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) })
+                                    }
                                 }
-                                NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                                    Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
-                                }
-                                if (!selecting) {
-                                    IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
-                                    NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) })
-                                }
-                            }
-                        } else NotebookCard(
-                            note, model.thumbnails, folder, open, { model.star(note) },
-                            { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note },
-                            selecting, note.pages.count { it.redoFlag },
-                            selected = note.id in selection, onLongPress = longPress,
-                            pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
-                            duplicate = { model.duplicateNotebook(note) },
-                            modifier = Modifier.animateItem(placementSpec = folioSpring())
-                        )
-                }
+                            } else NotebookCard(
+                                note, model.thumbnails, folder, open, { model.star(note) },
+                                { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note },
+                                selecting, note.pages.count { it.redoFlag },
+                                selected = note.id in selection, onLongPress = longPress,
+                                pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
+                                duplicate = { model.duplicateNotebook(note) },
+                                modifier = Modifier.animateItem(placementSpec = folioSpring())
+                            )
+                    }
 
-            }
-            if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    if (!wide) Spacer(Modifier.weight(1f))
-                    if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
-                    if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                 }
-                if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(false, { section = LibrarySection.LIBRARY }, { Text("Library") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
-                    FilterChip(false, onMistakes, { Text("Mistakes") }, leadingIcon = { Icon(Icons.Rounded.School, null, Modifier.size(16.dp)) })
-                    FilterChip(true, {}, { Text("Progress") }, leadingIcon = { Icon(Icons.Rounded.Insights, null, Modifier.size(16.dp)) })
+                if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                        if (!wide) Spacer(Modifier.weight(1f))
+                        if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
+                        if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
+                    }
+                    Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        ExamProgressContent(state.notes, Modifier.fillMaxWidth(), scrollEnabled = false)
+                    }
                 }
-                Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    ExamProgressContent(state.notes, Modifier.fillMaxWidth(), scrollEnabled = false)
-                }
-            }
+        }
+        // M3e short navigation bar: three to five destinations, equally weighted on a phone.
+        // The wide layout keeps its navigation rail instead.
+        if (!wide) ShortNavigationBar {
+            ShortNavigationBarItem(section == LibrarySection.LIBRARY && !starred && state.folderId == null,
+                { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) },
+                icon = { Icon(Icons.Rounded.GridView, "Library") }, label = { Text("Library") })
+            ShortNavigationBarItem(false, onMistakes, icon = { Icon(Icons.Rounded.School, "Mistakes") }, label = { Text("Mistakes") })
+            ShortNavigationBarItem(section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS },
+                icon = { Icon(Icons.Rounded.Insights, "Progress") }, label = { Text("Progress") })
+        }
         }
     }
     examDetails?.let { note ->
@@ -469,14 +480,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         Text("folio", fontFamily = FontFamily.Serif, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
     }
 }
-@Composable private fun NavItem(title: String, icon: ImageVector, selected: Boolean, count: Int?, onLongClick: (() -> Unit)? = null, action: () -> Unit) {
-    val hold = rememberLongPressGuard()
-    Surface(onClick = hold.click(action), modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier, shape = RoundedCornerShape(16.dp), color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, null, Modifier.size(20.dp).folioSelected(selected)); Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            count?.let { Text("$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-    }
+/** One destination in the library navigation rail: icon over a label, per MDC's rail spec. */
+@Composable private fun RailItem(title: String, icon: ImageVector, selected: Boolean, action: () -> Unit) {
+    NavigationRailItem(selected = selected, onClick = action, icon = { Icon(icon, title) },
+        label = { Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+        alwaysShowLabel = true)
 }
 
 @Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, modifier: Modifier = Modifier) {
