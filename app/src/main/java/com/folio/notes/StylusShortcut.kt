@@ -52,7 +52,7 @@ object StylusShortcuts {
     }
 
     /** Tools that leave ink on the page, so a shortcut returns to one of these rather than to a mode. */
-    fun isDrawingTool(tool: Tool) = tool in setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+    fun isDrawingTool(tool: Tool) = tool in DrawingTools
 
     private fun Tool.orPen() = if (isDrawingTool(this)) this else Tool.PEN
 }

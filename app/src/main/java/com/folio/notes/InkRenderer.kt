@@ -8,7 +8,7 @@ import kotlin.math.*
 
 object InkRenderer {
     /** Tools whose geometry traces the drag rather than freehand samples, so it is never smoothed. */
-    private val SHAPE_SET = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+    private val SHAPE_SET = ShapeTools
     // One Paint per thread, reused across strokes: onDraw used to allocate a Paint per stroke
     // per frame, which churned hundreds of objects while writing or scrolling a dense page.
     // Each thread (UI + thumbnail IO) gets its own instance, so reuse never races.

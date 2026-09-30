@@ -18,7 +18,15 @@ object ScribbleSensitivity {
     fun passes(value: Float) = if (normalize(value) < .25f) 3 else 2
 }
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH }
+
+/** Two-corner shapes shared by input, rendering and editing. */
+val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.TRIANGLE,
+    Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR)
+/** GRAPH is a drawing command that expands into ordinary line paths on pen-up. */
+val ShapePickerTools = ShapeTools + Tool.GRAPH
+val DrawingTools = ShapePickerTools + setOf(Tool.PEN, Tool.HIGHLIGHTER)
+val PolygonTools = setOf(Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR)
 /** Line pattern for shape tools, like GoodNotes' dashed and dotted lines for diagrams. */
 enum class StrokeStyle {
     SOLID, DASHED, DOTTED;
@@ -467,10 +475,18 @@ object NoteCodec {
 object InkGeometry {
     fun pathPoints(stroke: Stroke): List<InkPoint> {
         if (stroke.points.size < 2) return stroke.points
+        // Rotated polygons store their explicit closed outline instead of two drag corners.
+        if (stroke.tool in PolygonTools && stroke.points.size > 2) return stroke.points
         val a = stroke.points.first(); val b = stroke.points.last()
         return when (stroke.tool) {
-            Tool.LINE -> listOf(a, b)
+            // Erased shapes become unsmoothed line paths, possibly with several vertices.
+            Tool.LINE -> stroke.points
             Tool.RECTANGLE -> listOf(a, InkPoint(b.x, a.y), b, InkPoint(a.x, b.y), a)
+            Tool.TRIANGLE -> polygonPoints(a, b, 3)
+            Tool.DIAMOND -> polygonPoints(a, b, 4)
+            Tool.PENTAGON -> polygonPoints(a, b, 5)
+            Tool.HEXAGON -> polygonPoints(a, b, 6)
+            Tool.STAR -> polygonPoints(a, b, 10, star = true)
             Tool.ELLIPSE -> (0..64).map { i ->
                 val t = i * 2 * PI / 64
                 InkPoint((a.x + b.x) / 2 + abs(b.x - a.x) / 2 * cos(t).toFloat(),
@@ -479,6 +495,23 @@ object InkGeometry {
             else -> stroke.points
         }
     }
+    /** Normalize polygons into the drag box, independent of drag direction. */
+    private fun polygonPoints(a: InkPoint, b: InkPoint, vertices: Int, star: Boolean = false): List<InkPoint> {
+        val unit = (0 until vertices).map { i ->
+            val angle = -PI / 2 + i * 2 * PI / vertices
+            val radius = if (star && i % 2 == 1) 0.42 else 1.0
+            InkPoint((cos(angle) * radius).toFloat(), (sin(angle) * radius).toFloat())
+        }
+        val minX = unit.minOf { it.x }; val maxX = unit.maxOf { it.x }
+        val minY = unit.minOf { it.y }; val maxY = unit.maxOf { it.y }
+        val left = min(a.x, b.x); val top = min(a.y, b.y)
+        val points = unit.map {
+            InkPoint(left + (it.x - minX) / (maxX - minX) * abs(b.x - a.x),
+                top + (it.y - minY) / (maxY - minY) * abs(b.y - a.y))
+        }
+        return points + points.first()
+    }
+
     /** True when [point] falls inside the freeform loop, treating the samples as a closed polygon. */
     fun lassoContains(polygon: List<InkPoint>, point: InkPoint): Boolean {
         if (polygon.size < 3) return false
@@ -595,7 +628,7 @@ object InkGeometry {
             if (bottom > maxY) maxY = bottom
         }
         for (stroke in strokes) {
-            val pts = if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) stroke.points else pathPoints(stroke)
+            val pts = if (stroke.tool in ShapeTools) stroke.points else pathPoints(stroke)
             for (p in pts) include(p.x, p.y, p.x, p.y)
         }
         // Cache text heights: the same box height is needed once per bounds call, not per point.
@@ -681,7 +714,7 @@ object InkGeometry {
         for (stroke in strokes) {
             // Shapes re-derive from two corners; their raw points already bound the geometry
             // without expanding an ellipse into 65 samples.
-            val pts = if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) stroke.points else pathPoints(stroke)
+            val pts = if (stroke.tool in ShapeTools) stroke.points else pathPoints(stroke)
             for (p in pts) {
                 any = true
                 if (p.x < minX) minX = p.x
@@ -699,13 +732,14 @@ object InkGeometry {
         bounds(strokes)?.let { InkPoint((it[0] + it[2]) / 2f, (it[1] + it[3]) / 2f) }
 
     /**
-     * Turns a whole stroke set about [center] by [degrees]. The editor only offers right angles, so
-     * a rectangle or ellipse, whose geometry is re-derived from two opposite corners, stays true.
+     * Turns a whole stroke set about [center] by [degrees]. Polygons expand to explicit vertices
+     * so their orientation survives rotation; rectangles and ellipses retain their two corners.
      */
     fun rotate(strokes: List<Stroke>, center: InkPoint, degrees: Float): List<Stroke> {
         val radians = Math.toRadians(degrees.toDouble())
         val cos = cos(radians).toFloat(); val sin = sin(radians).toFloat()
-        return strokes.map { stroke -> stroke.copy(points = stroke.points.map { point ->
+        return strokes.map { stroke -> stroke.copy(points =
+            (if (stroke.tool in PolygonTools) pathPoints(stroke) else stroke.points).map { point ->
             val dx = point.x - center.x; val dy = point.y - center.y
             InkPoint(center.x + dx * cos - dy * sin, center.y + dx * sin + dy * cos, point.pressure)
         }) }
@@ -745,7 +779,7 @@ object InkGeometry {
             width = widthScale?.let { (stroke.width * it).coerceIn(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH) } ?: stroke.width,
             opacity = opacity?.coerceIn(MIN_OPACITY, MAX_OPACITY) ?: stroke.opacity,
             style = style?.takeIf {
-                stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE
+                stroke.tool in ShapeTools
             } ?: stroke.style
         )
     }
@@ -1199,16 +1233,13 @@ object InkGeometry {
         if (centers.isEmpty() || radii.isEmpty()) return listOf(stroke)
         val count = minOf(centers.size, radii.size)
         val c = centers.take(count); val r = radii.take(count)
-        if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) {
-            return if (c.indices.any { i -> hits(stroke, c[i], r[i]) }) emptyList() else listOf(stroke)
-        }
-        val points = stroke.points
+        val points = pathPoints(stroke)
         if (points.isEmpty()) return listOf(stroke)
         if (points.size == 1) {
             return if (c.indices.any { i -> distance(points[0], c[i]) <= r[i] + stroke.width / 2f }) emptyList() else listOf(stroke)
         }
         if (!reachesVariable(points, c, r, stroke.width)) return listOf(stroke)
-        return cutVariable(points, c, r, stroke.width)?.map { stroke.copy(points = it) } ?: listOf(stroke)
+        return cutVariable(points, c, r, stroke.width)?.map { eraseFragment(stroke, it) } ?: listOf(stroke)
     }
 
     private fun reachesVariable(points: List<InkPoint>, centers: List<InkPoint>, radii: List<Float>, strokeWidth: Float): Boolean {
@@ -1261,26 +1292,28 @@ object InkGeometry {
     }
 
     /**
-     * Removes the ink of a freehand stroke within [radius] of any of [centers] and returns the
-     * surviving fragments in draw order, or [stroke] itself when none of them reaches it. Shapes
-     * cannot be meaningfully cut, so they are kept whole or dropped
-     * entirely. [radius] is the eraser's own radius; each stroke widens it by half its own width, so
+     * Removes ink within [radius] of any of [centers] and returns the surviving fragments in
+     * draw order, or [stroke] itself when none of them reaches it. Shapes are cut along their
+     * outlines, with surviving vertices stored as line paths (no freehand smoothing).
+     * [radius] is the eraser's own radius; each stroke widens it by half its own width, so
      * the cleared channel spans the visible line.
      */
     fun erase(stroke: Stroke, center: InkPoint, radius: Float): List<Stroke> = erase(stroke, listOf(center), radius)
 
     fun erase(stroke: Stroke, centers: List<InkPoint>, radius: Float): List<Stroke> {
         if (centers.isEmpty()) return listOf(stroke)
-        if (stroke.tool == Tool.LINE || stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE)
-            return if (centers.any { hits(stroke, it, radius) }) emptyList() else listOf(stroke)
-        val points = stroke.points
+        val points = pathPoints(stroke)
         if (points.isEmpty()) return listOf(stroke)
         val reach = radius + stroke.width / 2f
         if (points.size == 1) return if (centers.any { distance(points[0], it) <= reach }) emptyList() else listOf(stroke)
         // One cheap box test decides most strokes without walking a single segment of them.
         if (!reaches(points, centers, reach)) return listOf(stroke)
-        return cut(points, centers, reach)?.map { stroke.copy(points = it) } ?: listOf(stroke)
+        return cut(points, centers, reach)?.map { eraseFragment(stroke, it) } ?: listOf(stroke)
     }
+
+    /** Keep shape fragments crisp and styled without re-deriving a closed shape from their ends. */
+    private fun eraseFragment(stroke: Stroke, points: List<InkPoint>): Stroke =
+        stroke.copy(tool = if (stroke.tool in ShapeTools) Tool.LINE else stroke.tool, points = points)
 
     /** True when any of [centers] lies within [reach] of the stroke's own bounding box. */
     private fun reaches(points: List<InkPoint>, centers: List<InkPoint>, reach: Float): Boolean {

@@ -37,7 +37,7 @@ data class ToolOptions(
         /** Finer defaults for math: thin pen, tiny ruler-straight line, compact eraser. */
         fun defaults(tool: Tool) = ToolOptions(
             if (tool == Tool.HIGHLIGHTER) 0xFFE9BF44.toInt() else 0xFF303431.toInt(),
-            when (tool) { Tool.HIGHLIGHTER -> 18f; Tool.ERASER -> 26f; Tool.LINE -> 2f; Tool.RECTANGLE, Tool.ELLIPSE -> 2f; else -> 2.2f },
+            when (tool) { Tool.HIGHLIGHTER -> 18f; Tool.ERASER -> 26f; in ShapePickerTools -> 2f; else -> 2.2f },
             if (tool == Tool.HIGHLIGHTER) 72f / 255f else 1f, true)
         /** Curated exam colours: black, two blues, red, green, orange — covers most annotations. */
         val ExamColors: List<Int> = listOf(0xFF1A1C1A, 0xFF2E5AAC, 0xFF1B7A6E, 0xFFC0392B, 0xFF7A3BA6, 0xFFE67E22, 0xFF3A3A3A).map { it.toInt() }
@@ -77,7 +77,7 @@ object EditorQuickPrefs {
         } else {
             Text("Saved independently for this tool.", style = MaterialTheme.typography.bodySmall)
             if (tool != Tool.ERASER) InkColorsSection(options, onChange, quick, InkColors.groupOf(tool))
-            val range = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE -> 0.7f..10f; else -> 0.7f..12f }
+            val range = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; in ShapePickerTools -> 0.7f..10f; else -> 0.7f..12f }
             Text("${if (tool == Tool.ERASER) "Eraser diameter" else "Stroke width"}: ${String.format(Locale.ROOT, "%.1f", options.width)} pt")
             Slider(options.width.coerceIn(range), { onChange(options.copy(width = it)) }, valueRange = range)
             if (tool != Tool.ERASER) {
@@ -88,7 +88,7 @@ object EditorQuickPrefs {
                     Box(Modifier.fillMaxWidth(0.8f).height(options.width.dp).background(Color(options.color).copy(alpha = options.opacity), CircleShape))
                 }
             } else {
-                Text("Cuts the ink it touches out of a stroke and leaves the rest behind. Lines, rectangles and ellipses are removed whole.", style = MaterialTheme.typography.bodySmall)
+                Text("Cuts only the ink it touches, including shape outlines. Enable Whole-stroke eraser to remove an entire stroke or shape.", style = MaterialTheme.typography.bodySmall)
                 var eraserPressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Pressure-sensitive size", Modifier.weight(1f))
@@ -124,7 +124,8 @@ object EditorQuickPrefs {
                     AssistChip({ onChange(options.copy(width = 4f, pressure = false)) }, { Text("Bold (4.0)") })
                 }
             }
-            if (tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+            if (tool in ShapePickerTools) {
+                if (tool == Tool.GRAPH) Text("Drag to size unlabelled Cartesian axes with arrowheads at both ends. No grid, ticks, numbers or labels.", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip({ onChange(options.copy(width = 1.2f)) }, { Text("Hairline") })
                     AssistChip({ onChange(options.copy(width = 2f)) }, { Text("Regular") })
@@ -139,7 +140,7 @@ object EditorQuickPrefs {
                 Text("Dashed and dotted lines suit diagrams and maths sketches. Freehand pen stays solid.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle snap in the editor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (presets != null && tool in listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+            if (presets != null && tool in DrawingTools) {
                 ToolPresetSection(tool, options, presets)
             }
             if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) {
@@ -165,7 +166,7 @@ object EditorQuickPrefs {
                 }
                 Text("When on, touching any part of a stroke removes the entire stroke instead of cutting it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) {
+            if (tool in ShapePickerTools) {
                 var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Live measurements", Modifier.weight(1f))

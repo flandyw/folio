@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.zIndex
@@ -1671,8 +1672,38 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     FolioToolToggle(value == selected, { change(value) }, icon, label, indicatorColor = indicatorColor, onLongClick = onLongPress)
 }
 
-private val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
-private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.HIGHLIGHTER)
+private val GraphAxesIcon by lazy {
+    ImageVector.Builder("GraphAxes", 24.dp, 24.dp, 24f, 24f).apply {
+        path(stroke = androidx.compose.ui.graphics.SolidColor(Color.Black), strokeLineWidth = 1.8f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round) {
+            moveTo(3f, 12f); lineTo(21f, 12f)
+            moveTo(12f, 3f); lineTo(12f, 21f)
+            moveTo(6f, 9f); lineTo(3f, 12f); lineTo(6f, 15f)
+            moveTo(18f, 9f); lineTo(21f, 12f); lineTo(18f, 15f)
+            moveTo(9f, 6f); lineTo(12f, 3f); lineTo(15f, 6f)
+            moveTo(9f, 18f); lineTo(12f, 21f); lineTo(15f, 18f)
+        }
+    }.build()
+}
+
+private fun shapeIcon(tool: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (tool) {
+    Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
+    Tool.ELLIPSE -> Icons.Rounded.Circle
+    Tool.TRIANGLE -> Icons.Rounded.ChangeHistory
+    Tool.DIAMOND -> Icons.Rounded.Diamond
+    Tool.PENTAGON -> Icons.Rounded.Pentagon
+    Tool.HEXAGON -> Icons.Rounded.Hexagon
+    Tool.STAR -> Icons.Rounded.StarBorder
+    Tool.GRAPH -> GraphAxesIcon
+    else -> Icons.Rounded.CropSquare
+}
+
+private fun shapeLabel(tool: Tool) = when (tool) {
+    Tool.LINE -> "Straight line"
+    Tool.GRAPH -> "Graph axes"
+    else -> tool.name.lowercase().replaceFirstChar(Char::uppercase)
+}
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
@@ -1865,7 +1896,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
         toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
     }
-    val isShape = tool in ShapeTools
+    val isShape = tool in ShapePickerTools
     val isDrawing = tool in DrawingTools
     // Text quick controls change the colour used for new text boxes.
     val showQuickBar = isDrawing || tool == Tool.ERASER || (tool == Tool.TEXT && onTextColor != null)
@@ -1883,7 +1914,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
     val penDot = if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt())
     val highlighterDot = if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt())
-    val widthRange = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE -> 0.7f..10f; else -> 0.7f..12f }
+    val widthRange = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; in ShapePickerTools -> 0.7f..10f; else -> 0.7f..12f }
     @Composable fun ToolbarDivider() {
         Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
     }
@@ -1955,11 +1986,7 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     }
     @Composable fun ShapesSlot() {
         Box(contentAlignment = Alignment.Center) {
-            val shapeIcon = when (tool) {
-                Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
-                Tool.ELLIPSE -> Icons.Rounded.Circle
-                else -> Icons.Rounded.CropSquare
-            }
+            val shapeIcon = shapeIcon(if (isShape) tool else lastShape)
             Box {
                 FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
                     if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes",
@@ -1969,11 +1996,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(shapePicker, { shapePicker = false }, modifier = Modifier.guardUiTouches()) {
-                listOf(
-                    Triple(Tool.LINE, "Straight line", Icons.AutoMirrored.Rounded.ShowChart),
-                    Triple(Tool.RECTANGLE, "Rectangle", Icons.Rounded.CropSquare),
-                    Triple(Tool.ELLIPSE, "Ellipse", Icons.Rounded.Circle)
-                ).forEach { (value, label, icon) ->
+                ShapePickerTools.forEach { value ->
+                    val label = shapeLabel(value)
+                    val icon = shapeIcon(value)
                     DropdownMenuItem({ Text(label) }, { lastShape = value; pick(value); shapePicker = false },
                         leadingIcon = { Icon(icon, null) },
                         trailingIcon = { if (tool == value) Icon(Icons.Rounded.Check, "Selected") })
@@ -2033,11 +2058,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
                 if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
-                        listOf(
-                            Triple(Tool.LINE, "Line", Icons.AutoMirrored.Rounded.ShowChart),
-                            Triple(Tool.RECTANGLE, "Rectangle", Icons.Rounded.CropSquare),
-                            Triple(Tool.ELLIPSE, "Ellipse", Icons.Rounded.Circle)
-                        ).forEach { (value, label, icon) ->
+                        ShapePickerTools.forEach { value ->
+                            val label = shapeLabel(value)
+                            val icon = shapeIcon(value)
                             DropdownMenuItem({ Text(label) }, { lastShape = value; pick(value); shapes = false },
                                 leadingIcon = { Icon(icon, null) },
                                 trailingIcon = { if (tool == value) Icon(Icons.Rounded.Check, "Selected") })
@@ -2185,11 +2208,7 @@ private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
 
 private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
     ToolbarSlot.PEN -> Icons.Rounded.Edit
-    ToolbarSlot.SHAPES -> when (if (tool in setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)) tool else lastShape) {
-        Tool.ELLIPSE -> Icons.Rounded.Circle
-        Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
-        else -> Icons.Rounded.CropSquare
-    }
+    ToolbarSlot.SHAPES -> shapeIcon(if (tool in ShapePickerTools) tool else lastShape)
     ToolbarSlot.HIGHLIGHTER -> Icons.Rounded.BorderColor
     ToolbarSlot.ERASER -> Icons.Rounded.AutoFixNormal
     ToolbarSlot.TEXT -> Icons.Rounded.TextFields
@@ -2523,7 +2542,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     var fade by remember { mutableStateOf(false) }
     var opacity by remember { mutableFloatStateOf(style?.opacity ?: 1f) }
     var lineStyle by remember { mutableStateOf<StrokeStyle?>(null) }
-    val hasShape = remember(originals) { originals.any { it.tool == Tool.LINE || it.tool == Tool.RECTANGLE || it.tool == Tool.ELLIPSE } }
+    val hasShape = remember(originals) { originals.any { it.tool in ShapeTools } }
     FolioPanel(title = "Restyle selection", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 

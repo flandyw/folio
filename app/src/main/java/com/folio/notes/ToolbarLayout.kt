@@ -17,7 +17,7 @@ enum class ToolbarSlot {
     /** Tools behind this slot; [SHAPES] expands to the last-used shape tool. */
     val tools: List<Tool> get() = when (this) {
         PEN -> listOf(Tool.PEN)
-        SHAPES -> listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+        SHAPES -> ShapePickerTools.toList()
         HIGHLIGHTER -> listOf(Tool.HIGHLIGHTER)
         ERASER -> listOf(Tool.ERASER)
         TEXT -> listOf(Tool.TEXT)

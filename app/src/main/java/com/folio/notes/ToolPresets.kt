@@ -57,9 +57,7 @@ object ToolPresets {
                 if (name.isEmpty()) return@mapNotNull null
                 // Only drawing tools make sense as presets; the eraser, lasso, text and hand
                 // tools have no colour/width worth remembering.
-                if (tool != Tool.PEN && tool != Tool.HIGHLIGHTER && tool != Tool.LINE &&
-                    tool != Tool.RECTANGLE && tool != Tool.ELLIPSE
-                ) return@mapNotNull null
+                if (tool !in DrawingTools) return@mapNotNull null
                 val id = entry.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
                 ToolPreset(
                     id = id,
@@ -85,9 +83,7 @@ object ToolPresets {
     fun fromOptions(name: String, tool: Tool, options: ToolOptions, style: StrokeStyle = StrokeStyle.SOLID): ToolPreset? {
         val trimmed = normalizedName(name)
         if (trimmed.isEmpty()) return null
-        if (tool != Tool.PEN && tool != Tool.HIGHLIGHTER && tool != Tool.LINE &&
-            tool != Tool.RECTANGLE && tool != Tool.ELLIPSE
-        ) return null
+        if (tool !in DrawingTools) return null
         return ToolPreset(name = trimmed, tool = tool, color = options.color,
             width = options.width, opacity = options.opacity, style = style)
     }

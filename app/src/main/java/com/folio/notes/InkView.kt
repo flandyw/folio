@@ -739,6 +739,7 @@ class InkView(context: Context) : View(context) {
         else {
             val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
             if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
+            else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke).forEach { InkRenderer.stroke(canvas, it) }
             else InkRenderer.stroke(canvas, draftStroke)
             if (shapeMeasurements && draftStroke.tool in MEASURE_TOOLS) drawMeasurement(canvas, draftStroke)
         }
@@ -1143,7 +1144,7 @@ class InkView(context: Context) : View(context) {
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
-        val strokes = scribbleErased ?: (tidied ?: drawn?.let { listOf(it) })?.let { page.strokes + it } ?: erasing
+        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it) else listOf(it) })?.let { page.strokes + it } ?: erasing
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
             val now = SystemClock.uptimeMillis()
             drawn.points.lastOrNull()?.let { point ->
@@ -1196,7 +1197,7 @@ class InkView(context: Context) : View(context) {
                 scheduleFollow()
             }
         }
-        val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null }
+        val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
         val beforeStrokes = page.strokes
         val changed = strokes != null && (appendedStroke != null || strokes != beforeStrokes)
         if (changed) {
@@ -1584,7 +1585,7 @@ class InkView(context: Context) : View(context) {
                 val deg = (Math.toDegrees(atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())) + 360) % 360
                 String.format(java.util.Locale.ROOT, "%.0f pt  %.0f°", len, deg)
             }
-            Tool.RECTANGLE -> {
+            Tool.RECTANGLE, Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR, Tool.GRAPH -> {
                 val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
                 String.format(java.util.Locale.ROOT, "%.0f × %.0f", w, h)
             }
@@ -1626,7 +1627,7 @@ class InkView(context: Context) : View(context) {
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         var start = clampToPage(raw)
-        if (snapEnabled && tool in listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE) && page.paper.isGrid) {
+        if (snapEnabled && tool in ShapePickerTools && page.paper.isGrid) {
             start = InkGeometry.snapToGrid(start, page.paper.gridSpacing)
         }
         if (tool == Tool.ERASER || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)) {
@@ -1655,7 +1656,7 @@ class InkView(context: Context) : View(context) {
         } else {
             if (followEnabled && tool == Tool.PEN) writingFollow.penDown(SystemClock.uptimeMillis())
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
-                style = if (tool == Tool.LINE || tool == Tool.RECTANGLE || tool == Tool.ELLIPSE) inkStyle else StrokeStyle.SOLID)
+                style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID)
             onPenInput(true)
         }
     }
@@ -1717,7 +1718,7 @@ class InkView(context: Context) : View(context) {
         /** Freehand tools grow sample-by-sample; shapes re-derive from two corners. */
         val FREEHAND_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER)
         /** Shapes that show live measurements while drawn. */
-        val MEASURE_TOOLS = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+        val MEASURE_TOOLS = ShapePickerTools
         /** How long after stylus activity a finger still counts as a resting palm. */
         const val PALM_REJECT_MS = 500L
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
