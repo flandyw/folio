@@ -4,6 +4,8 @@ package com.folio.notes.mistakes
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
@@ -67,9 +69,15 @@ internal fun MistakeDetailCard(
             Spacer(Modifier.width(6.dp))
             Text("Delete this card")
         }
-        PrimaryTabRow(selectedTabIndex = tab) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf("Question", "Solution", "Attempts").forEachIndexed { index, title ->
-                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
+                FilterChip(
+                    selected = tab == index, onClick = { tab = index },
+                    label = { Text(title) },
+                    leadingIcon = if (tab == index) {
+                        { Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+                    } else null
+                )
             }
         }
         when (tab) {

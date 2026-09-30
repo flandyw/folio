@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -126,7 +127,12 @@ fun RichText(
 @Composable
 internal fun RichTextPreview(source: String, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
     val inlines = remember(source) { RichTextParser.previewInlines(source) }
-    InlineParagraph(inlines, style, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = modifier)
+    // Four preview lines are a hard budget in a card, so math scales into the line box it shares
+    // with the text instead of growing it and pushing that line out of the card.
+    val mathMaxHeight = with(LocalDensity.current) {
+        (style.lineHeight.takeIf { it.isSp } ?: style.fontSize * 1.2f).toDp().coerceAtLeast(12.dp)
+    }
+    InlineParagraph(inlines, style, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = modifier, mathMaxHeight = mathMaxHeight)
 }
 
 @Composable
@@ -136,6 +142,7 @@ private fun InlineParagraph(
     maxLines: Int,
     overflow: TextOverflow,
     modifier: Modifier = Modifier,
+    mathMaxHeight: androidx.compose.ui.unit.Dp? = null,
 ) {
     // Display math splits the paragraph so it can centre on its own line.
     val sections = remember(inlines) {
@@ -162,7 +169,7 @@ private fun InlineParagraph(
                     val contents = ArrayList<InlineTextContent?>(items.size)
                     for (item in items) {
                         contents += if (item is RichInline.Math && !item.display) {
-                            rememberKaTeXInlineContent(item.latex, style, maxWidth)
+                            rememberKaTeXInlineContent(item.latex, style, maxWidth, mathMaxHeight)
                         } else null
                     }
                     val inlineContent = mutableMapOf<String, InlineTextContent>()

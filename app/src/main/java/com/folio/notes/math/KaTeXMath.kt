@@ -29,6 +29,7 @@ import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +39,7 @@ import android.graphics.BitmapFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -119,12 +121,40 @@ private fun trimDiskCache(dir: File?) {
 }
 
 @Stable
-private class FormulaState(val key: FormulaKey, val style: TextStyle, val fallbackWidth: Dp, val fallbackHeight: Dp) {
+private class FormulaState(val key: FormulaKey, val style: TextStyle, val fallback: DpSize) {
     var bitmap by mutableStateOf(images.get(key))
     var session by mutableStateOf<CompletableDeferred<FrameLayout>?>(null)
-    val width: Dp get() = bitmap?.let { (it.width / key.density).dp } ?: fallbackWidth
-    val height: Dp get() = bitmap?.let { (it.height / key.density).dp } ?: fallbackHeight
+
+    /**
+     * Inline formulas sit inside a Text line box, which is fixed by [TextStyle]. A capture taller
+     * than that (fractions, radicals, matrices) would otherwise stretch or clip the line it is in.
+     * The whole formula scales down instead, so nothing is ever cut in half.
+     */
+    var maxHeight by mutableStateOf(Dp.Unspecified)
+
+    /** One geometry for the placeholder and the image, so a resized formula never shifts the line. */
+    val size: DpSize get() {
+        val bmp = bitmap ?: return fallback
+        val w = bmp.width / key.density
+        val h = bmp.height / key.density
+        val limit = if (maxHeight != Dp.Unspecified) maxHeight.value else Float.MAX_VALUE
+        return if (h > limit) DpSize((w * (limit / h)).dp, limit.dp) else DpSize(w.dp, h.dp)
+    }
 }
+
+/**
+ * Renders of the same formula share one WebView pass. The dashboard shows a question in more than
+ * one section at a time and lazy lists re-request the same formulas while scrolling; without this,
+ * identical captures queue up one after another and later ones fall back to bare LaTeX.
+ * Main-thread only, like the rest of the composable-side cache.
+ */
+private val inFlight = HashMap<FormulaKey, CompletableDeferred<Bitmap?>>()
+
+/** How long one capture may take once a renderer is in hand; queueing is bounded separately. */
+private const val CAPTURE_TIMEOUT_MS = 20_000L
+
+/** Give up waiting behind other formulas rather than blocking a card's coroutine forever. */
+private const val QUEUE_TIMEOUT_MS = 60_000L
 
 @Composable
 private fun rememberFormula(latex: String, display: Boolean, style: TextStyle): FormulaState {
@@ -139,7 +169,7 @@ private fun rememberFormula(latex: String, display: Boolean, style: TextStyle): 
     val measurer = rememberTextMeasurer()
     val fallback = remember(latex, resolved, density) { measurer.measure(latex.ifEmpty { " " }, resolved).size }
     return remember(key, resolved) {
-        FormulaState(key, resolved, with(density) { fallback.width.toDp() }, with(density) { fallback.height.toDp() })
+        FormulaState(key, resolved, with(density) { DpSize(fallback.width.toDp(), fallback.height.toDp()) })
     }
 }
 
@@ -157,19 +187,67 @@ fun KaTeXMath(
     }
 }
 
-/** Native Text placeholder; oversized inline formulas scroll as a single, unbroken fragment. */
+/**
+ * Native Text placeholder; oversized inline formulas scroll as a single, unbroken fragment.
+ * [maxHeight] caps the capture by scaling the whole formula down, which is what bounded previews
+ * (dashboard cards) need: without it a tall fraction grows the line and pushes the text under it
+ * out of the fixed four-line box.
+ */
 @Composable
-fun rememberKaTeXInlineContent(latex: String, textStyle: TextStyle, maxWidth: Dp): InlineTextContent {
+fun rememberKaTeXInlineContent(latex: String, textStyle: TextStyle, maxWidth: Dp, maxHeight: Dp? = null): InlineTextContent {
     val state = rememberFormula(latex, false, textStyle)
     val density = LocalDensity.current
-    val width = state.width.coerceAtMost(maxWidth).coerceAtLeast(1.dp)
-    val height = state.height.coerceAtLeast(1.dp)
+    // Inline math belongs to the line, so cap it there rather than letting a tall capture
+    // overflow a bounded card or pull the surrounding text out of alignment.
+    val inlineLimit = maxHeight ?: with(density) { ((textStyle.lineHeight.takeIf { it.isSp } ?: textStyle.fontSize * 1.4f) * 1.35f).toDp() }
+    state.maxHeight = if (inlineLimit.value.isFinite() && inlineLimit.value > 1f) inlineLimit else Dp.Unspecified
+    val width = state.size.width.coerceAtMost(maxWidth).coerceAtLeast(1.dp)
+    val height = state.size.height.coerceAtLeast(1.dp)
     return InlineTextContent(
         Placeholder(with(density) { width.toSp() }, with(density) { height.toSp() }, PlaceholderVerticalAlign.TextCenter)
     ) {
         FormulaContent(state, Modifier.horizontalScroll(rememberScrollState()))
     }
 }
+
+/** Owns one pooled renderer for the duration of a single capture; returns the bitmap to cache. */
+private suspend fun renderFormula(appContext: Context, state: FormulaState, onFresh: (Bitmap) -> Unit): Bitmap? =
+    KaTeXPool.use(appContext) { renderer ->
+        // A previous identical request may have filled memory while we queued.
+        images.get(state.key)?.let { return@use it }
+        val hostReady = CompletableDeferred<FrameLayout>()
+        state.session = hostReady
+        try {
+            // Only the capture itself is time-boxed: waiting behind a full pool of cards is normal
+            // on a dashboard, and timing out there used to leave bare LaTeX in place of the formula.
+            val bitmap = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
+                val host = hostReady.await()
+                (renderer.parent as? ViewGroup)?.removeView(renderer)
+                host.addView(renderer)
+                try {
+                    val key = state.key
+                    val color = String.format(Locale.ROOT, "rgba(%d,%d,%d,%.3f)",
+                        (key.color shr 16) and 255, (key.color shr 8) and 255,
+                        key.color and 255, (key.color ushr 24) / 255f)
+                    renderer.render(key.latex, key.display, key.fontPx / key.density, color, key.density)
+                } finally {
+                    (renderer.parent as? ViewGroup)?.removeView(renderer)
+                }
+            }
+            // render() already rejects blank captures; never let one into either cache.
+            if (bitmap != null && !bitmap.hasInk()) {
+                runCatching { bitmap.recycle() }
+                null
+            } else {
+                bitmap?.also {
+                    images.put(state.key, it)
+                    onFresh(it)
+                }
+            }
+        } finally {
+            state.session = null
+        }
+    }
 
 @Composable
 private fun FormulaContent(state: FormulaState, modifier: Modifier = Modifier) {
@@ -188,64 +266,50 @@ private fun FormulaContent(state: FormulaState, modifier: Modifier = Modifier) {
             return@LaunchedEffect
         }
         var fresh: Bitmap? = null
+        // One capture serves every waiting occurrence of this formula.
+        var pending = inFlight[state.key]
+        val owner = pending == null
+        if (owner) {
+            pending = CompletableDeferred()
+            inFlight[state.key] = pending!!
+        }
+        val result = pending!!
         try {
-            KaTeXPool.use(appContext) { renderer ->
-                // A previous identical request may have filled memory while we queued.
-                images.get(state.key)?.let {
-                    state.bitmap = it
-                    return@use
-                }
-                val hostReady = CompletableDeferred<FrameLayout>()
-                state.session = hostReady
+            if (owner) {
                 try {
-                    val bitmap = withTimeoutOrNull(10_000) {
-                        val host = hostReady.await()
-                        (renderer.parent as? ViewGroup)?.removeView(renderer)
-                        host.addView(renderer)
-                        try {
-                            val key = state.key
-                            val color = String.format(Locale.ROOT, "rgba(%d,%d,%d,%.3f)",
-                                (key.color shr 16) and 255, (key.color shr 8) and 255,
-                                key.color and 255, (key.color ushr 24) / 255f)
-                            renderer.render(key.latex, key.display, key.fontPx / key.density, color, key.density)
-                        } finally {
-                            (renderer.parent as? ViewGroup)?.removeView(renderer)
-                        }
-                    }
-                    if (bitmap != null) {
-                        // render() already rejects blank captures; never let one into either cache.
-                        if (!bitmap.hasInk()) {
-                            runCatching { bitmap.recycle() }
-                        } else {
-                            images.put(state.key, bitmap)
-                            state.bitmap = bitmap
-                            fresh = bitmap
-                        }
-                    }
+                    val rendered = renderFormula(appContext, state) { fresh = it }
+                    // An owner that is cancelled still has to release the waiters.
+                    withContext(NonCancellable) { result.complete(rendered) }
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) { result.complete(null) }
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Missing/broken WebView, assets or pathological input: native source stays visible.
+                    withContext(NonCancellable) { result.complete(null) }
                 } finally {
-                    state.session = null
+                    inFlight.remove(state.key)
+                }
+                // Persist after the pool slot is released; failures keep memory-only caching.
+                fresh?.let {
+                    try {
+                        saveDiskBitmap(appContext, state.key, it)
+                    } catch (_: Exception) {
+                    }
                 }
             }
+            val shared = withTimeoutOrNull(QUEUE_TIMEOUT_MS) { result.await() }
+            if (shared != null) state.bitmap = shared
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            // Missing/broken WebView, assets or pathological input: native source stays visible.
-        }
-        // Persist after the pool slot is released; failures keep memory-only caching.
-        fresh?.let {
-            try {
-                saveDiskBitmap(appContext, state.key, it)
-            } catch (_: Exception) {
-            }
         }
     }
-    Box(modifier.height(state.height.coerceAtLeast(1.dp))) {
+    Box(modifier.height(state.size.height.coerceAtLeast(1.dp))) {
         val bitmap = state.bitmap
         if (bitmap == null) {
             Text(state.key.latex.ifEmpty { " " }, style = state.style)
         } else {
             Image(bitmap.asImageBitmap(), state.key.latex,
-                Modifier.size(state.width, state.height), contentScale = ContentScale.None)
+                Modifier.size(state.size.width, state.size.height), contentScale = ContentScale.FillBounds)
         }
         state.session?.let { hostReady ->
             // Attached and VISIBLE for WebView's visual-state callback, but never shown over text.

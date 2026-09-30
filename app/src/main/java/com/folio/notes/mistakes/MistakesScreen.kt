@@ -28,6 +28,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -464,36 +466,38 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             )
         }
     }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }, shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (detail != null) "Back to mistakes" else "Back to library")
-                } },
-                actions = {
-                    if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(if (isSyncTrouble(state.status)) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tablet = maxWidth >= 600.dp
+        val layout = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
+        val split = layout.splitLibrary && destination == "Library" && state.userId != null
+        val standaloneDetail = selected != null && !split
+        val columns = if (standaloneDetail || split) 1 else layout.columns
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
+                    navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }, shapes = IconButtonDefaults.shapes()) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (detail != null) "Back to mistakes" else "Back to library")
+                    } },
+                    actions = {
+                        if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(if (isSyncTrouble(state.status)) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
+                        }
                     }
-                }
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbar) }
-    ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val tablet = maxWidth >= 600.dp
-            val layout = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
-            val split = layout.splitLibrary && destination == "Library" && state.userId != null
-            val standaloneDetail = selected != null && !split
-            val columns = if (standaloneDetail || split) 1 else layout.columns
-            Column(Modifier.fillMaxSize()) {
+                )
+            },
+            bottomBar = {
+                // Material 3 floating toolbar, per the MDC component: it floats above the cards
+                // and slides out of the way while the grid scrolls.
                 if (!standaloneDetail) {
                     val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
                     val tab = destination.takeIf { it in tabs } ?: tabs.first()
-                    PrimaryScrollableTabRow(selectedTabIndex = tabs.indexOf(tab), edgePadding = if (tablet) 24.dp else 12.dp) {
-                        tabs.forEach { title -> Tab(selected = tab == title, onClick = { destination = title; detail = null }, text = { Text(title) }) }
-                    }
+                    MistakesDestinationToolbar(tabs, tab, tablet) { destination = it; detail = null }
                 }
+            },
+            snackbarHost = { SnackbarHost(snackbar) }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
@@ -664,6 +668,68 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             }
         )
     }
+}
+
+// ---- Destination toolbar -----------------------------------------------------------------------
+
+/**
+ * Material 3 floating toolbar pinned to the bottom edge (MDC `FloatingToolbar`): a raised
+ * surface that carries the dashboard's destinations, and slides off-screen while the grid
+ * scrolls so it never covers a card. The selected destination uses the vibrant container
+ * color, the rest the standard content color.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MistakesDestinationToolbar(
+    destinations: List<String>,
+    selected: String,
+    tablet: Boolean,
+    onSelect: (String) -> Unit
+) {
+    val toolbarState = rememberFloatingToolbarState()
+    val scrollBehavior = FloatingToolbarDefaults.exitAlwaysScrollBehavior(
+        exitDirection = FloatingToolbarExitDirection.Bottom,
+        state = toolbarState
+    )
+    val standard = FloatingToolbarDefaults.standardFloatingToolbarColors()
+    val vibrant = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+    val icons = remember(destinations) {
+        destinations.associateWith {
+            when (it) {
+                "Today" -> Icons.Rounded.Today
+                "Library" -> Icons.Rounded.GridView
+                "Connect" -> Icons.Rounded.CloudOff
+                else -> Icons.Rounded.Draw
+            }
+        }
+    }
+    HorizontalFloatingToolbar(
+        expanded = true,
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+            .padding(horizontal = if (tablet) 48.dp else 16.dp, vertical = 8.dp),
+        scrollBehavior = scrollBehavior,
+        colors = standard,
+        content = {
+            destinations.forEach { title ->
+                val isSelected = title == selected
+                Surface(
+                    onClick = { onSelect(title) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isSelected) vibrant.toolbarContainerColor else Color.Transparent,
+                    contentColor = if (isSelected) vibrant.toolbarContentColor else standard.toolbarContentColor,
+                ) {
+                    Column(
+                        Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Icon(icons[title] ?: Icons.Rounded.Draw, title, Modifier.size(20.dp))
+                        Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+    )
 }
 
 // ---- Login + account ---------------------------------------------------------------------------
