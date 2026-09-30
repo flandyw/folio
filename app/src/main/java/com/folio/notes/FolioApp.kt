@@ -16,7 +16,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -425,7 +424,7 @@ import java.io.File
                 Box(Modifier.fillMaxSize().folioEntrance(screen)) {
                     when {
                         state.loading -> ContainedLoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
-                        state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                             Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
                             Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
                             Text("Your stored files have been kept. Retry to open them.")
@@ -438,8 +437,8 @@ import java.io.File
                     }
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
-                        Surface(shape = RoundedCornerShape(28.dp)) {
-                            Row(Modifier.padding(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Surface(shape = FolioShapes.panel) {
+                            Row(Modifier.padding(FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
                                 LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) (state.importProgress ?: "Opening your file…") else "Preparing your export…")
                             }
                         }
@@ -479,14 +478,14 @@ import java.io.File
         }
         if (focalAccountOpen) FocalStudyPanel(state.active, onDismiss = { focalAccountOpen = false })
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)
                 Text("Export a notebook or just this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(FolioSpacing.dp12))
                 val activeNote = state.active
                 if (activeNote != null && shouldShowPdfQuality(activeNote)) {
                     PdfQualitySection(selected = pdfExportMode, onSelect = ::rememberPdfMode)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(FolioSpacing.dp4))
                 }
                 ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
                     state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF, pdfExportMode)) }; exportMenu = false
@@ -548,11 +547,11 @@ import java.io.File
             title = { Text(if (updateInfo != null) "Folio update available" else "App updates") },
             text = {
                 when {
-                    updateChecking -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    updateChecking -> Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                         LoadingIndicator(Modifier.size(24.dp))
                         Text("Checking GitHub releases…")
                     }
-                    updateDownloading -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    updateDownloading -> Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         Text("Downloading and verifying Folio ${updateInfo?.versionName ?: "update"}…")
                         LinearProgressIndicator(progress = { updateProgress / 100f }, modifier = Modifier.fillMaxWidth())
                         Text("$updateProgress%", style = MaterialTheme.typography.labelMedium)
@@ -575,8 +574,8 @@ import java.io.File
 }
 
 @Composable private fun ExportOption(icon: ImageVector, title: String, subtitle: String, action: () -> Unit) {
-    Surface(onClick = action, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Surface(onClick = action, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
             Icon(Icons.AutoMirrored.Rounded.ArrowForward, null)
@@ -587,7 +586,7 @@ import java.io.File
 @Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, submit: (String) -> Unit) {
     var text by rememberSaveable { mutableStateOf(initial) }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { Text(subtitle); OutlinedTextField(text, { text = it.take(120) }, singleLine = true, label = { Text("Name") }) }
+        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) { Text(subtitle); OutlinedTextField(text, { text = it.take(120) }, singleLine = true, label = { Text("Name") }) }
     }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ submit(text.trim()) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
@@ -609,10 +608,10 @@ import java.io.File
     }
     FolioPanel(title = "A fresh start", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 FilterChip(template == null && !infinite, { template = null; pageCount = 1; infinite = false }, { Text("Blank") })
                 FilterChip(infinite, {
                     template = null; pageCount = 1; infinite = true
@@ -626,10 +625,10 @@ import java.io.File
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, placeholder = { Text("e.g. Calculus — exam practice") }, singleLine = true)
             Text("Cover color", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 CoverColors.forEachIndexed { index, color ->
                     IconButton({ cover = index }, shapes = IconButtonDefaults.shapes()) {
-                        Surface(Modifier.size(34.dp), shape = RoundedCornerShape(12.dp), color = color, border = if (index == cover) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
+                        Surface(Modifier.size(34.dp), shape = FolioShapes.medium, color = color, border = if (index == cover) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
                             if (index == cover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
                             else Box(Modifier.semanticsLabel("Cover ${index + 1}"))
                         }
@@ -647,7 +646,7 @@ import java.io.File
                 Switch(pageCover, { pageCover = it })
             }
             Text("Paper style — pick for maths", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 // Maths papers first so an exam student sees them without scrolling.
                 listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).filter { !infinite || it != Paper.MC_SHEET }.forEach { item ->
                     FilterChip(item == paper, { paper = item }, label = { Text(when (item) {
@@ -664,14 +663,14 @@ import java.io.File
             if (paper == Paper.MI_GRID) Text("米字格 — cross plus diagonals in each square", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider()
-            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 val chosen = NotebookTemplate.byId(template)
                 Button(
                     { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
                     shapes = ButtonDefaults.shapes(),
                     enabled = title.isNotBlank()
-                ) { Text("Create notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                ) { Text("Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
             }
         }
     }
@@ -691,12 +690,12 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
         onDismissRequest = onDismiss,
         title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
         text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Text("Review the detected exam details. You can change anything before importing.")
                 reviewed.forEachIndexed { index, item ->
                     val tags = item.exam
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("PDF ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                                 Text(if (item.detected) "Exam details detected" else "Reading PDF…",
@@ -719,7 +718,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                                 modifier = Modifier.fillMaxWidth(), label = { Text("Subject") },
                                 placeholder = { Text("Not an exam, or unknown") }, singleLine = true
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 OutlinedTextField(
                                     tags.year?.toString().orEmpty(),
                                     { value -> updateExam(item.uri) { it.copy(year = value.filter(Char::isDigit).take(4).toIntOrNull()) } },
@@ -739,7 +738,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                                 )
                             }
                             Text("Type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                 ExamType.entries.forEach { type ->
                                     FilterChip(tags.type == type, { updateExam(item.uri) {
                                         it.copy(type = if (it.type == type) null else type)
@@ -751,7 +750,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                 }
                 Text("Destination", style = MaterialTheme.typography.titleSmall)
                 (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
-                    Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = 4.dp),
+                    Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = FolioSpacing.dp4),
                         verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = validDestination == id, onClick = { destination = id })
                         Text(name, Modifier.weight(1f))

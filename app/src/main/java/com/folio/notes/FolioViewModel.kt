@@ -59,7 +59,14 @@ data class FolioState(
     /** When true, turning the editor's page also turns the companion (linked reference). */
     val companionLinked: Boolean = false,
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
-    val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false, val pendingSaves: Int = 0,
+    val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false,
+    /**
+     * How many edits the editor has made, and how many the device has finished writing. Saving is
+     * the gap between them: the writer coalesces whatever arrived together, so the number of queued
+     * operations behind that gap is none of the user's business, and a hundred strokes that land as
+     * one append look exactly like one stroke that took a moment.
+     */
+    val editGeneration: Long = 0, val durableGeneration: Long = 0,
     val saveFailed: Boolean = false, val retryingSave: Boolean = false, val saveFailureReason: String? = null,
     val lastSaveProgressAt: Long? = null, val loadFailed: Boolean = false, val error: String? = null,
     val pendingPdfImports: List<PendingPdfImport> = emptyList(),
@@ -78,6 +85,8 @@ data class FolioState(
 ) {
     val active get() = notes.find { it.id == activeId }
     val page get() = active?.pages?.getOrNull(pageIndex)
+    /** True while an edit the editor has made is not yet on the device. */
+    val saving get() = editGeneration != durableGeneration
     /** Days until the nearest upcoming exam date across the library, or null when none is set. */
     val daysToExam: Int?
         get() {
@@ -112,7 +121,20 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         companionLinked = savedState.get<Boolean>("companionLinked") ?: false,
         editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
-    private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+    /**
+     * One queued write. [Page] is everything a single user action needs to become durable: the edit,
+     * the revision it produced, and the undo step it pushed. Consecutive page writes for one page
+     * become a single append and a single fsync. [Once] is everything else — index writes, imports,
+     * exports, a retry — and runs on its own, in the order it was queued.
+     */
+    private sealed interface WriteOp {
+        class Page(
+            val noteId: String, val pageId: String, val transaction: PageTransaction,
+            val before: suspend () -> Unit = {}
+        ) : WriteOp
+        class Once(val block: suspend () -> Unit) : WriteOp
+    }
+    private val writes = Channel<WriteOp>(Channel.UNLIMITED)
     @Volatile private var autoBackupDirty = false
     /**
      * Per-page undo/redo stacks of edits, not whole page copies: a pen stroke's inverse is the few
@@ -120,6 +142,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     private val undo = mutableMapOf<String, MutableList<PageEdit>>()
     private val redo = mutableMapOf<String, MutableList<PageEdit>>()
+    /**
+     * A copy of those stacks per page, published on the editor thread. The storage thread needs the
+     * undo state too — a snapshot carries it so the journal behind it can be discarded, and a retry
+     * hands it straight back — and a live mutable stack must never be read from off-thread.
+     */
+    private val publishedHistory = java.util.concurrent.ConcurrentHashMap<String, PageJournal.History>()
     private var ready = CompletableDeferred<Unit>()
     /** Offsets each paste a little further, so repeated pastes stack instead of hiding each other. */
     private var pasteGeneration = 0
@@ -257,28 +285,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     var pendingExport: PageExportRequest? = null
     init {
         (application as FolioApplication).storageScope.launch {
-            for (write in writes) {
-                try { (application as FolioApplication).storageGate.withLock { write() } }
-                catch (e: Exception) {
-                    val reason = when (e) {
-                        is java.io.IOException -> "Device storage could not finish the write. Check free space and storage access."
-                        is SecurityException -> "Folio lost access to storage. Check the app's storage access."
-                        else -> "The device could not finish writing these changes. It did not report a specific storage cause."
-                    }
-                    _state.update { it.copy(saveFailed = true, saveFailureReason = reason,
-                        error = "$reason Your latest changes are still open here. Use Retry save before closing Folio.") }
-                }
-                finally {
-                    var runAutoBackup = false
-                    _state.update { state ->
-                        val pending = (state.pendingSaves - 1).coerceAtLeast(0)
-                        runAutoBackup = pending == 0 && !state.saveFailed && autoBackupDirty
-                        if (runAutoBackup) autoBackupDirty = false
-                        state.copy(pendingSaves = pending,
-                            lastSaveProgressAt = if (pending > 0) System.currentTimeMillis() else null)
-                    }
-                    if (runAutoBackup) LibraryAutoBackup.requestAfterSave(application)
-                }
+            for (first in writes) {
+                val batch = ArrayList<WriteOp>()
+                batch.add(first)
+                collectWrites(batch)
+                runWrites(batch)
             }
         }
         loadLibrary()
@@ -353,11 +364,113 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message}") }; ready.completeExceptionally(e) }
         }
     }
-    private fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit) {
+    private fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit) =
+        queue(WriteOp.Once(block), scheduleAutoBackup)
+
+    /**
+     * Notes an edit as unsaved and hands it to the writer. The queue is unbounded on purpose: a
+     * burst of handwriting is never blocked on storage, it is collected and written in one go.
+     */
+    private fun queue(op: WriteOp, scheduleAutoBackup: Boolean = true) {
         if (scheduleAutoBackup) autoBackupDirty = true
-        _state.update { it.copy(pendingSaves = it.pendingSaves + 1,
+        _state.update { it.copy(editGeneration = it.editGeneration + 1,
             lastSaveProgressAt = it.lastSaveProgressAt ?: System.currentTimeMillis()) }
-        writes.trySend(block)
+        writes.trySend(op)
+    }
+
+    /**
+     * Gathers what is already queued behind [batch]'s first write, and waits a few more milliseconds
+     * while page writes are still arriving. Handwriting produces transactions faster than a phone can
+     * fsync them, so a run of the pen collapses into one append instead of a backlog of hundreds.
+     * Nothing waits on this: drawing never blocks on it, and the window is only opened while more
+     * strokes are still coming.
+     */
+    private suspend fun collectWrites(batch: ArrayList<WriteOp>) {
+        val deadline = System.currentTimeMillis() + WRITE_BATCH_WINDOW_MS
+        while (batch.size < MAX_WRITE_BATCH) {
+            val queued = writes.tryReceive().getOrNull()
+            val next = queued ?: if (batch.last() is WriteOp.Page) {
+                val wait = deadline - System.currentTimeMillis()
+                if (wait <= 0) null
+                else runCatching { withTimeoutOrNull(wait) { writes.receive() } }.getOrNull()
+            } else null
+            if (next == null) return
+            batch.add(next)
+        }
+    }
+
+    /**
+     * Runs one collected batch: consecutive page writes for the same page share a single append and
+     * a single fsync, everything else runs in the order it was queued, and the batch is only ever
+     * marked durable up to the generation it was collected at — an edit made while it ran stays
+     * visibly unsaved. Afterwards the index is checkpointed and any journal that outgrew its bound
+     * is folded, both of which only happen once nothing else is queued.
+     */
+    private suspend fun runWrites(batch: List<WriteOp>) {
+        val target = _state.value.editGeneration
+        val touched = LinkedHashSet<String>()
+        try {
+            getApplication<FolioApplication>().storageGate.withLock {
+                var index = 0
+                while (index < batch.size) {
+                    val op = batch[index]
+                    if (op !is WriteOp.Page) { (op as WriteOp.Once).block(); index++; continue }
+                    var end = index
+                    while (end < batch.size) {
+                        val next = batch[end] as? WriteOp.Page ?: break
+                        if (next.noteId != op.noteId || next.pageId != op.pageId) break
+                        end++
+                    }
+                    val group = (index until end).map { batch[it] as WriteOp.Page }
+                    // Any bytes a record names land first, so a crash cannot leave a placement without its file.
+                    group.forEach { it.before() }
+                    repository.appendPageTransactions(op.noteId, op.pageId, group.map { it.transaction })
+                    touched += op.noteId
+                    index = end
+                }
+            }
+        } catch (e: Exception) {
+            val reason = when (e) {
+                is java.io.IOException -> "Device storage could not finish the write. Check free space and storage access."
+                is SecurityException -> "Folio lost access to storage. Check the app's storage access."
+                else -> "The device could not finish writing these changes. It did not report a specific storage cause."
+            }
+            _state.update { it.copy(saveFailed = true, saveFailureReason = reason,
+                error = "$reason Your latest changes are still open here. Use Retry save before closing Folio.") }
+            // Nothing from a failed batch counts as written, so the status keeps saying so.
+            return
+        }
+        _state.update { state ->
+            state.copy(durableGeneration = maxOf(state.durableGeneration, target),
+                lastSaveProgressAt = if (writes.isEmpty) null else System.currentTimeMillis())
+        }
+        if (writes.isEmpty) {
+            touched.forEach { queueIndexCheckpoint(it) }
+            if (writes.isEmpty) compactPendingPages()
+        }
+        if (writes.isEmpty && autoBackupDirty) {
+            autoBackupDirty = false
+            LibraryAutoBackup.requestAfterSave(getApplication())
+        }
+    }
+
+    /**
+     * Rewrites the notebook index after a burst of ink has landed. The index carries metadata and no
+     * ink, so it never has to keep pace with the pen; this is where each page's revision catches up
+     * with whatever the journal has reached. A notebook deleted in the meantime is not resurrected.
+     */
+    private fun queueIndexCheckpoint(noteId: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        queue(WriteOp.Once { repository.saveMeta(note) }, scheduleAutoBackup = false)
+    }
+
+    /**
+     * Folds any journal that outgrew its bound, now that the writer is idle. It is only housekeeping
+     * — every record it reads is already durable — so a failure here is left for the next idle
+     * moment rather than reported as a failed save.
+     */
+    private suspend fun compactPendingPages() {
+        runCatching { repository.compactPending() }
     }
     /** A queued marker runs after all earlier page and metadata writes. */
     private suspend fun awaitQueuedWrites() {
@@ -927,6 +1040,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 // Undo/redo come back with the page. An edit that slipped in while the file was being
                 // read bumped the revision, so its in-memory stacks are left alone.
                 val history = runCatching { repository.loadHistory(note.id, pageId) }.getOrDefault(PageJournal.History.EMPTY)
+                // Where a background fold would find this page's content and stacks.
+                repository.requestCompaction(note.id, pageId) { currentCheckpoint(note.id, pageId) }
                 val current = _state.value.notes.find { it.id == note.id }?.pages?.find { it.id == pageId }
                 if (current?.revision == loaded.revision) {
                     undo[pageId] = history.undo.toMutableList()
@@ -997,8 +1112,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val removed = note.pages[index]
         val updated = note.withDeletedPage(index)
         updateNote(updated)
-        undo.remove(removed.id)
-        redo.remove(removed.id)
+        undo.remove(removed.id); redo.remove(removed.id); publishedHistory.remove(removed.id)
         enqueue { repository.deletePage(note.id, removed.id) }
         val current = if (index < state.pageIndex) state.pageIndex - 1 else state.pageIndex
         _state.update { it.copy(pageIndex = current.coerceIn(0, updated.pages.lastIndex)) }
@@ -1065,6 +1179,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * clears redo, updates state, and queues the durable append. A change with no content effect (a
      * redo flag, a paper choice) only rewrites the small index. [beforeSave] lets the picture path
      * store the new image bytes ahead of the page edit in the same queue slot.
+     *
+     * The forward edit, the revision it produced and the undo step it pushed travel as one
+     * transaction, so a single append makes the change and the ability to take it back both durable.
      */
     private fun commitEdit(
         note: Notebook, before: NotePage, after: NotePage,
@@ -1081,23 +1198,27 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             enqueue { beforeSave(); repository.saveMeta(updated) }
             return
         }
-        val inverse = knownEdits?.second ?: PageJournal.diff(afterContent, beforeContent)!!
+        val inverse = knownEdits?.second ?: PageJournal.invert(forward, beforeContent)
         undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
         redo.remove(after.id)
         historyState()
-        val history = historySnapshot(after.id)
-        enqueue {
-            // Any bytes the edit names land first, so a crash cannot leave a placement without its file.
-            beforeSave()
-            repository.appendPageEdit(updated, revised, forward)
-            repository.saveHistory(updated.id, after.id, history)
-        }
+        repository.requestCompaction(note.id, after.id) { currentCheckpoint(note.id, after.id) }
+        queue(WriteOp.Page(note.id, after.id,
+            PageTransaction(0, revised.revision, forward, undoPush = inverse, clearRedo = true), beforeSave))
     }
 
-    /** Capture on the editor thread: queued IO must not traverse the live mutable stacks. */
-    private fun historySnapshot(pageId: String) = PageJournal.History(
-        undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty()
-    )
+    /**
+     * A page's content and undo stacks, read only when a background fold asks for them: the fold
+     * runs while the writer is idle, so what it reads is exactly what the journal holds.
+     */
+    private fun currentCheckpoint(noteId: String, pageId: String): PageCheckpoint? {
+        val page = _state.value.notes.find { it.id == noteId }?.pages?.firstOrNull { it.id == pageId }
+        if (page == null || !page.loaded) return null
+        return PageCheckpoint(page, publishedHistory[pageId] ?: PageJournal.History.EMPTY)
+    }
+
+    /** The last published stacks of every page that has any; safe to read off the editor thread. */
+    private fun allPublishedHistory() = publishedHistory.toMap()
     fun strokes(strokes: List<Stroke>) {
         val page = _state.value.page ?: return
         strokes(page.id, strokes)
@@ -1614,28 +1735,40 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
         val before = page.content()
         val afterContent = PageJournal.apply(before, op)
-        val back = PageJournal.diff(afterContent, before)
-        if (back == null) { historyState(); return }
-        to.getOrPut(page.id) { mutableListOf() }.add(back)
+        val back = PageJournal.invert(op, before)
+        // Bounded like the undo stack, and the same bound the stored log applies, so what survives a
+        // restart is exactly what was on screen.
+        to.getOrPut(page.id) { mutableListOf() }.apply {
+            add(back); while (size > MAX_UNDO) removeAt(0)
+        }
         val after = page.copy(strokes = afterContent.strokes, texts = afterContent.texts, images = afterContent.images)
         val revised = after.revised()
         val updated = note.copy(pages = note.pages.map { if (it.id == page.id) revised else it }, updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
-        val history = historySnapshot(page.id)
-        enqueue {
-            repository.appendPageEdit(updated, revised, op)
-            repository.saveHistory(updated.id, page.id, history)
-        }
+        // One record says both what the page now holds and which stack it came out of and went into.
+        val wasUndo = from === undo
+        repository.requestCompaction(note.id, page.id) { currentCheckpoint(note.id, page.id) }
+        queue(WriteOp.Page(note.id, page.id, PageTransaction(0, revised.revision, op,
+            undoPush = back.takeUnless { wasUndo }, undoPop = wasUndo,
+            redoPush = back.takeIf { wasUndo }, redoPop = !wasUndo)))
         historyState()
     }
-    private fun historyState() { _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) } }
+    private fun historyState() {
+        _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) }
+        // Every change to a page's stacks republishes them, so the copy the storage thread reads is
+        // never the one being appended to.
+        val pageId = _state.value.page?.id ?: return
+        publishedHistory[pageId] = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
+    }
     fun retrySave() {
         if (!_state.value.saveFailed || _state.value.retryingSave) return
         _state.update { it.copy(retryingSave = true) }
         enqueue {
             try {
                 val snapshot = _state.value
-                snapshot.notes.forEach { repository.saveAll(it) }; repository.saveFolders(snapshot.folders)
+                val history = allPublishedHistory()
+                snapshot.notes.forEach { note -> repository.saveAll(note, history) }
+                repository.saveFolders(snapshot.folders)
                 _state.update { it.copy(saveFailed = false, retryingSave = false, saveFailureReason = null) }
             } catch (e: Exception) {
                 _state.update { it.copy(retryingSave = false) }
@@ -1796,7 +1929,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     private companion object {
         /** How many per-page undo states are kept before the oldest is dropped. */
-        const val MAX_UNDO = 60
+        const val MAX_UNDO = PageJournal.HISTORY_LIMIT
+        /**
+         * How long the writer keeps collecting while page writes are still arriving. Long enough to
+         * gather a run of the pen, short enough that a single stroke on an idle page is not delayed.
+         */
+        const val WRITE_BATCH_WINDOW_MS = 24L
+        /** Ceiling on one batch, so a long backlog still makes progress in visible steps. */
+        const val MAX_WRITE_BATCH = 64
         /** How far each paste is nudged from the last, in page units. */
         const val PASTE_OFFSET = 22f
         const val TIMER_START_KEY = "examTimer.startedAt"

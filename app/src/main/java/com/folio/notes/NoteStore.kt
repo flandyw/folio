@@ -9,30 +9,34 @@ import org.json.JSONObject
  */
 object InkCodec {
     fun encodeStrokes(strokes: List<Stroke>): JSONArray = JSONArray().apply {
-        strokes.forEach { s -> put(JSONObject().apply {
-            put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
-            if (s.style != StrokeStyle.SOLID) put("style", s.style.name)
-            // No intermediate List per point: a dense page holds hundreds of thousands of
-            // samples, and listOf() per sample was pure GC pressure on every save/compact.
-            put("points", JSONArray().apply { s.points.forEach { p ->
-                put(JSONArray().put(p.x.toDouble()).put(p.y.toDouble()).put(p.pressure.toDouble()))
-            } })
-        }) }
+        strokes.forEach { put(encodeStroke(it)) }
+    }
+
+    /** One stroke on its own, so an indexed edit can carry a single stroke without an array around it. */
+    fun encodeStroke(s: Stroke): JSONObject = JSONObject().apply {
+        put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
+        if (s.style != StrokeStyle.SOLID) put("style", s.style.name)
+        // No intermediate List per point: a dense page holds hundreds of thousands of
+        // samples, and listOf() per sample was pure GC pressure on every save/compact.
+        put("points", JSONArray().apply { s.points.forEach { p ->
+            put(JSONArray().put(p.x.toDouble()).put(p.y.toDouble()).put(p.pressure.toDouble()))
+        } })
     }
 
     fun decodeStrokes(array: JSONArray?): List<Stroke> {
         if (array == null) return emptyList()
-        return (0 until array.length()).map { index ->
-            val s = array.getJSONObject(index)
-            val points = s.getJSONArray("points")
-            val toolName = s.optString("tool", "PEN")
-            val tool = runCatching { Tool.valueOf(toolName) }.getOrDefault(Tool.PEN)
-            Stroke(tool, s.getInt("color"), s.getDouble("width").toFloat(),
-                (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
-                    InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
-                s.optDouble("opacity", if (toolName == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
-                if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
-        }
+        return (0 until array.length()).map { decodeStroke(array.getJSONObject(it)) }
+    }
+
+    fun decodeStroke(s: JSONObject): Stroke {
+        val points = s.getJSONArray("points")
+        val toolName = s.optString("tool", "PEN")
+        val tool = runCatching { Tool.valueOf(toolName) }.getOrDefault(Tool.PEN)
+        return Stroke(tool, s.getInt("color"), s.getDouble("width").toFloat(),
+            (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
+                InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
+            s.optDouble("opacity", if (toolName == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
+            if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
     }
 
     fun encodeTexts(texts: List<TextBox>): JSONArray = JSONArray().apply {
@@ -179,20 +183,31 @@ object NoteMetaCodec {
 }
 
 /**
- * One page's ink and text, written and read on its own so a long notebook stays lazy. The optional
- * `journalSeq` is the highest append-only journal record folded into this snapshot; a page with no
- * journal skips the field, so files written before the journal existed still read unchanged.
+ * One page's ink and text, written and read on its own so a long notebook stays lazy. Three optional
+ * fields sit beside the content, each absent in files written before it existed:
+ *
+ * - `journalSeq` is the highest journal record folded into this snapshot.
+ * - `revision` is the page revision that content reached, so a reader can recover a newer revision
+ *   than the index carries even when the index has not been rewritten since.
+ * - `history` is the page's undo and redo stacks at that moment, which is what lets the journal
+ *   behind it be discarded: the stack effects of the records after [journalSeq] are replayed on top.
  */
 object NotePageCodec {
     const val VERSION = 1
 
-    fun encode(page: NotePage, journalSeq: Int = 0): String = JSONObject().apply {
+    fun encode(page: NotePage, journalSeq: Int = 0, history: PageJournal.History? = null): String = JSONObject().apply {
         put("version", VERSION)
         put("strokes", InkCodec.encodeStrokes(page.strokes))
         put("texts", InkCodec.encodeTexts(page.texts))
         put("images", InkCodec.encodeImages(page.images))
         if (journalSeq > 0) put("journalSeq", journalSeq)
+        if (page.revision > 0) put("revision", page.revision)
+        history?.let { if (it.undo.isNotEmpty() || it.redo.isNotEmpty()) put("history", historyOf(it)) }
     }.toString()
+
+    /** The undo/redo object as it is written into a snapshot. */
+    fun historyOf(history: PageJournal.History): JSONObject =
+        JSONObject(PageJournal.encodeHistory(history))
 
     /**
      * Reads a page file back onto its index entry, which is where its size, paper and revision live.
@@ -212,6 +227,19 @@ object NotePageCodec {
 
     /** The journal record folded into a snapshot, or 0 for a file written before the journal. */
     fun journalSeq(value: String): Int = try { JSONObject(value).optInt("journalSeq", 0) } catch (_: Exception) { 0 }
+
+    /** The revision a snapshot's content reached, or 0 for a file written before revisions moved. */
+    fun revision(value: String): Int = try { JSONObject(value).optInt("revision", 0) } catch (_: Exception) { 0 }
+
+    /**
+     * The undo/redo stacks a snapshot carries, or null when it has none — either because it was
+     * written before they lived here, or because the page had no history to keep.
+     */
+    fun history(value: String?): PageJournal.History? {
+        if (value.isNullOrBlank()) return null
+        val raw = runCatching { JSONObject(value).optJSONObject("history")?.toString() }.getOrNull()
+        return raw?.let { PageJournal.decodeHistory(it) }
+    }
 }
 
 /**

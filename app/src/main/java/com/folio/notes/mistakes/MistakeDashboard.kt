@@ -3,7 +3,6 @@ package com.folio.notes.mistakes
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.*
@@ -19,6 +18,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.FolioButtonGroup
+import com.folio.notes.FolioShapes
+import com.folio.notes.FolioSpacing
 import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
 import com.folio.notes.rememberLongPressGuard
@@ -31,7 +32,7 @@ import com.folio.notes.rememberLongPressGuard
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val horizontal = maxWidth >= 700.dp
         @Composable fun Introduction(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "You're caught up."; due == 1 -> "1 question due"; else -> "$due questions due" },
                     style = MaterialTheme.typography.titleLarge)
                 Text(when { total == 0 -> "Log a mistake in Focal, then sync your questions here."; due == 0 -> "Explore your library, or return when your next review is due."; else -> "Read → work it out → compare" }, style = MaterialTheme.typography.bodyMedium)
@@ -48,28 +49,28 @@ import com.folio.notes.rememberLongPressGuard
             }
         }
         @Composable fun SessionControls(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 if (due > 0) {
                     SessionChoices()
                     Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
                         if (working) LoadingIndicator(Modifier.size(20.dp))
                         else Icon(Icons.Rounded.PlayArrow, null)
-                        Spacer(Modifier.width(8.dp)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
+                        Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
                     }
                     Text(if (shuffle) "Random order" else orderLabel, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer)
-                } else OutlinedButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
+                } else OutlinedButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Explore your library"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
             }
         }
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Introduction(Modifier.fillMaxWidth())
                 if (horizontal && due > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                     SessionChoices(Modifier.weight(1f))
                     Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
                         if (working) LoadingIndicator(Modifier.size(20.dp)) else Icon(Icons.Rounded.PlayArrow, null)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (working) "Opening…" else "Start ${minOf(due, limit)} questions")
                     }
                 } else SessionControls(Modifier.fillMaxWidth())
@@ -79,8 +80,8 @@ import com.folio.notes.rememberLongPressGuard
 }
 
 @Composable internal fun SessionSummary(completed: Int, pending: Int, onBrowse: () -> Unit) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(Icons.Rounded.CheckCircle, null)
             Text("Session complete", style = MaterialTheme.typography.headlineSmall)
             Text("$completed questions reviewed. Your handwriting and ratings are saved.")
@@ -93,7 +94,7 @@ import com.folio.notes.rememberLongPressGuard
 @Composable internal fun MistakeFilterOptions(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
     if (options.isEmpty()) return
     Text(title, style = MaterialTheme.typography.titleSmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         FilterChip(selected.isBlank(), { onSelect("") }, { Text("All") })
         options.forEach { option -> FilterChip(selected == option, { onSelect(if (selected == option) "" else option) }, { Text(option) }) }
     }
@@ -113,11 +114,11 @@ import com.folio.notes.rememberLongPressGuard
     val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question"
     val overdue = !mistake.suspended && dueText.contains("overdue")
     Box {
-    OutlinedCard(onClick = hold.click(onOpen), shape = RoundedCornerShape(20.dp),
+    OutlinedCard(onClick = hold.click(onOpen), shape = FolioShapes.extraLarge,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth().height(316.dp * fontScale).longPressAction(hold) { menu = true }) {
-        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxSize().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Focal question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -125,11 +126,11 @@ import com.folio.notes.rememberLongPressGuard
             RichTextPreview(mistake.questionText.orEmpty(), style = previewStyle,
                 modifier = Modifier.fillMaxWidth().height(previewHeight))
             Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(8.dp),
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = FolioShapes.small,
                     color = if (overdue) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = if (overdue) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurface) {
-                    Text(dueText, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium,
+                    Text(dueText, Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text(mistake.category, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
@@ -145,7 +146,7 @@ import com.folio.notes.rememberLongPressGuard
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!mistake.suspended) TextButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) {
                     Text(if (resume) "Continue" else "Practise")
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp4))
                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
                 }
             }

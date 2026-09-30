@@ -4,7 +4,6 @@ package com.folio.notes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
@@ -81,15 +80,15 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         if (recording) {
             Surface(
                 onClick = onClick,
-                modifier = Modifier.padding(horizontal = 4.dp).height(36.dp).semantics {
+                modifier = Modifier.padding(horizontal = FolioSpacing.dp4).height(36.dp).semantics {
                     contentDescription = "$label. $syncStatus. Open study sessions"
                 },
-                shape = RoundedCornerShape(20.dp),
+                shape = FolioShapes.extraLarge,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
-                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(15.dp))
                     Text(when {
                         examActive -> label.removePrefix("Focal · ")
@@ -138,10 +137,10 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
         focalStudyMillisBetween(state.visibleEntries, start, now) / 60_000L
     }
     FolioPanel("Study sessions", onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Icon(Icons.Rounded.School, null)
                     Column(Modifier.weight(1f)) {
                         Text("$today min studied today", style = MaterialTheme.typography.titleMedium)
@@ -156,8 +155,8 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     examRecording.phase == ExamTimerPhase.READING -> "Reading"
                     else -> "Writing"
                 }
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text("Exam recording · $phase", style = MaterialTheme.typography.titleSmall)
                         Text("Writing time is being saved to Focal as this exam runs. Reading time and pauses are excluded.",
                             style = MaterialTheme.typography.bodySmall)
@@ -169,18 +168,18 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 Text("Open a notebook to start recording study. You can connect Focal and review recent sessions here.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (focus == null && note != null) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Box {
                         OutlinedButton(
                             onClick = { subjectMenu = true },
                             modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                            shape = RoundedCornerShape(14.dp)
+                            contentPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12),
+                            shape = FolioShapes.large
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.School, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp10))
                                 Text(
                                     state.subjects.firstOrNull { it.id == subjectId }?.name ?: "No subject",
                                     Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis
@@ -196,10 +195,10 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                     Button({ manager.startFocus(note, subjectId) }, enabled = examRecording == null && state.canStartFocus,
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Start study")
+                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Start study")
                     }
                     TextButton({ manualLog = !manualLog }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
                         Text(if (manualLog) "Cancel manual entry" else "Log without timer", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -212,7 +211,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     OutlinedTextField(notes, { notes = it.take(500) }, Modifier.fillMaxWidth(),
                         label = { Text("What did you work on? (optional)") }, minLines = 2)
                     Text("Confidence (optional)", style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         (1..5).forEach { score ->
                             FilterChip(selected = confidence == score, onClick = { confidence = if (confidence == score) 0 else score },
                                 label = { Text("$score") })
@@ -234,7 +233,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 }
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
@@ -244,7 +243,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(if (focus.resumedAt == null) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (focus.resumedAt == null) "Resume study" else "Pause study")
                     }
                     OutlinedButton(
@@ -256,13 +255,13 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp8))
                         Text("Discard")
                     }
                 }
                 OutlinedTextField(notes, { notes = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("What did you work on? (optional)") }, minLines = 2)
                 Text("How confident do you feel? (optional)", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     (1..5).forEach { score ->
                         FilterChip(selected = confidence == score, onClick = { confidence = if (confidence == score) 0 else score },
                             label = { Text("$score") })
@@ -283,7 +282,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 if (pausedCount > 1) {
                     Text("$pausedCount paused sessions can be resolved together.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         TextButton({ bulkAction = "finish" }) { Text("Finish paused") }
                         TextButton({ bulkAction = "discard" }) { Text("Discard paused") }
                     }
@@ -292,17 +291,17 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     val elapsed = entry.intervals.sumOf { interval ->
                         ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
                     }.coerceAtLeast(entry.activeMillis)
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             val title = focalSessionTitle(entry.subjectId, state.subjects)
                             Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${if (entry.kind == "exam") "Timed exam" else "Study"} · ${if (entry.paused) "Paused" else "In progress"} · ${formatElapsed(elapsed)}",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 OutlinedButton({ manager.controlEntry(entry.id, if (entry.paused) "resume" else "pause") },
                                     shapes = ButtonDefaults.shapes()) {
                                     Icon(if (entry.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                                    Spacer(Modifier.width(6.dp)); Text(if (entry.paused) "Resume" else "Pause")
+                                    Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (entry.paused) "Resume" else "Pause")
                                 }
                                 TextButton({ manager.controlEntry(entry.id, "finish") }) { Text("Finish") }
                                 TextButton({ manager.controlEntry(entry.id, "discard") }) { Text("Discard") }
@@ -318,7 +317,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             }
 
             HorizontalDivider()
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Icon(when {
                     state.syncing -> Icons.Rounded.Sync
                     state.error != null -> Icons.Rounded.ErrorOutline
@@ -381,7 +380,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     val title = focalSessionTitle(entry.subjectId, state.subjects)
                     val minutes = (focalActiveMillisBetween(entry, entry.startedAt, entry.endedAt) / 60_000L)
                         .toInt().coerceAtLeast(1)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(title, style = MaterialTheme.typography.titleSmall)
                             val subject = state.subjects.firstOrNull { it.id == entry.subjectId }?.name ?: "No subject"

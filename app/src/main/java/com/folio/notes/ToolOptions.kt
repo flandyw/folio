@@ -66,7 +66,7 @@ object EditorQuickPrefs {
 @Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, presets: ToolPresetState? = null) {
     val label = tool.name.lowercase().replaceFirstChar(Char::uppercase)
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         Text("$label settings", style = MaterialTheme.typography.headlineSmall)
         if (tool == Tool.HAND) {
             Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.")
@@ -118,7 +118,7 @@ object EditorQuickPrefs {
                     Text("Reset pen pressure")
                 }
                 // Thin “exam” preset — one tap to get a crisp 1.4 pt pen used for workings.
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                     AssistChip({ onChange(options.copy(width = 1.4f, pressure = false)) }, { Text("Exam fine (1.4)") })
                     AssistChip({ onChange(options.copy(width = 2.2f, pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, { Text("Default (2.2)") })
                     AssistChip({ onChange(options.copy(width = 4f, pressure = false)) }, { Text("Bold (4.0)") })
@@ -126,7 +126,7 @@ object EditorQuickPrefs {
             }
             if (tool in ShapePickerTools) {
                 if (tool == Tool.GRAPH) Text("Drag to size unlabelled Cartesian axes with arrowheads at both ends. No grid, ticks, numbers or labels.", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     AssistChip({ onChange(options.copy(width = 1.2f)) }, { Text("Hairline") })
                     AssistChip({ onChange(options.copy(width = 2f)) }, { Text("Regular") })
                     AssistChip({ onChange(options.copy(width = 3.5f)) }, { Text("Heavy") })
@@ -243,7 +243,7 @@ object EditorQuickPrefs {
         onChange(options.copy(color = row.first()))
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Quick colours", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             TextButton({ editing = !editing }, shapes = ButtonDefaults.shapes()) { Text(if (editing) "Done" else "Customise") }
@@ -261,7 +261,7 @@ object EditorQuickPrefs {
         if (editing) Text("Tap a colour below to store it in slot ${slot + 1}, or tap another slot above to change which one you are editing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Text("Palettes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             InkColors.palettes.forEach { palette ->
                 FilterChip(
                     selected = quick.palette(group) == palette.name,
@@ -290,7 +290,7 @@ object EditorQuickPrefs {
             TextButton({ presetName = ""; naming = true }, enabled = quickPresets.size < InkColors.MAX_PRESETS || quickPresets.any { it.colors == quickColors }, shapes = ButtonDefaults.shapes()) { Text("Save current") }
         }
         if (quickPresets.isEmpty()) Text("Save your quick colours to bring the same five back in any notebook.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             quickPresets.forEach { preset ->
                 val hold = rememberLongPressGuard()
                 InputChip(
@@ -310,7 +310,7 @@ object EditorQuickPrefs {
         onDismissRequest = { naming = false },
         title = { Text("Save quick colours") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Name this preset so you can bring these colours back in any notebook.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(presetName, { presetName = it.take(InkColors.MAX_PRESET_NAME) }, label = { Text("Preset name") }, singleLine = true)
             }
@@ -335,7 +335,7 @@ object EditorQuickPrefs {
         TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS, shapes = ButtonDefaults.shapes()) { Text("Save current") }
     }
     if (saved.isEmpty()) Text("Save this tool setup as a preset to bring it back in one tap.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    else Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         saved.forEach { preset ->
             val styleSuffix = if (preset.style != StrokeStyle.SOLID) " · ${preset.style.name.lowercase()}" else ""
             val hold = rememberLongPressGuard()
@@ -355,7 +355,7 @@ object EditorQuickPrefs {
         onDismissRequest = { naming = false },
         title = { Text("Save tool preset") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Saves colour, width, opacity and line style for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true)
             }

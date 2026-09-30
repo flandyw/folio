@@ -8,7 +8,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -56,14 +55,14 @@ fun SubjectChip(subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
     val color = subjectColor(subject)
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = FolioShapes.medium,
         color = if (selected) color else color.copy(alpha = .12f),
         contentColor = if (selected) Color.White else color,
         border = if (selected) BorderStroke(2.dp, Color.White.copy(alpha = .6f)) else null
     ) {
         Text(
             subject?.label ?: "Other",
-            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1, overflow = TextOverflow.Ellipsis
@@ -76,7 +75,7 @@ fun SubjectChip(subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
 fun ExamBadges(note: Notebook, modifier: Modifier = Modifier, redoCount: Int = 0) {
     val exam = note.exam
     if (!exam.isTagged && note.attempts.isEmpty() && redoCount == 0) return
-    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         exam.subject?.let { subject ->
             BadgePill(subject.label, subjectColor(subject), Color.White)
         }
@@ -97,8 +96,8 @@ fun ExamBadges(note: Notebook, modifier: Modifier = Modifier, redoCount: Int = 0
 
 @Composable
 private fun BadgePill(text: String, background: Color, content: Color) {
-    Surface(shape = RoundedCornerShape(7.dp), color = background, contentColor = content) {
-        Text(text, Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    Surface(shape = FolioShapes.small, color = background, contentColor = content) {
+        Text(text, Modifier.padding(horizontal = FolioSpacing.dp6, vertical = FolioSpacing.dp2), style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
@@ -154,12 +153,12 @@ fun ExamDetailsPanel(
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp).padding(top = 4.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp4, bottom = FolioSpacing.dp12),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
             ) {
                 Text("Tag this notebook so the library can group and filter it.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Subject", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     FilterChip(
                         selected = subject == null,
                         onClick = { subject = null },
@@ -179,7 +178,7 @@ fun ExamDetailsPanel(
                     )
                 }
                 Text("Paper", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     OutlinedTextField(
                         year, { year = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f), label = { Text("Year") }, placeholder = { Text("2022") },
@@ -196,7 +195,7 @@ fun ExamDetailsPanel(
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
                 }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     yearSuggestions.forEach { suggestion ->
                         FilterChip(year == suggestion, { year = if (year == suggestion) "" else suggestion }, { Text(suggestion) })
                     }
@@ -206,7 +205,7 @@ fun ExamDetailsPanel(
                     Modifier.fillMaxWidth(), label = { Text("Company / source") },
                     placeholder = { Text("VCAA, NEAP, TSSM, Insight…") }, singleLine = true
                 )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     companySuggestions.forEach { suggestion ->
                         FilterChip(
                             selected = company.trim().equals(suggestion, ignoreCase = true),
@@ -216,19 +215,19 @@ fun ExamDetailsPanel(
                     }
                 }
                 Text("Type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     ExamType.entries.forEach { option ->
                         FilterChip(typeValue == option, { type = if (typeValue == option) null else option.name }, { Text(option.label) })
                     }
                 }
                 Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     ExamStatus.entries.forEach { option ->
                         FilterChip(statusValue == option, { status = option.name }, { Text(option.label) })
                     }
                 }
                 Text("Difficulty", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     (1..3).forEach { stars ->
                         FilterChip(
                             selected = difficulty == stars,
@@ -238,7 +237,7 @@ fun ExamDetailsPanel(
                     }
                 }
                 Text("Labels", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     ExamTagType.entries.forEach { option ->
                         val selected = option.name in tags
                         FilterChip(
@@ -250,9 +249,9 @@ fun ExamDetailsPanel(
                         )
                     }
                 }
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -268,8 +267,8 @@ fun ExamDetailsPanel(
                         }
                     }
                 }
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Marks", style = MaterialTheme.typography.titleSmall)
@@ -281,15 +280,15 @@ fun ExamDetailsPanel(
                             }
                             FilledTonalButton({ scoreDialog = true }, shapes = ButtonDefaults.shapes()) {
                                 Icon(Icons.AutoMirrored.Rounded.Grading, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text("Record a mark")
                             }
                         }
                         val sortedAttempts = remember(note.attempts) { note.attempts.sortedBy { it.date } }
                         sortedAttempts.forEach { attempt ->
                             val share = attempt.share
-                            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(
                                             listOfNotNull(
@@ -312,8 +311,8 @@ fun ExamDetailsPanel(
             }
             HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
@@ -397,8 +396,8 @@ fun BatchExamTagsPanel(
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp).padding(top = 4.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp4, bottom = FolioSpacing.dp12),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
             ) {
                 Text(
                     "Apply to $count notebook${if (count == 1) "" else "s"}. Only ticked sections change; the rest stay as they are.",
@@ -410,7 +409,7 @@ fun BatchExamTagsPanel(
                 title = "Subject",
                 summary = if (!changeSubject) "Unchanged" else newSubject?.label ?: customSubject.trim().ifBlank { "Cleared" }
             ) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     FilterChip(newSubject == null, { newSubjectName = null }, { Text("Custom") })
                     VceSubject.entries.forEach { option ->
                         SubjectChip(option, selected = newSubject == option, onClick = { newSubjectName = option.name })
@@ -436,7 +435,7 @@ fun BatchExamTagsPanel(
                     placeholder = { Text("2022") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     listOf(thisYear, "2022", "2021").distinct().forEach { suggestion ->
                         FilterChip(newYear == suggestion, { newYear = suggestion }, { Text(suggestion) })
                     }
@@ -453,7 +452,7 @@ fun BatchExamTagsPanel(
                     Modifier.fillMaxWidth(), label = { Text("Company (empty clears)") },
                     placeholder = { Text("VCAA, NEAP, TSSM, Insight…") }, singleLine = true
                 )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     companySuggestions.forEach { suggestion ->
                         FilterChip(newCompany.trim().equals(suggestion, ignoreCase = true), { newCompany = suggestion }, { Text(suggestion) })
                     }
@@ -465,7 +464,7 @@ fun BatchExamTagsPanel(
                 title = "Type",
                 summary = if (!changeType) "Unchanged" else newType?.label ?: "Cleared"
             ) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     FilterChip(newType == null, { newTypeName = null }, { Text("None") })
                     ExamType.entries.forEach { option ->
                         FilterChip(newType == option, { newTypeName = if (newType == option) null else option.name }, { Text(option.label) })
@@ -478,7 +477,7 @@ fun BatchExamTagsPanel(
                 title = "Status",
                 summary = if (!changeStatus) "Unchanged" else newStatus.label
             ) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     ExamStatus.entries.forEach { option ->
                         FilterChip(newStatus == option, { newStatusName = option.name }, { Text(option.label) })
                     }
@@ -487,8 +486,8 @@ fun BatchExamTagsPanel(
             }
             HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)
             ) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ onApply(buildTransform()) }, enabled = canApply, shapes = ButtonDefaults.shapes()) { Text("Apply to $count") }
@@ -505,8 +504,8 @@ private fun BatchSection(
     summary: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked, onChecked)
                 Column(Modifier.weight(1f)) {
@@ -542,8 +541,8 @@ fun ScoreDialog(
         icon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) },
         title = { Text("Record a mark") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     OutlinedTextField(
                         score, { score = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f).focusRequester(scoreFocus),
@@ -584,7 +583,7 @@ fun ScoreDialog(
                         Modifier.fillMaxWidth(), label = { Text("Minutes taken") }, placeholder = { Text("82") },
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                         listOf("60", "90", "120").forEach { suggestion ->
                             FilterChip(minutes == suggestion, { minutes = suggestion }, { Text("${suggestion}m") })
                         }
@@ -630,23 +629,23 @@ fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier, sc
     val progress = remember(notes) { subjectProgress(notes) }
     Column(
         modifier.fillMaxWidth().then(if (scrollEnabled) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-            .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
     ) {
             if (progress.isEmpty()) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Text(
                         "Tag a notebook with a subject and record a mark to see progress here.",
-                        Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Modifier.fillMaxWidth().padding(FolioSpacing.dp16), color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
             progress.forEach { row ->
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(10.dp).background(subjectColor(row.subject), CircleShape))
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(FolioSpacing.dp8))
                             Text(row.subject?.label ?: "Other subjects", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "${row.paperCount} paper${if (row.paperCount == 1) "" else "s"}",
@@ -669,14 +668,14 @@ fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier, sc
 
 @Composable
 private fun ProgressRow(label: String, share: Float) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         Row {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Text("${(share * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         }
         LinearProgressIndicator(
             progress = { share.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(FolioShapes.bar),
             trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
@@ -697,8 +696,8 @@ internal fun StopwatchContent(
     Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
         ) {
             if (stopwatch.idle) {
                 Text(
@@ -707,15 +706,15 @@ internal fun StopwatchContent(
                 )
                 Button(onStart, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.PlayArrow, null)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("Start stopwatch")
                 }
             } else {
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp24),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)
                     ) {
                         Text(
                             "ELAPSED",
@@ -740,12 +739,12 @@ internal fun StopwatchContent(
                 }
                 Button(onPauseResume, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                     Icon(if (stopwatch.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(if (stopwatch.paused) "Resume stopwatch" else "Pause stopwatch")
                 }
                 OutlinedButton(onReset, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.RestartAlt, null)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("Reset to 0:00")
                 }
             }
@@ -769,8 +768,8 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
     Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
         ) {
             when (timer.phase) {
                 ExamTimerPhase.IDLE -> {
@@ -778,11 +777,11 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                     ExamTimerPreset.PRESETS.filter { it != ExamTimerPreset.CUSTOM }.forEach { preset ->
                         Surface(
                             onClick = { onStart(preset) },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = FolioShapes.large,
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(preset.label, style = MaterialTheme.typography.titleMedium)
                                     Text(
@@ -794,10 +793,10 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                             }
                         }
                     }
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                             Text("Custom", style = MaterialTheme.typography.titleMedium)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                                 OutlinedTextField(
                                     customMinutes, { customMinutes = it.filter(Char::isDigit).take(3) },
                                     Modifier.weight(1f), label = { Text("Writing minutes") }, singleLine = true,
@@ -814,11 +813,11 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                 }
                 ExamTimerPhase.READING, ExamTimerPhase.WRITING -> {
                     val active = timer.phase == ExamTimerPhase.WRITING
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
                         Column(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp24),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)
                         ) {
                             Text(
                                 if (active) "WRITING TIME" else "READING TIME",
@@ -848,14 +847,14 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                     }
                     Button(onPauseResume, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Icon(if (timer.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (timer.paused) "Resume timer" else "Pause timer")
                     }
                     Text("Adjust ${if (active) "writing" else "reading"} time", style = MaterialTheme.typography.titleSmall)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         listOf(-5, -1, 1, 5).forEach { minutes ->
                             OutlinedButton({ onAdjust(minutes * 60) }, modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                                contentPadding = PaddingValues(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp8),
                                 shapes = ButtonDefaults.shapes()) {
                                 Text("${if (minutes > 0) "+" else "−"}${kotlin.math.abs(minutes)} min")
                             }
@@ -864,18 +863,18 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                     FilledTonalButton(onSkip, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                         Text(if (active) "Finish writing now" else "Skip reading · start writing")
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                         TextButton({ onStop(null) }, shapes = ButtonDefaults.shapes()) { Text("Stop timer") }
                     }
                 }
                 ExamTimerPhase.DONE -> {
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             Text("PENS DOWN", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onErrorContainer)
                             Text("Time is up.", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                         TextButton({ onStop(timer.elapsedWriting()) }, shapes = ButtonDefaults.shapes()) { Text("Record the sitting") }
                     }
                 }

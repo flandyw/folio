@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -54,14 +53,14 @@ fun FollowSettingsDialog(
     FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
             ) {
                 FollowSectionTitle("Choose how following feels")
                 Text("The page stays still while your pen is down. Choose a starting point, then adjust the feel.",
                     style = MaterialTheme.typography.bodyMedium)
                 val presets = listOf("Relaxed" to 0f, "Balanced" to .5f, "Responsive" to 1f)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     presets.forEach { (label, value) ->
                         FilterChip(selected = FollowComfort.matches(preferences, value),
                             onClick = { onPreferences(FollowComfort.apply(preferences, value)) },
@@ -85,8 +84,8 @@ fun FollowSettingsDialog(
                 // 1 · What are you writing?
                 FollowSectionTitle("What are you writing?")
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                 ) {
                     FilterChip(
                         selected = preferences.mode == FollowMode.TEXT,
@@ -115,8 +114,8 @@ fun FollowSettingsDialog(
                 // 2 · Reading direction + pen hand (kept together: both confuse users when split).
                 FollowSectionTitle("Reading direction")
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                 ) {
                     FilterChip(
                         selected = preferences.direction == WritingDirection.LTR,
@@ -138,8 +137,8 @@ fun FollowSettingsDialog(
 
                 FollowSectionTitle("Hand holding the pen")
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                 ) {
                     FilterChip(
                         selected = writingHand == WritingHand.RIGHT,
@@ -214,8 +213,8 @@ fun FollowSettingsDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                     ) {
                         FollowPreferences.spacingPresets.forEach { (name, units) ->
                             FilterChip(
@@ -274,8 +273,8 @@ fun FollowSettingsDialog(
             }
             HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End),
             ) {
                 TextButton({
                     onPreferences(FollowPreferences())
@@ -301,7 +300,7 @@ private fun FollowSliderRow(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -322,8 +321,8 @@ private fun FollowSliderRow(
  */
 @Composable
 private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand) {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Text("Live preview · movement zones", style = MaterialTheme.typography.labelMedium)
             val trackColor = MaterialTheme.colorScheme.primary
             val faint = MaterialTheme.colorScheme.outlineVariant
@@ -403,8 +402,8 @@ private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand) {
 private fun SpacingExample(spacing: Float) {
     val faint = MaterialTheme.colorScheme.outlineVariant
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+        Column(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
             Text("On paper", style = MaterialTheme.typography.labelMedium)
             Canvas(Modifier.fillMaxWidth().height(64.dp)) {
                 val gap = (10 + (spacing - 16f) / (96f - 16f) * 30f).dp.toPx().coerceIn(10.dp.toPx(), 40.dp.toPx())
@@ -435,7 +434,7 @@ private fun FollowTimingPreview(preferences: FollowPreferences) {
     val pauseColor = MaterialTheme.colorScheme.secondary
     val glideColor = MaterialTheme.colorScheme.primary
     val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         Text("Pen lifts → pause → glide", style = MaterialTheme.typography.labelMedium)
         Canvas(Modifier.fillMaxWidth().height(12.dp)) {
             drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))

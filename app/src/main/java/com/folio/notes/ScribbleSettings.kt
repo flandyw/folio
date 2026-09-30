@@ -3,7 +3,6 @@ package com.folio.notes
 
 import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,7 +39,7 @@ import kotlin.math.roundToInt
         sensitivity = ScribbleSensitivity.normalize(value)
         prefs.edit().putFloat(EditorQuickPrefs.SCRIBBLE_SENSITIVITY, sensitivity).apply()
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Scribble to erase", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             Switch(enabled, {
@@ -59,7 +58,7 @@ import kotlin.math.roundToInt
         }
         Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires repeated contact with existing ink.",
             style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             TextButton({ setSensitivity(ScribbleSensitivity.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset sensitivity") }
             TextButton({ showPractice = !showPractice }, shapes = ButtonDefaults.shapes()) { Text(if (showPractice) "Hide test area" else "Test scribble to erase") }
         }
@@ -79,7 +78,7 @@ private fun scribblePracticePage() = NotePage(
 @Composable private fun ScribblePractice(enabled: Boolean, sensitivity: Float) {
     var page by remember { mutableStateOf(scribblePracticePage()) }
     var feedback by remember { mutableStateOf("Try scrubbing across the blue ink, or write your own sample.") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Text("Test your scribble", style = MaterialTheme.typography.titleSmall)
         Text("Use your pen or finger here. This test area is not saved to your notes.", style = MaterialTheme.typography.bodySmall)
         AndroidView(
@@ -89,7 +88,7 @@ private fun scribblePracticePage() = NotePage(
                 inkWidth = 2.2f; inkColor = 0xFF303431.toInt()
                 contentDescription = "Scribble erase test area"
             } },
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f).clip(RoundedCornerShape(12.dp)),
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f).clip(FolioShapes.medium),
             update = { view ->
                 if (view.page !== page) view.bind(page, null)
                 view.scribbleToErase = enabled
@@ -107,7 +106,7 @@ private fun scribblePracticePage() = NotePage(
         )
         Text(feedback, style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             OutlinedButton({
                 page = scribblePracticePage()
                 feedback = "Sample ink restored. Try again with your current sensitivity."

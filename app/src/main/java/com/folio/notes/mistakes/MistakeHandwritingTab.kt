@@ -5,7 +5,6 @@ package com.folio.notes.mistakes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -17,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.FolioShapes
+import com.folio.notes.FolioSpacing
 import com.folio.notes.FolioViewModel
 import com.folio.notes.Notebook
 import com.folio.notes.guardUiTouches
@@ -130,15 +131,15 @@ private fun HandwritingStorageCard(
         else notes.count { isPracticeNotebookEmpty(it) }
     val totalPages = notes.sumOf { it.pages.size }
 
-    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    ElevatedCard(shape = FolioShapes.extraLarge) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
             Text(
                 "Every practice page saved on this device, including unfinished reviews and pages from previous accounts. Untouched pages are never saved; empty ones are removed automatically.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 if (measuring) LoadingIndicator(Modifier.size(18.dp))
                 else Icon(Icons.Rounded.Storage, null, tint = MaterialTheme.colorScheme.primary)
                 Text(
@@ -149,7 +150,7 @@ private fun HandwritingStorageCard(
                 )
             }
             if (notes.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     OutlinedButton(
                         onClick = { confirmEmpty = true },
                         enabled = !working && !measuring && displayEmpty > 0,
@@ -157,7 +158,7 @@ private fun HandwritingStorageCard(
                         shapes = ButtonDefaults.shapes(),
                     ) {
                         Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp6))
                         Text(if (displayEmpty > 0) "Delete empty ($displayEmpty)" else "No empty pages")
                     }
                     OutlinedButton(
@@ -167,7 +168,7 @@ private fun HandwritingStorageCard(
                         shapes = ButtonDefaults.shapes(),
                     ) {
                         Icon(Icons.Rounded.DeleteForever, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp6))
                         Text("Delete all")
                     }
                 }
@@ -271,11 +272,11 @@ private fun HandwritingNotebookRow(
     // Long-pressing the card offers the same open/delete pair as its buttons.
     val hold = rememberLongPressGuard()
     Box {
-    ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.longPressAction(hold) { rowMenu = true }) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(10.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+    ElevatedCard(shape = FolioShapes.extraLarge, modifier = Modifier.longPressAction(hold) { rowMenu = true }) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp10), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
                 Column(Modifier.weight(1f)) {
                     Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -287,7 +288,7 @@ private fun HandwritingNotebookRow(
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text(
                     buildList {
                         add("${note.pages.size} page${if (note.pages.size == 1) "" else "s"}")
@@ -301,7 +302,7 @@ private fun HandwritingNotebookRow(
                 )
                 FilledTonalButton(hold.click { onOpenNotebook(note.id) }, enabled = !working, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp6))
                     Text("Open")
                 }
             }

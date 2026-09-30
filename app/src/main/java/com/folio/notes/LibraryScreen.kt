@@ -108,14 +108,19 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (wide) NavigationRail(
+                    // Material 3.5's rail only enforces a *minimum* width (80dp), so a full-width
+                    // child — the divider between the destinations and Import/Settings — stretches
+                    // the rail over the whole screen and squeezes the shelf to nothing. Pin it to
+                    // the rail's own width so the grid always keeps the rest of the screen.
+                    modifier = Modifier.width(80.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     header = {
                         // MDC's rail puts the logo and primary action in its header; the hold opens
                         // the same create/import menu the narrow layout shows behind its add button.
-                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary) {
-                            Icon(Icons.AutoMirrored.Rounded.MenuBook, "folio", Modifier.padding(9.dp).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primary) {
+                            Icon(Icons.AutoMirrored.Rounded.MenuBook, "folio", Modifier.padding(FolioSpacing.dp10).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary)
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(FolioSpacing.dp12))
                         Box {
                             FloatingActionButton(onClick = newHold.click(onNew),
                                 modifier = Modifier.longPressAction(newHold) { sidebarNewMenu = true }) {
@@ -136,8 +141,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     RailItem("Favorites", Icons.Rounded.StarOutline, section == LibrarySection.LIBRARY && starred) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null) }
                     // Folders live in the shelf's filter row, as they already did on narrow screens:
                     // a rail is icon-only, so folder names have no room here.
-                    Spacer(Modifier.height(4.dp))
-                    HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                    Spacer(Modifier.height(FolioSpacing.dp4))
+                    HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
                     Spacer(Modifier.weight(1f))
                     Box {
                         RailItem("Import", Icons.Rounded.FileOpen, false) { sidebarImportMenu = true }
@@ -149,17 +154,17 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
                 if (section == LibrarySection.LIBRARY) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
-                    contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
+                    contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                                 if (!wide) Spacer(Modifier.weight(1f))
                                 if (!wide) Box {
                                     // M3e split button: tap creates a notebook, the trailing half opens
                                     // the related import and folder actions.
                                     SplitButtonLayout(
-                                        leadingButton = { SplitButtonDefaults.LeadingButton(onNew) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("New") } },
+                                        leadingButton = { SplitButtonDefaults.LeadingButton(onNew) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New") } },
                                         trailingButton = { SplitButtonDefaults.TrailingButton({ newButtonMenu = true }) { Icon(Icons.Rounded.ArrowDropDown, "More ways to create") } },
                                     )
                                     DropdownMenu(newButtonMenu, { newButtonMenu = false }, modifier = Modifier.guardUiTouches()) {
@@ -182,7 +187,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                             // Narrow devices have no sidebar: destinations live in the short
                             // navigation bar pinned to the bottom instead.
                             // Folders are a rail cannot carry, so every width filters them from the shelf.
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 FilterChip(state.folderId == null && !starred && !unfiled, { model.folder(null); starred = false; unfiled = false }, { Text("All notebooks") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
                                 FilterChip(starred, { model.folder(null); starred = !starred; unfiled = false }, { Text("Favorites") }, leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
                                 state.folders.forEach { folder -> Box {
@@ -202,11 +207,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 } }
                                 AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                             }
-                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.width(8.dp))
-                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) }
+                                Spacer(Modifier.width(FolioSpacing.dp8))
+                                Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh) { Text("${notes.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelSmall) }
                                 Box {
                                     IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
                                     DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
@@ -229,7 +234,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     }
                                 } }
                             }
-                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                 FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
                                     modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                     leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
@@ -246,12 +251,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
                                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                             }
-                            if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
                                     LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
                                 }
-                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                     FilterChip(examFilter.incomplete, {
                                         model.setExamFilter(if (examFilter.incomplete) examFilter.copy(incomplete = false) else examFilter.copy(incomplete = true))
                                     }, { Text("Incomplete") })
@@ -260,7 +265,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
                                 val examNotes = state.notes.filter { it.exam.isTagged }
                                 if (examNotes.isNotEmpty()) {
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                         VceSubject.entries.forEach { subject ->
                                             val count = examNotes.count { it.exam.subject == subject }
                                             if (count > 0) {
@@ -270,7 +275,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                             }
                                         }
                                     }
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                         examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
                                             FilterChip(examFilter.year == year, {
                                                 model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
@@ -292,14 +297,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     }
                                 }
                             }
-                            if (selecting) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (selecting) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                     Spacer(Modifier.weight(1f))
                                     TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                                     TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
                                 }
-                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
                                     TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
                                     TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
@@ -316,13 +321,13 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         }
                     }
                     if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                        Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Surface(shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                                 Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
                                 Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
                                 Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
-                                if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                                if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
                             }
                         }
                     }
@@ -331,11 +336,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         val longPress = { enterSelecting(note.id) }
                         val folder = state.folders.find { it.id == note.folderId }?.name
                         if (listView) Surface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = FolioShapes.large,
                             color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
                             modifier = Modifier.animateItem(placementSpec = folioSpring()).combinedClickable(onClick = open, onLongClick = longPress)
                         ) {
-                                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     if (selecting) {
                                         Checkbox(note.id in selection, { toggleSelection(note.id) }, Modifier.semanticsLabel(if (note.id in selection) "Deselect ${note.title}" else "Select ${note.title}"))
                                     }
@@ -361,15 +366,15 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                         if (!wide) Spacer(Modifier.weight(1f))
                         if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
                         if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                     }
                     Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         ExamProgressContent(state.notes, Modifier.fillMaxWidth(), scrollEnabled = false)
                     }
                 }
@@ -448,16 +453,16 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         onDismissRequest = { bulkCover = false },
         title = { Text("Cover for ${selection.size} notebook${if (selection.size == 1) "" else "s"}") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text("Show the first page itself, or keep the decorative default cover.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(
                     { model.setPageCoverBatch(selection, true); bulkCover = false; selectedIds = emptyList() },
                     enabled = selection.isNotEmpty(),
-                    shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(12.dp)); Text("First page as cover") }
+                    shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("First page as cover") }
                 TextButton(
                     { model.setPageCoverBatch(selection, false); bulkCover = false; selectedIds = emptyList() },
                     enabled = selection.isNotEmpty(),
-                    shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(12.dp)); Text("Default cover") }
+                    shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("Default cover") }
             }
         },
         confirmButton = { TextButton({ bulkCover = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
@@ -467,16 +472,16 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.move(note, null); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(12.dp)); Text("No folder") }
-            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(12.dp)); Text(folder.name) } }
+            TextButton({ model.move(note, null); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("No folder") }
+            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(folder.name) } }
         }
     }, confirmButton = { TextButton({ move = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }) }
     delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") } }) }
 }
 
 @Composable private fun Brand() {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(9.dp).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+        Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primary) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp10).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary) }
         Text("folio", fontFamily = FontFamily.Serif, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
     }
 }
@@ -495,17 +500,17 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                 val checked = selected
                 Surface(
                     onClick = open,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = FolioShapes.medium,
                     color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .92f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(30.dp).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
+                    modifier = Modifier.align(Alignment.TopStart).padding(FolioSpacing.dp8).size(30.dp).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             } else {
-                IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(2.dp), shapes = IconButtonDefaults.shapes()) {
+                IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes()) {
                     Icon(
                         if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         if (note.starred) "Remove from favorites" else "Add to favorites",
@@ -515,14 +520,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                 }
             }
         }
-        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(top = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: "Unfiled"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
             if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate)
         }
-        ExamBadges(note, modifier = Modifier.padding(top = 4.dp), redoCount = redoCount)
+        ExamBadges(note, modifier = Modifier.padding(top = FolioSpacing.dp4), redoCount = redoCount)
     }
 }
 
@@ -567,9 +572,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         Box(
             modifier
                 .aspectRatio(aspect)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(FolioShapes.medium)
                 .background(Color.White)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.medium),
             contentAlignment = Alignment.Center
         ) {
             Image(imageBitmap, "First page preview of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -584,7 +589,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 44.dp.roundToPx() })
     val imageBitmap = remember(preview) { preview?.asImageBitmap() }
     val isPdf = note.pages.any { it.pdfIndex != null }
-    Box(modifier.clip(RoundedCornerShape(5.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(FolioShapes.small).background(Color.White), contentAlignment = Alignment.Center) {
         if (imageBitmap != null) Image(imageBitmap, "First page preview of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         else Icon(if (isPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (isPdf) "PDF notebook ${note.title}" else "Notebook ${note.title}")
     }
@@ -603,7 +608,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 
 @Composable fun NotebookCover(note: Notebook, modifier: Modifier = Modifier, compact: Boolean = false) {
     val color = CoverColors[note.cover.mod(CoverColors.size)]
-    Box(modifier.clip(RoundedCornerShape(6.dp, 18.dp, 18.dp, 6.dp)).background(color)) {
+    Box(modifier.clip(RoundedCornerShape(FolioShapes.smallRadius, FolioShapes.extraLargeRadius, FolioShapes.extraLargeRadius, FolioShapes.smallRadius)).background(color)) {
         Canvas(Modifier.fillMaxSize()) {
             drawRect(Color.Black.copy(alpha = .06f), size = size.copy(width = size.width * .065f))
             drawLine(Color.White.copy(alpha = .25f), Offset(size.width * .073f, 0f), Offset(size.width * .073f, size.height), 2f)
@@ -616,7 +621,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
             drawCircle(Color.White.copy(alpha = .25f), size.width * .21f, Offset(size.width * .83f, size.height * .88f))
         }
         Column(Modifier.fillMaxSize().padding(start = if (compact) 14.dp else 24.dp, top = if (compact) 14.dp else 24.dp, end = if (compact) 14.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 Text(if (note.pages.any { it.pdfIndex != null }) "DOCUMENT" else "NOTEBOOK", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, letterSpacing = 2.sp, color = Color(0xFF343931).copy(alpha = .7f))
                 Text(note.title, fontFamily = FontFamily.Serif, fontSize = if (compact) 18.sp else 23.sp, lineHeight = if (compact) 22.sp else 28.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis, color = Color(0xFF343931))
             }

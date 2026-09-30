@@ -33,8 +33,8 @@ internal fun TimingPanel(
     var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && stopwatch.active) 1 else 0) }
     FolioPanel(title = "Timer & stopwatch", onDismissRequest = onDismiss) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
         ) {
             FilterChip(
                 selected = selectedTab == 0, onClick = { selectedTab = 0 },

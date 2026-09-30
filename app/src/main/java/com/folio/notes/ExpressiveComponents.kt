@@ -80,7 +80,7 @@ import androidx.compose.ui.unit.dp
         ) { Icon(icon, label, Modifier.size(22.dp)) }
         if (indicatorColor != null) {
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 6.dp).size(10.dp)
+                Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp6, bottom = FolioSpacing.dp6).size(10.dp)
                     .background(indicatorColor, CircleShape)
                     .border(1.5.dp, if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
             )
@@ -98,16 +98,16 @@ import androidx.compose.ui.unit.dp
 @Composable private fun ExpressivePreview(dark: Boolean) {
     FolioTheme(mode = if (dark) ThemeMode.DARK else ThemeMode.LIGHT) {
         Surface {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 Text("Your notebooks", style = MaterialTheme.typography.headlineMedium)
                 FilledTonalButton(onClick = {}, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Add, null)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("New notebook")
                 }
                 var penSelected by remember { mutableStateOf(true) }
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(Modifier.padding(FolioSpacing.dp6), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                         FolioToolToggle(penSelected, { penSelected = true }, Icons.Rounded.Edit, "Pen")
                         FolioToolToggle(!penSelected, { penSelected = false }, Icons.Rounded.Gesture, "Lasso select")
                     }

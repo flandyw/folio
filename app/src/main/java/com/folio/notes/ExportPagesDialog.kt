@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
@@ -60,14 +59,14 @@ import androidx.compose.ui.unit.dp
     FolioPanel(title = "Export pages", onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
             Text(
                 "Choose which pages to save or share. A PDF keeps them in order; one PNG saves to your gallery, several PNGs make one .zip. Long-press a page to pick only that one.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 FilterChip(
                     selected = format == PageExportFormat.PDF,
                     onClick = { format = PageExportFormat.PDF },
@@ -111,7 +110,7 @@ import androidx.compose.ui.unit.dp
                 label = { Text("Pages, e.g. 1-3, 5") },
                 placeholder = { Text("1–${note.pages.size}") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = FolioShapes.large,
                 supportingText = {
                     rangeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         ?: Text("${selected.size} selected · ${formatExportSelection(selected.sorted())}")
@@ -133,7 +132,7 @@ import androidx.compose.ui.unit.dp
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 TextButton(
                     onClick = { selected = note.pages.indices.toSet(); rangeError = null },
@@ -152,7 +151,7 @@ import androidx.compose.ui.unit.dp
             }
             LazyColumn(
                 Modifier.fillMaxWidth().heightIn(max = 280.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
             ) {
                 items(note.pages.indices.toList(), key = { note.pages[it].id }) { index ->
                     val page = note.pages[index]
@@ -179,7 +178,7 @@ import androidx.compose.ui.unit.dp
                             if (page.bookmarked || page.redoFlag) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
                                 ) {
                                     if (page.bookmarked) {
                                         Icon(
@@ -196,7 +195,7 @@ import androidx.compose.ui.unit.dp
                                     }
                                     if (page.redoFlag) {
                                         if (page.bookmarked) {
-                                            Spacer(Modifier.width(8.dp))
+                                            Spacer(Modifier.width(FolioSpacing.dp8))
                                         }
                                         Text(
                                             "Redo",
@@ -219,7 +218,7 @@ import androidx.compose.ui.unit.dp
             }
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 val count = selected.size
                 val indices = normalizeExportIndices(selected, note.pages.size)
@@ -230,7 +229,7 @@ import androidx.compose.ui.unit.dp
                     shapes = ButtonDefaults.shapes()
                 ) {
                     Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(
                         when {
                             count == 0 -> "Save"
@@ -247,7 +246,7 @@ import androidx.compose.ui.unit.dp
                     shapes = ButtonDefaults.shapes()
                 ) {
                     Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(
                         when {
                             count == 0 -> "Share"

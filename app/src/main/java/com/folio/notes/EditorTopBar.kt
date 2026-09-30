@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -32,7 +31,7 @@ internal val EditorFloatingGroupHeight = 56.dp
     content: @Composable () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(28.dp)
+    val shape = FolioShapes.panel
     Surface(
         modifier = modifier.height(EditorFloatingGroupHeight).guardUiTouches(),
         shape = shape,
@@ -61,7 +60,7 @@ internal val EditorFloatingGroupHeight = 56.dp
     retryingSave: Boolean,
     saveFailureReason: String?,
     lastSaveProgressAt: Long?,
-    pendingSaves: Int,
+    saving: Boolean,
     starred: Boolean,
     onStar: () -> Unit,
     onRename: () -> Unit,
@@ -93,16 +92,16 @@ internal val EditorFloatingGroupHeight = 56.dp
         val compact = maxWidth < 840.dp
         val sideWidth = ((maxWidth - 480.dp) / 2).coerceAtLeast(0.dp)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Row(if (compact) Modifier else Modifier.width(sideWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 EditorGlassSurface(Modifier.width(48.dp)) {
                     IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
                 }
                 if (!compact) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
                     Row(Modifier.clickable(role = Role.Button, onClickLabel = "Notebook actions") { overflow = true }
-                        .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        .padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp))
@@ -112,10 +111,10 @@ internal val EditorFloatingGroupHeight = 56.dp
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
             Row(if (compact) Modifier else Modifier.width(sideWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.End)) {
                 if (!compact) Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                     EditorGlassSurface {
-                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp6),
                             verticalAlignment = Alignment.CenterVertically) { timer() }
                     }
                 }
@@ -131,25 +130,25 @@ internal val EditorFloatingGroupHeight = 56.dp
                         }
                     }
                     DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                        Text(title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        Text(title, Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                             style = MaterialTheme.typography.titleSmall)
                         DropdownMenuItem({ Text("Page options") }, { overflow = false; onPageOptions() },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()
-                    Text("Notebook", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Notebook", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     DropdownMenuItem({ Text("Rename notebook") }, { overflow = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
                     DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { overflow = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
                     HorizontalDivider()
-                    Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                        SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, pendingSaves, onRetrySave, onClose)
+                    Box(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10)) {
+                        SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
                     }
                     notebookActions { overflow = false }
                         if (compact) {
                             HorizontalDivider()
-                            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { timer() }
+                            Box(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) { timer() }
                         }
                         HorizontalDivider()
-                            Text("Pages", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text("Pages", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             run {
                                 DropdownMenuItem({ Text("Previous page") }, { overflow = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
                                 DropdownMenuItem({ Text("Next page") }, { overflow = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
@@ -177,40 +176,40 @@ internal val EditorFloatingGroupHeight = 56.dp
     retryingSave: Boolean,
     saveFailureReason: String?,
     lastSaveProgressAt: Long?,
-    pendingSaves: Int,
+    saving: Boolean,
     onRetrySave: () -> Unit,
     onClose: () -> Unit,
     compact: Boolean = false
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var detailsOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(pendingSaves) {
-        while (pendingSaves > 0) {
+    LaunchedEffect(saving) {
+        while (saving) {
             now = System.currentTimeMillis()
             kotlinx.coroutines.delay(1_000)
         }
     }
-    val slow = pendingSaves > 0 && lastSaveProgressAt != null && now - lastSaveProgressAt >= 5_000L
+    val slow = saving && lastSaveProgressAt != null && now - lastSaveProgressAt >= 5_000L
     val label = when {
         retryingSave -> "Retrying local save…"
         saveFailed -> "Save failed · Details"
-        slow -> "Still saving · $pendingSaves queued"
-        pendingSaves > 0 -> "Saving on device…"
+        slow -> "Still saving…"
+        saving -> "Saving on device…"
         else -> "Saved on device"
     }
     val statusColor = if (saveFailed && !retryingSave) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
     // A slim clickable row rather than a TextButton: TextButton forces a 40dp min
     // height, which pushed the status line away from the title in the wide layout.
-    Row(Modifier.clip(RoundedCornerShape(6.dp))
+    Row(Modifier.clip(FolioShapes.small)
         .clickable(role = Role.Button) { detailsOpen = true }
-        .padding(horizontal = if (compact) 2.dp else 1.dp, vertical = 1.dp),
+        .padding(horizontal = FolioSpacing.dp2, vertical = FolioSpacing.dp2),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(when {
             saveFailed && !retryingSave -> Icons.Rounded.ErrorOutline
-            pendingSaves > 0 -> Icons.Rounded.Sync
+            saving -> Icons.Rounded.Sync
             else -> Icons.Rounded.Check
         }, null, Modifier.size(12.dp), tint = statusColor)
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(FolioSpacing.dp4))
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = statusColor)
     }
     if (detailsOpen) AlertDialog(
@@ -219,14 +218,14 @@ internal val EditorFloatingGroupHeight = 56.dp
             retryingSave -> "Retrying the save"
             saveFailed -> "Changes could not be saved"
             slow -> "Saving is taking longer"
-            pendingSaves > 0 -> "Saving on this device"
+            saving -> "Saving on this device"
             else -> "Changes saved"
         }) },
         text = { Text(when {
             retryingSave -> "Folio is writing the latest notebook and library data to this device. Keep the app open until it says Saved on device."
             saveFailed -> "${saveFailureReason ?: "The device could not finish the write."} Your latest changes are still open in Folio. Retry the save before closing the app."
-            slow -> "Folio is still writing $pendingSaves queued change${if (pendingSaves == 1) "" else "s"} to this device. Large pages, images, or busy storage can slow writes. Keep the app open until it says Saved on device."
-            pendingSaves > 0 -> "$pendingSaves change${if (pendingSaves == 1) " is" else "s are"} waiting to finish writing to this device."
+            slow -> "Folio is still writing to this device. Large pages, images, or busy storage can slow writes. Keep the app open until it says Saved on device."
+            saving -> "The changes you have made are on their way to this device. Folio combines them while you write, so this is usually the last stroke or two."
             else -> "All queued changes have been written to this device."
         }) },
         confirmButton = {
@@ -234,7 +233,7 @@ internal val EditorFloatingGroupHeight = 56.dp
             else TextButton({ detailsOpen = false }) { Text("Stay here") }
         },
         dismissButton = {
-            if (!saveFailed && pendingSaves > 0) TextButton({ detailsOpen = false; onClose() }) {
+            if (!saveFailed && saving) TextButton({ detailsOpen = false; onClose() }) {
                 Text("Library · save continues")
             } else TextButton({ detailsOpen = false }) { Text("Close") }
         }

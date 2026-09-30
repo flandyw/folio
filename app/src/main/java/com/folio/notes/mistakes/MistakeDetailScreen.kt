@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -50,7 +50,7 @@ internal fun MistakeDetailCard(
     var tab by rememberSaveable(mistake.id) { mutableIntStateOf(0) }
     var showMetadata by rememberSaveable(mistake.id) { mutableStateOf(false) }
     var showDelete by rememberSaveable(mistake.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
         context?.let {
             Text(listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · "),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -61,15 +61,15 @@ internal fun MistakeDetailCard(
         Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
             if (working) LoadingIndicator(Modifier.size(20.dp))
             else Icon(Icons.Rounded.Edit, null)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(FolioSpacing.dp8))
             Text(if (mistake.suspended) "Unsuspend in ExamTrack to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
         }
         TextButton({ showDelete = true }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
             Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(FolioSpacing.dp6))
             Text("Delete this card")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf("Question", "Solution", "Attempts").forEachIndexed { index, title ->
                 FilterChip(
                     selected = tab == index, onClick = { tab = index },
@@ -92,8 +92,8 @@ internal fun MistakeDetailCard(
                 if (showMetadata) MistakeMetaGrid(mistake, schedule, due)
             }
             1 -> {
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                         Text("The correction", style = MaterialTheme.typography.titleMedium)
                         RichText(mistake.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge)
                     }
@@ -106,8 +106,8 @@ internal fun MistakeDetailCard(
                 if (attempts.isEmpty()) Text("Work through the question once and your page will appear here. Every attempt is kept.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 attempts.sortedByDescending { it.second.completedAt ?: "9999" }.forEach { (note, attempt) ->
                     val done = attempt.completedAt != null
-                    Surface(onClick = { onOpenAttempt(note.id, attempt.practicePageId, attempt.reviewId, done) }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(onClick = { onOpenAttempt(note.id, attempt.practicePageId, attempt.reviewId, done) }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions, null)
                             Column(Modifier.weight(1f)) {
                                 Text(if (done) attempt.rating?.replaceFirstChar(Char::uppercase) ?: "Reviewed" else "Ready to continue", style = MaterialTheme.typography.titleSmall)
@@ -153,12 +153,12 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
         if (mistake.reviewHistory.isNotEmpty()) add("History" to "${mistake.reviewHistory.size} review${if (mistake.reviewHistory.size == 1) "" else "s"}")
     }
     if (items.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         items.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 row.forEach { (label, value) ->
-                    Surface(Modifier.weight(1f), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Surface(Modifier.weight(1f), shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
                             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -173,7 +173,7 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
 // ---- Question + attachments (LaTeX aware) ----------------------------------------------------
 
 @Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository, textScale: Float = 1f) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         context?.let {
             val crumb = listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")
             if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -189,7 +189,7 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
 @Composable
 private fun AttachmentGallery(m: ExamTrackMistake, user: String, attachments: MistakeAttachmentRepository) {
     if (m.attachments.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         m.attachments.forEach { attachment ->
             AttachmentImage(attachment, user, attachments)
         }
@@ -213,20 +213,20 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { failed = true }
     }
-    Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+    Surface(shape = FolioShapes.large, tonalElevation = 1.dp) {
         when {
             file != null -> Column {
                 AsyncImage(
                     file, attachment.name, imageLoader = loader,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(16.dp)).clickable(onClickLabel = "Enlarge attachment") { expanded = true }
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(FolioShapes.large).clickable(onClickLabel = "Enlarge attachment") { expanded = true }
                 )
                 Text(
-                    "${attachment.name} · Tap to enlarge", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    "${attachment.name} · Tap to enlarge", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp6),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
-            failed -> Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            failed -> Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(Modifier.weight(1f)) {
                     Text(attachment.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -234,7 +234,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                 }
                 TextButton({ retry++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
             }
-            else -> Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            else -> Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 LoadingIndicator(Modifier.size(20.dp))
                 Text("Loading ${attachment.name}…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -249,12 +249,12 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close attachment") }
                     Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton({ zoom = 1f; offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                 }
-                Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(0.dp)).pointerInput(Unit) {
+                Box(Modifier.weight(1f).fillMaxWidth().clip(RectangleShape).pointerInput(Unit) {
                     detectTransformGestures { _, pan, scale, _ ->
                         zoom = (zoom * scale).coerceIn(1f, 5f)
                         val maxX = size.width * (zoom - 1f) / 2f
@@ -266,7 +266,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                         scaleX = zoom; scaleY = zoom; translationX = offset.x; translationY = offset.y
                     })
                 }
-                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     TextButton({ zoom = (zoom - .5f).coerceAtLeast(1f); offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Zoom out") }
                     Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
                     TextButton({ zoom = (zoom + .5f).coerceAtMost(5f) }, shapes = ButtonDefaults.shapes()) { Text("Zoom in") }

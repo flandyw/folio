@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
     onSelect: (PdfExportMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         Text("PDF quality", style = MaterialTheme.typography.titleSmall)
         PdfModeRow(
             selected = selected == PdfExportMode.PRESERVE,
@@ -43,12 +43,12 @@ import androidx.compose.ui.unit.dp
 
 @Composable private fun PdfModeRow(selected: Boolean, onClick: () -> Unit, title: String, subtitle: String) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = FolioSpacing.dp6),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
     ) {
         RadioButton(selected = selected, onClick = onClick)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

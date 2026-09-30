@@ -5,7 +5,6 @@ package com.folio.notes.mistakes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -87,7 +86,7 @@ import com.folio.notes.*
                         Text(
                             when {
                                 state.saveFailed -> "Save failed · retry before rating"
-                                state.pendingSaves > 0 -> "Saving your ink…"
+                                state.saving -> "Saving your ink…"
                                 queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize"
                                 dueLeft > 1 -> "${dueLeft - 1} more due after this"
                                 else -> "Practise at your own pace"
@@ -121,18 +120,18 @@ import com.folio.notes.*
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             Surface(tonalElevation = 2.dp) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     if (!revealed) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                             Button({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                                 Icon(Icons.Rounded.Visibility, null)
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
                             }
                             if (canSkip) {
                                 OutlinedButton({ confirmDoubleTap("skipBottom", onSkip) }, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.SkipNext, "Skip this card for now")
-                                    Spacer(Modifier.width(6.dp))
+                                    Spacer(Modifier.width(FolioSpacing.dp6))
                                     Text(if (pendingAction == "skipBottom") "Tap again" else "Skip")
                                 }
                             }
@@ -140,13 +139,13 @@ import com.folio.notes.*
                         Text(if (pendingAction == "skipTop") "Tap the top Skip button again to confirm." else "Double-tap Compare answer or Skip to confirm.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     } else {
                         val now = remember(revealed) { isoTime() }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             ReviewRating.entries.forEach { rating ->
                                 val preview = remember(m.id, rating) {
                                     runCatching { MistakeScheduler.previewMistakeReview(m, rating, now) }.getOrNull()
                                 }
                                 val label = preview?.let { intervalLabel(it, rating) } ?: ""
-                                val canRate = !busy && state.pendingSaves == 0 && !state.saveFailed
+                                val canRate = !busy && !state.saving && !state.saveFailed
                                 val modifier = Modifier.weight(1f)
                                 val labelText = label
                                 val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
@@ -157,9 +156,9 @@ import com.folio.notes.*
                                     }
                                 }
                                 when (rating) {
-                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp), shapes = ButtonDefaults.shapes()) { RatingContent() }
-                                    ReviewRating.GOOD -> Button({ onRate(rating) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = 8.dp)) { RatingContent() }
-                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp), shapes = ButtonDefaults.shapes()) { RatingContent() }
+                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
+                                    ReviewRating.GOOD -> Button({ onRate(rating) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = FolioSpacing.dp8)) { RatingContent() }
+                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
                                 }
                             }
                         }
@@ -167,7 +166,7 @@ import com.folio.notes.*
                             when {
                                 pendingAction == "skipTop" -> "Tap the top Skip button again to confirm."
                                 state.saveFailed -> "Save failed — retry from the editor status, then rate."
-                                state.pendingSaves > 0 -> "Saving your ink… ratings unlock when it says Saved."
+                                state.saving -> "Saving your ink… ratings unlock when it says Saved."
                                 busy -> "Saving your review…"
                                 else -> "Again: missed it · Hard: needed help · Good: recalled it · Easy: confident"
                             },
@@ -185,7 +184,7 @@ import com.folio.notes.*
             @Composable fun ReferencePane(modifier: Modifier) {
                 Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel and text size") }
                             if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
@@ -208,15 +207,15 @@ import com.folio.notes.*
                                 confirmButton = { TextButton({ adjustLayout = false }) { Text("Done") } }
                             )
                         }
-                        if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             QuestionContent(m, context, attempt.userId, model.attachments, textScale)
                             if (previousAttempts.isNotEmpty()) {
                                 Surface(
                                     onClick = { showPrevious = true },
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = FolioShapes.large,
                                     color = MaterialTheme.colorScheme.secondaryContainer,
                                 ) {
-                                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                                         Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                                         Column(Modifier.weight(1f)) {
                                             Text(

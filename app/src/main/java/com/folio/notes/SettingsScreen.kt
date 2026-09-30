@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
@@ -73,9 +72,9 @@ import kotlin.math.roundToInt
     val dynamicAvailable = Build.VERSION.SDK_INT >= 31
     val selected = category
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) {
             IconButton(close, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (selected == null) "Close settings" else "Back to settings") }
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+            Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
                 Text(selected?.title ?: "Settings", style = MaterialTheme.typography.titleLarge)
                 selected?.let { SectionHint(it.description) }
             }
@@ -117,8 +116,8 @@ private fun SettingsPage(
         Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 760.dp).fillMaxWidth()
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                    .verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
                 content = content,
             )
         }
@@ -131,8 +130,8 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
     val normalizedQuery = query.trim().lowercase()
     val matches = SettingsCategory.entries.filter { it.matches(normalizedQuery) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
+        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
             Text("Make Folio your own", style = MaterialTheme.typography.headlineMedium)
             Text("Find a setting without searching through long menus.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -142,7 +141,7 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = RoundedCornerShape(18.dp),
+            shape = FolioShapes.large,
             placeholder = { Text("Search settings") },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             trailingIcon = if (query.isNotEmpty()) {
@@ -151,7 +150,7 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
         )
 
         if (normalizedQuery.isBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("All settings", style = MaterialTheme.typography.titleMedium)
                 Text("${SettingsCategory.entries.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
@@ -160,8 +159,8 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
         }
 
         if (matches.isEmpty()) {
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No settings found", style = MaterialTheme.typography.titleMedium)
                     Text("Try a word such as theme, backup, pencil, or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -171,9 +170,9 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
         } else {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val columns = if (maxWidth >= 560.dp) 2 else 1
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     matches.chunked(columns).forEach { rowItems ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             rowItems.forEach { item ->
                                 SettingsCategoryCard(item, Modifier.weight(1f), onSelect)
                             }
@@ -184,7 +183,7 @@ private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
             }
         }
 
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             SectionHint("Changes save automatically. Use the reset arrow on a setting to restore its default.")
         }
@@ -196,16 +195,16 @@ private fun SettingsCategoryCard(item: SettingsCategory, modifier: Modifier, onS
     Surface(
         onClick = { onSelect(item) },
         modifier = modifier.heightIn(min = 112.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = FolioShapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
+        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(item.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
                 }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text(item.title, style = MaterialTheme.typography.titleMedium)
                 Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
             }
@@ -217,17 +216,17 @@ private fun SettingsCategoryCard(item: SettingsCategory, modifier: Modifier, onS
 @Composable
 private fun SettingsNavigation(selected: SettingsCategory?, onSelect: (SettingsCategory?) -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Browse settings", modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            Text("Browse settings", modifier = Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.titleMedium)
             NavigationDrawerItem(
                 label = { Text("All settings") },
                 selected = selected == null,
                 onClick = { onSelect(null) },
                 icon = { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null) },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = FolioShapes.large,
             )
-            HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+            HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp6))
             SettingsCategory.entries.forEach { item ->
                 NavigationDrawerItem(
                     label = { Text(item.title) },
@@ -235,7 +234,7 @@ private fun SettingsNavigation(selected: SettingsCategory?, onSelect: (SettingsC
                     onClick = { onSelect(item) },
                     icon = { Icon(item.icon, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = FolioShapes.large,
                 )
             }
         }
@@ -279,25 +278,25 @@ private fun SettingsDetails(
     when (selected) {
                         SettingsCategory.APPEARANCE -> {
                             SectionTitle("Theme mode")
-                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
                                     ThemeMode.entries.forEach { option ->
-                                        Row(Modifier.fillMaxWidth().selectable(option == themeMode, role = Role.RadioButton, onClick = { onThemeMode(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Row(Modifier.fillMaxWidth().selectable(option == themeMode, role = Role.RadioButton, onClick = { onThemeMode(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(option == themeMode, onClick = null)
-                                            Spacer(Modifier.width(12.dp))
+                                            Spacer(Modifier.width(FolioSpacing.dp12))
                                             Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                         }
                                     }
                                 }
                             }
                             Text("Color theme", style = MaterialTheme.typography.titleSmall)
-                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
                                     ThemePalette.entries.forEach { option ->
                                         val enabled = option != ThemePalette.DYNAMIC || dynamicAvailable
-                                        Row(Modifier.fillMaxWidth().selectable(option == themePalette, enabled = enabled, role = Role.RadioButton, onClick = { onThemePalette(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Row(Modifier.fillMaxWidth().selectable(option == themePalette, enabled = enabled, role = Role.RadioButton, onClick = { onThemePalette(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(option == themePalette, onClick = null, enabled = enabled)
-                                            Spacer(Modifier.width(12.dp))
+                                            Spacer(Modifier.width(FolioSpacing.dp12))
                                             Column {
                                                 Text(option.label, style = MaterialTheme.typography.titleSmall, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                                                 Text(
@@ -356,12 +355,12 @@ private fun SettingsDetails(
                         SettingsCategory.STYLUS -> {
                             SectionTitle("Double-tap shortcut")
                             Text("On a OnePlus or OPPO device, double-tapping the Pencil starts the action you pick here. Other styli keep their own system shortcut. Palm touches are ignored while the stylus is writing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(8.dp)) {
+                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
                                     StylusShortcut.entries.forEach { option ->
-                                        Row(Modifier.fillMaxWidth().selectable(stylus == option, role = Role.RadioButton, onClick = { onStylus(option) }).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Row(Modifier.fillMaxWidth().selectable(stylus == option, role = Role.RadioButton, onClick = { onStylus(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(stylus == option, onClick = null)
-                                            Spacer(Modifier.width(12.dp))
+                                            Spacer(Modifier.width(FolioSpacing.dp12))
                                             Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                         }
                                     }
@@ -394,7 +393,7 @@ private fun SettingsDetails(
                             OutlinedButton(onCheckForUpdates, enabled = !updateChecking, shapes = ButtonDefaults.shapes()) {
                                 if (updateChecking) {
                                     LoadingIndicator(Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(FolioSpacing.dp8))
                                     Text("Checking…")
                                 } else Text("Check for updates")
                             }
@@ -425,7 +424,7 @@ private enum class SettingsCategory(
     val hold = rememberLongPressGuard()
     Row(Modifier.fillMaxWidth()
         .then(if (onReset != null) Modifier.longPressAction(hold, onReset) else Modifier)
-        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { value -> hold.click { onChange(value) }() }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { value -> hold.click { onChange(value) }() }).padding(vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
         Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Switch(checked, onCheckedChange = null, enabled = enabled)
         onReset?.let { reset ->
@@ -502,15 +501,15 @@ private enum class SettingsCategory(
             Row(Modifier.fillMaxWidth().selectable(sort == option, role = Role.RadioButton, onClick = {
                 sort = option
                 p.edit().putString(AppPrefs.LIB_SORT, option.name).apply()
-            }).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            }).padding(vertical = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(sort == option, onClick = null)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(FolioSpacing.dp12))
                 Text(option.label, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
     Text("Library type filter", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         LibraryKind.entries.forEach { option ->
             FilterChip(kind == option, {
                 kind = option
@@ -532,7 +531,7 @@ private enum class SettingsCategory(
     HorizontalDivider()
     SectionTitle("New notebooks")
     Text("Default paper for new notebooks", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Paper.entries.forEach { item ->
             FilterChip(defaultPaper == item, {
                 defaultPaper = item
@@ -541,14 +540,14 @@ private enum class SettingsCategory(
         }
     }
     Text("Default cover color", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         CoverColors.forEachIndexed { index, color ->
             IconButton({
                 defaultCover = index
                 p.edit().putInt(AppPrefs.DEFAULT_COVER, index).apply()
             },
                 shapes = IconButtonDefaults.shapes()) {
-                Surface(Modifier.size(34.dp), shape = RoundedCornerShape(12.dp), color = color, border = if (index == defaultCover) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
+                Surface(Modifier.size(34.dp), shape = FolioShapes.medium, color = color, border = if (index == defaultCover) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
                     if (index == defaultCover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
                     else Box(Modifier.semanticsLabel("Cover ${index + 1}"))
                 }
@@ -591,7 +590,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     SectionTitle("Editor defaults")
     SectionHint("Which tool is in hand when a notebook opens, and how new typed text looks. Ink color, width and opacity stay per-tool in Tool settings.")
     Text("Default tool", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Tool.entries.forEach { tool ->
             FilterChip(defaultTool == tool, {
                 defaultTool = tool
@@ -606,7 +605,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     }, valueRange = AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX)
     SectionHint("New text boxes start at this size. Existing boxes are unchanged.")
     Text("Default text alignment", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         TextAlignMode.entries.forEach { align ->
             FilterChip(textAlign == align, {
                 textAlign = align

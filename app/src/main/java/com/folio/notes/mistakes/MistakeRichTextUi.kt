@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.folio.notes.FolioShapes
+import com.folio.notes.FolioSpacing
 import com.folio.notes.math.KaTeXMath
 import com.folio.notes.math.KaTeXPool
 import com.folio.notes.math.rememberKaTeXInlineContent
@@ -60,7 +61,7 @@ fun RichText(
         runCatching { RichTextParser.parse(source) }.getOrDefault(emptyList())
             .ifEmpty { listOf(RichBlock.Para(listOf(RichInline.Run(source)))) }
     }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         blocks.forEach { block ->
             when (block) {
                 is RichBlock.Para -> InlineParagraph(block.inlines, style, maxLines, overflow)
@@ -73,27 +74,27 @@ fun RichText(
                     }.merge(style),
                     maxLines, overflow
                 )
-                is RichBlock.Bullets -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                is RichBlock.Bullets -> Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     block.items.forEach { item ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("•", style = style, color = MaterialTheme.colorScheme.primary)
                             InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f))
                         }
                     }
                 }
-                is RichBlock.Numbers -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                is RichBlock.Numbers -> Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     block.items.forEachIndexed { index, item ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("${index + 1}.", style = style, color = MaterialTheme.colorScheme.primary)
                             InlineParagraph(item, style, maxLines, overflow, Modifier.weight(1f))
                         }
                     }
                 }
                 is RichBlock.Quote -> Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = FolioShapes.medium,
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
-                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         HorizontalDivider(
                             Modifier.width(3.dp),
                             thickness = 3.dp,
@@ -106,11 +107,11 @@ fun RichText(
                     }
                 }
                 is RichBlock.Code -> Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = FolioShapes.medium,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Text(
-                        block.code, Modifier.fillMaxWidth().padding(12.dp),
+                        block.code, Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
                         fontFamily = FontFamily.Monospace,
                         fontSize = (style.fontSize.value.takeIf { it > 0 } ?: 14f).sp * 0.92f,
                         maxLines = maxLines, overflow = overflow
@@ -157,7 +158,7 @@ private fun InlineParagraph(
         if (current.isNotEmpty()) out.add(current.toList())
         out.toList()
     }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         sections.forEach { section ->
             when (section) {
                 is RichInline.Math -> KaTeXMath(section.latex, displayMode = true, textStyle = style)

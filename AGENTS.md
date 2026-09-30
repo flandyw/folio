@@ -15,14 +15,15 @@ Native Android notebook app. Single module `:app`, Kotlin + Jetpack Compose + Ma
 ## Architecture entrypoints
 
 - `MainActivity.kt` → `FolioApp.kt` (nav, pickers, sharing, settings) → `FolioViewModel.kt` (library/editor state, lazy page loads, app-scope serialized save queue, survives Activity recreation).
-- Persistence: `NoteRepository.kt` (fsynced journal + background snapshot compaction) over pure codecs `NoteStore.kt` / `PageJournal.kt` / `NotebookArchive.kt`. Rendering: `InkView.kt` (native input surface) + shared `InkRenderer.kt` (editor/thumbnails/exports).
+- Persistence: `NoteRepository.kt` (one fsynced journal append per batched transaction + background snapshot compaction) over pure codecs `NoteStore.kt` / `PageJournal.kt` / `NotebookArchive.kt`. Rendering: `InkView.kt` (native input surface) + shared `InkRenderer.kt` (editor/thumbnails/exports).
 - Keep `PdfSearch.kt`, `PdfLinks.kt`, `PdfOutline.kt`, `NotebookTextSearch.kt`, `VceModels.kt`, and other `*pure*` helpers free of Android imports — unit-testability is intentional.
 - `mistakes/*` is ExamTrack review (Supabase sync + cache); `math/*` is reusable offline KaTeX. Details and smoke test in `docs/examtrack.md`.
 
 ## Storage format (do not reshape casually)
 
-- Notebook dir `files/notebooks/<id>/`: `note.json` (title/folder/star/tags/attempts/redo flags + per-page summaries, **no ink**) + `pages/<id>.json` (snapshot) + `pages/<id>.journal` (JSONL deltas, fsynced per edit, compacted past 256 KB) + `pages/<id>.history` (persisted per-page undo, cap 60) + `images/*.jpg` + `source.pdf` if imported. `NoteMetaCodec.VERSION = 6`, page `VERSION = 1`.
-- Journal/snapshot invariant: snapshot records last journal sequence it contains; torn final journal line is discarded. `.folio` archives always expand to full portable pages. Folders in `files/library.json`; previews in `cacheDir/thumbnails`; mistake cache in `files/examtrack/<user-id>/cache.json` (v2).
+- Notebook dir `files/notebooks/<id>/`: `note.json` (title/folder/star/tags/attempts/redo flags + per-page summaries, **no ink**; checkpointed when the writer goes idle, never per stroke) + `pages/<id>.json` (snapshot: content + `journalSeq` + `revision` + undo/redo stacks) + `pages/<id>.journal` (JSONL `PageTransaction`s, one append + one fsync per batch, folded into the snapshot past 4 MB while the writer is idle) + `images/*.jpg` + `source.pdf` if imported. `NoteMetaCodec.VERSION = 6`, page `VERSION = 1`. A `pages/<id>.history` file is only ever read, for pages written before undo state moved into the journal.
+- Journal/snapshot invariant: a snapshot records the last journal sequence it contains **and** the undo/redo stacks as of that point, and each record states its own stack effect, so folding the log onto it rebuilds the same stacks before the log is dropped. Torn final journal line is discarded. On load a page's revision is `max(index, snapshot, journal)`.
+- Page edits are positional, never whole-page: `StrokesEdit` is `Add`/`Remove`/`Insert`/`Replace`/`Rewrite`/`Set`, and `Set` only for migration or a page that shrank past half. `PageJournal.invert()` (not a second `diff`) produces the undo edit, because a diff would describe a page that grew in the middle as an append. `everyEditUndoesItselfBackToTheSamePage` in `PageJournalTests` guards the round trip. `.folio` archives always expand to full portable pages. Folders in `files/library.json`; previews in `cacheDir/thumbnails`; mistake cache in `files/examtrack/<user-id>/cache.json` (v2).
 
 ## Conventions / gotchas
 

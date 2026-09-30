@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -351,7 +350,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage,
             onDelete = ::deleteCurrentCard,
             onRate = onRate@{ rating ->
-            if (working || currentFrame == null || folioState.pendingSaves > 0 || folioState.saveFailed) return@onRate
+            if (working || currentFrame == null || folioState.saving || folioState.saveFailed) return@onRate
             actionMessage = null
             working = true
             scope.launch {
@@ -503,8 +502,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         columns = GridCells.Fixed(columns),
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
                         state = if (standaloneDetail) detailListState else listState, contentPadding = PaddingValues(if (tablet) 24.dp else 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
+                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
                     ) {
                         if (standaloneDetail && state.userId != null) {
                             item(key = selected.id, span = { GridItemSpan(maxLineSpan) }) {
@@ -526,10 +525,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem { OfflineNoteCard() }
                         } else {
                             if (isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()) fullWidthItem {
-                                Surface(onClick = { showAccount = true }, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Surface(onClick = { showAccount = true }, shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                                     Row(
-                                        Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
+                                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -565,7 +564,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 if (due.isNotEmpty()) {
                                     fullWidthItem {
-                                        Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Column(Modifier.padding(top = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text("Due for review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                                                 Text("${due.size} ${if (due.size == 1) "question" else "questions"}",
@@ -593,15 +592,15 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
                                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
                                         trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
-                                        singleLine = true, shape = RoundedCornerShape(16.dp))
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        singleLine = true, shape = FolioShapes.large)
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                         listOf("All" to mistakes.size, "Due" to due.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
                                             FilterChipWithCount(label, count, filter == label) { filter = label }
                                         }
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
                                         if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                                     }
                                     if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -622,12 +621,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         VerticalDivider()
                         Surface(Modifier.weight(.58f).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             if (selected != null) key(selected.id) {
-                                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) { DetailContent() }
-                            } else Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24)) { DetailContent() }
+                            } else Column(Modifier.fillMaxSize().padding(FolioSpacing.dp32), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.height(16.dp))
+                                Spacer(Modifier.height(FolioSpacing.dp16))
                                 Text("Room to work through it", style = MaterialTheme.typography.headlineSmall)
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(FolioSpacing.dp8))
                                 Text("Choose a question to see its solution and handwritten attempts here.", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
@@ -637,7 +636,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     if (showAccount && state.userId != null) ModalBottomSheet(onDismissRequest = { showAccount = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("ExamTrack connection", style = MaterialTheme.typography.headlineSmall)
             AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
                 { model.requestSync(force = true) }, { showAccount = false; confirmSignOut = true })
@@ -645,7 +644,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Focus your library", style = MaterialTheme.typography.headlineSmall)
             MistakeFilterOptions("Subject", subjects, subject) { subject = it }
             MistakeFilterOptions("Paper", papers, paper) { paper = it }
@@ -706,7 +705,7 @@ private fun MistakesDestinationToolbar(
     }
     // A floating toolbar hugs its content and sits centred on the bottom edge; Scaffold's
     // bottomBar slot lays out from the start, so the centring is done by this box.
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), contentAlignment = Alignment.BottomCenter) {
         HorizontalFloatingToolbar(
             expanded = true,
             scrollBehavior = scrollBehavior,
@@ -716,14 +715,14 @@ private fun MistakesDestinationToolbar(
                     val isSelected = title == selected
                     Surface(
                         onClick = { onSelect(title) },
-                        shape = RoundedCornerShape(16.dp),
+                        shape = FolioShapes.large,
                         color = if (isSelected) vibrant.toolbarContainerColor else Color.Transparent,
                         contentColor = if (isSelected) vibrant.toolbarContentColor else standard.toolbarContentColor,
                     ) {
                         Column(
-                            Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                            Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp6),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)
                         ) {
                             Icon(icons[title] ?: Icons.Rounded.Draw, title, Modifier.size(20.dp))
                             Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -748,11 +747,11 @@ private fun LoginCard(
     var emailTouched by remember { mutableStateOf(false) }
     val emailValid = email.isBlank() || emailLooksValid(email)
     val canSubmit = !state.busy && emailLooksValid(email) && password.isNotEmpty()
-    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    ElevatedCard(shape = FolioShapes.extraLarge) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Icon(Icons.Rounded.School, null, Modifier.padding(12.dp).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Icon(Icons.Rounded.School, null, Modifier.padding(FolioSpacing.dp12).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
                 Column(Modifier.weight(1f)) {
                     Text("Review your mistakes", style = MaterialTheme.typography.titleLarge)
@@ -763,7 +762,7 @@ private fun LoginCard(
                 }
             }
             if (state.status == "Loading saved mistakes…") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     LoadingIndicator(Modifier.size(18.dp))
                     Text("Restoring your saved session…", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -806,16 +805,16 @@ private fun LoginCard(
                 enabled = !state.busy
             )
             if (state.error != null) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer) {
+                    Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10), verticalAlignment = Alignment.Top) {
                         Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
                         Text(state.error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }
             if (state.authMessage != null) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(state.authMessage!!, Modifier.fillMaxWidth().padding(12.dp),
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Text(state.authMessage!!, Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
                         color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -830,11 +829,11 @@ private fun LoginCard(
             ) {
                 if (state.busy) {
                     LoadingIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp10))
                     Text("Signing in…")
                 } else {
                     Text("Sign in")
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
                     Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
                 }
             }
@@ -853,10 +852,10 @@ private fun LoginCard(
 
 @Composable
 private fun OfflineNoteCard() {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.Top) {
             Icon(Icons.Rounded.OfflinePin, null, tint = MaterialTheme.colorScheme.secondary)
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text("Works offline after the first sync", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Cards, images and ratings are kept on this device. Sync resumes when you are back online.",
@@ -872,13 +871,13 @@ private fun AccountCard(
     email: String?, status: String, lastSyncedAt: String?, pending: Int,
     syncing: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
 ) {
-    ElevatedCard(shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    ElevatedCard(shape = FolioShapes.extraLarge) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                     Text(
                         (email?.trim()?.firstOrNull()?.uppercase() ?: "E"),
-                        Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium,
+                        Modifier.padding(FolioSpacing.dp12), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold
                     )
                 }
@@ -909,8 +908,8 @@ private fun SyncStatusRow(status: String, pending: Int) {
         status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Surface(shape = RoundedCornerShape(14.dp), color = container, contentColor = content) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(shape = FolioShapes.large, color = container, contentColor = content) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(icon, null, Modifier.size(18.dp))
             Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             if (pending > 0) Text("$pending queued", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
@@ -927,10 +926,10 @@ internal fun trimMark(value: Double): String = if (value % 1.0 == 0.0) value.toL
 
 @Composable
 private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(if (hasCards) Icons.Rounded.SearchOff else Icons.Rounded.School, null, Modifier.padding(16.dp).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(if (hasCards) Icons.Rounded.SearchOff else Icons.Rounded.School, null, Modifier.padding(FolioSpacing.dp16).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Text(
                 if (hasCards) "No mistakes match" else "Your library starts here",
@@ -949,6 +948,6 @@ private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
 
 private fun LazyGridScope.fullWidthItem(content: @Composable ColumnScope.() -> Unit) {
     item(span = { GridItemSpan(maxLineSpan) }) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), content = content)
     }
 }

@@ -32,7 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -547,7 +547,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val baseWidthPx = with(density) { baseWidth.toPx() }
             val stripWidth = 26.dp
             val stripInset = 2.dp
-            val trackTop = floatingToolbarTop + 8.dp
+            val trackTop = floatingToolbarTop + FolioSpacing.dp8
             val trackBottom = 20.dp
             val stripWidthPx = with(density) { stripWidth.toPx() }
             val stripInsetPx = with(density) { stripInset.toPx() }
@@ -708,11 +708,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                 LazyColumn(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
-                    contentPadding = PaddingValues(top = floatingToolbarTop + 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally
+                    contentPadding = PaddingValues(top = floatingToolbarTop + FolioSpacing.dp8, bottom = FolioSpacing.dp16, start = FolioSpacing.dp8, end = FolioSpacing.dp8),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), modifier = Modifier.fillMaxWidth()) {
                             EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
                                 onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
                                 onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
@@ -743,7 +743,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
                             Box {
                                 val captionHold = rememberLongPressGuard()
-                                Row(Modifier.longPressAction(captionHold) { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(Modifier.longPressAction(captionHold) { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                     if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
                                     if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
                                     Text(
@@ -766,16 +766,16 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                     item {
                         val footerHold = rememberLongPressGuard()
-                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = 4.dp).longPressAction(footerHold) { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add page · ${paperLabel(page.paper)}")
+                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = FolioSpacing.dp4).longPressAction(footerHold) { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page · ${paperLabel(page.paper)}")
                         }
                     }
                 }
             }
             if (writingStripOpen) {
                 Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().fillMaxHeight(.55f)
-                    .padding(top = floatingToolbarTop + 8.dp).zIndex(7f).background(MaterialTheme.colorScheme.surface)) {
-                    Text("Page overview · pinch to zoom", Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
+                    .padding(top = floatingToolbarTop + FolioSpacing.dp8).zIndex(7f).background(MaterialTheme.colorScheme.surface)) {
+                    Text("Page overview · pinch to zoom", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium)
                     EditorPage(note.id, page, model, Tool.HAND, options, false, false, false, true,
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {},
                         onTextEdit = {}, onTextCreate = {}, onLoad = { model.loadPage(page.id) },
@@ -784,7 +784,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f).padding(bottom = 72.dp)
                     .zIndex(8f).background(MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                         Text("Writing strip", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                         TextButton({ stripInkView?.nextWritingLine() }, shapes = ButtonDefaults.shapes()) { Text("Next line") }
                         IconButton({ writingStripOpen = false }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close writing strip") }
@@ -821,12 +821,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                         inputBlocked = true, peekRegion = peekAnchor)
                     // Hint floats above the lens so a first-time holder knows to let go to return.
                     Surface(
-                        Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
-                        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        Modifier.align(Alignment.TopCenter).padding(top = FolioSpacing.dp12),
+                        shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         shadowElevation = 4.dp, tonalElevation = 1.dp,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                     ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                             Text("Peeking — release to return", style = MaterialTheme.typography.labelLarge)
                         }
@@ -834,14 +834,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
             val pillHold = rememberLongPressGuard()
-            Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd).padding(horizontal = 12.dp, vertical = 16.dp)
+            Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shadowElevation = 4.dp, tonalElevation = 1.dp,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2)) {
                         Box {
                             // Tap opens the follow menu; a hold flips writing follow on and off at once.
                             IconButton(pillHold.click { followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp).longPressAction(pillHold) {
@@ -949,7 +949,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             Text(
                                 followStatus,
                                 modifier = Modifier.weight(1f, fill = false).widthIn(max = 280.dp)
-                                    .padding(horizontal = 12.dp),
+                                    .padding(horizontal = FolioSpacing.dp12),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -965,10 +965,10 @@ private fun paperLabel(p: Paper): String = when (p) {
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
-                    .padding(top = 6.dp, start = 6.dp, end = 6.dp)
+                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6)
                     .onSizeChanged { floatingToolbarTop = with(density) { it.height.toDp() } + 8.dp },
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 FloatingInkToolbar(
                     modifier = Modifier,
@@ -1005,14 +1005,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                             retryingSave = state.retryingSave,
                             saveFailureReason = state.saveFailureReason,
                             lastSaveProgressAt = state.lastSaveProgressAt,
-                            pendingSaves = state.pendingSaves,
+                            saving = state.saving,
                             starred = note.starred,
                             onStar = { model.star(note) },
                             onRename = { renameTitle = note.title; rename = true },
                             onRetrySave = model::retrySave,
                             onClose = model::close,
                             timer = {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                                     TimingChip(state.timer, state.stopwatch, onLongClick = {
                                         if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
                                         else model.toggleStopwatchPause()
@@ -1059,20 +1059,20 @@ private fun paperLabel(p: Paper): String = when (p) {
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
         val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
         val canDrag = pageQuery.isBlank() && pageFilter == PageFilter.ALL
-        OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = FolioShapes.large,
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear page search") } })
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             PageFilter.entries.forEach { option ->
                 FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = FolioShapes.large,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" }),
                 modifier = Modifier.weight(1f))
@@ -1080,21 +1080,21 @@ private fun paperLabel(p: Paper): String = when (p) {
                 enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true,
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton({
                 model.duplicatePage()?.let { pages.requestScrollToItem(it) }
                 pageBrowser = false
             },
-                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Duplicate ${state.pageIndex + 1}") }
+                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Duplicate ${state.pageIndex + 1}") }
         }
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (visiblePages.isEmpty()) item {
-                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No pages match", style = MaterialTheme.typography.titleSmall)
                     Text("Try another name or filter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1131,7 +1131,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
+            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
         }
     }
     namedPage?.let { target ->
@@ -1143,7 +1143,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
             }, dismissButton = { TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = { Button({ model.renamePage(target.id, pageTitle); namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Save") } })
     }
@@ -1160,7 +1160,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         if (from >= 0 && destination != null) model.movePage(from, destination - 1)
                         movingPage = null
                     }),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
             }, dismissButton = { TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = { Button({
                 val from = note.pages.indexOfFirst { it.id == pageId }
@@ -1185,25 +1185,25 @@ private fun paperLabel(p: Paper): String = when (p) {
         OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { if (renameTitle.isNotBlank()) { model.rename(note, renameTitle); rename = false } }),
-            shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+            shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
     }, dismissButton = { TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = {
         Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
     })
     if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false },
         icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text("Change paper") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text("Applies to the current page only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+            Text("Applies to the current page only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = FolioSpacing.dp8))
             listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
                 val selectedPaper = page.paper == p
                 Surface(
                     onClick = { model.setPaper(p); paperMenu = false },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = FolioShapes.large,
                     color = if (selectedPaper) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    modifier = Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp2)
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selectedPaper, { model.setPaper(p); paperMenu = false })
-                        Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                        Column(Modifier.padding(start = FolioSpacing.dp8).weight(1f)) {
                             Text(paperLabel(p), style = MaterialTheme.typography.bodyMedium)
                             val hint = when (p) {
                                 Paper.MATH_GRID -> "Fine 20 px grid, bold every 5"
@@ -1278,7 +1278,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         val live = note.pages.find { it.id == ownerId }?.images?.find { it.id == image.id }
         if (live != null && ownerId == page.id) {
             FolioPanel(title = "Picture", onDismissRequest = { selectedImage = null }) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     Text("Drag with the hand tool to move. Drag the blue dot to resize. Rotating turns the photo itself; cropping keeps only the selected part. Ink draws over the picture.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (live.isCropped() || live.normalizedRotation() != 0) {
@@ -1293,36 +1293,36 @@ private fun paperLabel(p: Paper): String = when (p) {
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         OutlinedButton({ model.rotateImageCounterClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.AutoMirrored.Rounded.RotateLeft, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Left 90°")
+                            Icon(Icons.AutoMirrored.Rounded.RotateLeft, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Left 90°")
                         }
                         OutlinedButton({ model.rotateImageClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.AutoMirrored.Rounded.RotateRight, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Right 90°")
+                            Icon(Icons.AutoMirrored.Rounded.RotateRight, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Right 90°")
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         FilledTonalButton({ croppingImage = live }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Crop, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Crop")
+                            Icon(Icons.Rounded.Crop, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Crop")
                         }
                         if (live.isCropped()) {
                             OutlinedButton({ model.resetImageCrop(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Full photo")
+                                Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Full photo")
                             }
                         }
                     }
                     FilledTonalButton({ model.bringImageToFront(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Bring to front")
+                        Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Bring to front")
                     }
                     OutlinedButton({ model.sendImageToBack(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FlipToBack, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send to back")
+                        Icon(Icons.Rounded.FlipToBack, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Send to back")
                     }
                     Button(
                         { model.removeImage(live.id); selectedImage = null },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
                         shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Remove picture")
+                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Remove picture")
                     }
                 }
             }
@@ -1353,14 +1353,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             hits = if (debouncedQuery.isBlank()) emptyList()
             else withContext(Dispatchers.Default) { NotebookTextSearch.search(pagesSnapshot, debouncedQuery) }
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
                 noteQuery, { noteQuery = it },
                 Modifier.fillMaxWidth(),
                 label = { Text("Find typed text") },
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = FolioShapes.large,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 trailingIcon = {
@@ -1370,13 +1370,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             )
             if (noteQuery.isBlank()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     Icon(Icons.Rounded.FindInPage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Searches every typed text box in this notebook. Handwriting is not searched.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else if (hits.isEmpty()) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No typed text matches “${noteQuery.trim().take(80)}”.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1384,11 +1384,11 @@ private fun paperLabel(p: Paper): String = when (p) {
             } else {
                 Text("${hits.size} ${if (hits.size == 1) "page matches" else "pages match"} — most matches first.",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     items(hits, key = { it.pageIndex }) { hit ->
-                        Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
                                     if (hit.snippet.isNotBlank()) Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -1402,7 +1402,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             InkStamps.kinds.forEach { kind ->
@@ -1421,20 +1421,20 @@ private fun paperLabel(p: Paper): String = when (p) {
                             InkStamps.Kind.UNDERLINE -> Icons.Rounded.FormatUnderlined
                         }, null, Modifier.size(18.dp)
                     )
-                    Spacer(Modifier.width(8.dp)); Text(InkStamps.label(kind))
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(InkStamps.label(kind))
                 }
             }
         }
     }
     if (pdfSearchOpen) FolioPanel(title = "Search this PDF", onDismissRequest = { pdfSearchOpen = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
                 pdfQuery, { pdfQuery = it },
                 Modifier.fillMaxWidth(),
                 label = { Text("Find in this PDF") },
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = FolioShapes.large,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { model.searchPdf(pdfQuery) }),
@@ -1445,17 +1445,17 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             )
             Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Search")
+                Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
             }
             val search = state.pdfSearch
             if (search.searching) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching PDF"))
                     Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else if (search.searched && search.query.isNotBlank()) {
                 if (search.results.isEmpty()) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                         Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             "No matches for “${search.query.trim().take(80)}”.",
@@ -1469,11 +1469,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                         "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         items(search.results, key = { it.pageIndex }) { hit ->
-                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     Column(Modifier.weight(1f)) {
                                         Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
                                         Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -1490,22 +1490,22 @@ private fun paperLabel(p: Paper): String = when (p) {
     if (pdfContentsOpen) FolioPanel(title = "Contents", onDismissRequest = { pdfContentsOpen = false }) {
         val outline = pdfOutline
         if (outline == null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Loading contents"))
                 Text("Reading bookmarks…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else if (outline.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = 16.dp), contentPadding = PaddingValues(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = FolioSpacing.dp16), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 itemsIndexed(outline) { _, entry ->
-                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                        Row(Modifier.fillMaxWidth().padding(start = 14.dp + 16.dp * entry.depth, end = 14.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16 + FolioSpacing.dp16 * entry.depth, end = FolioSpacing.dp16, top = FolioSpacing.dp10, bottom = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1534,7 +1534,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val done = timer.phase == ExamTimerPhase.DONE
             Surface(
                 onClick = hold.click(onClick),
-                shape = RoundedCornerShape(20.dp),
+                shape = FolioShapes.extraLarge,
                 color = if (done) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
                 contentColor = if (done) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                 tonalElevation = 1.dp,
@@ -1542,7 +1542,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 modifier = Modifier.height(36.dp)
                     .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)
             ) {
-                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Icon(
                         if (done) Icons.Rounded.Flag
                         else if (if (active) timer.paused else stopwatch.paused) Icons.Rounded.Pause
@@ -1616,14 +1616,14 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         val labelHeightPx = with(density) { 32.dp.toPx() }
         val labelTop = (geometry.top + geometry.height / 2 - labelHeightPx / 2)
             .coerceIn(0f, (constraints.maxHeight - labelHeightPx).coerceAtLeast(0f))
-        Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = 30.dp)
+        Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = FolioSpacing.dp32)
             .graphicsLayer { alpha = chipAlpha },
-            shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
             val current = DocumentViewport.displayedPage(pages.firstVisibleItemIndex, pages.canScrollForward, pageCount)
             Text("${current + 1} / $pageCount",
-                Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge,
+                Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)
         }
     }
@@ -1740,7 +1740,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     Box(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height)) {
         Surface(
             Modifier.fillMaxSize(),
-            shape = RoundedCornerShape(if (fullscreen) 0.dp else 10.dp),
+            shape = if (fullscreen) RectangleShape else FolioShapes.medium,
             color = Color.White,
             shadowElevation = if (fullscreen) 0.dp else 3.dp,
             tonalElevation = 0.dp,
@@ -1749,7 +1749,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
             // of a blank stand-in and replace the content that is still on disk.
             if (!page.loaded) Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     LoadingIndicator(Modifier.semanticsLabel("Loading page"))
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1785,12 +1785,12 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.onPdfLink = onPdfLink
                 if (!active) view.clearSelection()
             }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
-                if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(24.dp)) {
+                if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {
                     Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Couldn't open this PDF page", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text("Check the file still exists, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilledTonalButton({ retry++ }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
-                } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     LoadingIndicator(Modifier.semanticsLabel("Loading page"))
                     Text("Rendering PDF…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1881,7 +1881,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
     }
     @Composable fun QuickColors() {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(horizontal = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2), modifier = Modifier.padding(horizontal = FolioSpacing.dp2)) {
             quick.colors(colorGroup).forEachIndexed { index, c ->
                 InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}", onLongClick = { onPalette(true) })
             }
@@ -1903,14 +1903,14 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 modifier = Modifier.height(32.dp).longPressAction(hold) { onPalette(true) }
             )
             DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
-                Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     Text("Stroke width", style = MaterialTheme.typography.titleSmall)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Slider(value = options.width.coerceIn(widthRange), onValueChange = { onOptions(options.copy(width = it)) }, valueRange = widthRange, modifier = Modifier.weight(1f))
                         Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         when (tool) {
                             Tool.PEN -> {
                                 AssistChip({ onOptions(options.copy(width = 1.4f)); showWidth = false }, { Text("Fine") })
@@ -1935,7 +1935,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                         }
                     }
                     if (tool != Tool.ERASER && tool != Tool.HAND && tool != Tool.LASSO) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("Opacity", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
                             Slider(value = options.opacity, onValueChange = { onOptions(options.copy(opacity = it)) }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f))
                             Text("${(options.opacity * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(36.dp))
@@ -1991,7 +1991,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Row(
             Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)
         ) {
             toolbarLayout.primary.forEach { slot -> ToolbarSlotButton(slot) }
             pinnedPresets.forEach { preset ->
@@ -2022,7 +2022,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
                     HorizontalDivider()
                 }
-                if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
                         ShapePickerTools.forEach { value ->
@@ -2041,7 +2041,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
                 if (toolbarLayout.overflow.isNotEmpty()) HorizontalDivider()
                 if (presets.isNotEmpty() && onApplyPreset != null) {
-                    Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Presets", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     presets.forEach { preset ->
                         DropdownMenuItem(
                             { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
@@ -2055,7 +2055,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     DropdownMenuItem({ Text("Select all") }, { onSelectAll(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
                     HorizontalDivider()
                 }
-                Text("Tool behaviour", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text("Tool behaviour", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 if (!isDrawing && tool != Tool.ERASER) {
                     DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
                     if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
@@ -2080,7 +2080,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     // The header hosts the main tools; quick controls remain directly beneath them.
     Column(modifier.guardUiTouches().fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         header {
         BoxWithConstraints {
         val compactTools = maxWidth < 360.dp
@@ -2092,14 +2092,14 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 } else if (toolbarLayoutState != null) editToolbar = true
             }
         ) {
-            Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls(compactTools) }
+            Row(Modifier.padding(horizontal = FolioSpacing.dp6, vertical = FolioSpacing.dp2).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) { controls(compactTools) }
         }
         }
         }
         FolioExpand(showQuickBar) {
             EditorGlassSurface(Modifier.widthIn(max = 640.dp)) {
-                Row(Modifier.padding(horizontal = 6.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp6).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
                             quick.colors(colorGroup).forEachIndexed { index, c ->
                                 InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, label = "Text colour ${index + 1}", onLongClick = { onPalette(true) })
@@ -2206,12 +2206,12 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     FolioPanel(title = "Edit toolbar", onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
         ) {
             Text("Long-press the tool strip any time to come back here. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Primary tools · first ${layout.maxPrimary} shown", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 listOf(5, 6, 7).forEach { count ->
                     FilterChip(layout.maxPrimary == count, { layoutState.setMaxPrimary(count) }, { Text("$count") })
                 }
@@ -2221,19 +2221,19 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 val dragging = dragFrom == index
                 val primary = slot in layout.primary
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = FolioShapes.large,
                     color = if (dragging) MaterialTheme.colorScheme.secondaryContainer
                     else MaterialTheme.colorScheme.surfaceContainerLow,
                     modifier = Modifier.fillMaxWidth().height(rowHeight)
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
                 ) {
-                    Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             toolbarSlotIcon(slot, Tool.PEN, Tool.LINE), null,
                             Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
                             Text(toolbarSlotLabel(slot), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 when {
@@ -2281,10 +2281,10 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 presets.forEach { preset ->
                     val pinnedIndex = layout.pinnedPresetIds.indexOf(preset.id)
                     val pinned = pinnedIndex >= 0
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape))
-                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                            Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
                                 Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(preset.tool.name.lowercase(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -2301,7 +2301,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton({ layoutState.reset() }, shapes = ButtonDefaults.shapes()) { Text("Reset toolbar") }
                 Button(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Done") }
             }
@@ -2321,12 +2321,12 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     onFitAll: (() -> Unit)? = null
 ) {
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
-        Text("Page", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Page", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
         HorizontalDivider()
-        Text("Study", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Study", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem(
             { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
             { onDismiss(); onRedo() },
@@ -2336,14 +2336,14 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
         DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         HorizontalDivider()
-        Text("Insert & find", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Insert & find", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
         DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
         DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
         DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
         DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
         HorizontalDivider()
-        Text("View & editing", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("View & editing", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         if (onFitAll != null) {
             DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
             DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
@@ -2370,20 +2370,20 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     noteId: String, thumbnails: PageThumbnailCache
 ) {
     var menu by remember { mutableStateOf(false) }
-    Surface(onClick = onOpen, shape = RoundedCornerShape(20.dp), modifier = modifier.fillMaxWidth(),
+    Surface(onClick = onOpen, shape = FolioShapes.extraLarge, modifier = modifier.fillMaxWidth(),
         color = if (current) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = if (dragging) 6.dp else 1.dp, tonalElevation = if (current) 1.dp else 0.dp,
         border = BorderStroke(
             if (current) 1.5.dp else 1.dp,
             if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
         )) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PageThumbnail(noteId, page, thumbnails, Modifier.width(64.dp).aspectRatio(page.width / page.height).clip(RoundedCornerShape(8.dp)))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            PageThumbnail(noteId, page, thumbnails, Modifier.width(64.dp).aspectRatio(page.width / page.height).clip(FolioShapes.small))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     Text(page.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (current) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
-                        Text("Open", Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                    if (current) Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                        Text("Open", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp2), style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 // A page that has not been read yet cannot say how much ink it holds.
@@ -2430,7 +2430,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     LaunchedEffect(noteId, page.id, page.revision, page.loaded) {
         preview = thumbnails.thumbnail(noteId, page, widthPx)
     }
-    Surface(modifier, shape = RoundedCornerShape(8.dp), color = Color.White, shadowElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
+    Surface(modifier, shape = FolioShapes.small, color = Color.White, shadowElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val bitmap = preview
             if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -2461,7 +2461,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         action()
     }
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = FolioShapes.panel,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 6.dp,
         tonalElevation = 1.dp,
@@ -2469,22 +2469,22 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")
             .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
     ) {
-        Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Copy")
+        Row(Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Copy")
             }
-            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.DynamicFeed, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicate")
+            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.DynamicFeed, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Duplicate")
             }
-            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = 10.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Palette, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Style")
+            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.Palette, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Style")
             }
             TextButton(
                 { tap(onDelete) },
-                contentPadding = PaddingValues(horizontal = 10.dp),
+                contentPadding = PaddingValues(horizontal = FolioSpacing.dp10),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Delete")
+                Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Delete")
             }
             Box {
                 IconButton({ overflow = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
@@ -2513,23 +2513,23 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     var lineStyle by remember { mutableStateOf<StrokeStyle?>(null) }
     val hasShape = remember(originals) { originals.any { it.tool in ShapeTools } }
     FolioPanel(title = "Restyle selection", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp32), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
 
             Text("${originals.size} ${if (originals.size == 1) "stroke" else "strokes"}. Leave a control alone to keep it as it is.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 FilterChip(color == null, { color = null }, { Text("Keep") })
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(FolioSpacing.dp6))
                 quickColors.forEach { option -> InkColorDot(option, color == option, { color = option }, touch = 38.dp, dot = 26.dp, label = "Selection colour") }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Thickness", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(70.dp))
                 Slider(scale, { scale = it }, valueRange = 0.5f..3f, modifier = Modifier.weight(1f))
                 Text(String.format(java.util.Locale.ROOT, "%.1fx", scale), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
             if (hasShape) {
                 Text("Line style", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(lineStyle == null, { lineStyle = null }, { Text("Keep") })
                     FilterChip(lineStyle == StrokeStyle.SOLID, { lineStyle = StrokeStyle.SOLID }, { Text("Solid") })
                     FilterChip(lineStyle == StrokeStyle.DASHED, { lineStyle = StrokeStyle.DASHED }, { Text("Dashed") })
@@ -2543,11 +2543,11 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 }
                 Switch(fade, { fade = it })
             }
-            if (fade) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (fade) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Slider(opacity, { opacity = it }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f))
                 Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
             }
@@ -2584,10 +2584,10 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         icon = { Icon(Icons.Rounded.TextFields, null) },
         title = { Text(if (isNew) "Add text" else "Edit text") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus),
                     label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = FolioShapes.large,
                     supportingText = {
                         Text(
                             if (text.isBlank()) "Empty boxes are not added."
@@ -2605,11 +2605,11 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 LaunchedEffect(box.id) { textFocus.requestFocus() }
                 // Live preview so size, width, fade and colour choices read before they land on the page.
                 if (text.isNotBlank()) {
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
                         Text(
                             text.trimEnd().take(220),
-                            Modifier.fillMaxWidth().padding(12.dp),
+                            Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
                             color = Color(color).copy(alpha = opacity.coerceIn(0f, 1f)),
                             fontSize = size.coerceIn(10f, 48f).sp,
                             fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
@@ -2620,29 +2620,29 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f))
                     Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f))
                     Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
                 }
                 Text("Wrap width · the box grows downwards as it wraps.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f))
                     Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(bold, { bold = !bold }, { Text("Bold") })
                     FilterChip(italic, { italic = !italic }, { Text("Italic") })
                     FilterChip(underline, { underline = !underline }, { Text("Underline") })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(align == TextAlignMode.LEFT, { align = TextAlignMode.LEFT }, { Text("Left") })
                     FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
                     FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
@@ -2654,7 +2654,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             }
         },
         dismissButton = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 if (!isNew) {
                     TextButton({ onDuplicate(box) }, shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
                     TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
@@ -2688,7 +2688,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     val valid = PageImage.isValidCrop(left, top, right, bottom)
     val changed = left != image.cropLeft || top != image.cropTop || right != image.cropRight || bottom != image.cropBottom
     FolioPanel(title = "Crop picture", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Drag each edge inward to keep only that part. The picture on the page shrinks about its centre to match.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (image.normalizedRotation() != 0) {
@@ -2696,7 +2696,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             @Composable fun edgeRow(label: String, value: Float, onValue: (Float) -> Unit) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
                     Slider(value, onValue, valueRange = 0f..1f, modifier = Modifier.weight(1f))
                     Text("${(value * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
@@ -2715,7 +2715,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 Text("That rectangle is too small — keep at least 5% visible each way.",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 if (image.isCropped()) TextButton(onReset, shapes = ButtonDefaults.shapes()) { Text("Full photo") }
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ onApply(left, top, right, bottom) }, enabled = valid && changed, shapes = ButtonDefaults.shapes()) { Text("Crop") }

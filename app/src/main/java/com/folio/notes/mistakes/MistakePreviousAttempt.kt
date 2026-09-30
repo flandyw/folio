@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.folio.notes.FolioShapes
+import com.folio.notes.FolioSpacing
 import com.folio.notes.FolioViewModel
 import com.folio.notes.Notebook
 
@@ -50,7 +52,7 @@ internal fun PreviousAttemptDialog(
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close previous working") }
                     Column(Modifier.weight(1f)) {
                         Text("Your previous working", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -68,8 +70,8 @@ internal fun PreviousAttemptDialog(
                 } else {
                     if (attempts.size > 1) {
                         Row(
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp16),
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
                         ) {
                             attempts.forEachIndexed { index, (_, a) ->
                                 val label = buildString {
@@ -87,15 +89,15 @@ internal fun PreviousAttemptDialog(
                     val (note, attempt) = current
                     Text(
                         attemptLabel(attempt, note),
-                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp4),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Column(
                         Modifier.weight(1f).fillMaxWidth()
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
                     ) {
                         val totalPages = note.pages.size
                         note.pages.forEachIndexed { pageIndex, page ->
@@ -115,7 +117,7 @@ internal fun PreviousAttemptDialog(
                         )
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.Center) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.Center) {
                     FilledTonalButton(onClose, shapes = ButtonDefaults.shapes()) { Text("Back to this attempt") }
                 }
             }
@@ -166,7 +168,7 @@ private fun PreviousAttemptPage(
                 failed = bitmap == null
             } catch (_: Exception) { failed = true }
         }
-        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+        Surface(shape = FolioShapes.large, tonalElevation = 1.dp) {
             Column {
                 Box(
                     Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White),
@@ -177,14 +179,14 @@ private fun PreviousAttemptPage(
                         image != null -> Image(
                             image.asImageBitmap(),
                             "Previous working, page ${pageIndex + 1} — tap to enlarge",
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = FolioShapes.largeRadius, topEnd = FolioShapes.largeRadius))
                                 .clickable(onClickLabel = "Enlarge page ${pageIndex + 1}") { onEnlarge() },
                             contentScale = ContentScale.FillWidth,
                         )
                         failed -> Row(
-                            Modifier.fillMaxWidth().padding(16.dp),
+                            Modifier.fillMaxWidth().padding(FolioSpacing.dp16),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
                         ) {
                             Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Column(Modifier.weight(1f)) {
@@ -202,18 +204,18 @@ private fun PreviousAttemptPage(
                             TextButton({ retry++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
                         else -> Row(
-                            Modifier.fillMaxWidth().padding(24.dp),
+                            Modifier.fillMaxWidth().padding(FolioSpacing.dp24),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             LoadingIndicator(Modifier.size(20.dp))
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(FolioSpacing.dp10))
                             Text("Loading page ${pageIndex + 1}…", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp6),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -224,7 +226,7 @@ private fun PreviousAttemptPage(
                     )
                     if (bitmap != null) TextButton(onEnlarge, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.ZoomIn, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp4))
                         Text("Zoom")
                     }
                 }
@@ -250,7 +252,7 @@ private fun PreviousPageViewer(
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close enlarged page") }
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -315,13 +317,13 @@ private fun PreviousPageViewer(
                             )
                         }
                         failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 Icon(Icons.Rounded.BrokenImage, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("This page could not be drawn.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                                 LoadingIndicator(Modifier.size(20.dp))
                                 Text("Loading page ${index + 1}…")
                             }
@@ -329,7 +331,7 @@ private fun PreviousPageViewer(
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(12.dp),
+                    Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -342,7 +344,7 @@ private fun PreviousPageViewer(
                         { zoom = (zoom - .5f).coerceAtLeast(1f); if (zoom == 1f) offset = Offset.Zero },
                         shapes = ButtonDefaults.shapes(),
                     ) { Text("−") }
-                    Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 4.dp))
+                    Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = FolioSpacing.dp4))
                     TextButton(
                         { zoom = (zoom + .5f).coerceAtMost(5f) },
                         shapes = ButtonDefaults.shapes(),

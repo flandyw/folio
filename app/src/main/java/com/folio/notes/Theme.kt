@@ -207,6 +207,25 @@ fun darkSchemeFor(palette: ThemePalette): ColorScheme = when (palette) {
     else -> DarkColors
 }
 
+/**
+ * Stock Material shape tiers remapped onto [FolioShapes], so components that fall back to
+ * `MaterialTheme.shapes` (menus, tooltips, chips, cards, drawers, sheets, dialogs) sit on
+ * Folio's corner scale instead of Material's 4/8/12/16/20/28/32/48 radii. The tiers are
+ * shifted up in order so every Folio size is represented: the stock `medium` card becomes
+ * Folio's `large` (matching the cards styled by hand), and the expressive extras fold into
+ * the largest two tiers.
+ */
+private val FolioMaterialShapes = Shapes(
+    extraSmall = FolioShapes.small,
+    small = FolioShapes.medium,
+    medium = FolioShapes.large,
+    large = FolioShapes.extraLarge,
+    extraLarge = FolioShapes.panel,
+    largeIncreased = FolioShapes.extraLarge,
+    extraLargeIncreased = FolioShapes.panel,
+    extraExtraLarge = FolioShapes.panel,
+)
+
 /** True-black backgrounds for OLED screens; accents stay untouched so ink keeps its hue. */
 fun ColorScheme.withAmoled(): ColorScheme = copy(
     background = Color.Black, surface = Color.Black,
@@ -227,7 +246,7 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
         if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
     } else if (dark) darkSchemeFor(effective) else lightSchemeFor(effective)
     val colors = if (AppTheme.isAmoledEffective(amoled, dark)) base.withAmoled() else base
-    MaterialExpressiveTheme(colorScheme = colors, motionScheme = MotionScheme.expressive(), typography = Typography(
+    MaterialExpressiveTheme(colorScheme = colors, shapes = FolioMaterialShapes, motionScheme = MotionScheme.expressive(), typography = Typography(
         displaySmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 38.sp, lineHeight = 44.sp),
         headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontSize = 32.sp, lineHeight = 39.sp),
         headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontSize = 28.sp, lineHeight = 34.sp),

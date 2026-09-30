@@ -8,7 +8,6 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -43,7 +42,7 @@ import androidx.compose.ui.unit.dp
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         notebookActions = { dismiss ->
                             HorizontalDivider()
-                            Text("Workspace", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            Text("Workspace", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = "tabs" },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
@@ -110,7 +109,7 @@ import androidx.compose.ui.unit.dp
         FolioPanel(title = when (kind) { "split" -> "Open beside editor"; "reference" -> "Choose a reference"; "tabs" -> "Open documents"; else -> "Open document" }, onDismissRequest = { picker = null }) {
             // ListItem brings its own content padding, so the gutter here is deliberately small;
             // without it the rows run straight into the panel's rounded edges.
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp).padding(horizontal = 8.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp).padding(horizontal = FolioSpacing.dp8)) {
                 val notes = if (kind == "tabs") state.notes.filter { n -> state.tabs.any { it.notebookId == n.id } } else state.notes
                 items(notes, key = { it.id }) { note ->
                     ListItem(headlineContent = { Text(note.title) },
@@ -144,7 +143,7 @@ import androidx.compose.ui.unit.dp
     val handOptions = remember { ToolOptions.defaults(Tool.HAND) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().guardUiTouches(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Column(Modifier.weight(1f).padding(start = FolioSpacing.dp12)) {
                 Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 Text(
                     if (state.companionMode == CompanionMode.REFERENCE) {
@@ -232,7 +231,7 @@ import androidx.compose.ui.unit.dp
     ) {
         Box(
             Modifier.then(if (vertical) Modifier.width(4.dp).height(48.dp) else Modifier.height(4.dp).width(48.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
         )
         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Swap panes") }, { menu = false; onSwap() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
