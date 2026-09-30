@@ -15,7 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.guardUiTouches
@@ -25,43 +25,54 @@ import com.folio.notes.rememberLongPressGuard
 @Composable internal fun ReviewDashboard(
     due: Int, total: Int, limit: Int, onLimit: (Int) -> Unit, shuffle: Boolean,
     onShuffle: () -> Unit, working: Boolean, onReview: () -> Unit, onBrowse: () -> Unit,
+    orderLabel: String = "Oldest due first",
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val horizontal = maxWidth >= 700.dp
         @Composable fun Introduction(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("YOUR NEXT STEP", style = MaterialTheme.typography.labelMedium)
-                Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "You're caught up."; else -> "$due questions. A fresh start." },
-                    style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
-                Text(when { total == 0 -> "Log a mistake in ExamTrack, then sync to bring your questions here."; due == 0 -> "Revisit a question at your own pace, or return when your next review is due."; else -> "Read, work it out, then compare. Your handwriting is saved as you go." }, style = MaterialTheme.typography.bodyLarge)
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "You're caught up."; due == 1 -> "1 question due"; else -> "$due questions due" },
+                    style = MaterialTheme.typography.titleLarge)
+                Text(when { total == 0 -> "Log a mistake in Focal, then sync your questions here."; due == 0 -> "Explore your library, or return when your next review is due."; else -> "Read → work it out → compare" }, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        @Composable fun SessionChoices(modifier: Modifier = Modifier) {
+            FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(5, 10, Int.MAX_VALUE).forEach { count ->
+                    FilterChip(limit == count, { onLimit(count) }, { Text(if (count == Int.MAX_VALUE) "All due" else "$count") },
+                        colors = FilterChipDefaults.filterChipColors(labelColor = MaterialTheme.colorScheme.onPrimaryContainer))
+                }
+                FilterChip(shuffle, onShuffle, { Text("Shuffle") },
+                    leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) },
+                    colors = FilterChipDefaults.filterChipColors(labelColor = MaterialTheme.colorScheme.onPrimaryContainer))
             }
         }
         @Composable fun SessionControls(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (due > 0) {
-                    Text("Choose your session", style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(5, 10, Int.MAX_VALUE).forEach { count ->
-                            FilterChip(limit == count, { onLimit(count) }, { Text(if (count == Int.MAX_VALUE) "All due" else "$count questions") })
-                        }
-                        FilterChip(shuffle, onShuffle, { Text("Shuffle") }, leadingIcon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
-                    }
-                    Button(onReview, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
+                    SessionChoices()
+                    Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
                         if (working) LoadingIndicator(Modifier.size(20.dp))
                         else Icon(Icons.Rounded.PlayArrow, null)
                         Spacer(Modifier.width(8.dp)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
                     }
-                    Text(if (shuffle) "Random order" else "Oldest due first", style = MaterialTheme.typography.bodySmall)
+                    Text(if (shuffle) "Random order" else orderLabel, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer)
                 } else OutlinedButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Explore your library"); Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
             }
         }
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            if (horizontal) Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
-                Introduction(Modifier.weight(1f))
-                SessionControls(Modifier.weight(1f))
-            } else Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Introduction(Modifier.fillMaxWidth())
-                SessionControls(Modifier.fillMaxWidth())
+                if (horizontal && due > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SessionChoices(Modifier.weight(1f))
+                    Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
+                        if (working) LoadingIndicator(Modifier.size(20.dp)) else Icon(Icons.Rounded.PlayArrow, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (working) "Opening…" else "Start ${minOf(due, limit)} questions")
+                    }
+                } else SessionControls(Modifier.fillMaxWidth())
             }
         }
     }
@@ -96,28 +107,50 @@ import com.folio.notes.rememberLongPressGuard
     // Long-pressing a card opens its context menu; the tap still opens the details.
     var menu by remember { mutableStateOf(false) }
     val hold = rememberLongPressGuard()
+    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val preview = remember(mistake.questionText) {
+        mistake.questionText?.let { RichTextParser.plainText(it, maxLength = 420) }.orEmpty()
+    }
+    val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question"
+    val overdue = !mistake.suspended && dueText.contains("overdue")
     Box {
     OutlinedCard(onClick = hold.click(onOpen), shape = RoundedCornerShape(20.dp),
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        modifier = Modifier.longPressAction(hold) { menu = true }) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "ExamTrack question" },
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text(mistake.question, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (!mistake.questionText.isNullOrBlank()) RichText(mistake.questionText, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-                if (mistake.category.isNotBlank()) Text("· ${mistake.category}", style = MaterialTheme.typography.labelMedium)
-                if (mistake.marksLost != null) Text("· ${trimMark(mistake.marksLost)} marks lost", style = MaterialTheme.typography.labelMedium)
+        modifier = Modifier.fillMaxWidth().height(316.dp * fontScale).longPressAction(hold) { menu = true }) {
+        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Focal question" },
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(mistake.question, style = MaterialTheme.typography.titleMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // RichText's maxLines applies per block, not to the whole question. Use its native
+            // preview fallback here; full Markdown and KaTeX remain available in question details.
+            Text(preview, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
+                minLines = 4, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(8.dp),
+                    color = if (overdue) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = if (overdue) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurface) {
+                    Text(dueText, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(mistake.category, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(buildList {
-                    if (attempts > 0) add("$attempts attempts")
-                    if (mistake.attachments.isNotEmpty()) add("${mistake.attachments.size} attachments")
-                    if (isEmpty()) add("Open question for details")
-                }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!mistake.suspended) FilledTonalButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) { Text(if (resume) "Continue" else "Practise") }
+                    mistake.marksLost?.let { add("−${trimMark(it)} ${if (it == 1.0) "mark" else "marks"}") }
+                    if (attempts > 0) add("$attempts ${if (attempts == 1) "attempt" else "attempts"}")
+                    if (mistake.attachments.isNotEmpty()) add("${mistake.attachments.size} ${if (mistake.attachments.size == 1) "attachment" else "attachments"}")
+                }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (!mistake.suspended) TextButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) {
+                    Text(if (resume) "Continue" else "Practise")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                }
             }
         }
     }

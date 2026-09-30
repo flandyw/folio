@@ -67,13 +67,13 @@ internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis()): St
     val diff = runCatching { timestamp(dueAt) - now }.getOrDefault(0L)
     if (diff <= 0) {
         val overdueDays = TimeUnit.MILLISECONDS.toDays(-diff)
-        return if (overdueDays < 1) "Due now" else "Overdue $overdueDays d"
+        return if (overdueDays < 1) "Due today" else "${overdueDays}d overdue"
     }
     val days = TimeUnit.MILLISECONDS.toDays(diff)
     return when {
         diff < TimeUnit.HOURS.toMillis(20) -> "Due today"
         diff < TimeUnit.HOURS.toMillis(44) -> "Due tomorrow"
-        days < 30 -> "Due in $days d"
+        days < 30 -> "Due in ${days}d"
         else -> runCatching { "Due ${dueDateFormat.get()!!.format(Date(timestamp(dueAt)))}" }
             .getOrDefault("Due ${dueAt.take(10)}")
     }
@@ -130,6 +130,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var showAccount by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
+    var newestDueFirst by rememberSaveable { mutableStateOf(false) }
+    var showDueSort by remember { mutableStateOf(false) }
     var sessionTotal by rememberSaveable { mutableIntStateOf(0) }
     var sessionCompleted by rememberSaveable { mutableIntStateOf(0) }
     var showSummary by rememberSaveable { mutableStateOf(false) }
@@ -141,6 +143,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
     val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
+    val orderedDue = remember(due, newestDueFirst) { if (newestDueFirst) due.asReversed() else due }
+    val dueOrderLabel = if (newestDueFirst) "Newest due first" else "Oldest due first"
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
     LaunchedEffect(Unit) { model.requestSync() }
@@ -486,7 +490,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 if (!standaloneDetail) {
                     val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
                     val tab = destination.takeIf { it in tabs } ?: tabs.first()
-                    PrimaryTabRow(selectedTabIndex = tabs.indexOf(tab)) {
+                    PrimaryScrollableTabRow(selectedTabIndex = tabs.indexOf(tab), edgePadding = if (tablet) 24.dp else 12.dp) {
                         tabs.forEach { title -> Tab(selected = tab == title, onClick = { destination = title; detail = null }, text = { Text(title) }) }
                     }
                 }
@@ -494,7 +498,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
-                        state = if (standaloneDetail) detailListState else listState, contentPadding = PaddingValues(if (tablet) 16.dp else 12.dp),
+                        state = if (standaloneDetail) detailListState else listState, contentPadding = PaddingValues(if (tablet) 24.dp else 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -543,7 +547,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 fullWidthItem {
                                     ReviewDashboard(due.size, mistakes.size, sessionLimit, { sessionLimit = it }, shuffle, { shuffle = !shuffle }, working,
-                                        onReview = { startSession(due) }, onBrowse = { destination = "Library" })
+                                        onReview = { startSession(orderedDue) }, onBrowse = { destination = "Library" }, orderLabel = dueOrderLabel)
                                 }
                                 val unfinished = mistakes.filter { it.id in unfinishedByMistake && !it.suspended }
                                 if (unfinished.isNotEmpty()) {
@@ -555,12 +559,25 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 if (due.isNotEmpty()) {
                                     fullWidthItem {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("Next to review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                                            TextButton({ destination = "Library"; filter = "Due" }, shapes = ButtonDefaults.shapes()) { Text("See all ${due.size}") }
+                                        Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Due for review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                                Text("${due.size} ${if (due.size == 1) "question" else "questions"}",
+                                                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Box {
+                                                TextButton({ showDueSort = true }, shapes = ButtonDefaults.shapes()) {
+                                                    Text(dueOrderLabel, color = MaterialTheme.colorScheme.onSurface)
+                                                    Icon(Icons.Rounded.ArrowDropDown, null)
+                                                }
+                                                DropdownMenu(showDueSort, { showDueSort = false }) {
+                                                    DropdownMenuItem({ Text("Oldest due first") }, { newestDueFirst = false; showDueSort = false })
+                                                    DropdownMenuItem({ Text("Newest due first") }, { newestDueFirst = true; showDueSort = false })
+                                                }
+                                            }
                                         }
                                     }
-                                    items(due.take(5), key = { "due-${it.id}" }) { m ->
+                                    items(orderedDue, key = { "due-${it.id}" }) { m ->
                                         MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
                                             { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
                                     }
