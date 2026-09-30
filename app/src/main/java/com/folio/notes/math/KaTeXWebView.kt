@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import androidx.annotation.ColorInt
 import android.view.View
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -29,29 +28,23 @@ internal const val MATH_ORIGIN = "https://folio-math.invalid/"
 /** One render, plus two retries for a frame the renderer had not committed yet. */
 private const val CAPTURE_ATTEMPTS = 3
 
-/**
- * Sparse ink probe. KaTeX output always paints glyphs, so an all-transparent bitmap means a stale or
- * dropped frame rather than real content. Samples a grid instead of every pixel to stay cheap.
- */
+/** Scan rows exactly: a sparse grid can miss thin fraction bars or small glyphs. */
 internal fun Bitmap.hasInk(): Boolean {
-    if (width < 1 || height < 1) return false
-    val stepX = (width / 24).coerceAtLeast(1)
-    val stepY = (height / 24).coerceAtLeast(1)
-    var y = 0
-    while (y < height) {
-        var x = 0
-        while (x < width) {
-            if (alphaAt(x, y) > 0) return true
-            x += stepX
-        }
-        y += stepY
+    if (isRecycled || width < 1 || height < 1) return false
+    val row = IntArray(width)
+    for (y in 0 until height) {
+        getPixels(row, 0, width, 0, y, width, 1)
+        if (row.any { Color.alpha(it) > 0 }) return true
     }
     return false
 }
 
-@ColorInt
-private fun Bitmap.alphaAt(x: Int, y: Int): Int =
-    runCatching { Color.alpha(getPixel(x, y)) }.getOrDefault(0)
+// Must run BEFORE WebView's constructor. Captures extend beyond the 1 dp attachment host;
+// WebView's default visible-region optimization can otherwise return only part of the formula.
+private fun wholeDocumentContext(context: Context): Context {
+    WebView.enableSlowWholeDocumentDraw()
+    return context.applicationContext
+}
 
 /**
  * A tiny pool of pre-warmed renderers. Creating a WebView plus loading the local
@@ -104,8 +97,9 @@ internal object KaTeXPool {
 
 /** An exact local asset allowlist; no file/content access, network, navigation or JS bridge. */
 @SuppressLint("SetJavaScriptEnabled") // Required by the bundled KaTeX shell only.
-internal class KaTeXWebView(context: Context) : WebView(context.applicationContext) {
+internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(context)) {
     private val loaded = CompletableDeferred<Unit>()
+    private var nextRequestId = 0L
 
     @Volatile
     internal var dead: Boolean = false
@@ -128,6 +122,7 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
             setSupportMultipleWindows(false)
             setSupportZoom(false)
             textZoom = 100
+            offscreenPreRaster = true
         }
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
@@ -202,12 +197,13 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
 
     private suspend fun capture(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
         loaded.await()
-        val request = JSONObject().put("latex", latex).put("displayMode", display)
+        val requestId = ++nextRequestId
+        val request = JSONObject().put("id", requestId).put("latex", latex).put("displayMode", display)
             .put("fontSize", fontSize).put("color", color)
         evaluate("window.renderMath($request); null")
         // Check immediately, then poll tightly: the shell usually answers within one frame.
         var result = evaluate("window.folioResult")
-        while (result == "null") {
+        while (result == "null" || JSONObject(result).optLong("id", -1) != requestId) {
             delay(8)
             result = evaluate("window.folioResult")
         }
@@ -221,8 +217,12 @@ internal class KaTeXWebView(context: Context) : WebView(context.applicationConte
         measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         layout(0, 0, width, height)
+        scrollTo(0, 0)
+        // Flush the new viewport through Chromium before asking for a committed frame.
+        // DOM measurement alone precedes the native resize and is not a capture barrier.
+        evaluate("document.getElementById('formula').getBoundingClientRect(); null")
         suspendCancellableCoroutine { continuation ->
-            postVisualStateCallback(0, object : VisualStateCallback() {
+            postVisualStateCallback(requestId, object : VisualStateCallback() {
                 override fun onComplete(requestId: Long) {
                     if (continuation.isActive) continuation.resume(Unit)
                 }

@@ -52,7 +52,8 @@ private val images = object : LruCache<FormulaKey, Bitmap>(16 * 1024 * 1024) {
     override fun sizeOf(key: FormulaKey, value: Bitmap) = value.allocationByteCount
 }
 
-private const val KATEX_DISK_VERSION = "katex-0.18.7"
+// Capture behavior is part of the cache format: old partial images still pass an ink check.
+private const val KATEX_DISK_VERSION = "katex-0.18.7-capture-v2"
 private const val KATEX_DISK_MAX_BYTES = 32L * 1024 * 1024
 
 private fun diskFile(appContext: Context, key: FormulaKey): File {

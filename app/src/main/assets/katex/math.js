@@ -1,7 +1,9 @@
 'use strict';
 // Only this local shell executes code. Source arrives through JSON, never HTML.
 window.folioResult = null;
+let activeRequest = 0;
 window.renderMath = async function (request) {
+    const generation = ++activeRequest;
     window.folioResult = null;
     const target = document.getElementById('formula');
     target.style.fontSize = request.fontSize + 'px';
@@ -24,8 +26,11 @@ window.renderMath = async function (request) {
     // Force font requests from the new DOM before awaiting their completion.
     target.getBoundingClientRect();
     await document.fonts.ready;
+    // A cancelled native caller may already have returned this renderer to the pool.
+    if (generation !== activeRequest) return;
     const bounds = target.getBoundingClientRect();
     window.folioResult = {
+        id: request.id,
         width: Math.ceil(bounds.width),
         height: Math.ceil(bounds.height),
         rendered: !!target.querySelector('.katex'),

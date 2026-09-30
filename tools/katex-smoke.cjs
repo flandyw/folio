@@ -3,9 +3,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const root = path.resolve(__dirname, '../app/src/main/assets/katex');
 const katex = require(path.join(root, 'katex.min.js'));
 const formulas = [
+  String.raw`\boxed{\frac{1}{2}}`, String.raw`f(3)=7`, String.raw`f'(7)=3`,
   String.raw`\Pr(X \le 3)`, String.raw`\Pr(A \mid B)`, String.raw`\Pr(X=x)`, String.raw`\Pr(X \geq 4)`,
   String.raw`\Pr(X \le 3)=\sum_{x=0}^{3}\binom{n}{x}p^x(1-p)^{n-x}`,
   String.raw`\frac{dy}{dx}`, String.raw`\sqrt{x^2+1}`, String.raw`\binom{n}{r}`,
@@ -34,3 +36,44 @@ for (const font of fonts) {
 assert.ok(fs.readFileSync(path.join(root, 'LICENSE'), 'utf8').includes('MIT'));
 assert.ok(fs.readFileSync(path.join(root, 'VERSION.txt'), 'utf8').includes(katex.version));
 console.log(`KaTeX ${katex.version}: ${formulas.length * 2} representative renders, malformed/untrusted input, ${fonts.length} local font URLs passed.`);
+
+// Exercise the async shell without a browser: a cancelled render's fonts can finish
+// after a newer request has started on the same pooled WebView.
+async function checkShellRequestIsolation(oldFinishesFirst) {
+  let finishOldFonts;
+  let finishNewFonts;
+  const oldFonts = new Promise(resolve => { finishOldFonts = resolve; });
+  const newFonts = new Promise(resolve => { finishNewFonts = resolve; });
+  const target = {
+    style: {}, textContent: '',
+    getBoundingClientRect: () => ({ width: 20.25, height: 40.5 }),
+    querySelector: selector => selector === '.katex' ? {} : null,
+  };
+  const document = { getElementById: () => target, fonts: { ready: oldFonts } };
+  const window = {};
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'math.js'), 'utf8'), {
+    window, document, katex: { render: latex => { target.textContent = latex; } },
+  });
+  const oldRender = window.renderMath({ id: 1, latex: 'old', fontSize: 18, color: '#eee' });
+  document.fonts.ready = newFonts;
+  const newRender = window.renderMath({ id: 2, latex: 'new', fontSize: 18, color: '#eee' });
+  if (oldFinishesFirst) {
+    finishOldFonts();
+    await oldRender;
+    assert.equal(window.folioResult, null, 'stale render must not publish completion');
+    finishNewFonts();
+    await newRender;
+  } else {
+    finishNewFonts();
+    await newRender;
+    finishOldFonts();
+    await oldRender;
+  }
+  assert.equal(window.folioResult.id, 2);
+  assert.equal(window.folioResult.text, 'new');
+  assert.equal(window.folioResult.width, 21);
+  assert.equal(window.folioResult.height, 41);
+}
+Promise.all([checkShellRequestIsolation(true), checkShellRequestIsolation(false)])
+  .then(() => console.log('KaTeX shell: font wait, request isolation in both completion orders and rounded capture bounds passed.'))
+  .catch(error => { console.error(error); process.exitCode = 1; });

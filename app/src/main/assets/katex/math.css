@@ -1,4 +1,5 @@
-html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+/* Captures include the whole formula, even when the native attachment host is tiny. */
+html, body { margin: 0; padding: 0; background: transparent; overflow: visible; }
 body { width: max-content; }
 #formula { display: inline-block; padding: 2px; white-space: pre; user-select: none; }
 .katex-display { margin: 0; }

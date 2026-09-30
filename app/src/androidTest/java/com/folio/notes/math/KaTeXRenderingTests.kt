@@ -1,9 +1,11 @@
 package com.folio.notes.math
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -28,12 +30,13 @@ class KaTeXRenderingTests {
                     view = KaTeXWebView(context)
                     addView(view)
                 }
-            }, modifier = Modifier.size(1.dp), onRelease = { it.removeAllViews(); view.destroy() })
+            }, modifier = Modifier.size(1.dp).alpha(0f), onRelease = { it.removeAllViews(); view.destroy() })
         }
         compose.waitForIdle()
         val formulas = listOf(
             "\\Pr(X \\le 3)", "\\Pr(A \\mid B)", "\\Pr(X=x)", "\\Pr(X \\geq 4)",
             "\\Pr(X \\le 3)=\\sum_{x=0}^{3}\\binom{n}{x}p^x(1-p)^{n-x}",
+            "\\boxed{\\frac{1}{2}}", "f(3)=7", "f'(7)=3",
             "\\frac{dy}{dx}", "\\sqrt{x^2+1}", "\\binom{n}{r}",
             "\\int_a^b f(x)\\,dx", "\\sum_{i=1}^{n} x_i",
             "\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}",
@@ -63,6 +66,29 @@ class KaTeXRenderingTests {
                             bitmap.recycle()
                         }
                     }
+                    // Reuse a small viewport for a tall box, just as list snippets and review
+                    // answers share pool slots. Any-ink checks alone accept a missing denominator.
+                    for (fontSize in listOf(12f, 18f, 32f)) {
+                        view.render("f", false, fontSize, "#eeeeee", density).recycle()
+                        val boxed = view.render("\\boxed{\\frac{1}{2}}", true, fontSize, "#eeeeee", density)
+                        val denominator = JSONObject(view.evaluate("""
+                            (() => {
+                                const node = Array.from(document.querySelectorAll('.katex-html .mord'))
+                                    .find(n => n.children.length === 0 && n.textContent === '2');
+                                const r = node.getBoundingClientRect();
+                                return {left:r.left, top:r.top, right:r.right, bottom:r.bottom};
+                            })()
+                        """.trimIndent()))
+                        assertInkInRect(boxed, denominator, density, "Missing boxed denominator at $fontSize")
+                        val border = JSONObject(view.evaluate("""
+                            (() => {
+                                const r = document.querySelector('.fbox').getBoundingClientRect();
+                                return {left:r.left, top:r.bottom - 1, right:r.right, bottom:r.bottom};
+                            })()
+                        """.trimIndent()))
+                        assertInkInRect(boxed, border, density, "Missing bottom box border at $fontSize")
+                        boxed.recycle()
+                    }
                     assertEquals("true", view.evaluate("Array.from(document.fonts).some(f => f.status === 'loaded')"))
                     // Fully transparent ink is genuinely blank, not a dropped frame: it must not be
                     // retried into an exception, and the renderer must keep working afterwards.
@@ -81,5 +107,26 @@ class KaTeXRenderingTests {
                 }
             }
         }
+    }
+    @Test fun inkProbeFindsThinMarksBetweenFormerGridSamples() {
+        val bitmap = Bitmap.createBitmap(240, 240, Bitmap.Config.ARGB_8888)
+        try {
+            assertFalse(bitmap.hasInk())
+            bitmap.setPixel(5, 5, Color.WHITE)
+            assertTrue(bitmap.hasInk())
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun assertInkInRect(bitmap: Bitmap, rect: JSONObject, density: Float, message: String) {
+        val left = (rect.getDouble("left") * density).toInt().coerceAtLeast(0)
+        val top = (rect.getDouble("top") * density).toInt().coerceAtLeast(0)
+        val right = kotlin.math.ceil(rect.getDouble("right") * density).toInt()
+        val bottom = kotlin.math.ceil(rect.getDouble("bottom") * density).toInt()
+        assertTrue("$message: outside bitmap", right <= bitmap.width && bottom <= bitmap.height)
+        assertTrue(message, (top until bottom).any { y ->
+            (left until right).any { x -> Color.alpha(bitmap.getPixel(x, y)) > 0 }
+        })
     }
 }
