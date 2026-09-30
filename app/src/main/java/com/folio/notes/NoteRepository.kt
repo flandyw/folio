@@ -62,6 +62,7 @@ import kotlin.math.max
 class NoteRepository(private val context: Context) {
     private val root = File(context.filesDir, "notebooks").apply { mkdirs() }
     private val lock = Mutex()
+    private val historyEncoder = PageHistoryEncoder()
     /**
      * The next journal sequence number and last known-good byte length per `<note>/<page>`. Parallel
      * page reads (an export, a duplicate) touch this from several IO threads, so it is concurrent;
@@ -242,7 +243,7 @@ class NoteRepository(private val context: Context) {
 
     /** Persists the bounded undo/redo stacks so undo survives a restart. */
     suspend fun saveHistory(noteId: String, pageId: String, history: PageJournal.History) = withContext(Dispatchers.IO) {
-        lock.withLock { atomicWrite(pageHistoryFile(noteId, pageId), PageJournal.encodeHistory(history)) }
+        lock.withLock { atomicWrite(pageHistoryFile(noteId, pageId), historyEncoder.encode(history)) }
     }
 
     /** The index plus the content of every page held in memory; pages still on disk are left alone. */
@@ -956,7 +957,10 @@ class NoteRepository(private val context: Context) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
         try {
             // Stream characters directly instead of materialising a second huge ByteArray.
-            stream.bufferedWriter(Charsets.UTF_8).use { it.write(value) }
+            // finishWrite must sync the still-open descriptor before closing it.
+            val writer = stream.bufferedWriter(Charsets.UTF_8)
+            writer.write(value)
+            writer.flush()
             atomic.finishWrite(stream)
         }
         catch (e: Exception) { atomic.failWrite(stream); throw e }

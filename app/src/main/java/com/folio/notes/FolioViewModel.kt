@@ -1085,18 +1085,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
         redo.remove(after.id)
         historyState()
+        val history = historySnapshot(after.id)
         enqueue {
             // Any bytes the edit names land first, so a crash cannot leave a placement without its file.
             beforeSave()
             repository.appendPageEdit(updated, revised, forward)
-            persistHistory(updated.id, after.id)
+            repository.saveHistory(updated.id, after.id, history)
         }
     }
 
-    /** Writes one page's bounded undo/redo stacks so undo survives a restart. */
-    private suspend fun persistHistory(noteId: String, pageId: String) {
-        repository.saveHistory(noteId, pageId, PageJournal.History(undo[pageId].orEmpty(), redo[pageId].orEmpty()))
-    }
+    /** Capture on the editor thread: queued IO must not traverse the live mutable stacks. */
+    private fun historySnapshot(pageId: String) = PageJournal.History(
+        undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty()
+    )
     fun strokes(strokes: List<Stroke>) {
         val page = _state.value.page ?: return
         strokes(page.id, strokes)
@@ -1620,9 +1621,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val revised = after.revised()
         val updated = note.copy(pages = note.pages.map { if (it.id == page.id) revised else it }, updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
+        val history = historySnapshot(page.id)
         enqueue {
             repository.appendPageEdit(updated, revised, op)
-            persistHistory(updated.id, page.id)
+            repository.saveHistory(updated.id, page.id, history)
         }
         historyState()
     }

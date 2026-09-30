@@ -966,7 +966,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
-                    .padding(top = 8.dp, start = 12.dp, end = 12.dp)
+                    .padding(top = 6.dp, start = 6.dp, end = 6.dp)
                     .onSizeChanged { floatingToolbarTop = with(density) { it.height.toDp() } + 8.dp },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1032,10 +1032,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onAdd = ::addPage,
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
-                            actions = {
-                                IconButton(onExport, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
-                                Box {
-                                    IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
+                            onExport = onExport,
+                            onPageOptions = { more = true },
+                            additionalMenus = {
                                     PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
                                         onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
                                         onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
@@ -1050,7 +1049,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         onOrganize = { pageBrowser = true },
                                         onBookmark = { model.togglePageBookmark(page.id) },
                                         onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
-                                }
                             }
                         )
                     }
@@ -2017,11 +2015,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
         }
     }
-    val controls: @Composable RowScope.() -> Unit = {
+    val controls: @Composable RowScope.(Boolean) -> Unit = { compactTools ->
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+        if (!compactTools) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
         }
         ToolbarDivider()
@@ -2055,6 +2053,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Box {
             IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
+                if (compactTools) {
+                    DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
+                    HorizontalDivider()
+                }
                 if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
@@ -2115,6 +2118,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         header {
+        BoxWithConstraints {
+        val compactTools = maxWidth < 360.dp
         EditorGlassSurface(
             Modifier.longPressAction(stripGuard) {
                 if (System.currentTimeMillis() - childLongPressAt <= 400) {
@@ -2123,7 +2128,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 } else if (toolbarLayoutState != null) editToolbar = true
             }
         ) {
-            Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
+            Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls(compactTools) }
+        }
         }
         }
         FolioExpand(showQuickBar) {

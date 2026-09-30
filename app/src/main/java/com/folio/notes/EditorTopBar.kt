@@ -82,89 +82,90 @@ internal val EditorFloatingGroupHeight = 56.dp
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
-    actions: @Composable RowScope.() -> Unit
+    onExport: () -> Unit,
+    onPageOptions: () -> Unit,
+    additionalMenus: @Composable () -> Unit
 ) {
-    var notebookMenu by remember { mutableStateOf(false) }
-    var pageMenu by remember { mutableStateOf(false) }
+    var overflow by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Keep three balanced regions so the drawing tools stay centred. Small windows
-        // scroll this single row instead of overlapping controls or creating a third row.
-        val rowWidth = maxWidth.coerceAtLeast(900.dp)
-        Row(Modifier.horizontalScroll(rememberScrollState()).width(rowWidth),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+        // Size against this editor pane, including the narrower mistake-review split.
+        // Only the tool tray scrolls; Back and overflow always remain on screen.
+        val compact = maxWidth < 840.dp
+        val sideWidth = ((maxWidth - 480.dp) / 2).coerceAtLeast(0.dp)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(if (compact) Modifier else Modifier.width(sideWidth),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            EditorGlassSurface(Modifier.width(EditorFloatingGroupHeight)) {
-                IconButton(onClose, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
-            }
-            // This slot takes the spare width; the capsule itself hugs the notebook name.
-            // The timer, page and action groups are consequently anchored to the right.
-            Box(Modifier.weight(1f)) {
-                EditorGlassSurface() {
-                    Row(
-                        Modifier.height(EditorFloatingGroupHeight)
-                            .clickable(role = Role.Button, onClickLabel = "Notebook actions") { notebookMenu = true }
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                EditorGlassSurface(Modifier.width(48.dp)) {
+                    IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+                }
+                if (!compact) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
+                    Row(Modifier.clickable(role = Role.Button, onClickLabel = "Notebook actions") { overflow = true }
+                        .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        if (saveFailed || pendingSaves > 0) {
-                            Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.Sync,
-                                if (saveFailed) "Save failed. Open notebook actions for details" else "Saving on device",
-                                Modifier.padding(start = 4.dp).size(16.dp),
-                                tint = if (saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                        }
-                        Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                        Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp))
                     }
                 }
-                DropdownMenu(notebookMenu, { notebookMenu = false }, modifier = Modifier.guardUiTouches()) {
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+            Row(if (compact) Modifier else Modifier.width(sideWidth),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
+                if (!compact) Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    EditorGlassSurface {
+                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically) { timer() }
+                    }
+                }
+                Box {
+                    EditorGlassSurface(Modifier.width(48.dp)) {
+                        IconButton({ overflow = true }) {
+                            Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
+                                if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
+                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
+                        }
+                    }
+                    DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
+                        Text(title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.titleSmall)
+                        DropdownMenuItem({ Text("Share or export") }, { overflow = false; onExport() },
+                            leadingIcon = { Icon(Icons.Rounded.IosShare, null) })
+                        DropdownMenuItem({ Text("Page options") }, { overflow = false; onPageOptions() },
+                            leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                        HorizontalDivider()
                     Text("Notebook", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    DropdownMenuItem({ Text("Rename notebook") }, { notebookMenu = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                    DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { notebookMenu = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
+                    DropdownMenuItem({ Text("Rename notebook") }, { overflow = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                    DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { overflow = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
                     HorizontalDivider()
                     Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                         SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, pendingSaves, onRetrySave, onClose)
                     }
-                    notebookActions { notebookMenu = false }
-                }
-            }
-            }
-            Box(Modifier.weight(1.6f), contentAlignment = Alignment.Center) { mainTools() }
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
-            EditorGlassSurface { Box(Modifier.padding(horizontal = 6.dp)) { timer() } }
-            EditorGlassSurface {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        TextButton({ pageMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp),
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Page actions" }) {
-                            Text("${pageIndex + 1}/$pageCount", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    notebookActions { overflow = false }
+                        if (compact) {
+                            HorizontalDivider()
+                            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { timer() }
                         }
-                        DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
+                        HorizontalDivider()
                             Text("Pages", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             run {
-                                DropdownMenuItem({ Text("Previous page") }, { pageMenu = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
-                                DropdownMenuItem({ Text("Next page") }, { pageMenu = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
+                                DropdownMenuItem({ Text("Previous page") }, { overflow = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
+                                DropdownMenuItem({ Text("Next page") }, { overflow = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
                             }
-                            DropdownMenuItem({ Text("Browse pages") }, { pageMenu = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
-                            DropdownMenuItem({ Text("First page") }, { pageMenu = false; onFirstPage() }, enabled = pageIndex > 0)
-                            DropdownMenuItem({ Text("Last page") }, { pageMenu = false; onLastPage() }, enabled = pageIndex < pageCount - 1)
+                            DropdownMenuItem({ Text("Browse pages") }, { overflow = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
+                            DropdownMenuItem({ Text("First page") }, { overflow = false; onFirstPage() }, enabled = pageIndex > 0)
+                            DropdownMenuItem({ Text("Last page") }, { overflow = false; onLastPage() }, enabled = pageIndex < pageCount - 1)
                             HorizontalDivider()
-                            DropdownMenuItem({ Text("Add page at end") }, { pageMenu = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Insert after this page") }, { pageMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            DropdownMenuItem({ Text("Duplicate this page") }, { pageMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                            DropdownMenuItem({ Text("Add page at end") }, { overflow = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text("Insert after this page") }, { overflow = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            DropdownMenuItem({ Text("Duplicate this page") }, { overflow = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                             HorizontalDivider()
-                            DropdownMenuItem({ Text("Reset zoom · $zoomPercent%") }, { pageMenu = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                            if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { pageMenu = false; onFitAll() })
-                        }
+                            DropdownMenuItem({ Text("Reset zoom · $zoomPercent%") }, { overflow = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                            if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { overflow = false; onFitAll() })
                     }
+                    additionalMenus()
                 }
-            }
-            EditorGlassSurface {
-                Row(verticalAlignment = Alignment.CenterVertically, content = actions)
-            }
             }
         }
     }
