@@ -2,6 +2,8 @@ package com.folio.notes.mistakes
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.math.floor
 import kotlin.math.max
 
@@ -71,6 +73,17 @@ object MistakeScheduler {
             .put("lastReviewedAt", completedAt).put("resolved", next.resolved).put("dueAt", next.dueAt).put("updatedAt", completedAt)
         return requireNotNull(ExamTrackMistakeCodec.decode(o.toString()))
     }
+    /** Calendar-day overdue status, matching Focal's schedule (not a rolling 24 hours). */
+    fun overdueDays(dueAt: String, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Long {
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val due = Instant.ofEpochMilli(timestamp(dueAt)).atZone(zone).toLocalDate()
+        return java.time.temporal.ChronoUnit.DAYS.between(due, today).coerceAtLeast(0)
+    }
+
+    fun getOverdueMistakes(mistakes: List<ExamTrackMistake>, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()) = mistakes
+        .filter { !it.suspended && overdueDays(getMistakeSchedule(it).dueAt, now, zone) > 0 }
+        .sortedBy { getMistakeSchedule(it).dueAt }
+
     fun getDueMistakes(mistakes: List<ExamTrackMistake>, now: Long = System.currentTimeMillis()) = mistakes
         .filter { !it.suspended && timestamp(getMistakeSchedule(it).dueAt) <= now }
         .sortedBy { getMistakeSchedule(it).dueAt }

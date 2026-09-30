@@ -67,7 +67,7 @@ private fun formatSyncedAt(iso: String?): String {
 internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis()): String {
     val diff = runCatching { timestamp(dueAt) - now }.getOrDefault(0L)
     if (diff <= 0) {
-        val overdueDays = TimeUnit.MILLISECONDS.toDays(-diff)
+        val overdueDays = MistakeScheduler.overdueDays(dueAt, now)
         return if (overdueDays < 1) "Due today" else "${overdueDays}d overdue"
     }
     val days = TimeUnit.MILLISECONDS.toDays(diff)
@@ -145,6 +145,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
     val orderedDue = remember(due, newestDueFirst) { if (newestDueFirst) due.asReversed() else due }
+    val overdue = remember(mistakes, clockNow) { MistakeScheduler.getOverdueMistakes(mistakes, clockNow) }
+    val overdueSet = remember(overdue) { overdue.toSet() }
+    val dueGroups = remember(orderedDue, overdueSet) {
+        listOf("Overdue" to orderedDue.filter { it in overdueSet }, "Due today" to orderedDue.filter { it !in overdueSet })
+            .filter { it.second.isNotEmpty() }
+    }
     val dueOrderLabel = if (newestDueFirst) "Newest due first" else "Oldest due first"
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
@@ -187,7 +193,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
-    val visible = remember(mistakes, due, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
+    val visible = remember(mistakes, due, overdueSet, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
         val q = debouncedQuery.trim().lowercase()
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
@@ -198,6 +204,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             val matchesCategory = category.isBlank() || category == m.category
             val matchesFilter = when (filter) {
                 "Due" -> m in dueSet
+                "Overdue" -> m in overdueSet
                 "Upcoming" -> !m.suspended && m !in dueSet
                 "Suspended" -> m.suspended
                 else -> true
@@ -582,9 +589,19 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                             }
                                         }
                                     }
-                                    items(orderedDue, key = { "due-${it.id}" }) { m ->
-                                        MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
-                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
+                                    dueGroups.forEach { (label, cards) ->
+                                        fullWidthItem {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                                                    color = if (label == "Overdue") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                                                Text("${cards.size} ${if (cards.size == 1) "question" else "questions"}",
+                                                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        items(cards, key = { "due-${it.id}" }) { m ->
+                                            MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
+                                                { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
+                                        }
                                     }
                                 }
                             } else {
@@ -594,7 +611,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                         trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
                                         singleLine = true, shape = FolioShapes.large)
                                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                        listOf("All" to mistakes.size, "Due" to due.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
+                                        listOf("All" to mistakes.size, "Due" to due.size, "Overdue" to overdue.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
                                             FilterChipWithCount(label, count, filter == label) { filter = label }
                                         }
                                     }
