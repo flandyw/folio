@@ -78,20 +78,32 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         tooltip = { PlainTooltip { Text(if (recording) label else "Focal · Study sessions") } },
         state = rememberTooltipState()
     ) {
-        FilledTonalIconButton(
-            onClick = onClick,
-            modifier = Modifier.size(40.dp).semantics {
+        if (recording) {
+            Surface(
+                onClick = onClick,
+                modifier = Modifier.padding(horizontal = 4.dp).height(36.dp).semantics {
+                    contentDescription = "$label. $syncStatus. Open study sessions"
+                },
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(15.dp))
+                    Text(when {
+                        examActive -> label.removePrefix("Focal · ")
+                        isPaused -> "Paused · ${formatChipElapsed(activeElapsed)}"
+                        else -> formatChipElapsed(activeElapsed)
+                    }, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                }
+            }
+        } else {
+            IconButton(onClick, modifier = Modifier.size(40.dp).semantics {
                 contentDescription = "$label. $syncStatus. Open study sessions"
-            },
-            shapes = IconButtonDefaults.shapes(),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = if (recording) MaterialTheme.colorScheme.primaryContainer
-                    else androidx.compose.ui.graphics.Color.Transparent,
-                contentColor = if (recording) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(if (recording && isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null)
+            }, shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.School, null)
+            }
         }
     }
 }

@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -54,6 +56,7 @@ internal val EditorFloatingGroupHeight = 56.dp
 /** First row of the floating editor dock; secondary actions stay in anchored menus. */
 @Composable internal fun EditorTopBar(
     title: String,
+    mainTools: @Composable () -> Unit,
     saveFailed: Boolean,
     retryingSave: Boolean,
     saveFailureReason: String?,
@@ -84,8 +87,13 @@ internal val EditorFloatingGroupHeight = 56.dp
     var notebookMenu by remember { mutableStateOf(false) }
     var pageMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val compact = maxWidth < 840.dp
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Keep three balanced regions so the drawing tools stay centred. Small windows
+        // scroll this single row instead of overlapping controls or creating a third row.
+        val rowWidth = maxWidth.coerceAtLeast(900.dp)
+        Row(Modifier.horizontalScroll(rememberScrollState()).width(rowWidth),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             EditorGlassSurface(Modifier.width(EditorFloatingGroupHeight)) {
                 IconButton(onClose, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
             }
@@ -119,16 +127,16 @@ internal val EditorFloatingGroupHeight = 56.dp
                         SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, pendingSaves, onRetrySave, onClose)
                     }
                     notebookActions { notebookMenu = false }
-                    if (compact) {
-                        HorizontalDivider()
-                        Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { timer() }
-                    }
                 }
             }
-            if (!compact) EditorGlassSurface { timer() }
+            }
+            Box(Modifier.weight(1.6f), contentAlignment = Alignment.Center) { mainTools() }
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
+            EditorGlassSurface { Box(Modifier.padding(horizontal = 6.dp)) { timer() } }
             EditorGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!compact) IconButton(onPrevious, enabled = pageIndex > 0, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
                     Box {
                         TextButton({ pageMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp),
                             modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Page actions" }) {
@@ -136,7 +144,7 @@ internal val EditorFloatingGroupHeight = 56.dp
                         }
                         DropdownMenu(pageMenu, { pageMenu = false }, modifier = Modifier.guardUiTouches()) {
                             Text("Pages", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            if (compact) {
+                            run {
                                 DropdownMenuItem({ Text("Previous page") }, { pageMenu = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
                                 DropdownMenuItem({ Text("Next page") }, { pageMenu = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
                             }
@@ -152,11 +160,11 @@ internal val EditorFloatingGroupHeight = 56.dp
                             if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { pageMenu = false; onFitAll() })
                         }
                     }
-                    if (!compact) IconButton(onNext, enabled = pageIndex < pageCount - 1, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
                 }
             }
             EditorGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+            }
             }
         }
     }

@@ -970,60 +970,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                EditorTopBar(
-                    title = note.title,
-                    notebookActions = notebookActions,
-                    saveFailed = state.saveFailed,
-                    retryingSave = state.retryingSave,
-                    saveFailureReason = state.saveFailureReason,
-                    lastSaveProgressAt = state.lastSaveProgressAt,
-                    pendingSaves = state.pendingSaves,
-                    starred = note.starred,
-                    onStar = { model.star(note) },
-                    onRename = { renameTitle = note.title; rename = true },
-                    onRetrySave = model::retrySave,
-                    onClose = model::close,
-                    timer = {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
-                            StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
-                            FocalStudyChip(state.timer) { studyPanel = true }
-                        }
-                    },
-                    pageIndex = state.pageIndex,
-                    pageCount = note.pages.size,
-                    onPrevious = { jumpTo(state.pageIndex - 1) },
-                    onNext = { jumpTo(state.pageIndex + 1) },
-                    onPages = { pageBrowser = true },
-                    onFirstPage = { jumpTo(0) },
-                    onLastPage = { jumpTo(note.pages.size - 1) },
-                    zoomPercent = (documentZoom * 100).roundToInt(),
-                    onFit = ::resetZoom,
-                    onFitAll = if (page.infinite) ::fitAllContent else null,
-                    onAdd = ::addPage,
-                    onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
-                    onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
-                    actions = {
-                        IconButton(onExport, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
-                        Box {
-                            IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
-                            PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
-                                onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
-                                onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
-                                onClear = { clear = true }, onRetry = model::retrySave,
-                                onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                                onStopwatch = { stopwatchPanel = true },
-                                onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                                onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
-                                onContents = { pdfContentsOpen = true; loadOutline() },
-                                onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                onInsertElement = { stampPicker = true },
-                                onOrganize = { pageBrowser = true },
-                                onBookmark = { model.togglePageBookmark(page.id) },
-                                onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
-                        }
-                    }
-                )
                 FloatingInkToolbar(
                     modifier = Modifier,
                     tool = tool,
@@ -1049,7 +995,64 @@ private fun paperLabel(p: Paper): String = when (p) {
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
-                    toolbarLayoutState = toolbarLayouts
+                    toolbarLayoutState = toolbarLayouts,
+                    header = { mainTools ->
+                        EditorTopBar(
+                            title = note.title,
+                            mainTools = mainTools,
+                            notebookActions = notebookActions,
+                            saveFailed = state.saveFailed,
+                            retryingSave = state.retryingSave,
+                            saveFailureReason = state.saveFailureReason,
+                            lastSaveProgressAt = state.lastSaveProgressAt,
+                            pendingSaves = state.pendingSaves,
+                            starred = note.starred,
+                            onStar = { model.star(note) },
+                            onRename = { renameTitle = note.title; rename = true },
+                            onRetrySave = model::retrySave,
+                            onClose = model::close,
+                            timer = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    ExamTimerChip(state.timer, 48.dp, onLongClick = { model.toggleTimerPause() }) { timerPanel = true }
+                                    StopwatchChip(state.stopwatch, onLongClick = { model.toggleStopwatchPause() }) { stopwatchPanel = true }
+                                    FocalStudyChip(state.timer) { studyPanel = true }
+                                }
+                            },
+                            pageIndex = state.pageIndex,
+                            pageCount = note.pages.size,
+                            onPrevious = { jumpTo(state.pageIndex - 1) },
+                            onNext = { jumpTo(state.pageIndex + 1) },
+                            onPages = { pageBrowser = true },
+                            onFirstPage = { jumpTo(0) },
+                            onLastPage = { jumpTo(note.pages.size - 1) },
+                            zoomPercent = (documentZoom * 100).roundToInt(),
+                            onFit = ::resetZoom,
+                            onFitAll = if (page.infinite) ::fitAllContent else null,
+                            onAdd = ::addPage,
+                            onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
+                            onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
+                            actions = {
+                                IconButton(onExport, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Share or export") }
+                                Box {
+                                    IconButton({ more = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page options") }
+                                    PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
+                                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
+                                        onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
+                                        onClear = { clear = true }, onRetry = model::retrySave,
+                                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                                        onStopwatch = { stopwatchPanel = true },
+                                        onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                        onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                                        onContents = { pdfContentsOpen = true; loadOutline() },
+                                        onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
+                                        onInsertElement = { stampPicker = true },
+                                        onOrganize = { pageBrowser = true },
+                                        onBookmark = { model.togglePageBookmark(page.id) },
+                                        onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
+                                }
+                            }
+                        )
+                    }
                 )
             }
         }
@@ -1838,7 +1841,8 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
-    toolbarLayoutState: ToolbarLayoutState? = null
+    toolbarLayoutState: ToolbarLayoutState? = null,
+    header: @Composable (@Composable () -> Unit) -> Unit
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
@@ -2083,15 +2087,13 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
             }
         }
     }
-    // Tools and quick colours share one row, each in an equally tall floating capsule.
-    // Both trays scroll independently on narrow windows; colours never need a reveal tap.
-    Row(
-        modifier.guardUiTouches().widthIn(max = 1120.dp).fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-    ) {
+    // The header hosts the main tools; quick controls remain directly beneath them.
+    Column(modifier.guardUiTouches().fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        header {
         EditorGlassSurface(
-            Modifier.weight(if (showQuickBar) .55f else 1f, fill = false).longPressAction(stripGuard) {
+            Modifier.longPressAction(stripGuard) {
                 if (System.currentTimeMillis() - childLongPressAt <= 400) {
                     // A tool or preset claimed the gesture first; its own action stands alone.
                     stripGuard.begin()
@@ -2100,8 +2102,9 @@ private val DrawingTools = setOf(Tool.PEN, Tool.LINE, Tool.RECTANGLE, Tool.ELLIP
         ) {
             Row(Modifier.padding(horizontal = 5.dp, vertical = 1.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) { controls() }
         }
+        }
         if (showQuickBar) {
-            EditorGlassSurface(Modifier.weight(.45f, fill = false)) {
+            EditorGlassSurface(Modifier.widthIn(max = 640.dp)) {
                 Row(Modifier.padding(horizontal = 6.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (tool == Tool.TEXT && onTextColor != null) {
