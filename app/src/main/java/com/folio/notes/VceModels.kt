@@ -329,11 +329,12 @@ data class ExamTagsBatch(
     }
 }
 
-/** Case-insensitive match over the title and every exam field, including attempts' history. */
+/** Case-insensitive, all-terms match over notebook/page titles and exam tags. */
+private val libraryQueryWhitespace = Regex("[\\s\\p{Z}]+")
 fun matchesQuery(note: Notebook, rawQuery: String): Boolean {
     val query = rawQuery.trim().lowercase()
     if (query.isEmpty()) return true
-    val terms = query.split(' ').filter { it.isNotBlank() }
+    val terms = query.split(libraryQueryWhitespace).filter { it.isNotBlank() }
     if (terms.isEmpty()) return true
     if (terms.size == 1) return haystackContains(note, terms[0])
     val haystack = buildHaystack(note)

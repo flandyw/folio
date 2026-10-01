@@ -2,6 +2,10 @@
 package com.folio.notes
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -50,6 +54,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
     mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
 ) {
+    val focusManager = LocalFocusManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
@@ -59,7 +64,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     var debouncedQuery by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(query) {
         if (query == debouncedQuery) return@LaunchedEffect
-        kotlinx.coroutines.delay(150)
+        if (query.isNotEmpty()) kotlinx.coroutines.delay(150)
         debouncedQuery = query
     }
     var starred by rememberSaveable { mutableStateOf(false) }
@@ -118,6 +123,34 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     }
     val filtersActive = kind != LibraryKind.ALL || unfiled || examFilter.isActive
     val folderName = state.folders.find { it.id == state.folderId }?.name
+    val searchActive = query.isNotBlank()
+    val scoped = searchActive || filtersActive || starred || state.folderId != null
+    fun clearScope() {
+        query = ""
+        debouncedQuery = ""
+        kind = LibraryKind.ALL
+        unfiled = false
+        starred = false
+        model.folder(null)
+        model.setExamFilter(ExamFilter())
+        focusManager.clearFocus()
+    }
+    BackHandler(enabled = !showMistakes && !pickingNotebook && section == LibrarySection.LIBRARY && (selecting || searchActive || filtersExpanded)) {
+        when {
+            selecting -> { selecting = false; selectedIds = emptyList() }
+            searchActive -> { query = ""; debouncedQuery = ""; focusManager.clearFocus() }
+            else -> filtersExpanded = false
+        }
+    }
+    val shelfInputs = listOf(state.folderId, starred, unfiled, debouncedQuery, kind, sort, examFilter)
+    var previousShelfInputs by remember { mutableStateOf(shelfInputs) }
+    LaunchedEffect(shelfInputs) {
+        // Preserve the restored scroll position when returning from a notebook.
+        if (shelfInputs != previousShelfInputs) {
+            previousShelfInputs = shelfInputs
+            libraryGridState.scrollToItem(0)
+        }
+    }
     // Never put the library's palm guard above the native handwriting surface.
     BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
@@ -239,7 +272,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 } }
                                 AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                             }
-                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
@@ -273,7 +306,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
                                 if (!pickingNotebook) TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
                                     modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
+                                    enabled = selecting || notes.isNotEmpty(),
                                     shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
+                                if (scoped) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
                             }
                             if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -333,7 +368,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                     Spacer(Modifier.weight(1f))
-                                    TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                                    TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                                     TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
                                 }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -356,9 +391,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         Surface(shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                                 Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
-                                Text(if (query.isNotEmpty() || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
-                                Text(if (query.isNotEmpty() || filtersActive) "Try another search or clear your filters." else if (starred) "Tap the star on a notebook to find it here." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (query.isNotEmpty() || filtersActive) TextButton({ query = ""; kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
+                                Text(if (searchActive || filtersActive) "No notebooks found" else if (starred) "Keep the good ones close" else if (folderName != null) "This folder is ready" else "Good things start here.", style = MaterialTheme.typography.headlineMedium)
+                                Text(if (searchActive || filtersActive) "Try another search or show all notebooks." else if (starred) "Tap the star on a notebook to find it here." else if (folderName != null) "Create a notebook here, or move one in from your library." else "Make space for your first idea. Create a notebook\nor bring a PDF along.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (scoped) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
                                 if (query.isEmpty() && !starred && !filtersActive) TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text("Start a notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
                             }
                         }
@@ -370,7 +405,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         if (listView) Surface(
                             shape = FolioShapes.large,
                             color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier.animateItem(placementSpec = folioSpring()).combinedClickable(onClick = open, onLongClick = longPress)
+                            modifier = Modifier.animateItem(placementSpec = folioSpring()).semantics { if (selecting) selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
                         ) {
                                 Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     if (selecting) {
@@ -393,7 +428,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 selected = note.id in selection, onLongPress = longPress,
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
                                 duplicate = { model.duplicateNotebook(note) },
-                                modifier = Modifier.animateItem(placementSpec = folioSpring())
+                                modifier = Modifier.animateItem(placementSpec = folioSpring()).semantics { if (selecting) selected = note.id in selection }
                             )
                     }
 
@@ -504,8 +539,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.move(note, null); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("No folder") }
-            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(folder.name) } }
+            TextButton({ model.move(note, null); move = null }, enabled = note.folderId != null, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(if (note.folderId == null) "Unfiled · Current folder" else "Unfiled") }
+            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, enabled = note.folderId != folder.id, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(if (note.folderId == folder.id) "${folder.name} · Current folder" else folder.name) } }
         }
     }, confirmButton = { TextButton({ move = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }) }
     delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") } }) }
@@ -527,7 +562,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 @Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
-            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = "Open ${note.title}", onClick = open, onLongClick = onLongPress))
+            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
             if (selecting) {
                 val checked = selected
                 Surface(

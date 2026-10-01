@@ -1,7 +1,9 @@
 package com.folio.notes
 
 import java.text.SimpleDateFormat
-import java.util.Calendar
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 enum class LibrarySort(val label: String) {
@@ -41,24 +43,17 @@ fun organizeNotebooks(
  * Future timestamps (clock skew) read as Today. Pure and JVM-testable via [now].
  */
 fun libraryLastEditedLabel(updated: Long, now: Long = System.currentTimeMillis()): String {
-    fun startOfDay(millis: Long): Long {
-        val calendar = Calendar.getInstance()
-        calendar.timeInMillis = millis
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
-    }
-    val days = ((startOfDay(now) - startOfDay(updated)) / 86_400_000L).toInt().coerceAtLeast(0)
+    val zone = ZoneId.systemDefault()
+    val editedDate = Instant.ofEpochMilli(updated).atZone(zone).toLocalDate()
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    // Calendar days, not 24-hour periods: daylight-saving days can be 23 or 25 hours.
+    val days = ChronoUnit.DAYS.between(editedDate, today).coerceAtLeast(0)
     return when {
-        days == 0 -> "Today"
-        days == 1 -> "Yesterday"
+        days == 0L -> "Today"
+        days == 1L -> "Yesterday"
         days < 7 -> "$days days ago"
         else -> {
-            val then = Calendar.getInstance().apply { timeInMillis = updated }
-            val thisYear = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.YEAR)
-            val pattern = if (then.get(Calendar.YEAR) == thisYear) "d MMM" else "d MMM yyyy"
+            val pattern = if (editedDate.year == today.year) "d MMM" else "d MMM yyyy"
             SimpleDateFormat(pattern, Locale.getDefault()).format(java.util.Date(updated))
         }
     }
