@@ -29,7 +29,8 @@ import kotlin.math.roundToInt
 @Composable fun WorkspaceScreen(state: FolioState, model: FolioViewModel, finger: Boolean,
     haptics: Boolean, shapeRecognition: Boolean,
     onSettings: () -> Unit, onExport: () -> Unit) {
-    var picker by remember { mutableStateOf<String?>(null) }
+    var picker by remember { mutableStateOf<PickerPurpose?>(null) }
+    var paneOptions by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
         val boxDensity = LocalDensity.current
@@ -48,14 +49,12 @@ import kotlin.math.roundToInt
                             HorizontalDivider()
                             Text("Workspace", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = "tabs" },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
-                            DropdownMenuItem({ Text("Open another document") }, { dismiss(); picker = "open" },
-                                leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Split view") }, { dismiss(); picker = "split" },
-                                leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null) })
-                            DropdownMenuItem({ Text("Reference view") }, { dismiss(); picker = "reference" },
+                            DropdownMenuItem({ Text("Open beside the editor") }, { dismiss(); picker = PickerPurpose.COMPANION },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
+                            DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = PickerPurpose.TABS },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
+                            DropdownMenuItem({ Text("Open another document") }, { dismiss(); picker = PickerPurpose.OPEN },
+                                leadingIcon = { Icon(Icons.Rounded.Add, null) })
                             DropdownMenuItem({ Text("Close this tab") }, { dismiss(); state.activeId?.let(model::closeTab) },
                                 leadingIcon = { Icon(Icons.Rounded.Close, null) })
                             DropdownMenuItem({ Text("Close other tabs") }, { dismiss(); state.activeId?.let(model::closeOtherTabs) },
@@ -68,7 +67,9 @@ import kotlin.math.roundToInt
                 // Keyed on the document alone: the pane keeps its PDF tools (search, contents,
                 // previews, link following) across page turns, and its InkView is keyed per page
                 // inside, so a turn still resets the camera onto a fresh page.
-                if (companion != null && note != null) key(companion.notebookId) { CompanionPane(state, model, companion, note) }
+                if (companion != null && note != null) key(companion.notebookId) {
+                    CompanionPane(state, model, companion, note, onPaneOptions = { paneOptions = true })
+                }
             }
             val editorFraction = SplitPanes.coerce(state.splitFraction)
             val editorFirst = !state.editorOnRight
@@ -86,12 +87,7 @@ import kotlin.math.roundToInt
                     onDrag = { dragFraction(it, totalHeightPx) },
                     onRelease = ::snapFraction,
                     onDoubleTap = ::resetFraction,
-                    onSwap = model::swapPaneSides,
-                    onClose = model::dismissCompanion,
-                    mode = state.companionMode,
-                    onToggleMode = { model.setCompanionMode(if (state.companionMode == CompanionMode.SPLIT) CompanionMode.REFERENCE else CompanionMode.SPLIT) },
-                    linked = state.companionLinked,
-                    onToggleLink = { model.setCompanionLinked(!state.companionLinked) }
+                    onOpenOptions = { paneOptions = true }
                 )
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
             } else Row(Modifier.weight(1f)) {
@@ -101,43 +97,20 @@ import kotlin.math.roundToInt
                     onDrag = { dragFraction(it, totalWidthPx) },
                     onRelease = ::snapFraction,
                     onDoubleTap = ::resetFraction,
-                    onSwap = model::swapPaneSides,
-                    onClose = model::dismissCompanion,
-                    mode = state.companionMode,
-                    onToggleMode = { model.setCompanionMode(if (state.companionMode == CompanionMode.SPLIT) CompanionMode.REFERENCE else CompanionMode.SPLIT) },
-                    linked = state.companionLinked,
-                    onToggleLink = { model.setCompanionLinked(!state.companionLinked) }
+                    onOpenOptions = { paneOptions = true }
                 )
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
             }
         }
     }
-    picker?.let { kind ->
-        FolioPanel(title = when (kind) { "split" -> "Open beside editor"; "reference" -> "Choose a reference"; "tabs" -> "Open documents"; else -> "Open document" }, onDismissRequest = { picker = null }) {
-            // ListItem brings its own content padding, so the gutter here is deliberately small;
-            // without it the rows run straight into the panel's rounded edges.
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp).padding(horizontal = FolioSpacing.dp8)) {
-                val notes = if (kind == "tabs") state.notes.filter { n -> state.tabs.any { it.notebookId == n.id } } else state.notes
-                items(notes, key = { it.id }) { note ->
-                    ListItem(headlineContent = { Text(note.title) },
-                        supportingContent = { Text("${note.pages.size} pages") },
-                        trailingContent = { if (kind == "tabs") IconButton({ model.closeTab(note.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close ${note.title}") } },
-                        modifier = Modifier.clickable {
-                            when (kind) {
-                                "split" -> model.showCompanion(note.id, CompanionMode.SPLIT)
-                                "reference" -> model.showCompanion(note.id, CompanionMode.REFERENCE)
-                                else -> model.open(note.id)
-                            }
-                            picker = null
-                        })
-                }
-                item { TextButton({ picker = null; model.close() }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Browse Library") } }
-            }
-        }
-    }
+    // Both workspace dialogs share one host: the picker and the divider's options, never together.
+    picker?.let { purpose -> WorkspacePickerPanel(purpose, state, model, onDismiss = { picker = null }) }
+    if (paneOptions) SplitOptionsPanel(state, model, onDismiss = { paneOptions = false })
+
 }
 
-@Composable private fun CompanionPane(state: FolioState, model: FolioViewModel, pane: EditorTab, note: Notebook) {
+@Composable private fun CompanionPane(state: FolioState, model: FolioViewModel, pane: EditorTab, note: Notebook,
+    onPaneOptions: () -> Unit) {
     val index = note.pages.indexOfFirst { it.id == pane.currentPageId }.coerceAtLeast(0)
     val page = note.pages.getOrNull(index) ?: return
     val context = LocalContext.current
@@ -221,48 +194,56 @@ import kotlin.math.roundToInt
                 }
             }
         }
-        if (filmstripOn && pdfBacked) ReferenceFilmstrip(note.id, note, index, model.thumbnails) { model.companionPage(it) }
-        // Scrollable so a cramped split pane keeps every control reachable instead of clipping the
-        // zoom buttons off the end; it centres itself whenever there is room for everything.
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).guardUiTouches(),
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically) {
-            val hold = rememberLongPressGuard()
-            IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
-            Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), style = MaterialTheme.typography.labelLarge)
-            IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
-            if (pdfBacked) {
-                IconButton({ paneView?.zoomReference(-1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomOut, "Zoom out") }
-                Text("${(viewport.canvasZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton({ paneView?.zoomReference(1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomIn, "Zoom in") }
-                Box {
-                    IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "PDF options") }
-                    DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                        DropdownMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                        DropdownMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
-                        DropdownMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
-                        DropdownMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
-                        HorizontalDivider()
-                        DropdownMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-                        DropdownMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                        DropdownMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            { Text(if (filmstripOn) "Hide page previews" else "Show page previews") },
-                            { menu = false; filmstripOn = !filmstripOn },
-                            leadingIcon = { Icon(if (filmstripOn) Icons.Rounded.ViewAgenda else Icons.Rounded.PhotoLibrary, null) }
-                        )
-                        if (links.isNotEmpty()) DropdownMenuItem(
-                            { Text(if (linksOn) "Ignore PDF links" else "Follow PDF links") },
-                            { menu = false; linksOn = !linksOn },
-                            leadingIcon = { Icon(if (linksOn) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }
-                        )
+        // One tonal bar holds the reference's own controls, so they read as a shelf of their own
+        // rather than as loose buttons floating on the page.
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                if (filmstripOn && pdfBacked) ReferenceFilmstrip(note.id, note, index, model.thumbnails) { model.companionPage(it) }
+            // Scrollable so a cramped split pane keeps every control reachable instead of clipping the
+            // zoom buttons off the end; it centres itself whenever there is room for everything.
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).guardUiTouches(),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically) {
+                val hold = rememberLongPressGuard()
+                IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
+                Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), style = MaterialTheme.typography.labelLarge)
+                IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
+                if (pdfBacked) {
+                    IconButton({ paneView?.zoomReference(-1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomOut, "Zoom out") }
+                    Text("${(viewport.canvasZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconButton({ paneView?.zoomReference(1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomIn, "Zoom in") }
+                    Box {
+                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Pane options") }
+                        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+                            DropdownMenuItem({ Text("Pane and split options") }, { menu = false; onPaneOptions() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                            HorizontalDivider()
+                            DropdownMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                            DropdownMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
+                            DropdownMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
+                            DropdownMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
+                            HorizontalDivider()
+                            DropdownMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+                            DropdownMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            DropdownMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                { Text(if (filmstripOn) "Hide page previews" else "Show page previews") },
+                                { menu = false; filmstripOn = !filmstripOn },
+                                leadingIcon = { Icon(if (filmstripOn) Icons.Rounded.ViewAgenda else Icons.Rounded.PhotoLibrary, null) }
+                            )
+                            if (links.isNotEmpty()) DropdownMenuItem(
+                                { Text(if (linksOn) "Ignore PDF links" else "Follow PDF links") },
+                                { menu = false; linksOn = !linksOn },
+                                leadingIcon = { Icon(if (linksOn) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }
+                            )
+                        }
+                    }
+                    } else {
+                        TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
+                    }
                     }
                 }
-            } else {
-                TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
             }
-        }
     }
     if (searchOpen) ReferenceSearchPanel(
         search = state.companionPdfSearch,
@@ -286,22 +267,16 @@ import kotlin.math.roundToInt
 
 /**
  * The draggable split between editor and companion. Drag resizes (settling on
- * 30/70, 50/50 or 70/30 on release), double-tap returns to 50/50, and
- * long-press offers swap, close, reference/split and linked pages.
+ * 30/70, 50/50 or 70/30 on release), double-tap returns to 50/50, and long-press
+ * opens the pane options panel, which now covers mode, linked pages and the pane actions.
  */
 @Composable private fun SplitDivider(
     vertical: Boolean,
     onDrag: (Float) -> Unit,
     onRelease: () -> Unit,
     onDoubleTap: () -> Unit,
-    onSwap: () -> Unit,
-    onClose: () -> Unit,
-    mode: CompanionMode,
-    onToggleMode: () -> Unit,
-    linked: Boolean,
-    onToggleLink: () -> Unit
+    onOpenOptions: () -> Unit
 ) {
-    var menu by remember { mutableStateOf(false) }
     val drag = rememberDraggableState(onDrag)
     Box(
         contentAlignment = Alignment.Center,
@@ -310,7 +285,7 @@ import kotlin.math.roundToInt
                 .combinedClickable(
                     onClick = {},
                     onDoubleClick = onDoubleTap,
-                    onLongClick = { menu = true },
+                    onLongClick = onOpenOptions,
                     onLongClickLabel = "Split options"
                 )
                 .semantics { contentDescription = "Split divider. Drag to resize panes. Double-tap for equal split. Long-press for options." }
@@ -320,7 +295,7 @@ import kotlin.math.roundToInt
                 .combinedClickable(
                     onClick = {},
                     onDoubleClick = onDoubleTap,
-                    onLongClick = { menu = true },
+                    onLongClick = onOpenOptions,
                     onLongClickLabel = "Split options"
                 )
                 .semantics { contentDescription = "Split divider. Drag to resize panes. Double-tap for equal split. Long-press for options." }
@@ -331,19 +306,5 @@ import kotlin.math.roundToInt
             Modifier.then(if (vertical) Modifier.width(4.dp).height(48.dp) else Modifier.height(4.dp).width(48.dp))
                 .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
         )
-        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-            DropdownMenuItem({ Text("Swap panes") }, { menu = false; onSwap() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
-            DropdownMenuItem({ Text("Close pane") }, { menu = false; onClose() }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-            DropdownMenuItem(
-                { Text(if (mode == CompanionMode.SPLIT) "Make reference" else "Make split") },
-                { menu = false; onToggleMode() },
-                leadingIcon = { Icon(if (mode == CompanionMode.SPLIT) Icons.AutoMirrored.Rounded.ChromeReaderMode else Icons.Rounded.VerticalSplit, null) }
-            )
-            DropdownMenuItem(
-                { Text(if (linked) "Unlink pages" else "Link pages") },
-                { menu = false; onToggleLink() },
-                leadingIcon = { Icon(if (linked) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }
-            )
-        }
     }
 }

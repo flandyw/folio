@@ -49,11 +49,14 @@ class GraphStyleTests {
     @Test fun divisionsPlaceTicksBothWaysFromACentredOriginAndOnlyForwardsFromACorner() {
         val centred = GraphStyle(divisions = 4, ticks = true)
         val corner = centred.copy(origin = GraphOrigin.CORNER)
-        // Four divisions to each side of the centred origin: 8 ticks per axis, 6 frame strokes.
-        assertEquals(6 + 16, GraphAxes.strokes(draft(), centred).size)
+        // Three interior ticks each way; the fourth division is reserved for the arrowhead.
+        assertEquals(6 + 12, GraphAxes.strokes(draft(), centred).size)
         // A corner origin only has the positive way to tick: half as many.
         // The corner frame is four strokes: two axes and two free-end arrowheads.
-        assertEquals(4 + 8, GraphAxes.strokes(draft(), corner).size)
+        assertEquals(4 + 6, GraphAxes.strokes(draft(), corner).size)
+        // Without arrowheads, ticks can still reach the endpoints.
+        assertEquals(2 + 16, GraphAxes.strokes(draft(), centred.copy(arrows = false)).size)
+        assertEquals(2 + 8, GraphAxes.strokes(draft(), corner.copy(arrows = false)).size)
         // The first x tick sits one division right of the origin: 220 + 400/2/4. A tick is a
         // short stroke crossing its axis, so its midpoint is the mark it makes.
         fun midpoint(stroke: Stroke) = InkPoint(
@@ -87,7 +90,7 @@ class GraphStyleTests {
         strokes.forEach { assertEquals(Tool.LINE, it.tool) }
         // Far more strokes than bare axes: 4 strokes for the frame plus ticks and glyphs.
         assertTrue(strokes.size > 20)
-        // Labels for 5, 10, 15, 20 in both directions: the glyph ink exists well away from the axes.
+        // Interior labels for 5, 10, 15 in both directions sit well away from the axes.
         val belowAxis = box(strokes).filter { it.y > 190f }
         val leftOfAxis = box(strokes).filter { it.x < 220f }
         assertTrue(belowAxis.size > 8)
@@ -98,8 +101,8 @@ class GraphStyleTests {
         val style = GraphStyle(divisions = 8, ticks = true, numbers = true, letters = true)
         val small = GraphAxes.strokes(draft(InkPoint(0f, 0f), InkPoint(60f, 50f)), style)
         // Six frame strokes and the ticks survive; no glyph is small enough to read.
-        // Four ticks survive per division each way; nothing unreadable is drawn.
-        assertEquals(6 + 32, small.size)
+        // Seven interior ticks each way; the endpoints stay clear for the arrowheads.
+        assertEquals(6 + 28, small.size)
         val plain = GraphAxes.strokes(draft(InkPoint(0f, 0f), InkPoint(60f, 50f)))
         assertEquals(6, plain.size)
     }

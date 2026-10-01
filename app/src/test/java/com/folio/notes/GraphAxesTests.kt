@@ -38,6 +38,39 @@ class GraphAxesTests {
         assertTrue(GraphAxes.strokes(draft().copy(points = listOf(InkPoint(0f, 0f)))).isEmpty())
     }
 
+    @Test fun arrowheadsStayCompactOnLargeAndSmallGraphs() {
+        val large = GraphAxes.strokes(draft())[3].points
+        assertEquals(10f, large[1].x - large[0].x, .001f)
+        assertEquals(5f, large[1].y - large[0].y, .001f)
+        val small = GraphAxes.strokes(draft(InkPoint(0f, 0f), InkPoint(100f, 100f)))[3].points
+        assertEquals(4f, small[1].x - small[0].x, .001f)
+        assertEquals(2f, small[1].y - small[0].y, .001f)
+    }
+
+    @Test fun denseTicksStayBehindArrowheadsOnEachAxis() {
+        for (origin in GraphOrigin.entries) {
+            val style = GraphStyle(origin = origin, divisions = 16, ticks = true)
+            val strokes = GraphAxes.strokes(draft(InkPoint(0f, 0f), InkPoint(100f, 160f)), style)
+            val frame = GraphFrame(0f, 0f, 100f, 160f)
+            val (ox, oy) = frame.origin(style)
+            val frameStrokes = if (origin == GraphOrigin.CENTRE) 6 else 4
+            val ticks = strokes.drop(frameStrokes)
+            assertTrue(ticks.isNotEmpty())
+            ticks.forEach { tick ->
+                val a = tick.points.first(); val b = tick.points.last()
+                if (a.x == b.x) {
+                    assertTrue(a.x < frame.right - 4f)
+                    if (origin == GraphOrigin.CENTRE) assertTrue(a.x > frame.left + 4f)
+                    assertEquals(oy, (a.y + b.y) / 2f, .001f)
+                } else {
+                    assertTrue(a.y > frame.top + 4f)
+                    if (origin == GraphOrigin.CENTRE) assertTrue(a.y < frame.bottom - 4f)
+                    assertEquals(ox, (a.x + b.x) / 2f, .001f)
+                }
+            }
+        }
+    }
+
     @Test fun graphIsInShapesAndSupportsPresets() {
         assertTrue(Tool.GRAPH in ToolbarSlot.SHAPES.tools)
         assertTrue(StylusShortcuts.isDrawingTool(Tool.GRAPH))

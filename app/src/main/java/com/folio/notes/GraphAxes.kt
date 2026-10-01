@@ -17,7 +17,7 @@ object GraphAxes {
     /** Digits smaller than this are unreadable, so labels are dropped rather than smudged. */
     const val MIN_GLYPH = 7f
     /** Fractions of the frame's shorter side used for arrowheads and ticks. */
-    const val ARROW = .06f
+    const val ARROW = .04f
     const val TICK = .022f
     /** Labels sit this far off the axis, as a multiple of their own height. */
     const val LABEL_GAP = .28f
@@ -38,7 +38,7 @@ object GraphAxes {
         val (originX, originY) = frame.origin(style)
         val halfX = frame.halfX(style); val halfY = frame.halfY(style)
         val short = min(frame.width, frame.height)
-        val head = (short * ARROW).coerceAtMost(14f)
+        val head = (short * ARROW).coerceAtMost(10f)
         val wing = head * .5f
         fun line(vararg points: InkPoint) = draft.copy(tool = Tool.LINE, points = points.toList())
         val out = mutableListOf<Stroke>()
@@ -81,11 +81,15 @@ object GraphAxes {
         // Direction pairs for the ticks: a centred origin labels both ways, a corner origin only
         // has room (and only has need) for the positive way.
         val ways = if (style.origin == GraphOrigin.CENTRE) listOf(-1, 1) else listOf(1)
+        // Leave the arrowhead and a little breathing room free of ticks and their numbers.
+        // Keep the original division spacing; axes without arrows still tick to the frame edge.
+        val endGap = if (style.arrows) head + tick / 2f else 0f
         for (i in 1..style.divisions) {
             for (side in ways) {
                 val x = originX + side * i * stepX
-                if (style.ticks) out += line(InkPoint(x, originY - tick / 2f), InkPoint(x, originY + tick / 2f))
-                if (style.numbers) {
+                val xClear = !style.arrows || halfX - i * stepX > endGap
+                if (style.ticks && xClear) out += line(InkPoint(x, originY - tick / 2f), InkPoint(x, originY + tick / 2f))
+                if (style.numbers && xClear) {
                     // Centred axes label downwards into the free space; a corner origin sits on the
                     // frame's own bottom edge, so its numbers go inside the graph instead.
                     val corner = style.origin == GraphOrigin.CORNER
@@ -93,8 +97,9 @@ object GraphAxes {
                         below = corner, align = LabelAlign.CENTRE, limit = frame)
                 }
                 val y = originY - side * i * stepY
-                if (style.ticks) out += line(InkPoint(originX - tick / 2f, y), InkPoint(originX + tick / 2f, y))
-                if (style.numbers) {
+                val yClear = !style.arrows || halfY - i * stepY > endGap
+                if (style.ticks && yClear) out += line(InkPoint(originX - tick / 2f, y), InkPoint(originX + tick / 2f, y))
+                if (style.numbers && yClear) {
                     // Above the tick, and to the left of the axis unless that would fall outside a
                     // corner-origin frame — there the label hangs to the right, inside the graph.
                     val corner = style.origin == GraphOrigin.CORNER
