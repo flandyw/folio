@@ -182,6 +182,7 @@ class InkView(context: Context) : View(context) {
     }
     private val imageHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.FILL }
     private val imageHandleEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f }
+    private val selectionHandleEdgePaint = Paint(imageHandleEdgePaint)
     private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f
         pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
@@ -191,9 +192,6 @@ class InkView(context: Context) : View(context) {
         color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f
         strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val measurementTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 26f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) }
-    private val measurementBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC1A1C1A.toInt() }
-    private val measurementBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x332F6FBA; style = Paint.Style.FILL }
     // Reused across onDraw frames so selection previews and writing lanes allocate nothing per frame.
     private val selectionPreviewMatrix = Matrix()
     private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE }
@@ -655,6 +653,7 @@ class InkView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         removeCallbacks(followFrame)
+        removeCallbacks(reportMeasurement)
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
@@ -662,6 +661,7 @@ class InkView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        reportShapeMeasurement()
         canvas.drawColor(Color.rgb(234, 232, 226))
         canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale)
         if (!page.infinite) canvas.drawRect(-1f, -1f, page.width + 2f, page.height + 3f, shadowPaint)
@@ -762,7 +762,6 @@ class InkView(context: Context) : View(context) {
             if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
             else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
             else InkRenderer.stroke(canvas, draftStroke)
-            if (shapeMeasurements && draftStroke.tool in MEASURE_TOOLS) drawMeasurement(canvas, draftStroke)
         }
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
         eraserMark?.let { drawEraser(canvas, it) }
@@ -1288,7 +1287,7 @@ class InkView(context: Context) : View(context) {
         if (!onPage(raw.x, raw.y)) return false
         val at = if (page.infinite) raw else clampToPage(raw)
         val selected = selectedImageId?.let { id -> page.images.find { it.id == id } }
-        if (selected != null && InkGeometry.imageHandleContains(selected, at)) {
+        if (selected != null && InkGeometry.imageHandleContains(selected, at, SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit())) {
             movingImage = selected; resizingImage = true; imageMoved = false
             imageFromX = at.x; imageFromY = at.y
             return true
@@ -1300,7 +1299,7 @@ class InkView(context: Context) : View(context) {
             selectedImageId = hit.id
             onImageSelected(hit)
         }
-        resizingImage = InkGeometry.imageHandleContains(hit, at)
+        resizingImage = InkGeometry.imageHandleContains(hit, at, SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit())
         imageFromX = at.x; imageFromY = at.y
         return true
     }
@@ -1392,7 +1391,9 @@ class InkView(context: Context) : View(context) {
         if (hasSelection()) {
             val box = selectionBox()
             if (box != null) {
-                when (InkGeometry.selectionHandleAt(box, start)) {
+                when (InkGeometry.selectionHandleAt(box, start,
+                    touch = SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit(),
+                    rotateLift = SelectionChrome.ROTATE_LIFT_DP * selectionUiUnit())) {
                     InkGeometry.SelectionHandle.RESIZE -> {
                         if (beginHandleGesture(start)) { resizingSelection = true; return }
                     }
@@ -1537,33 +1538,50 @@ class InkView(context: Context) : View(context) {
                 floatArrayOf(bounds[0] + selectionDx, bounds[1] + selectionDy, bounds[2] + selectionDx, bounds[3] + selectionDy)
             }
     /** The frame the resize/rotate handles live on: tighter than the move grab area. */
-    private fun selectionBox(): FloatArray? = selectionBounds(margin = 8f)
+    private fun selectionUiUnit(preview: Boolean = false): Float = SelectionChrome.pageUnit(
+        resources.displayMetrics.density, scale, if (preview) selectionPreviewScale else 1f)
+    private fun selectionBox(): FloatArray? = selectionBounds(margin = SelectionChrome.FRAME_MARGIN_DP * selectionUiUnit(preview = true))
     private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) {
+        val unit = selectionUiUnit()
+        lassoEdgePaint.strokeWidth = unit
+        lassoEdgePaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
         val polygon = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) }; close() }
         canvas.drawPath(polygon, lassoFillPaint); canvas.drawPath(polygon, lassoEdgePaint)
     }
     /** A dashed outline around a text box while it is dragged, so its extent is visible. */
     private fun drawTextBox(canvas: Canvas, box: TextBox) {
-        canvas.drawRect(box.x - 4f, box.y - 4f, box.x + box.width + 4f, box.y + InkRenderer.textHeight(box) + 4f, textBoxPaint)
+        val unit = selectionUiUnit(preview = true)
+        val margin = 2f * unit
+        textBoxPaint.strokeWidth = unit
+        textBoxPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
+        canvas.drawRect(box.x - margin, box.y - margin, box.x + box.width + margin,
+            box.y + InkRenderer.textHeight(box) + margin, textBoxPaint)
     }
     /**
      * Dashed frame around the lasso selection with direct handles: a plain dot
      * on the bottom-right corner resizes about the center, a ringed dot with a
-     * circular arrow above the top edge rotates about it. Drawn in page units,
-     * inside the preview matrix while a handle drag is live.
+     * circular arrow above the top edge rotates about it. Screen-sized chrome
+     * compensates for the canvas and the live handle preview scale.
      */
     private fun drawSelectionFrame(canvas: Canvas) {
         val box = selectionBox() ?: return
+        val unit = selectionUiUnit(preview = true)
+        val radius = SelectionChrome.HANDLE_RADIUS_DP * unit
+        selectionBoxPaint.strokeWidth = unit
+        selectionBoxPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
+        selectionLinkPaint.strokeWidth = unit
+        selectionGlyphPaint.strokeWidth = 1.5f * unit
+        selectionHandleEdgePaint.strokeWidth = unit
         canvas.drawRect(box[0], box[1], box[2], box[3], selectionBoxPaint)
         val cx = (box[0] + box[2]) / 2f
-        val rotateY = box[1] - InkGeometry.SELECTION_ROTATE_LIFT
-        canvas.drawLine(cx, box[1], cx, rotateY + SELECTION_HANDLE_RADIUS, selectionLinkPaint)
-        canvas.drawCircle(box[2], box[3], SELECTION_HANDLE_RADIUS, imageHandlePaint)
-        canvas.drawCircle(box[2], box[3], SELECTION_HANDLE_RADIUS, imageHandleEdgePaint)
-        canvas.drawCircle(cx, rotateY, SELECTION_HANDLE_RADIUS, imageHandlePaint)
-        canvas.drawCircle(cx, rotateY, SELECTION_HANDLE_RADIUS, imageHandleEdgePaint)
+        val rotateY = box[1] - SelectionChrome.ROTATE_LIFT_DP * unit
+        canvas.drawLine(cx, box[1], cx, rotateY + radius, selectionLinkPaint)
+        canvas.drawCircle(box[2], box[3], radius, imageHandlePaint)
+        canvas.drawCircle(box[2], box[3], radius, selectionHandleEdgePaint)
+        canvas.drawCircle(cx, rotateY, radius, imageHandlePaint)
+        canvas.drawCircle(cx, rotateY, radius, selectionHandleEdgePaint)
         // Circular arrow: 300° of arc plus a V head at its end (420° == 60°).
-        val r = 8f
+        val r = 4f * unit
         canvas.drawArc(RectF(cx - r, rotateY - r, cx + r, rotateY + r), 120f, 300f, false, selectionGlyphPaint)
         val end = Math.toRadians(60.0)
         val ex = (cx + r * cos(end)).toFloat()
@@ -1572,7 +1590,7 @@ class InkView(context: Context) : View(context) {
         // direction ±25° into a V, in page units.
         val tx = -sin(end).toFloat()
         val ty = cos(end).toFloat()
-        val head = 5.5f
+        val head = 2.75f * unit
         val spread = Math.toRadians(25.0)
         fun wing(flip: Double): Pair<Float, Float> {
             val a = flip * spread
@@ -1589,48 +1607,35 @@ class InkView(context: Context) : View(context) {
     }
     /** A dashed outline with a bottom-right handle around the selected picture. */
     private fun drawImageSelection(canvas: Canvas, image: PageImage, withHandle: Boolean = true) {
-        canvas.drawRect(image.x - 4f, image.y - 4f, image.x + image.width + 4f, image.y + image.height + 4f, imageEdgePaint)
+        val unit = selectionUiUnit(preview = true)
+        val margin = 2f * unit
+        imageEdgePaint.strokeWidth = unit
+        imageEdgePaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
+        imageHandleEdgePaint.strokeWidth = unit
+        canvas.drawRect(image.x - margin, image.y - margin,
+            image.x + image.width + margin, image.y + image.height + margin, imageEdgePaint)
         if (!withHandle) return
         val cx = image.x + image.width
         val cy = image.y + image.height
-        val r = 14f
+        val r = SelectionChrome.HANDLE_RADIUS_DP * unit
         canvas.drawCircle(cx, cy, r, imageHandlePaint)
         canvas.drawCircle(cx, cy, r, imageHandleEdgePaint)
     }
-    private fun drawMeasurement(canvas: Canvas, draft: Stroke) {
-        val a = draft.points.firstOrNull() ?: return
-        val b = draft.points.lastOrNull() ?: return
-        val label = when (draft.tool) {
-            Tool.LINE -> {
-                val len = hypot(b.x - a.x, b.y - a.y)
-                val deg = (Math.toDegrees(atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())) + 360) % 360
-                String.format(java.util.Locale.ROOT, "%.0f pt  %.0f°", len, deg)
-            }
-            Tool.RECTANGLE, Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR -> {
-                val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
-                String.format(java.util.Locale.ROOT, "%.0f × %.0f", w, h)
-            }
-            Tool.GRAPH -> {
-                val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
-                val step = GraphAxes.stepLabel(graphStyle)?.let { "  $it" }.orEmpty()
-                String.format(java.util.Locale.ROOT, "%.0f × %.0f%s", w, h, step)
-            }
-            Tool.ELLIPSE -> {
-                val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
-                val r = (w + h) / 4f
-                String.format(java.util.Locale.ROOT, "⌀ %.0f  r %.0f", kotlin.math.max(w, h), r)
-            }
-            else -> return
+    // Deliver after drawing, coalescing frames so Compose state is never changed inside onDraw.
+    internal var onShapeMeasurement: (ShapeMeasurement?) -> Unit = {}
+    private var pendingMeasurement: ShapeMeasurement? = null
+    private var reportedMeasurement: ShapeMeasurement? = null
+    private val reportMeasurement = Runnable {
+        if (reportedMeasurement != pendingMeasurement) {
+            reportedMeasurement = pendingMeasurement
+            onShapeMeasurement(pendingMeasurement)
         }
-        val mx = (a.x + b.x) / 2f; val my = (a.y + b.y) / 2f - 18f
-        val padH = 10f; val padV = 6f
-        val tw = measurementTextPaint.measureText(label)
-        val fm = measurementTextPaint.fontMetrics
-        val bg = RectF(mx - tw / 2f - padH, my + fm.top - padV, mx + tw / 2f + padH, my + fm.bottom + padV)
-        val rr = 10f
-        canvas.drawRoundRect(bg, rr, rr, measurementBorderPaint)
-        canvas.drawRoundRect(bg, rr, rr, measurementBgPaint)
-        canvas.drawText(label, mx - tw / 2f, my, measurementTextPaint)
+    }
+    private fun reportShapeMeasurement() {
+        pendingMeasurement = draft?.takeIf { shapeMeasurements && it.tool in MEASURE_TOOLS }
+            ?.let { ShapeMeasurement.from(it, graphStyle, originX, originY, scale) }
+        removeCallbacks(reportMeasurement)
+        if (pendingMeasurement != reportedMeasurement) post(reportMeasurement)
     }
 
     /** A ring under the tip, so the eraser's size is visible while it hovers and while it cuts. */
@@ -1754,8 +1759,6 @@ class InkView(context: Context) : View(context) {
         const val SCRIBBLE_RADIUS = 14f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
-        /** Drawn radius of each selection frame handle, in page units. */
-        const val SELECTION_HANDLE_RADIUS = 16f
         /**
          * Geometry caches hold a dense page's live strokes without thrashing: LRU keeps the
          * visible working set resident while panning, and 8k entries cover ~2× the old bound

@@ -133,6 +133,8 @@ import kotlin.math.roundToInt
     var searchOpen by remember { mutableStateOf(false) }
     var contentsOpen by remember { mutableStateOf(false) }
     var jumpOpen by remember { mutableStateOf(false) }
+    var fastScrollOn by remember(pane.notebookId) { mutableStateOf(false) }
+    var scrubPage by remember(pane.notebookId, index) { mutableFloatStateOf(index.toFloat()) }
     var filmstripOn by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     // Link rectangles arrive once per notebook; a native notebook simply has none.
@@ -208,6 +210,18 @@ import kotlin.math.roundToInt
         // rather than as loose buttons floating on the page.
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
             Column {
+                if (fastScrollOn && note.pages.size > 1) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16).guardUiTouches()) {
+                        Text("Page ${scrubPage.roundToInt() + 1} of ${note.pages.size}", style = MaterialTheme.typography.labelLarge)
+                        Slider(
+                            value = scrubPage,
+                            onValueChange = { scrubPage = it },
+                            onValueChangeFinished = { model.companionPage(scrubPage.roundToInt()) },
+                            valueRange = 0f..note.pages.lastIndex.toFloat(),
+                            modifier = Modifier.semantics { contentDescription = "Fast scroll reference pages" }
+                        )
+                    }
+                }
                 if (filmstripOn && pdfBacked) ReferenceFilmstrip(note.id, note, index, model.thumbnails) { model.companionPage(it) }
             // Scrollable so a cramped split pane keeps every control reachable instead of clipping the
             // zoom buttons off the end; it centres itself whenever there is room for everything.
@@ -216,8 +230,15 @@ import kotlin.math.roundToInt
                 verticalAlignment = Alignment.CenterVertically) {
                 val hold = rememberLongPressGuard()
                 IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
-                Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), style = MaterialTheme.typography.labelLarge)
+                TextButton({ jumpOpen = true }, shapes = ButtonDefaults.shapes()) {
+                    Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), maxLines = 1)
+                }
                 IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
+                if (note.pages.size > 1) {
+                    IconToggleButton(fastScrollOn, { fastScrollOn = it }, shapes = IconButtonDefaults.toggleableShapes()) {
+                        Icon(Icons.Rounded.SwapVert, "Fast scroll")
+                    }
+                }
                 if (pdfBacked) {
                     IconButton({ paneView?.zoomReference(-1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomOut, "Zoom out") }
                     Text("${(viewport.canvasZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

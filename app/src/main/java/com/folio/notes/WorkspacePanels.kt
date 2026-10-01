@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -81,20 +82,7 @@ import androidx.compose.ui.unit.dp
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             if (purpose == PickerPurpose.COMPANION) {
                 Text("Mode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                FolioButtonGroup(Modifier.fillMaxWidth()) {
-                    toggleableItem(
-                        checked = mode == CompanionMode.SPLIT,
-                        onCheckedChange = { mode = CompanionMode.SPLIT },
-                        label = "Split",
-                        icon = { Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(18.dp)) }
-                    )
-                    toggleableItem(
-                        checked = mode == CompanionMode.REFERENCE,
-                        onCheckedChange = { mode = CompanionMode.REFERENCE },
-                        label = "Reference",
-                        icon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null, Modifier.size(18.dp)) }
-                    )
-                }
+                CompanionModeChips(mode) { mode = it }
                 Text(WorkspacePicker.modeCaption(mode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ListItem(
                     headlineContent = { Text("Link pages") },
@@ -247,20 +235,7 @@ import androidx.compose.ui.unit.dp
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
             Text("Mode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            FolioButtonGroup(Modifier.fillMaxWidth()) {
-                toggleableItem(
-                    checked = state.companionMode == CompanionMode.SPLIT,
-                    onCheckedChange = { model.setCompanionMode(CompanionMode.SPLIT) },
-                    label = "Split",
-                    icon = { Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(18.dp)) }
-                )
-                toggleableItem(
-                    checked = state.companionMode == CompanionMode.REFERENCE,
-                    onCheckedChange = { model.setCompanionMode(CompanionMode.REFERENCE) },
-                    label = "Reference",
-                    icon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null, Modifier.size(18.dp)) }
-                )
-            }
+            CompanionModeChips(state.companionMode, model::setCompanionMode)
             Text(WorkspacePicker.modeCaption(state.companionMode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ListItem(
                 headlineContent = { Text(WorkspacePicker.flipCaption(state.editorOnRight)) },
@@ -307,5 +282,26 @@ import androidx.compose.ui.unit.dp
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+/** Size each mode to its content; narrow panels can move a whole chip to the next row. */
+@Composable private fun CompanionModeChips(mode: CompanionMode, onModeChange: (CompanionMode) -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
+    ) {
+        FilterChip(
+            selected = mode == CompanionMode.SPLIT,
+            onClick = { onModeChange(CompanionMode.SPLIT) },
+            label = { Text("Split", maxLines = 1, softWrap = false) },
+            leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(18.dp)) }
+        )
+        FilterChip(
+            selected = mode == CompanionMode.REFERENCE,
+            onClick = { onModeChange(CompanionMode.REFERENCE) },
+            label = { Text("Reference", maxLines = 1, softWrap = false) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null, Modifier.size(18.dp)) }
+        )
     }
 }

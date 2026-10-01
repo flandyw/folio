@@ -1679,6 +1679,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     /** Contextual pill shown near the selection; null on pages without one. */
     selectionPill: (@Composable BoxScope.() -> Unit)? = null,
     onSelectionAnchor: (Rect?) -> Unit = {}) {
+    val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
@@ -1760,6 +1761,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
             else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+                view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
                 view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked; view.writingStrip = writingStrip
@@ -1800,6 +1802,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
             }
         }
+        if (page.loaded && ready && !readOnly && shapeMeasurements) ShapeMeasurementTooltip(shapeMeasurement)
         // The contextual pill floats over the page near the selection: above it when
         // there is room, below it when the selection sits at the top, top-center
         // until the canvas reports the frame. It scrolls and zooms with the page

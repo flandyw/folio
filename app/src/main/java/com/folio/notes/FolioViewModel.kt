@@ -110,6 +110,7 @@ data class FolioState(
 class FolioViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("preferences", 0)
     private val positionPrefs = application.getSharedPreferences("notebook_positions", 0)
+    private val companionPositionPrefs = application.getSharedPreferences("companion_positions", 0)
     val repository = (application as FolioApplication).repository
     val thumbnails = (application as FolioApplication).thumbnails
     private val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"])
@@ -339,6 +340,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             savedState["workspaceTabs"] = WorkspaceSessionCodec.encode(it.tabs.map { tab ->
                 if (tab.notebookId == it.activeId) tab.copy(currentPageId = it.page?.id ?: tab.currentPageId, search = it.pdfSearch) else tab
             })
+            persistCompanionPosition(it.companion)
             savedState["workspaceCompanion"] = WorkspaceSessionCodec.encode(listOfNotNull(it.companion))
             savedState["workspaceMode"] = it.companionMode.name
             savedState["splitFraction"] = it.splitFraction
@@ -665,9 +667,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         positionPrefs.edit().putString(notebookId, NotebookPositionCodec.encode(position)).apply()
     }
 
+    /** Companion reading positions are independent of the editor, even for the same notebook. */
+    private fun persistCompanionPosition(pane: EditorTab? = _state.value.companion) {
+        pane ?: return
+        val encoded = NotebookPositionCodec.encode(NotebookPosition(pane.currentPageId, pane.viewport, pane.tool, ""))
+        if (companionPositionPrefs.getString(pane.notebookId, null) != encoded) {
+            companionPositionPrefs.edit().putString(pane.notebookId, encoded).apply()
+        }
+    }
+
     /** The last saved position for [note], or null when it was never opened or is stale. */
-    private fun rememberedTab(note: Notebook): EditorTab? {
-        val position = NotebookPositionCodec.decode(positionPrefs.getString(note.id, null))
+    private fun rememberedTab(note: Notebook, reference: Boolean = false): EditorTab? {
+        val store = if (reference) companionPositionPrefs else positionPrefs
+        val position = NotebookPositionCodec.decode(store.getString(note.id, null))
             ?: return null
         val pageId = position.pageId.takeIf { id -> note.pages.any { it.id == id } }
             ?: note.pages.firstOrNull()?.id ?: return null
@@ -677,9 +689,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Drops saved positions for notebooks that no longer exist, so the store never grows stale. */
     private fun prunePositions(notes: List<Notebook>) {
         val alive = notes.map { it.id }.toSet()
-        val stale = positionPrefs.all.keys.filter { it !in alive }
-        if (stale.isEmpty()) return
-        positionPrefs.edit().apply { stale.forEach { remove(it) } }.apply()
+        for (store in listOf(positionPrefs, companionPositionPrefs)) {
+            val stale = store.all.keys.filter { it !in alive }
+            if (stale.isNotEmpty()) store.edit().apply { stale.forEach { remove(it) } }.apply()
+        }
     }
 
     fun updateTabViewport(id: String, viewport: WorkspaceViewport, tool: Tool) {
@@ -769,7 +782,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun showCompanion(id: String, mode: CompanionMode) {
         captureTab()
         val note = _state.value.notes.find { it.id == id } ?: return
-        val source = _state.value.tabs.find { it.notebookId == id }
+        persistCompanionPosition()
+        val source = (if (mode == CompanionMode.REFERENCE) rememberedTab(note, reference = true) else null)
+            ?: _state.value.tabs.find { it.notebookId == id }
             ?: rememberedTab(note)
             ?: EditorTab(id, id, note.pages.first().id, note.title)
         // The side the editor sits on is the user's, not the pane's: opening a companion leaves
@@ -780,7 +795,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     /** Closing the pane keeps which side the editor was on, so it reopens where it was left. */
-    fun dismissCompanion() { _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
+    fun dismissCompanion() { persistCompanionPosition(); _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
 
     /** Dragged divider position, as the editor's share; snapped by the caller on release. */
     fun setSplitFraction(fraction: Float) {
@@ -819,6 +834,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = note.pages.getOrNull(index) ?: return
         // A deliberate zoom (fit width, say) survives the turn; an untouched pane resets as before.
         _state.update { it.copy(companion = pane.copy(currentPageId = page.id, viewport = PdfReference.carriedFrame(pane.viewport))) }
+        persistCompanionPosition()
         loadPage(page.id)
     }
 
@@ -844,6 +860,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     fun swapCompanion() {
+        persistCompanionPosition()
         captureTab()
         val pane = _state.value.companion ?: return
         val active = _state.value.tabs.find { it.notebookId == _state.value.activeId } ?: return
@@ -991,6 +1008,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             )
         }
         positionPrefs.edit().remove(note.id).apply()
+        companionPositionPrefs.edit().remove(note.id).apply()
         thumbnails.clear(note.id)
         enqueue {
             try { repository.delete(note.id) }
@@ -1015,6 +1033,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         removed.forEach { thumbnails.clear(it.id) }
         positionPrefs.edit().apply { removed.forEach { remove(it.id) } }.apply()
+        companionPositionPrefs.edit().apply { removed.forEach { remove(it.id) } }.apply()
         enqueue {
             val failed = mutableListOf<Notebook>()
             removed.forEach {
@@ -1047,6 +1066,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             next
         }
         persistPosition(note.id)
+        persistCompanionPosition()
         historyState()
         _state.value.page?.let { loadPage(it.id) }
         _state.value.companion?.let { loadPage(it.currentPageId) }

@@ -876,10 +876,9 @@ object InkGeometry {
             point.y >= image.y && point.y <= image.y + image.height
 
     /** True when [point] lands on the bottom-right resize handle. */
-    fun imageHandleContains(image: PageImage, point: InkPoint): Boolean {
+    fun imageHandleContains(image: PageImage, point: InkPoint, half: Float = PageImage.HANDLE_HALF): Boolean {
         val cx = image.x + image.width
         val cy = image.y + image.height
-        val half = PageImage.HANDLE_HALF
         return point.x >= cx - half && point.x <= cx + half &&
             point.y >= cy - half && point.y <= cy + half
     }
