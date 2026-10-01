@@ -374,6 +374,20 @@ data class FocalFocus(
         intervals = intervals + FocalStudyInterval(now, null))
 }
 
+internal fun focalReconcileFocus(current: FocalFocus, session: FocalStudyEntry): FocalFocus? {
+    if (session.id != current.sessionId) return current
+    if (!session.active) return null
+    if (!session.synced) return current
+    val runningStart = session.intervals.lastOrNull()?.takeIf { it.endAt == null }?.startAt
+    // An incomplete server timeline cannot establish a new start; keep the last known timer.
+    if (!session.paused && runningStart == null) return current
+    val accumulated = session.intervals.filter { it.endAt != null }
+        .sumOf { (it.endAt!! - it.startAt).coerceAtLeast(0L) }
+    return current.copy(intervals = session.intervals,
+        accumulatedMillis = maxOf(session.activeMillis, accumulated),
+        resumedAt = if (session.paused) null else runningStart)
+}
+
 internal fun focalControlledEntry(current: FocalStudyEntry, action: String, now: Long): FocalStudyEntry? {
     val intervals = current.intervals.toMutableList()
     val last = intervals.lastOrNull()
@@ -1447,13 +1461,8 @@ class FocalStudyManager(context: Context) {
             val otherAccounts = state.entries.filter { it.userId != null && it.userId != user }
             val focus = state.focus?.let { current ->
                 val session = merged[current.sessionId] ?: return@let current
-                if (!session.active) return@let null
-                if (remote.none { it.id == current.sessionId } || !session.synced) return@let current
-                val accumulated = session.intervals.filter { it.endAt != null }
-                    .sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
-                val runningStart = session.intervals.lastOrNull()?.takeIf { it.endAt == null }?.startAt
-                current.copy(intervals = session.intervals, accumulatedMillis = accumulated,
-                    resumedAt = if (!session.paused) runningStart ?: now() else null)
+                if (remote.none { it.id == current.sessionId }) return@let current
+                focalReconcileFocus(current, session)
             }
             state.copy(entries = merged.values.toList() + otherAccounts, focus = focus,
                 remoteRevision = maxOf(startCursor, cursor), remoteRevisionUser = user,
@@ -1620,7 +1629,7 @@ internal fun focalExternalChanges(
     }
 }
 
-private fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: String, user: String): FocalStudyEntry? = runCatching {
+internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: String, user: String): FocalStudyEntry? = runCatching {
     val state = payload.optString("state")
     val kind = payload.optString("kind")
     val metadata = payload.optJSONObject("metadata") ?: JSONObject()
@@ -1632,9 +1641,15 @@ private fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: S
     val intervals = (0 until segments.length()).mapNotNull { index -> runCatching {
         val segment = segments.getJSONObject(index)
         val started = Instant.parse(segment.getString("started_at")).toEpochMilli()
-        FocalStudyInterval(started, segment.optString("ended_at").takeIf { it.isNotBlank() }
+        FocalStudyInterval(started, segment.optString("ended_at").takeIf { it.isNotBlank() && it != "null" }
             ?.let { Instant.parse(it).toEpochMilli() })
     }.getOrNull() }
+        .let { parsed ->
+            val runningStart = epoch("segment_started_at")
+            if (state == "running" && runningStart != null && parsed.none { it.endAt == null })
+                parsed + FocalStudyInterval(runningStart, null)
+            else parsed
+        }
     val reflection = metadata.optJSONObject("reflection") ?: legacy?.optJSONObject("reflection")
     val phase = payload.optString("phase").takeIf { it in setOf("reading", "writing") }
     val started = epoch("started_at") ?: epoch("created_at") ?: 0L
@@ -1644,8 +1659,8 @@ private fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: S
         id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() },
         title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() },
         kind = if (kind in setOf("exam", "sac")) "exam" else "study", startedAt = started, endedAt = ended,
-        activeMillis = payload.optLong("accumulated_active_ms").takeIf { it > 0L }
-            ?: folio?.optLong("reported_active_ms", 0L)?.coerceAtLeast(0L) ?: 0L,
+        activeMillis = payload.optLong("accumulated_active_ms",
+            folio?.optLong("reported_active_ms", 0L) ?: 0L).coerceAtLeast(0L),
         notes = reflection?.optString("notes").orEmpty(), confidence = reflection?.optInt("confidence")?.takeIf { it in 1..5 },
         userId = user, synced = true, revision = payload.optLong("revision"), completed = state == "completed",
         planned = state == "planned", deleted = state == "cancelled", paused = state == "paused",

@@ -42,6 +42,64 @@ class FocalStudyTests {
         assertEquals(start + 5_000L, focalEstimatedServerNow(fresher, 5_000L, 0L))
     }
 
+    @Test fun canonicalNullEndSurvivesStartEchoRepeatedPullPauseResumeAndFinish() {
+        val start = java.time.Instant.parse("2026-09-28T00:00:00Z").toEpochMilli()
+        val payload = JSONObject("""{"state":"running","kind":"focus","started_at":"2026-09-28T00:00:00Z",
+            "segment_started_at":"2026-09-28T00:00:00Z","accumulated_active_ms":0,
+            "metadata":{"folio":{"reported_active_ms":9000}},
+            "segments":[{"started_at":"2026-09-28T00:00:00Z","ended_at":null}]}""")
+        var focus = FocalFocus("notebook", "Study", "mm", start, start, sessionId = "session",
+            intervals = listOf(FocalStudyInterval(start, null)))
+        var entry = focalEntryFromCanonical("session", payload, "echo", "user")!!
+        assertEquals(focus.intervals, entry.intervals)
+        assertEquals(0L, entry.activeMillis) // Canonical zero must not fall back to a local checkpoint.
+        for (seconds in listOf(2L, 4L, 10L)) {
+            entry = focalMergeSession(entry, focalEntryFromCanonical("session", payload, "echo", "user")!!)
+            focus = focalReconcileFocus(focus, entry)!!
+            assertEquals(seconds * 1000, focus.elapsed(start + seconds * 1000))
+            assertEquals(seconds * 1000, entry.intervals.sumOf { (it.endAt ?: (start + seconds * 1000)) - it.startAt })
+        }
+        assertTrue(focalCommandsFor(entry.copy(synced = false), "device").none { it.optString("action") == "start" })
+
+        payload.put("state", "paused").put("accumulated_active_ms", 10_000).put("segment_started_at", JSONObject.NULL)
+        payload.getJSONArray("segments").getJSONObject(0).put("ended_at", "2026-09-28T00:00:10Z")
+        entry = focalEntryFromCanonical("session", payload, "pause", "user")!!
+        focus = focalReconcileFocus(focus, entry)!!
+        assertEquals(null, focus.resumedAt)
+        assertEquals(10_000L, focus.elapsed(start + 20_000))
+
+        payload.put("state", "running").put("segment_started_at", "2026-09-28T00:00:20Z")
+        payload.getJSONArray("segments").put(JSONObject("""{"started_at":"2026-09-28T00:00:20Z","ended_at":null}"""))
+        entry = focalEntryFromCanonical("session", payload, "resume", "user")!!
+        focus = focalReconcileFocus(focus, entry)!!
+        assertEquals(12_000L, focus.elapsed(start + 22_000))
+        assertEquals(12_000L, focus.pause(start + 22_000).accumulatedMillis)
+        payload.put("state", "completed")
+        assertEquals(null, focalReconcileFocus(focus, focalEntryFromCanonical("session", payload, "finish", "user")!!))
+        payload.put("state", "cancelled")
+        assertEquals(null, focalReconcileFocus(focus, focalEntryFromCanonical("session", payload, "cancel", "user")!!))
+    }
+
+    @Test fun incompleteCanonicalIntervalsCannotInventANewTimerStart() {
+        val start = java.time.Instant.parse("2026-09-28T00:00:00Z").toEpochMilli()
+        val focus = FocalFocus("notebook", "Study", "mm", start, start, sessionId = "session")
+        val payload = JSONObject("""{"state":"running","kind":"focus","accumulated_active_ms":0,
+            "segment_started_at":"2026-09-28T00:00:00Z","segments":[]}""")
+        val recovered = focalEntryFromCanonical("session", payload, "echo", "user")!!
+        assertEquals(listOf(FocalStudyInterval(start, null)), recovered.intervals)
+        assertEquals(2_000L, focalReconcileFocus(focus, recovered)!!.elapsed(start + 2_000))
+        payload.put("segment_started_at", JSONObject.NULL)
+        assertEquals(focus, focalReconcileFocus(focus, focalEntryFromCanonical("session", payload, "echo", "user")!!))
+        assertEquals(focus, focalReconcileFocus(focus, recovered.copy(synced = false)))
+        assertEquals(focus, focalReconcileFocus(focus, recovered.copy(id = "another-session")))
+        for (end in listOf<Any?>(null, "", JSONObject.NULL, "invalid")) {
+            payload.put("segments", org.json.JSONArray().put(JSONObject()
+                .put("started_at", "2026-09-28T00:00:00Z").put("ended_at", end)))
+            val entry = focalEntryFromCanonical("session", payload, "echo", "user")!!
+            assertEquals(2_000L, focalReconcileFocus(focus, entry)!!.elapsed(start + 2_000))
+        }
+    }
+
     @Test fun lifecycleElapsedSurvivesProcessRestartButNotDeviceReboot() {
         assertEquals(4_900L, focalElapsedSince(100L, 12, 5_000L, 12, 9_000L))
         assertEquals(0L, focalElapsedSince(100L, 12, 5_000L, 13))
