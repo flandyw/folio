@@ -488,9 +488,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             topBar = {
                 TopAppBar(
                     title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
-                    navigationIcon = { IconButton({ if (detail != null) detail = null else onBack() }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (detail != null) "Back to mistakes" else "Back to library")
-                    } },
+                    navigationIcon = {
+                        if (detail != null) IconButton({ detail = null }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes")
+                        }
+                    },
                     actions = {
                         if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(if (isSyncTrouble(state.status)) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
@@ -669,9 +671,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             )
         }
     }
-    if (showAccount && state.userId != null) ModalBottomSheet(onDismissRequest = { showAccount = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+    if (showAccount && state.userId != null) FolioSideSheet("Account and sync", onDismissRequest = { showAccount = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             FocalAccountContent(model, onBeforeSignOut = { showAccount = false; leaveReview() })
+            OfflineNoteCard()
         }
     }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
@@ -762,11 +765,11 @@ internal fun FocalAccountContent(
         if (state.userId == null) {
             FocalLoginCard(state, model::signIn, model::signUp, model::resetPassword, model::clearAuthFeedback)
         } else {
-            Text("Focal account", style = MaterialTheme.typography.titleLarge)
+            Text("Focal account", style = MaterialTheme.typography.headlineSmall)
             AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
                 { model.requestSync(force = true) }, { confirmSignOut = true })
             Text("One sign-in connects study sessions and mistake review. Handwriting stays in Folio.",
-                style = MaterialTheme.typography.bodyMedium)
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (confirmSignOut) AlertDialog(
@@ -814,18 +817,26 @@ private fun AccountCard(
                     )
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(email ?: "Focal", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(email ?: "Focal", style = MaterialTheme.typography.titleMedium, overflow = TextOverflow.Ellipsis)
                     Text(
                         formatSyncedAt(lastSyncedAt),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (syncing) LoadingIndicator(Modifier.size(22.dp))
-                else IconButton(onSync, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Sync, "Sync now") }
-                IconButton(onSignOut, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Logout, "Sign out") }
             }
             SyncStatusRow(status, pending)
             if (syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
+            FilledTonalButton(onSync, enabled = !syncing, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.Sync, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(if (syncing) "Syncing…" else "Sync now")
+            }
+            OutlinedButton(onSignOut, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text("Sign out")
+            }
         }
     }
 }
