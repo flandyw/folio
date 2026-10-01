@@ -14,6 +14,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
+import org.json.JSONArray
+import com.folio.notes.mistakes.RichTextDocument
+import com.folio.notes.mistakes.RichTextParser
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -117,6 +120,60 @@ class KaTeXRenderingTests {
         } finally {
             bitmap.recycle()
         }
+    }
+
+    @Test fun wholeQuestionKeepsEveryEquationAndFinalInstructionAtDifferentWidths() {
+        lateinit var view: KaTeXWebView
+        compose.setContent {
+            AndroidView(factory = { context -> FrameLayout(context).apply {
+                view = KaTeXWebView(context); addView(view)
+            } }, modifier = Modifier.size(1.dp).alpha(0f), onRelease = { it.removeAllViews(); view.destroy() })
+        }
+        compose.waitForIdle()
+        val tail = "Find the value of k for exactly one point of intersection. (2 marks)"
+        val source = "Let \\(f : \\mathbb{R} \\to \\mathbb{R}\\) be defined by\n\n" +
+            "\$\$f(x)=x^2e^{kx},\$\$\n\nwhere \\(k\\) is a positive real constant. It has been shown that\n\n" +
+            "\$\$f'(x)=xe^{kx}(kx+2).\$\$\n\n" +
+            "Extra context about the functions. ".repeat(20) + "\n\n$tail"
+        runBlocking { withContext(Dispatchers.Main) { withTimeout(60_000) {
+            val density = view.resources.displayMetrics.density
+            for (font in listOf(14f, 24f)) for (width in listOf(160f, 320f, 640f)) {
+                view.render("f", false, font, "#eeeeee", density).recycle()
+                val bitmap = view.renderDocument(JSONArray(RichTextDocument.encode(RichTextParser.parse(source))),
+                    font, font * 1.5f, width, "#eeeeee", density)
+                val rects = JSONArray(view.evaluate("""
+                    Array.from(document.querySelectorAll('.math-content, .paragraph:last-child')).map(node => {
+                        const r = node.getBoundingClientRect();
+                        return {left:r.left, top:r.top, right:r.right, bottom:r.bottom};
+                    })
+                """.trimIndent()))
+                assertEquals(5, rects.length())
+                for (index in 0 until rects.length()) {
+                    assertInkInRect(bitmap, rects.getJSONObject(index), density, "Missing document part $index at $width/$font")
+                }
+                assertTrue(JSONObject(view.evaluate("window.folioResult")).getString("text").endsWith(tail))
+                assertEquals("0", view.evaluate("document.querySelectorAll('.katex-error').length"))
+                assertEquals(kotlin.math.ceil(width * density).toInt(), bitmap.width)
+                bitmap.recycle()
+            }
+            // An oversized equation must stay within the card, including its final symbol.
+            val wide = "\\[" + (1..40).joinToString("+") { "x_{$it}" } + "\\]"
+            val bitmap = view.renderDocument(JSONArray(RichTextDocument.encode(RichTextParser.parse(wide))),
+                18f, 27f, 160f, "#eeeeee", density)
+            val rightmost = JSONObject(view.evaluate("""
+                (() => { const r = document.querySelector('.math-content').getBoundingClientRect();
+                    return {left:r.left, top:r.top, right:r.right, bottom:r.bottom}; })()
+            """.trimIndent()))
+            assertTrue(rightmost.getDouble("left") >= 0)
+            assertTrue(rightmost.getDouble("right") <= 160.1)
+            assertInkInRect(bitmap, rightmost, density, "Wide equation disappeared")
+            bitmap.recycle()
+            val literal = "A <script>window.injected=true</script> & \\(x\\)"
+            view.renderDocument(JSONArray(RichTextDocument.encode(RichTextParser.parse(literal))),
+                18f, 27f, 320f, "#eeeeee", density).recycle()
+            assertEquals("0", view.evaluate("document.querySelectorAll('#formula script, #formula a, #formula img').length"))
+            assertEquals("false", view.evaluate("window.injected === true"))
+        } } }
     }
 
     private fun assertInkInRect(bitmap: Bitmap, rect: JSONObject, density: Float, message: String) {

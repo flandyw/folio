@@ -14,7 +14,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.FolioButtonGroup
@@ -108,24 +107,22 @@ import com.folio.notes.rememberLongPressGuard
     // Long-pressing a card opens its context menu; the tap still opens the details.
     var menu by remember { mutableStateOf(false) }
     val hold = rememberLongPressGuard()
-    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val previewStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
-    val previewHeight = with(LocalDensity.current) { (previewStyle.lineHeight * 4).toDp() }
     val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question"
     val overdue = !mistake.suspended && dueText.contains("overdue")
     Box {
     OutlinedCard(onClick = hold.click(onOpen), shape = FolioShapes.extraLarge,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth().height(316.dp * fontScale).longPressAction(hold) { menu = true }) {
-        Column(Modifier.fillMaxSize().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        modifier = Modifier.fillMaxWidth().longPressAction(hold) { menu = true }) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Focal question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(mistake.question, style = MaterialTheme.typography.titleMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            RichTextPreview(mistake.questionText.orEmpty(), style = previewStyle,
-                modifier = Modifier.fillMaxWidth().height(previewHeight))
-            Spacer(Modifier.weight(1f))
+            Text(mistake.question, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            RichText(mistake.questionText.orEmpty(), style = previewStyle,
+                modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(FolioSpacing.dp8))
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = FolioShapes.small,
                     color = if (overdue) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,

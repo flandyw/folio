@@ -1,28 +1,22 @@
 package com.folio.notes.mistakes
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -35,15 +29,14 @@ import androidx.compose.ui.unit.sp
 import com.folio.notes.FolioShapes
 import com.folio.notes.FolioSpacing
 import com.folio.notes.math.KaTeXMath
-import com.folio.notes.math.KaTeXPool
-import com.folio.notes.math.rememberKaTeXInlineContent
+import com.folio.notes.math.KaTeXDocument
 
 internal fun TextStyle.scaledBy(scale: Float): TextStyle = copy(
     fontSize = fontSize * scale,
     lineHeight = lineHeight * scale,
 )
 
-/** Native Markdown text with opaque math fragments rendered by bundled offline KaTeX. */
+/** Math-rich documents share one offline layout pass; prose-only documents use native text. */
 @Composable
 fun RichText(
     source: String,
@@ -53,13 +46,15 @@ fun RichText(
     overflow: TextOverflow = TextOverflow.Clip,
 ) {
     if (source.isBlank()) return
-    // Warm one renderer while the native text lays out, so the first formula
-    // usually finds a loaded shell instead of paying for WebView + page load.
-    val appContext = LocalContext.current.applicationContext
-    LaunchedEffect(source) { runCatching { KaTeXPool.prewarm(appContext) } }
     val blocks = remember(source) {
         runCatching { RichTextParser.parse(source) }.getOrDefault(emptyList())
             .ifEmpty { listOf(RichBlock.Para(listOf(RichInline.Run(source)))) }
+    }
+    val hasMath = remember(blocks) { RichTextParser.containsMath(source) }
+    if (hasMath) {
+        val document = remember(blocks) { RichTextDocument.encode(blocks) }
+        KaTeXDocument(document, source, modifier, style)
+        return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         blocks.forEach { block ->
@@ -124,18 +119,6 @@ fun RichText(
     }
 }
 
-/** A single ellipsized paragraph, retaining KaTeX without a separate line budget per block. */
-@Composable
-internal fun RichTextPreview(source: String, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
-    val inlines = remember(source) { RichTextParser.previewInlines(source) }
-    // Four preview lines are a hard budget in a card, so math scales into the line box it shares
-    // with the text instead of growing it and pushing that line out of the card.
-    val mathMaxHeight = with(LocalDensity.current) {
-        (style.lineHeight.takeIf { it.isSp } ?: style.fontSize * 1.2f).toDp().coerceAtLeast(12.dp)
-    }
-    InlineParagraph(inlines, style, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = modifier, mathMaxHeight = mathMaxHeight)
-}
-
 @Composable
 private fun InlineParagraph(
     inlines: List<RichInline>,
@@ -143,62 +126,23 @@ private fun InlineParagraph(
     maxLines: Int,
     overflow: TextOverflow,
     modifier: Modifier = Modifier,
-    mathMaxHeight: androidx.compose.ui.unit.Dp? = null,
 ) {
-    // Display math splits the paragraph so it can centre on its own line.
-    val sections = remember(inlines) {
-        val out = mutableListOf<Any>()
-        var current: MutableList<RichInline> = mutableListOf()
-        inlines.forEach {
-            if (it is RichInline.Math && it.display) {
-                if (current.isNotEmpty()) { out.add(current.toList()); current = mutableListOf() }
-                out.add(it)
-            } else current.add(it)
-        }
-        if (current.isNotEmpty()) out.add(current.toList())
-        out.toList()
-    }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        sections.forEach { section ->
-            when (section) {
-                is RichInline.Math -> KaTeXMath(section.latex, displayMode = true, textStyle = style)
-                else -> BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    @Suppress("UNCHECKED_CAST")
-                    val items = section as List<RichInline>
-                    // Measurement needs a composable scope, so placeholders are built before the
-                    // annotated string rather than inside its builder.
-                    val contents = ArrayList<InlineTextContent?>(items.size)
-                    for (item in items) {
-                        contents += if (item is RichInline.Math && !item.display) {
-                            rememberKaTeXInlineContent(item.latex, style, maxWidth, mathMaxHeight)
-                        } else null
-                    }
-                    val inlineContent = mutableMapOf<String, InlineTextContent>()
-                    val annotated = buildAnnotatedString {
-                        var mathId = 0
-                        items.forEachIndexed { itemIndex, inline ->
-                            when (inline) {
-                                is RichInline.Run -> withStyle(
-                                    SpanStyle(
-                                        fontWeight = if (inline.bold) FontWeight.SemiBold else null,
-                                        fontStyle = if (inline.italic) FontStyle.Italic else null,
-                                        fontFamily = if (inline.code) FontFamily.Monospace else null,
-                                        background = if (inline.code) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Unspecified,
-                                        textDecoration = if (inline.strike) TextDecoration.LineThrough else null
-                                    )
-                                ) { append(inline.text) }
-                                is RichInline.Math -> {
-                                    val id = "math${mathId++}"
-                                    appendInlineContent(id, inline.latex.ifEmpty { " " })
-                                    contents[itemIndex]?.let { inlineContent[id] = it }
-                                }
-                                RichInline.Break -> append("\n")
-                            }
-                        }
-                    }
-                    Text(annotated, style = style, maxLines = maxLines, overflow = overflow, inlineContent = inlineContent)
-                }
+    val annotated = buildAnnotatedString {
+        inlines.forEach { inline ->
+            when (inline) {
+                is RichInline.Run -> withStyle(
+                    SpanStyle(
+                        fontWeight = if (inline.bold) FontWeight.SemiBold else null,
+                        fontStyle = if (inline.italic) FontStyle.Italic else null,
+                        fontFamily = if (inline.code) FontFamily.Monospace else null,
+                        background = if (inline.code) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Unspecified,
+                        textDecoration = if (inline.strike) TextDecoration.LineThrough else null
+                    )
+                ) { append(inline.text) }
+                is RichInline.Math -> append(inline.latex)
+                RichInline.Break -> append("\n")
             }
         }
     }
+    Text(annotated, modifier.fillMaxWidth(), style = style, maxLines = maxLines, overflow = overflow)
 }

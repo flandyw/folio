@@ -4,3 +4,20 @@ body { width: max-content; }
 #formula { display: inline-block; padding: 2px; white-space: pre; user-select: none; }
 .katex-display { margin: 0; }
 .katex { font-size: 1em; }
+/* A document owns line breaking for both prose and equations, with no fixed line budget. */
+#formula.document { display: block; box-sizing: border-box; white-space: normal; font-family: Roboto, sans-serif; }
+.document > * { margin: 0 0 6px; }
+.document > :last-child { margin-bottom: 0; }
+.document .paragraph, .document li, .document blockquote { overflow-wrap: anywhere; white-space: pre-wrap; }
+.document .math { display: inline-block; vertical-align: middle; line-height: normal; white-space: nowrap; }
+.document .math-content { display: inline-block; vertical-align: top; transform-origin: left top; }
+.document .display-math { display: block; width: 100%; text-align: center; margin: 8px 0; }
+.document h1 { font-size: 1.4em; }
+.document h2 { font-size: 1.25em; }
+.document h3 { font-size: 1.1em; }
+.document ul, .document ol { padding-left: 1.5em; }
+.document li { margin: 0 0 4px; }
+.document blockquote { border-left: 3px solid currentColor; padding: 8px 12px; font-style: italic; }
+.document pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; }
+.document code { font-family: monospace; font-size: .92em; }
+.document hr { border: 0; border-top: 1px solid currentColor; opacity: .4; }

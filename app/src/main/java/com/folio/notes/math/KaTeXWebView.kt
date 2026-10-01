@@ -19,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 import kotlin.math.ceil
@@ -176,11 +177,21 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
      * re-render before giving up: an unrecoverable blank throws, and the caller keeps readable native
      * source. Never return an empty bitmap — caching one shows a permanent gap in every list card.
      */
-    suspend fun render(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
+    suspend fun render(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap =
+        renderRequest(JSONObject().put("latex", latex).put("displayMode", display)
+            .put("fontSize", fontSize).put("color", color), density)
+
+    suspend fun renderDocument(
+        blocks: JSONArray, fontSize: Float, lineHeight: Float, width: Float, color: String, density: Float,
+    ): Bitmap = renderRequest(JSONObject().put("blocks", blocks).put("width", width)
+        .put("fontSize", fontSize).put("lineHeight", lineHeight).put("color", color), density)
+
+    private suspend fun renderRequest(request: JSONObject, density: Float): Bitmap {
+        val color = request.getString("color")
         val expectsInk = inkExpected(color)
         var attempt = 0
         while (true) {
-            val bitmap = capture(latex, display, fontSize, color, density)
+            val bitmap = capture(request, density)
             if (!expectsInk || bitmap.hasInk()) return bitmap
             bitmap.recycle()
             if (++attempt >= CAPTURE_ATTEMPTS) throw IllegalStateException("Math render produced no pixels")
@@ -195,11 +206,15 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
         return alpha > 0f
     }
 
-    private suspend fun capture(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
+    private suspend fun capture(request: JSONObject, density: Float): Bitmap {
         loaded.await()
         val requestId = ++nextRequestId
-        val request = JSONObject().put("id", requestId).put("latex", latex).put("displayMode", display)
-            .put("fontSize", fontSize).put("color", color)
+        request.put("id", requestId)
+        if (request.has("blocks")) {
+            // Establish the document viewport before DOM layout, independently of the attachment
+            // host's 1 dp bounds. Reused formula views may still have a completely different size.
+            resize(ceil(request.getDouble("width") * density).toInt().coerceAtLeast(1), 1)
+        }
         evaluate("window.renderMath($request); null")
         // Check immediately, then poll tightly: the shell usually answers within one frame.
         var result = evaluate("window.folioResult")
@@ -212,12 +227,7 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
         val height = ceil(bounds.getDouble("height") * density).toInt().coerceAtLeast(1)
         // Bound allocations for pathological source. The caller keeps readable native source on failure.
         require(width <= 16384 && height <= 16384 && width.toLong() * height <= 4_000_000)
-        // Keep the full capture size if the tiny host is laid out again during the callback.
-        layoutParams = layoutParams.apply { this.width = width; this.height = height }
-        measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
-        layout(0, 0, width, height)
-        scrollTo(0, 0)
+        resize(width, height)
         // Flush the new viewport through Chromium before asking for a committed frame.
         // DOM measurement alone precedes the native resize and is not a capture barrier.
         evaluate("document.getElementById('formula').getBoundingClientRect(); null")
@@ -230,4 +240,15 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
         }
         return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { draw(Canvas(it)) }
     }
+
+    private fun resize(width: Int, height: Int) {
+        layoutParams = (layoutParams ?: android.view.ViewGroup.LayoutParams(width, height)).apply {
+            this.width = width; this.height = height
+        }
+        measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        layout(0, 0, width, height)
+        scrollTo(0, 0)
+    }
+
 }

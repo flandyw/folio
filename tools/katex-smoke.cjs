@@ -45,7 +45,7 @@ async function checkShellRequestIsolation(oldFinishesFirst) {
   const oldFonts = new Promise(resolve => { finishOldFonts = resolve; });
   const newFonts = new Promise(resolve => { finishNewFonts = resolve; });
   const target = {
-    style: {}, textContent: '',
+    style: {}, textContent: '', replaceChildren() { this.textContent = ''; },
     getBoundingClientRect: () => ({ width: 20.25, height: 40.5 }),
     querySelector: selector => selector === '.katex' ? {} : null,
   };

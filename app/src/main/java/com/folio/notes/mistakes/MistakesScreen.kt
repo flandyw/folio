@@ -146,9 +146,13 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
     val orderedDue = remember(due, newestDueFirst) { if (newestDueFirst) due.asReversed() else due }
     val overdue = remember(mistakes, clockNow) { MistakeScheduler.getOverdueMistakes(mistakes, clockNow) }
-    val overdueSet = remember(overdue) { overdue.toSet() }
-    val dueGroups = remember(orderedDue, overdueSet) {
-        listOf("Overdue" to orderedDue.filter { it in overdueSet }, "Due today" to orderedDue.filter { it !in overdueSet })
+    val overdueIds = remember(overdue) { overdue.map { it.id }.toSet() }
+    // The Overdue header counts the overdue queue itself, so it can never disagree with the
+    // Library chip or drop a card because it was missing from the due-now list.
+    val dueGroups = remember(orderedDue, overdue, overdueIds) {
+        val orderedOverdue = overdue.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+        val shownOverdue = if (newestDueFirst) orderedOverdue.asReversed() else orderedOverdue
+        listOf("Overdue" to shownOverdue, "Due today" to orderedDue.filter { it.id !in overdueIds })
             .filter { it.second.isNotEmpty() }
     }
     val dueOrderLabel = if (newestDueFirst) "Newest due first" else "Oldest due first"
@@ -193,7 +197,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
-    val visible = remember(mistakes, due, overdueSet, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
+    val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
         val q = debouncedQuery.trim().lowercase()
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
@@ -204,7 +208,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             val matchesCategory = category.isBlank() || category == m.category
             val matchesFilter = when (filter) {
                 "Due" -> m in dueSet
-                "Overdue" -> m in overdueSet
+                "Overdue" -> m.id in overdueIds
                 "Upcoming" -> !m.suspended && m !in dueSet
                 "Suspended" -> m.suspended
                 else -> true
