@@ -109,6 +109,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
+    var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
     var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
     var followSettingsOpen by remember { mutableStateOf(false) }
     var followPreferences by remember { mutableStateOf(FollowPreferences(
@@ -760,6 +761,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
                                 followEnabled = writingFollowEnabled && !writingStripOpen && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
+                                autoDetectAnswerAreas = autoDetectAnswerAreas && !writingStripOpen,
                                 inputBlocked = peekHeld || writingStripOpen, onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
                                     documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
@@ -830,6 +832,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             view.initializeWritingStrip(writingRegion, mainInkView?.currentPeekAnchor())
                         },
                         followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = 2f,
+                        autoDetectAnswerAreas = autoDetectAnswerAreas,
                         inputBlocked = peekHeld, writingStrip = true,
                         eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase,
                         scribbleSensitivity = scribbleSensitivity, eraserWholeStroke = eraserWholeStroke,
@@ -914,6 +917,24 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
                                 DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
                                 DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Auto-detect answer areas")
+                                            Text("Current page only, as you scroll", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    },
+                                    trailingIcon = { Checkbox(checked = autoDetectAnswerAreas, onCheckedChange = null) },
+                                    onClick = {
+                                        autoDetectAnswerAreas = !autoDetectAnswerAreas
+                                        val edit = appPrefs.edit().putBoolean("follow.autoDetectAnswerAreas", autoDetectAnswerAreas)
+                                        if (autoDetectAnswerAreas) {
+                                            writingFollowEnabled = true
+                                            edit.putBoolean("writingFollow", true)
+                                        }
+                                        edit.apply()
+                                        followMenu = false
+                                    })
                                 if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
                                 DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
                                     activeInkView?.suspendWritingFollow()
@@ -1709,6 +1730,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
+    autoDetectAnswerAreas: Boolean = false,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, writingStrip: Boolean = false, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
@@ -1720,6 +1742,15 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
+    var boundInkView by remember(page.id) { mutableStateOf<InkView?>(null) }
+    // Only the current page participates: lazy-list prefetch must not select areas on neighbours.
+    // Wait for asynchronous guide detection and the configured native view. No rules means no
+    // automatic selection (in particular, never enter the manual drag tool on blank pages).
+    LaunchedEffect(page.id, active, followEnabled, autoDetectAnswerAreas, writingGuides, boundInkView) {
+        if (active && followEnabled && autoDetectAnswerAreas && writingGuides.isNotEmpty()) {
+            boundInkView?.suggestWritingRegion()
+        }
+    }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
     var retry by remember(page.id) { mutableIntStateOf(0) }
@@ -1742,8 +1773,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     }
     // Detect only the immutable paper/PDF background, never the user's ink. Pixel scanning
     // runs off the input thread and reruns only when the source or follow setting changes.
-    LaunchedEffect(page.id, page.paper, page.width, page.height, background, followEnabled) {
-        writingGuides = if (!followEnabled || page.infinite) emptyList() else withContext(Dispatchers.Default) {
+    LaunchedEffect(page.id, page.paper, page.width, page.height, background, active, followEnabled) {
+        writingGuides = if (!active || !followEnabled || page.infinite) emptyList() else withContext(Dispatchers.Default) {
             val bitmap = background
             when {
                 page.pdfIndex != null && bitmap != null -> {
@@ -1800,7 +1831,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            else if (ready) AndroidView(factory = { context -> InkView(context) }, modifier = Modifier.fillMaxSize(), update = { view ->
+            else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color

@@ -101,6 +101,21 @@ class MistakeTests {
         assertFalse(JSONObject(next.originalJson).has("practicePageId"))
         assertEquals("r", next.reviewHistory.single().id)
     }
+    @Test fun uncategorisedMistakeSyncCacheAndReview() = runBlocking {
+        val store = Store()
+        val remote = Remote()
+        val source = payload().put("attemptId", "")
+        remote.rows += row(source)
+        val repository = MistakeRepository(store, remote)
+        assertEquals(0, repository.sync("u").invalid)
+        val cached = repository.cache("u")
+        assertTrue(cached.contexts.isEmpty())
+        assertEquals("", cached.mistakes.getValue("m").attemptId)
+        repository.rate("u", attempt(), ReviewRating.GOOD, at)
+        assertEquals("", repository.cache("u").mistakes.getValue("m").attemptId)
+        assertEquals(0, repository.sync("u").invalid)
+        assertEquals("", remote.writes.last().attemptId)
+    }
     @Test fun defensiveLegacyParsing() {
         val m = mistake(payload().put("dueAt", "bad").put("easeFactor", "bad").put("reviewState", "future-state"))
         assertEquals(ReviewState.NEW, MistakeScheduler.getMistakeSchedule(m).state)
