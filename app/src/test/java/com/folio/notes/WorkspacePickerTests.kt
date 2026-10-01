@@ -75,6 +75,15 @@ class WorkspacePickerTests {
         assertEquals("1 page", WorkspacePicker.subtitle(Notebook(title = "Methods Exam 1", exam = ExamTags(subjectText = "Methods Exam 1"))))
     }
 
+    @Test fun theFlipLabelsNameTheSideTheEditorEndsUpOn() {
+        assertEquals("Editor on the left", WorkspacePicker.flipCaption(false))
+        assertEquals("Editor on the right", WorkspacePicker.flipCaption(true))
+        assertEquals("Put the editor on the right", WorkspacePicker.flipAction(false))
+        assertEquals("Put the editor on the left", WorkspacePicker.flipAction(true))
+        assertTrue(WorkspacePicker.sideHint(true).startsWith("The reference pane is on the left"))
+        assertTrue(WorkspacePicker.sideHint(false).startsWith("The reference pane is on the right"))
+    }
+
     @Test fun everyPurposeHasItsOwnTitleCaptionAndModeHint() {
         assertEquals("Open beside the editor", WorkspacePicker.title(PickerPurpose.COMPANION))
         assertEquals("Open a document", WorkspacePicker.title(PickerPurpose.OPEN))

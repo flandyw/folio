@@ -263,6 +263,14 @@ import androidx.compose.ui.unit.dp
             }
             Text(WorkspacePicker.modeCaption(state.companionMode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ListItem(
+                headlineContent = { Text(WorkspacePicker.flipCaption(state.editorOnRight)) },
+                supportingContent = { Text(WorkspacePicker.sideHint(state.editorOnRight)) },
+                leadingContent = { Icon(Icons.Rounded.SwapHoriz, null) },
+                trailingContent = { Switch(state.editorOnRight, model::setEditorOnRight) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().semanticsLabel(WorkspacePicker.flipAction(state.editorOnRight))
+            )
+            ListItem(
                 headlineContent = { Text("Link pages") },
                 supportingContent = { Text("Turning a page in the editor also turns the companion.") },
                 leadingContent = { Icon(if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff, null) },
@@ -274,7 +282,7 @@ import androidx.compose.ui.unit.dp
             FolioButtonGroup(Modifier.fillMaxWidth(), menuItems = listOf(
                 "Close pane" to { onDismiss(); model.dismissCompanion() }
             )) {
-                clickableItem(onClick = { model.swapPaneSides() }, label = "Swap sides", icon = {
+                clickableItem(onClick = { model.swapPaneSides() }, label = "Swap panes", icon = {
                     Icon(Icons.Rounded.SwapHoriz, null, Modifier.size(18.dp))
                 })
                 clickableItem(onClick = { model.setSplitFraction(SplitPanes.EQUAL) }, label = "Equal split", icon = {
@@ -284,6 +292,7 @@ import androidx.compose.ui.unit.dp
             HorizontalDivider()
             Text("Gestures", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             GestureHint(Icons.Rounded.DragHandle, "Drag the divider", "Resize the two panes; it settles at 30/70, 50/50 or 70/30.")
+            GestureHint(Icons.Rounded.SwapHoriz, "Tap the divider", "Swap which pane holds the editor, in either mode.")
             GestureHint(Icons.Rounded.TouchApp, "Double-tap the divider", "Return to an equal split.")
             GestureHint(Icons.Rounded.Visibility, "Long-press the divider", "Open these options.")
         }

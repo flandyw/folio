@@ -55,6 +55,10 @@ import kotlin.math.roundToInt
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
                             DropdownMenuItem({ Text("Open another document") }, { dismiss(); picker = PickerPurpose.OPEN },
                                 leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { dismiss(); model.swapPaneSides() },
+                                enabled = state.companion != null,
+                                leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
+                            HorizontalDivider()
                             DropdownMenuItem({ Text("Close this tab") }, { dismiss(); state.activeId?.let(model::closeTab) },
                                 leadingIcon = { Icon(Icons.Rounded.Close, null) })
                             DropdownMenuItem({ Text("Close other tabs") }, { dismiss(); state.activeId?.let(model::closeOtherTabs) },
@@ -87,6 +91,7 @@ import kotlin.math.roundToInt
                     onDrag = { dragFraction(it, totalHeightPx) },
                     onRelease = ::snapFraction,
                     onDoubleTap = ::resetFraction,
+                    onFlip = model::swapPaneSides,
                     onOpenOptions = { paneOptions = true }
                 )
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
@@ -97,6 +102,7 @@ import kotlin.math.roundToInt
                     onDrag = { dragFraction(it, totalWidthPx) },
                     onRelease = ::snapFraction,
                     onDoubleTap = ::resetFraction,
+                    onFlip = model::swapPaneSides,
                     onOpenOptions = { paneOptions = true }
                 )
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
@@ -167,6 +173,10 @@ import kotlin.math.roundToInt
                 )
             }
             if (state.companionMode == CompanionMode.SPLIT) IconButton(model::swapCompanion, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Edit, "Edit this pane") }
+            // Flipping works the same in both modes: the work document is simply the other pane.
+            IconButton(model::swapPaneSides, shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight))
+            }
             IconButton(model::dismissCompanion, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close companion") }
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
@@ -215,7 +225,8 @@ import kotlin.math.roundToInt
                     Box {
                         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Pane options") }
                         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text("Pane and split options") }, { menu = false; onPaneOptions() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                            DropdownMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { menu = false; model.swapPaneSides() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
+                        DropdownMenuItem({ Text("Pane and split options") }, { menu = false; onPaneOptions() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                             HorizontalDivider()
                             DropdownMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
                             DropdownMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
@@ -267,14 +278,15 @@ import kotlin.math.roundToInt
 
 /**
  * The draggable split between editor and companion. Drag resizes (settling on
- * 30/70, 50/50 or 70/30 on release), double-tap returns to 50/50, and long-press
- * opens the pane options panel, which now covers mode, linked pages and the pane actions.
+ * 30/70, 50/50 or 70/30 on release), a tap swaps which pane holds the editor, double-tap
+ * returns to 50/50, and long-press opens the pane options panel.
  */
 @Composable private fun SplitDivider(
     vertical: Boolean,
     onDrag: (Float) -> Unit,
     onRelease: () -> Unit,
     onDoubleTap: () -> Unit,
+    onFlip: () -> Unit,
     onOpenOptions: () -> Unit
 ) {
     val drag = rememberDraggableState(onDrag)
@@ -283,22 +295,22 @@ import kotlin.math.roundToInt
         modifier = if (vertical) {
             Modifier.width(28.dp).fillMaxHeight()
                 .combinedClickable(
-                    onClick = {},
+                    onClick = onFlip,
                     onDoubleClick = onDoubleTap,
                     onLongClick = onOpenOptions,
-                    onLongClickLabel = "Split options"
+                    onLongClickLabel = "Pane options"
                 )
-                .semantics { contentDescription = "Split divider. Drag to resize panes. Double-tap for equal split. Long-press for options." }
+                .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
                 .draggable(drag, Orientation.Horizontal, onDragStopped = { onRelease() })
         } else {
             Modifier.height(28.dp).fillMaxWidth()
                 .combinedClickable(
-                    onClick = {},
+                    onClick = onFlip,
                     onDoubleClick = onDoubleTap,
                     onLongClick = onOpenOptions,
-                    onLongClickLabel = "Split options"
+                    onLongClickLabel = "Pane options"
                 )
-                .semantics { contentDescription = "Split divider. Drag to resize panes. Double-tap for equal split. Long-press for options." }
+                .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
                 .draggable(drag, Orientation.Vertical, onDragStopped = { onRelease() })
         }
     ) {

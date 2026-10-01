@@ -29,6 +29,8 @@ object AppPrefs {
     const val EXPORT_PNG_SCALE = "export.pngScale"
     const val EXPORT_PDF_MODE = "export.pdfMode"
     const val SPLIT_FRACTION = "workspace.splitFraction"
+    /** Which side the editor sits on when a companion pane is open; remembered between sessions. */
+    const val EDITOR_ON_RIGHT = "workspace.editorOnRight"
     const val TEXT_SIZE_KEY = "text.size"
     const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
     const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
@@ -57,6 +59,7 @@ object AppPrefs {
     const val PNG_SCALE_MIN = 1f
     const val PNG_SCALE_MAX = 3f
     const val DEFAULT_SPLIT = 0.5f
+    const val DEFAULT_EDITOR_ON_RIGHT = false
     const val DEFAULT_TEXT_SIZE = 26f
     const val TEXT_SIZE_MIN = 12f
     const val TEXT_SIZE_MAX = 72f

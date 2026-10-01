@@ -121,7 +121,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             ?: prefs.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { prefs.contains(AppPrefs.SPLIT_FRACTION) }
             ?: AppPrefs.DEFAULT_SPLIT).let { AppPrefs.splitFraction(it) },
         companionLinked = savedState.get<Boolean>("companionLinked") ?: false,
-        editorOnRight = savedState["editorOnRight"] ?: false, activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
+        // A restored session wins; otherwise the side the panes were last left on, so opening
+        // Folio tomorrow puts the work document where the user put it.
+        editorOnRight = savedState["editorOnRight"] ?: prefs.getBoolean(AppPrefs.EDITOR_ON_RIGHT, AppPrefs.DEFAULT_EDITOR_ON_RIGHT), activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
     val state = _state.asStateFlow()
     /**
      * One queued write. [Page] is everything a single user action needs to become durable: the edit,
@@ -770,12 +772,15 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val source = _state.value.tabs.find { it.notebookId == id }
             ?: rememberedTab(note)
             ?: EditorTab(id, id, note.pages.first().id, note.title)
-        _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, editorOnRight = false, companionPdfSearch = PdfSearchState(),
+        // The side the editor sits on is the user's, not the pane's: opening a companion leaves
+        // it wherever they last put it.
+        _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, companionPdfSearch = PdfSearchState(),
             tabs = if (mode == CompanionMode.SPLIT) it.tabs.withTab(source) else it.tabs) }
         loadPage(source.currentPageId)
     }
 
-    fun dismissCompanion() { _state.update { it.copy(companion = null, editorOnRight = false, companionPdfSearch = PdfSearchState()) } }
+    /** Closing the pane keeps which side the editor was on, so it reopens where it was left. */
+    fun dismissCompanion() { _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
 
     /** Dragged divider position, as the editor's share; snapped by the caller on release. */
     fun setSplitFraction(fraction: Float) {
@@ -799,9 +804,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     /** Swaps which side the editor sits on, keeping both documents where they are. */
-    fun swapPaneSides() {
-        if (_state.value.companion == null) return
-        _state.update { it.copy(editorOnRight = !it.editorOnRight) }
+    fun swapPaneSides() = setEditorOnRight(!_state.value.editorOnRight)
+
+    /** Puts the editor on [right]; the choice is remembered, since a hand reaches for the same side. */
+    fun setEditorOnRight(right: Boolean) {
+        if (_state.value.companion == null || _state.value.editorOnRight == right) return
+        prefs.edit().putBoolean(AppPrefs.EDITOR_ON_RIGHT, right).apply()
+        _state.update { it.copy(editorOnRight = right) }
     }
 
     fun companionPage(index: Int) {

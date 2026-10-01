@@ -81,6 +81,19 @@ object WorkspacePicker {
         return listOfNotNull(pages, pdf, summary).joinToString(" · ")
     }
 
+    /**
+     * The labels for the flip control, which say which side the work document will end up on
+     * rather than naming a direction the user has to work out from the current layout.
+     */
+    fun flipCaption(editorOnRight: Boolean): String = if (editorOnRight) "Editor on the right" else "Editor on the left"
+
+    /** What tapping the flip control will do, in words. */
+    fun flipAction(editorOnRight: Boolean): String = if (editorOnRight) "Put the editor on the left" else "Put the editor on the right"
+
+    /** Which pane each side shows, for the flip hint under the switch. */
+    fun sideHint(editorOnRight: Boolean): String =
+        if (editorOnRight) "The reference pane is on the left." else "The reference pane is on the right."
+
     /** A one-line description of what a companion mode does, shown under its toggle. */
     fun modeCaption(mode: CompanionMode): String = when (mode) {
         CompanionMode.SPLIT -> "Both panes are editable. Drag the divider to resize them."
