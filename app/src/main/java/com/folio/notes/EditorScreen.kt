@@ -203,6 +203,9 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun setShapeMeasurements(v: Boolean) { shapeMeasurements = v; appPrefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, v).apply() }
     var multiTouchUndo by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, true)) }
     fun setMultiTouchUndo(v: Boolean) { multiTouchUndo = v; appPrefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, v).apply() }
+    // One encoded string, so the graph sheet and the page never disagree about the dressing.
+    var graphStyle by remember { mutableStateOf(GraphStyle.load(appPrefs)) }
+    fun setGraphStyle(v: GraphStyle) { graphStyle = v; GraphStyle.save(appPrefs, v) }
     // Observe external pref changes (e.g. from ToolOptionsPanel): re-read when screen re-enters foreground
     androidx.compose.runtime.DisposableEffect(Unit) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -214,6 +217,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 EditorQuickPrefs.ERASER_WHOLE_STROKE -> eraserWholeStroke = appPrefs.getBoolean(key, false)
                 EditorQuickPrefs.SHAPE_MEASUREMENTS -> shapeMeasurements = appPrefs.getBoolean(key, true)
                 EditorQuickPrefs.MULTI_TOUCH_UNDO -> multiTouchUndo = appPrefs.getBoolean(key, true)
+                GraphStyle.PREF_KEY -> graphStyle = GraphStyle.load(appPrefs)
             }
         }
         appPrefs.registerOnSharedPreferenceChangeListener(listener)
@@ -591,7 +595,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
-                    eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                    eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                     palmRejectMs = palmRejectMs,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
@@ -725,7 +729,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 },
                                 pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                                 eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
-                                eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                                eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                                 palmRejectMs = palmRejectMs,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
@@ -1667,7 +1671,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     else -> tool.name.lowercase().replaceFirstChar(Char::uppercase)
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, writingStrip: Boolean = false, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1) for the floating pill, or null before it reports. */
@@ -1765,7 +1769,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
                 onSelectAllView?.invoke(view)
-                view.snapEnabled = snapEnabled
+                view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
                 view.shapeRecognition = shapeRecognition
                 view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
                 view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }

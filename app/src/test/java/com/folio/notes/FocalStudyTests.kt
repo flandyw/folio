@@ -24,6 +24,24 @@ class FocalStudyTests {
         assertEquals(serverStart + 10_000L, focalEstimatedServerNow(anchor, 11_000L, wallClockTenMinutesFast))
     }
 
+    @Test fun delayedSyncResponsesCannotResetARunningStudyTimer() {
+        val start = 100_000L
+        val focus = FocalFocus("notebook", "Study", "mm", start, start)
+        val initial = focalObserveServerClock(null, start, 1_000L)
+        assertEquals(2_000L, focus.elapsed(focalEstimatedServerNow(initial, 3_000L, 0L)))
+
+        // A slower response still carries the server time at request processing, not receipt.
+        val delayed = focalObserveServerClock(initial, start, 3_000L)
+        assertEquals(2_000L, focus.elapsed(focalEstimatedServerNow(delayed, 3_000L, 0L)))
+        assertEquals(3_000L, focus.elapsed(focalEstimatedServerNow(delayed, 4_000L, 0L)))
+
+        // A retry can return an even older mutation receipt; a fresher estimate can still advance.
+        val replay = focalObserveServerClock(delayed, start - 10_000L, 4_000L)
+        assertEquals(start + 3_000L, focalEstimatedServerNow(replay, 4_000L, 0L))
+        val fresher = focalObserveServerClock(replay, start + 4_000L, 4_000L)
+        assertEquals(start + 5_000L, focalEstimatedServerNow(fresher, 5_000L, 0L))
+    }
+
     @Test fun lifecycleElapsedSurvivesProcessRestartButNotDeviceReboot() {
         assertEquals(4_900L, focalElapsedSince(100L, 12, 5_000L, 12, 9_000L))
         assertEquals(0L, focalElapsedSince(100L, 12, 5_000L, 13))

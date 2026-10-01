@@ -58,6 +58,8 @@ class InkView(context: Context) : View(context) {
     var onRedoRequest: (() -> Unit)? = null
     /** When true, shape endpoints snap to the page's grid and lines snap to 15° steps. */
     var snapEnabled = true
+    /** How the graph tool dresses the axes it draws; the editor keeps this in the shared prefs. */
+    var graphStyle = GraphStyle.DEFAULT
     var onActive: () -> Unit = {}
     var onDocumentPan: (Float, Float) -> Unit = { _, _ -> }
     var onDocumentPanEnd: (Float) -> Unit = {}
@@ -442,6 +444,25 @@ class InkView(context: Context) : View(context) {
         reportCanvasViewport(); invalidate()
     }
     var onCanvasZoom: (Float) -> Unit = {}
+    /**
+     * Reference-pane zoom. The page already fits the view, so a notch scales the read-only camera
+     * about the middle of the pane; the pinch gesture keeps working on the same range.
+     */
+    fun zoomReference(steps: Int) {
+        if (page.infinite || width <= 0 || height <= 0) return
+        suspendWritingFollow(); cancelGesture()
+        val target = PdfReference.zoomStep(camera.zoom, steps)
+        if (target != camera.zoom) camera.scaleBy(target / camera.zoom, width / 2f, height / 2f)
+        reportCanvasViewport(); invalidate()
+    }
+    /** Re-frames a read-only page: the whole page, the full page width, or true size. */
+    fun fitReference(fit: PdfFit) {
+        if (page.infinite || page.width <= 0f || page.height <= 0f || width <= 0 || height <= 0) return
+        suspendWritingFollow(); cancelGesture()
+        val zoom = PdfReference.fitZoom(page.width, page.height, width.toFloat(), height.toFloat(), fit) / pageScale
+        camera.restore(0f, 0f, PdfReference.clampZoom(zoom))
+        reportCanvasViewport(); invalidate()
+    }
     private var resetToken = -1
     fun resetCanvas(token: Int) {
         if (resetToken == token) return
@@ -739,7 +760,7 @@ class InkView(context: Context) : View(context) {
         else {
             val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
             if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
-            else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke).forEach { InkRenderer.stroke(canvas, it) }
+            else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
             else InkRenderer.stroke(canvas, draftStroke)
             if (shapeMeasurements && draftStroke.tool in MEASURE_TOOLS) drawMeasurement(canvas, draftStroke)
         }
@@ -1144,7 +1165,7 @@ class InkView(context: Context) : View(context) {
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
-        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it) else listOf(it) })?.let { page.strokes + it } ?: erasing
+        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })?.let { page.strokes + it } ?: erasing
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
             val now = SystemClock.uptimeMillis()
             drawn.points.lastOrNull()?.let { point ->
@@ -1585,9 +1606,14 @@ class InkView(context: Context) : View(context) {
                 val deg = (Math.toDegrees(atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())) + 360) % 360
                 String.format(java.util.Locale.ROOT, "%.0f pt  %.0f°", len, deg)
             }
-            Tool.RECTANGLE, Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR, Tool.GRAPH -> {
+            Tool.RECTANGLE, Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR -> {
                 val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
                 String.format(java.util.Locale.ROOT, "%.0f × %.0f", w, h)
+            }
+            Tool.GRAPH -> {
+                val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)
+                val step = GraphAxes.stepLabel(graphStyle)?.let { "  $it" }.orEmpty()
+                String.format(java.util.Locale.ROOT, "%.0f × %.0f%s", w, h, step)
             }
             Tool.ELLIPSE -> {
                 val w = kotlin.math.abs(b.x - a.x); val h = kotlin.math.abs(b.y - a.y)

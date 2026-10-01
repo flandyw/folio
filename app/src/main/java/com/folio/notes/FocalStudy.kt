@@ -48,6 +48,14 @@ internal data class FocalServerClockAnchor(val serverMillis: Long, val elapsedMi
 internal fun focalEstimatedServerNow(anchor: FocalServerClockAnchor?, elapsedNow: Long, wallNow: Long): Long =
     anchor?.let { it.serverMillis + (elapsedNow - it.elapsedMillis).coerceAtLeast(0L) } ?: wallNow
 
+internal fun focalObserveServerClock(
+    anchor: FocalServerClockAnchor?, serverMillis: Long, elapsedNow: Long
+): FocalServerClockAnchor {
+    // ponytail: retain the least delayed server estimate. Backward drift correction would need clock slewing.
+    val projected = focalEstimatedServerNow(anchor, elapsedNow, serverMillis)
+    return FocalServerClockAnchor(maxOf(serverMillis, projected), elapsedNow)
+}
+
 internal fun focalApplyCustomSubject(
     current: MutableMap<String, FocalSubject>, rowId: String, operation: String, payload: JSONObject?
 ) {
@@ -634,7 +642,7 @@ class FocalStudyManager(context: Context) {
 
     private fun observeServerNow(value: String?) {
         val serverMillis = value?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return
-        serverClockAnchor = FocalServerClockAnchor(serverMillis, SystemClock.elapsedRealtime())
+        serverClockAnchor = focalObserveServerClock(serverClockAnchor, serverMillis, SystemClock.elapsedRealtime())
     }
     private val file = AtomicFile(File(context.filesDir, "focal-study.json"))
     private val gate = Mutex()

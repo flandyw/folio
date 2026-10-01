@@ -14,8 +14,9 @@ Native Android notebook app. Single module `:app`, Kotlin + Jetpack Compose + Ma
 
 ## Architecture entrypoints
 
-- `MainActivity.kt` → `FolioApp.kt` (nav, pickers, sharing, settings) → `FolioViewModel.kt` (library/editor state, lazy page loads, app-scope serialized save queue, survives Activity recreation).
+- `MainActivity.kt` → `FolioApp.kt` (nav, pickers, sharing, settings) → `FolioViewModel.kt` (library/editor state, lazy page loads, app-scope serialized save queue, survives Activity recreation). `WorkspaceScreen.kt` holds the split/reference companion pane; its PDF tools are pure maths in `PdfReference.kt` and the panels in `PdfReferencePane.kt`.
 - Persistence: `NoteRepository.kt` (one fsynced journal append per batched transaction + background snapshot compaction) over pure codecs `NoteStore.kt` / `PageJournal.kt` / `NotebookArchive.kt`. Rendering: `InkView.kt` (native input surface) + shared `InkRenderer.kt` (editor/thumbnails/exports).
+- The graph tool is dressing, not a special ink type: `GraphStyle.kt` (style + the single-stroke label font) and `GraphAxes.kt` turn a drag into ordinary `Tool.LINE` strokes, so `divisions`/`step`/origin changes cost no migration and never touch the storage format. The style lives in one preference string (`GraphStyle.PREF_KEY`) that the editor watches.
 - Keep `PdfSearch.kt`, `PdfLinks.kt`, `PdfOutline.kt`, `NotebookTextSearch.kt`, `VceModels.kt`, and other `*pure*` helpers free of Android imports — unit-testability is intentional.
 - `mistakes/*` is ExamTrack review (Supabase sync + cache); `math/*` is reusable offline KaTeX. Details and smoke test in `docs/examtrack.md`.
 

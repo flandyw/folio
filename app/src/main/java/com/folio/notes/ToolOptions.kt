@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -125,7 +126,7 @@ object EditorQuickPrefs {
                 }
             }
             if (tool in ShapePickerTools) {
-                if (tool == Tool.GRAPH) Text("Drag to size unlabelled Cartesian axes with arrowheads at both ends. No grid, ticks, numbers or labels.", style = MaterialTheme.typography.bodySmall)
+                if (tool == Tool.GRAPH) GraphStyleSection(options)
                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     AssistChip({ onChange(options.copy(width = 1.2f)) }, { Text("Hairline") })
                     AssistChip({ onChange(options.copy(width = 2f)) }, { Text("Regular") })
@@ -191,6 +192,91 @@ object EditorQuickPrefs {
             }
             TextButton({ onChange(ToolOptions.defaults(tool)) }, shapes = ButtonDefaults.shapes()) { Text("Reset $label settings") }
         }
+    }
+}
+
+/**
+ * How the graph tool dresses the axes it draws. The choices live in one preference string the
+ * editor watches, so a change here lands on the page immediately; the preview is drawn by
+ * [GraphAxes] itself, so it can never drift from what a drag produces.
+ */
+@Composable private fun GraphStyleSection(options: ToolOptions) {
+    val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
+    var style by remember { mutableStateOf(GraphStyle.load(prefs)) }
+    fun update(next: GraphStyle) { style = next; GraphStyle.save(prefs, next) }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Text("Drag to size the diagram. Everything below is drawn as ordinary ink, so it can still be edited and erased by hand.",
+            style = MaterialTheme.typography.bodySmall)
+        Canvas(Modifier.fillMaxWidth().height(132.dp).clip(FolioShapes.large)
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .semanticsLabel("Graph preview")) {
+            val pad = 14.dp.toPx()
+            val draft = Stroke(Tool.GRAPH, options.color, options.width,
+                listOf(InkPoint(pad, pad), InkPoint(size.width - pad, size.height - pad)), options.opacity, options.style)
+            val ink = Color(options.color).copy(alpha = options.opacity)
+            val weight = options.width.dp.toPx().coerceAtLeast(1f)
+            GraphAxes.strokes(draft, style).forEach { stroke ->
+                stroke.points.zipWithNext().forEach { (from, to) ->
+                    drawLine(ink, Offset(from.x, from.y), Offset(to.x, to.y), strokeWidth = weight)
+                }
+            }
+        }
+        Text("Origin", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            AssistChip({ update(style.copy(origin = GraphOrigin.CENTRE)) }, { Text("Centre") },
+                leadingIcon = if (style.origin == GraphOrigin.CENTRE) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+            AssistChip({ update(style.copy(origin = GraphOrigin.CORNER)) }, { Text("Bottom left") },
+                leadingIcon = if (style.origin == GraphOrigin.CORNER) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Square diagram", Modifier.weight(1f))
+            Switch(style.square, { update(style.copy(square = it)) })
+        }
+        Text("Squares the drag to the shorter side, the way exam graphs are usually drawn.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Divisions per half axis", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            GraphStyle.DIVISIONS.forEach { count ->
+                FilterChip(
+                    selected = style.divisions == count,
+                    onClick = { update(style.copy(divisions = count)) },
+                    label = { Text(if (count == 0) "None" else count.toString()) }
+                )
+            }
+        }
+        if (style.numbers) {
+            Text("Units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                GraphStyle.STEPS.forEach { step ->
+                    AssistChip({ update(style.copy(step = step)) }, { Text(if (step == 1) "1" else "$step") },
+                        leadingIcon = if (style.step == step) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Grid lines", Modifier.weight(1f))
+            Switch(style.grid, { update(style.copy(grid = it)) }, enabled = style.divisions > 0)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Tick marks", Modifier.weight(1f))
+            Switch(style.ticks, { update(style.copy(ticks = it)) }, enabled = style.divisions > 0)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Numbers on the axes", Modifier.weight(1f))
+            Switch(style.numbers, { update(style.copy(numbers = it)) }, enabled = style.divisions > 0)
+        }
+        if (style.numbers) Text("Counts 1, 2, 3 … outwards from the origin, so the step above sets what each division is worth.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("x and y labels", Modifier.weight(1f))
+            Switch(style.letters, { update(style.copy(letters = it)) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Arrowheads", Modifier.weight(1f))
+            Switch(style.arrows, { update(style.copy(arrows = it)) })
+        }
+        TextButton({ update(GraphStyle.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset graph settings") }
     }
 }
 

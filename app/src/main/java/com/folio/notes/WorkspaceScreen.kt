@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -16,10 +17,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** One editor and an independently navigable companion share the same notebook store. */
 @Composable fun WorkspaceScreen(state: FolioState, model: FolioViewModel, finger: Boolean,
@@ -61,7 +65,10 @@ import androidx.compose.ui.unit.dp
                 }
             }
             val secondary: @Composable () -> Unit = {
-                if (companion != null && note != null) key(companion.notebookId, companion.currentPageId) { CompanionPane(state, model, companion, note) }
+                // Keyed on the document alone: the pane keeps its PDF tools (search, contents,
+                // previews, link following) across page turns, and its InkView is keyed per page
+                // inside, so a turn still resets the camera onto a fresh page.
+                if (companion != null && note != null) key(companion.notebookId) { CompanionPane(state, model, companion, note) }
             }
             val editorFraction = SplitPanes.coerce(state.splitFraction)
             val editorFirst = !state.editorOnRight
@@ -133,8 +140,32 @@ import androidx.compose.ui.unit.dp
 @Composable private fun CompanionPane(state: FolioState, model: FolioViewModel, pane: EditorTab, note: Notebook) {
     val index = note.pages.indexOfFirst { it.id == pane.currentPageId }.coerceAtLeast(0)
     val page = note.pages.getOrNull(index) ?: return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
     var reset by remember(pane.notebookId, page.id) { mutableIntStateOf(0) }
+    // The pane's own surface, for the zoom buttons and the fit menu; the editor's view is untouched.
+    var paneView by remember { mutableStateOf<InkView?>(null) }
+    // PDF tools only appear for a notebook that actually has an imported document behind it.
+    val pdfBacked = remember(note.id) { note.pages.any { it.pdfIndex != null } }
+    var links by remember(note.id) { mutableStateOf(emptyList<PdfLink>()) }
+    var linksOn by remember(note.id) { mutableStateOf(true) }
+    var outline by remember(note.id) { mutableStateOf<List<PdfOutlineEntry>?>(null) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var contentsOpen by remember { mutableStateOf(false) }
+    var jumpOpen by remember { mutableStateOf(false) }
+    var filmstripOn by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    // Link rectangles arrive once per notebook; a native notebook simply has none.
+    LaunchedEffect(note.id, pdfBacked) {
+        links = if (pdfBacked) try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() } else emptyList()
+    }
+    fun loadOutline() {
+        if (outline != null) return
+        scope.launch {
+            outline = try { model.repository.pdfOutline(note.id) } catch (_: Exception) { emptyList() }
+        }
+    }
     // Debounce viewport writes: pan frames must not spam the ViewModel + recompose the tree.
     LaunchedEffect(viewport) {
         kotlinx.coroutines.delay(200)
@@ -146,9 +177,13 @@ import androidx.compose.ui.unit.dp
             Column(Modifier.weight(1f).padding(start = FolioSpacing.dp12)) {
                 Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 Text(
-                    if (state.companionMode == CompanionMode.REFERENCE) {
-                        if (state.companionLinked) "Reference · read only · linked pages" else "Reference · read only"
-                    } else "Tap Edit to work here",
+                    when {
+                        state.companionMode != CompanionMode.REFERENCE -> "Tap Edit to work here"
+                        !pdfBacked && state.companionLinked -> "Reference · read only · linked pages"
+                        !pdfBacked -> "Reference · read only"
+                        state.companionLinked -> "Reference · PDF · linked pages"
+                        else -> "Reference · PDF"
+                    },
                     style = MaterialTheme.typography.labelSmall
                 )
             }
@@ -172,18 +207,81 @@ import androidx.compose.ui.unit.dp
                         false, false, false, {}, { _, _ -> },
                         {}, {}, {}, {}, onLoad, fullscreen = true, canvasReset = reset,
                         readOnly = true, initialViewport = pane.viewport,
-                        onCameraChanged = onCamera, multiTouchUndo = false)
+                        onCameraChanged = onCamera, multiTouchUndo = false,
+                        onSelectAllView = { view -> paneView = view },
+                        pdfLinks = if (linksOn) links else emptyList(),
+                        onPdfLink = { link ->
+                            when (val target = link.target) {
+                                is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
+                                is PdfLinkTarget.Url -> try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target.uri)))
+                                } catch (_: Exception) { model.reportError("Couldn't open this link") }
+                            }
+                        })
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().guardUiTouches(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        if (filmstripOn && pdfBacked) ReferenceFilmstrip(note.id, note, index, model.thumbnails) { model.companionPage(it) }
+        // Scrollable so a cramped split pane keeps every control reachable instead of clipping the
+        // zoom buttons off the end; it centres itself whenever there is room for everything.
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).guardUiTouches(),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically) {
             val hold = rememberLongPressGuard()
             IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
-            Text("${index + 1} / ${note.pages.size}", style = MaterialTheme.typography.labelLarge)
+            Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), style = MaterialTheme.typography.labelLarge)
             IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
-            TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
+            if (pdfBacked) {
+                IconButton({ paneView?.zoomReference(-1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomOut, "Zoom out") }
+                Text("${(viewport.canvasZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton({ paneView?.zoomReference(1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomIn, "Zoom in") }
+                Box {
+                    IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "PDF options") }
+                    DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+                        DropdownMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                        DropdownMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
+                        DropdownMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
+                        DropdownMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
+                        HorizontalDivider()
+                        DropdownMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+                        DropdownMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                        DropdownMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            { Text(if (filmstripOn) "Hide page previews" else "Show page previews") },
+                            { menu = false; filmstripOn = !filmstripOn },
+                            leadingIcon = { Icon(if (filmstripOn) Icons.Rounded.ViewAgenda else Icons.Rounded.PhotoLibrary, null) }
+                        )
+                        if (links.isNotEmpty()) DropdownMenuItem(
+                            { Text(if (linksOn) "Ignore PDF links" else "Follow PDF links") },
+                            { menu = false; linksOn = !linksOn },
+                            leadingIcon = { Icon(if (linksOn) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }
+                        )
+                    }
+                }
+            } else {
+                TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
+            }
         }
     }
+    if (searchOpen) ReferenceSearchPanel(
+        search = state.companionPdfSearch,
+        currentIndex = index,
+        onQuery = model::searchCompanionPdf,
+        onJump = { model.companionPage(it); searchOpen = false },
+        onDismiss = { searchOpen = false; model.clearCompanionPdfSearch() }
+    )
+    if (contentsOpen) ReferenceContentsPanel(
+        outline = outline,
+        onOpen = { model.companionPage(it); contentsOpen = false },
+        onDismiss = { contentsOpen = false }
+    )
+    if (jumpOpen) ReferenceJumpDialog(
+        currentIndex = index,
+        pageCount = note.pages.size,
+        onJump = { model.companionPage(it); jumpOpen = false },
+        onDismiss = { jumpOpen = false }
+    )
 }
 
 /**

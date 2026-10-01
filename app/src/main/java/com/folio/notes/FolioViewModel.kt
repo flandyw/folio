@@ -81,7 +81,9 @@ data class FolioState(
     /** Ink, text and pictures cut or copied from a lasso selection, kept so they paste on any page. */
     val clipboard: CanvasSelection = CanvasSelection(),
     /** Text search over the open notebook's imported PDF, driven by [FolioViewModel.searchPdf]. */
-    val pdfSearch: PdfSearchState = PdfSearchState()
+    val pdfSearch: PdfSearchState = PdfSearchState(),
+    /** The same search over the reference pane's PDF, so a split pane can find text too. */
+    val companionPdfSearch: PdfSearchState = PdfSearchState()
 ) {
     val active get() = notes.find { it.id == activeId }
     val page get() = active?.pages?.getOrNull(pageIndex)
@@ -768,12 +770,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val source = _state.value.tabs.find { it.notebookId == id }
             ?: rememberedTab(note)
             ?: EditorTab(id, id, note.pages.first().id, note.title)
-        _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, editorOnRight = false,
+        _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, editorOnRight = false, companionPdfSearch = PdfSearchState(),
             tabs = if (mode == CompanionMode.SPLIT) it.tabs.withTab(source) else it.tabs) }
         loadPage(source.currentPageId)
     }
 
-    fun dismissCompanion() { _state.update { it.copy(companion = null, editorOnRight = false) } }
+    fun dismissCompanion() { _state.update { it.copy(companion = null, editorOnRight = false, companionPdfSearch = PdfSearchState()) } }
 
     /** Dragged divider position, as the editor's share; snapped by the caller on release. */
     fun setSplitFraction(fraction: Float) {
@@ -806,9 +808,27 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val pane = _state.value.companion ?: return
         val note = _state.value.notes.find { it.id == pane.notebookId } ?: return
         val page = note.pages.getOrNull(index) ?: return
-        _state.update { it.copy(companion = pane.copy(currentPageId = page.id, viewport = WorkspaceViewport())) }
+        // A deliberate zoom (fit width, say) survives the turn; an untouched pane resets as before.
+        _state.update { it.copy(companion = pane.copy(currentPageId = page.id, viewport = PdfReference.carriedFrame(pane.viewport))) }
         loadPage(page.id)
     }
+
+    /** Searches the reference pane's imported PDF text; a blank query clears the results. */
+    fun searchCompanionPdf(query: String) {
+        val noteId = _state.value.companion?.notebookId ?: return
+        if (query.isBlank()) { _state.update { it.copy(companionPdfSearch = PdfSearchState()) }; return }
+        _state.update { it.copy(companionPdfSearch = PdfSearchState(query = query, searching = true, searched = true)) }
+        viewModelScope.launch {
+            val pages = try { repository.pdfPageTexts(noteId) } catch (_: Exception) { emptyList() }
+            val hits = withContext(Dispatchers.Default) { PdfSearch.search(pages, query) }
+            val current = _state.value
+            // A search finishing after its pane closed, or after a newer query, belongs nowhere.
+            if (current.companion?.notebookId != noteId || current.companionPdfSearch.query != query) return@launch
+            _state.update { it.copy(companionPdfSearch = PdfSearchState(query = query, searched = true, results = hits)) }
+        }
+    }
+
+    fun clearCompanionPdfSearch() { _state.update { it.copy(companionPdfSearch = PdfSearchState()) } }
 
     fun updateCompanionViewport(viewport: WorkspaceViewport) {
         _state.update { it.copy(companion = it.companion?.copy(viewport = viewport)) }
