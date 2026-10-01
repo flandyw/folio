@@ -99,7 +99,7 @@ internal val EditorFloatingGroupHeight = 56.dp
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                 EditorGlassSurface(Modifier.width(48.dp)) {
-                    IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
+                    IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", Modifier.size(20.dp)) }
                 }
                 if (!collapsedTitle) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
                     Row(Modifier.clickable(role = Role.Button, onClickLabel = "Notebook actions") { overflow = true }
@@ -124,13 +124,14 @@ internal val EditorFloatingGroupHeight = 56.dp
                     }
                 }
                 EditorGlassSurface(Modifier.width(48.dp)) {
-                    IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Share or export") }
+                    IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Share or export", Modifier.size(20.dp)) }
                 }
                 Box {
                     EditorGlassSurface(Modifier.width(48.dp)) {
                         IconButton({ overflow = true }) {
                             Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
+                                modifier = Modifier.size(20.dp),
                                 tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
                         }
                     }

@@ -1994,10 +1994,10 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     }
     val controls: @Composable RowScope.(Boolean) -> Unit = { compactTools ->
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
-            IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
+            IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
         }
         if (!compactTools) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
-            IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
+            IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.size(20.dp)) }
         }
         ToolbarDivider()
         // Only the tool tray scrolls; history and overflow always remain reachable.
@@ -2028,7 +2028,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
-            IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options") }
+            IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
             DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
                 if (compactTools) {
                     DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,

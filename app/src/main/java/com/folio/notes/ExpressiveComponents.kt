@@ -77,7 +77,7 @@ import androidx.compose.ui.unit.dp
                 checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                 checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
-        ) { Icon(icon, label, Modifier.size(22.dp)) }
+        ) { Icon(icon, label, Modifier.size(20.dp)) }
         if (indicatorColor != null) {
             Box(
                 Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp6, bottom = FolioSpacing.dp6).size(10.dp)
