@@ -110,6 +110,10 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { _state.update { it.copy(error = "Could not read saved mistakes. Stored files have been kept.") } }
     }
+    fun clearAuthFeedback() {
+        if (_state.value.busy) return
+        _state.update { it.copy(error = null, authMessage = null) }
+    }
     fun signIn(email: String, password: String) {
         if (_state.value.busy) return
         _state.update { it.copy(busy = true, error = null, authMessage = null) }

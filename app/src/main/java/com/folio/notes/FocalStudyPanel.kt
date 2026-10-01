@@ -23,9 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -117,12 +114,8 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     var confidence by rememberSaveable { mutableIntStateOf(0) }
     var manualLog by rememberSaveable { mutableStateOf(false) }
     var manualMinutes by rememberSaveable { mutableStateOf("") }
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var showPassword by rememberSaveable { mutableStateOf(false) }
     var showAllShared by rememberSaveable { mutableStateOf(false) }
     var bulkAction by remember { mutableStateOf<String?>(null) }
-    val emailValid = android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
     var now by remember { mutableLongStateOf(manager.now()) }
     LaunchedEffect(Unit) {
         manager.retry()
@@ -334,40 +327,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 }
             }
             if (state.error != null && !state.syncing) Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            if (state.authMessage != null) Text(state.authMessage!!,
-                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-            if (state.userId == null) {
-                Text("Connect Focal", style = MaterialTheme.typography.titleMedium)
-                if (!state.configured) {
-                    Text("Focal sync is not configured in this build. Sessions stay available on this device.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Text("Use your Focal account to see these sessions on your other devices.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(email, { email = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true,
-                        isError = email.isNotBlank() && !emailValid, enabled = !state.busy,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
-                    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Password") }, singleLine = true,
-                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        enabled = !state.busy,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                        trailingIcon = { TextButton({ showPassword = !showPassword }) { Text(if (showPassword) "Hide" else "Show") } })
-                    Button({ val secret = password; password = ""; manager.signIn(email, secret) },
-                        enabled = emailValid && password.isNotEmpty() && !state.busy,
-                        shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
-                        Text(if (state.busy) "Signing in…" else "Sign in to Focal")
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ val secret = password; password = ""; manager.signUp(email, secret) },
-                            enabled = emailValid && password.length >= 6 && !state.busy) { Text("Create account") }
-                        TextButton({ manager.resetPassword(email) }, enabled = emailValid && !state.busy) { Text("Forgot password?") }
-                    }
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(state.email ?: "Focal connected", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    TextButton({ manager.signOut() }) { Text("Sign out") }
-                }
-            }
+            com.folio.notes.mistakes.FocalAccountContent()
 
             val recent = state.visibleEntries.filter { it.completed && !focalIsCalendarPlaceholder(it) }
                 .sortedByDescending { it.endedAt }

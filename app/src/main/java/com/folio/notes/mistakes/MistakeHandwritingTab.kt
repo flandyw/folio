@@ -213,7 +213,7 @@ private fun HandwritingStorageCard(
             onDismissRequest = { if (!working) confirmAll = false },
             icon = { Icon(Icons.Rounded.DeleteForever, null) },
             title = { Text("Delete all practice pages?") },
-            text = { Text("All ${notes.size} practice notebooks (${formatPracticeBytes(totalBytes)}) will be removed from this device. Your ExamTrack questions and ratings stay; handwriting cannot be recovered.") },
+            text = { Text("All ${notes.size} practice notebooks (${formatPracticeBytes(totalBytes)}) will be removed from this device. Your Focal questions and ratings stay; handwriting cannot be recovered.") },
             dismissButton = { TextButton({ confirmAll = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(
@@ -281,7 +281,7 @@ private fun HandwritingNotebookRow(
                 Column(Modifier.weight(1f)) {
                     Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (question != null) Text(question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else if (attempt != null) Text("Question removed from ExamTrack · handwriting kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (attempt != null) Text("Question removed from Focal · handwriting kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(hold.click { confirmDelete = true }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.DeleteOutline, "Delete ${note.title}")

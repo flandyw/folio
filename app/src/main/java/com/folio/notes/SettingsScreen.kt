@@ -42,7 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onExamTrack: () -> Unit = {}, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     val close: () -> Unit = { if (category != null) category = null else onBack() }
     BackHandler(onBack = close)
@@ -94,12 +94,12 @@ import kotlin.math.roundToInt
                     SettingsPage(
                         selected = selected,
                         modifier = Modifier.weight(1f),
-                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onExamTrack, onCheckForUpdates, updateChecking) }
+                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking) }
                 }
             } else {
                 SettingsPage(selected = selected, modifier = Modifier.fillMaxSize()) {
                     if (selected == null) SettingsHome(onSelect = { category = it })
-                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onExamTrack, onCheckForUpdates, updateChecking)
+                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking)
                 }
             }
         }
@@ -271,7 +271,6 @@ private fun SettingsDetails(
     onBackupLibrary: () -> Unit,
     onRestoreLibrary: () -> Unit,
     onFocal: () -> Unit,
-    onExamTrack: () -> Unit,
     onCheckForUpdates: () -> Unit,
     updateChecking: Boolean,
 ) {
@@ -381,12 +380,8 @@ private fun SettingsDetails(
                         SettingsCategory.WORKFLOW -> WorkflowSection()
                         SettingsCategory.ACCOUNT -> {
                             SectionTitle("Focal")
-                            SectionHint("Connect study sessions and review sync status.")
-                            OutlinedButton(onFocal, shapes = ButtonDefaults.shapes()) { Text("Open study sessions") }
-                            HorizontalDivider()
-                            SectionTitle("ExamTrack")
-                            SectionHint("Sign in to manage mistake sync with ExamTrack.")
-                            OutlinedButton(onExamTrack, shapes = ButtonDefaults.shapes()) { Text("Open ExamTrack") }
+                            SectionHint("One account for study sessions and mistake sync.")
+                            OutlinedButton(onFocal, shapes = ButtonDefaults.shapes()) { Text("Manage Focal account") }
                             HorizontalDivider()
                             SectionTitle("App updates")
                             PrefsSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check for updates on launch", "Folio checks GitHub Releases for a newer signed build.")
@@ -415,7 +410,7 @@ private enum class SettingsCategory(
     WORKFLOW("Timer & workspace", "Exam timer, screen, image export and split view", Icons.Rounded.Timer, "timer exam minutes idle screen export png image split view workspace"),
     FOLLOW("Writing follow", "Page movement, writing direction and line return", Icons.Rounded.AutoStories, "follow page move direction hand left right line return glide"),
     ERASING("Erasing", "Pressure, whole strokes and scribble-to-erase", Icons.Rounded.CleaningServices, "erase eraser pressure stroke scribble clean"),
-    ACCOUNT("Account & updates", "Focal sessions, ExamTrack and app updates", Icons.Rounded.AccountCircle, "account focal examtrack mistake sync sign in update github version");
+    ACCOUNT("Account & updates", "Focal account, sync and app updates", Icons.Rounded.AccountCircle, "account focal mistake study sessions sync sign in update github version");
 
     fun matches(query: String): Boolean = query.isBlank() || listOf(title, description, searchTerms).any { it.lowercase().contains(query) }
 }

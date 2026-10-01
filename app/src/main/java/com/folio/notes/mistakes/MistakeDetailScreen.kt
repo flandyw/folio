@@ -56,13 +56,13 @@ internal fun MistakeDetailCard(
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         Text(mistake.question, style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
-        Text(if (mistake.suspended) "Suspended in ExamTrack" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise",
+        Text(if (mistake.suspended) "Suspended in Focal" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
             if (working) LoadingIndicator(Modifier.size(20.dp))
             else Icon(Icons.Rounded.Edit, null)
             Spacer(Modifier.width(FolioSpacing.dp8))
-            Text(if (mistake.suspended) "Unsuspend in ExamTrack to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
+            Text(if (mistake.suspended) "Unsuspend in Focal to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
         }
         TextButton({ showDelete = true }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
             Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
@@ -95,11 +95,11 @@ internal fun MistakeDetailCard(
                 Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                         Text("The correction", style = MaterialTheme.typography.titleMedium)
-                        RichText(mistake.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge)
+                        RichText(mistake.correction.ifBlank { "No correction saved in Focal." }, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
                 Text("What went wrong", style = MaterialTheme.typography.titleMedium)
-                RichText(mistake.explanation.ifBlank { "No explanation saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge)
+                RichText(mistake.explanation.ifBlank { "No explanation saved in Focal." }, style = MaterialTheme.typography.bodyLarge)
             }
             2 -> {
                 Text("Your handwritten attempts", style = MaterialTheme.typography.titleMedium)

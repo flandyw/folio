@@ -16,11 +16,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.*
@@ -35,13 +32,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -99,13 +91,6 @@ internal fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): Str
     }
 }
 
-private fun emailLooksValid(email: String): Boolean {
-    val t = email.trim()
-    if (' ' in t || '@' !in t) return false
-    val domain = t.substringAfter('@')
-    return '.' in domain && t.length >= 6
-}
-
 @Composable
 fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: FolioState,
     finger: Boolean, haptics: Boolean, shapes: Boolean, onBack: () -> Unit,
@@ -117,8 +102,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var subject by rememberSaveable { mutableStateOf("") }
     var paper by rememberSaveable { mutableStateOf("") }
@@ -133,7 +116,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     var shuffle by rememberSaveable { mutableStateOf(false) }
     var reviewQueue by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var showPassword by rememberSaveable { mutableStateOf(false) }
     var destination by rememberSaveable { mutableStateOf("Today") }
     var showAccount by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
@@ -147,7 +129,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     LaunchedEffect(Unit) {
         while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
     }
-    var confirmSignOut by remember { mutableStateOf(false) }
     val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
     val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
@@ -179,7 +160,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             activeReview = null; detail = null; reviewQueue = emptyList(); showSummary = false
             sessionCompleted = 0; sessionTotal = 0; previousUser = state.userId
         }
-        password = ""
     }
     LaunchedEffect(state.error) {
         state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long) }
@@ -545,7 +525,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 onShowMessage = ::showTransient,
                             )
                         } else if (state.userId == null) {
-                            fullWidthItem { LoginCard(email, { email = it }, password, { password = it }, showPassword, { showPassword = it }, state, model) }
+                            fullWidthItem { FocalAccountContent(model) }
                             fullWidthItem { OfflineNoteCard() }
                         } else {
                             if (isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()) fullWidthItem {
@@ -687,10 +667,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     if (showAccount && state.userId != null) ModalBottomSheet(onDismissRequest = { showAccount = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Text("ExamTrack connection", style = MaterialTheme.typography.headlineSmall)
-            AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
-                { model.requestSync(force = true) }, { showAccount = false; confirmSignOut = true })
-            Text("Questions and ratings sync with ExamTrack. Handwriting stays in Folio.", style = MaterialTheme.typography.bodyMedium)
+            FocalAccountContent(model, onBeforeSignOut = { showAccount = false; leaveReview() })
         }
     }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
@@ -702,22 +679,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${visible.size} questions") }
             TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
         }
-    }
-    if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
-            title = { Text("Sign out of ExamTrack?") },
-            text = { Text("Your cloud list hides until the next sign-in. Handwriting on this device and the offline cache stay put.") },
-            dismissButton = { TextButton({ confirmSignOut = false }, shapes = ButtonDefaults.shapes()) { Text("Stay signed in") } },
-            confirmButton = {
-                Button({
-                    confirmSignOut = false
-                    leaveReview()
-                    model.signOut()
-                }, shapes = ButtonDefaults.shapes()) { Text("Sign out") }
-            }
-        )
     }
 }
 
@@ -784,120 +745,37 @@ private fun MistakesDestinationToolbar(
     }
 }
 
-// ---- Login + account ---------------------------------------------------------------------------
+// ---- Shared Focal account ----------------------------------------------------------------------
 
 @Composable
-private fun LoginCard(
-    email: String, onEmail: (String) -> Unit,
-    password: String, onPassword: (String) -> Unit,
-    showPassword: Boolean, onShowPassword: (Boolean) -> Unit,
-    state: MistakesState, model: MistakesViewModel,
+internal fun FocalAccountContent(
+    model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    onBeforeSignOut: () -> Unit = {},
 ) {
-    val focus = LocalFocusManager.current
-    var emailTouched by remember { mutableStateOf(false) }
-    val emailValid = email.isBlank() || emailLooksValid(email)
-    val canSubmit = !state.busy && emailLooksValid(email) && password.isNotEmpty()
-    ElevatedCard(shape = FolioShapes.extraLarge) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Icon(Icons.Rounded.School, null, Modifier.padding(FolioSpacing.dp12).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Review your mistakes", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "Spaced repetition from ExamTrack, answered in your own handwriting.",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            if (state.status == "Loading saved mistakes…") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                    LoadingIndicator(Modifier.size(18.dp))
-                    Text("Restoring your saved session…", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            OutlinedTextField(
-                email, { onEmail(it); emailTouched = true },
-                Modifier.fillMaxWidth(),
-                label = { Text("Email") },
-                placeholder = { Text("you@example.com") },
-                leadingIcon = { Icon(Icons.Rounded.AlternateEmail, null) },
-                trailingIcon = { if (email.isNotEmpty()) IconButton({ onEmail("") }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear email") } },
-                singleLine = true,
-                isError = emailTouched && !emailValid,
-                supportingText = {
-                    if (emailTouched && !emailValid) Text("Enter the email you use in ExamTrack.")
-                    else Text("Use the same email and password as ExamTrack sync.")
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                enabled = !state.busy
-            )
-            OutlinedTextField(
-                password, onPassword,
-                Modifier.fillMaxWidth(),
-                label = { Text("Password") },
-                leadingIcon = { Icon(Icons.Rounded.Lock, null) },
-                trailingIcon = {
-                    IconButton({ onShowPassword(!showPassword) }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (showPassword) "Hide password" else "Show password")
-                    }
-                },
-                singleLine = true,
-                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (canSubmit) {
-                        val pw = password; onPassword(""); focus.clearFocus()
-                        model.signIn(email, pw)
-                    }
-                }),
-                enabled = !state.busy
-            )
-            if (state.error != null) {
-                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer) {
-                    Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10), verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer)
-                        Text(state.error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
-                    }
-                }
-            }
-            if (state.authMessage != null) {
-                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(state.authMessage!!, Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            Button(
-                {
-                    val pw = password; onPassword(""); focus.clearFocus()
-                    model.signIn(email, pw)
-                },
-                enabled = canSubmit,
-                shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-            ) {
-                if (state.busy) {
-                    LoadingIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(FolioSpacing.dp10))
-                    Text("Signing in…")
-                } else {
-                    Text("Sign in")
-                    Spacer(Modifier.width(FolioSpacing.dp8))
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton({
-                    val pw = password; onPassword(""); focus.clearFocus()
-                    model.signUp(email, pw)
-                }, enabled = !state.busy && emailLooksValid(email) && password.length >= 6) { Text("Create account") }
-                TextButton({ model.resetPassword(email) }, enabled = !state.busy && emailLooksValid(email)) { Text("Forgot password?") }
-            }
-            Text("New account? Enter a password of at least 6 characters. Password reset opens from your email.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val state by model.state.collectAsStateWithLifecycle()
+    var confirmSignOut by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+        if (state.userId == null) {
+            FocalLoginCard(state, model::signIn, model::signUp, model::resetPassword, model::clearAuthFeedback)
+        } else {
+            Text("Focal account", style = MaterialTheme.typography.titleLarge)
+            AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
+                { model.requestSync(force = true) }, { confirmSignOut = true })
+            Text("One sign-in connects study sessions and mistake review. Handwriting stays in Folio.",
+                style = MaterialTheme.typography.bodyMedium)
         }
     }
+    if (confirmSignOut) AlertDialog(
+        onDismissRequest = { confirmSignOut = false },
+        title = { Text("Sign out of Focal?") },
+        text = { Text("This disconnects both study sessions and mistake sync. Saved sessions, handwriting and the offline cache stay on this device.") },
+        dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
+        confirmButton = { TextButton({
+            confirmSignOut = false
+            onBeforeSignOut()
+            model.signOut()
+        }) { Text("Sign out") } },
+    )
 }
 
 @Composable
@@ -926,13 +804,13 @@ private fun AccountCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                     Text(
-                        (email?.trim()?.firstOrNull()?.uppercase() ?: "E"),
+                        (email?.trim()?.firstOrNull()?.uppercase() ?: "F"),
                         Modifier.padding(FolioSpacing.dp12), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold
                     )
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(email ?: "ExamTrack", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(email ?: "Focal", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         formatSyncedAt(lastSyncedAt),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -987,7 +865,7 @@ private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
             )
             Text(
                 if (hasCards) "Try a different search or clear the filters to see the rest."
-                else "New mistakes from ExamTrack will land here. Log one on the web and sync.",
+                else "New mistakes from Focal will land here. Log one on the web and sync.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )

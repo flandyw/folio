@@ -472,7 +472,6 @@ import java.io.File
                     onCheckForUpdates = { checkForUpdates(showDialog = true) },
                     updateChecking = updateChecking,
                     onBack = { settings = false },
-                    onExamTrack = { settings = false; showMistakes = true },
                     onFocal = { settings = false; focalAccountOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
                     onRestoreLibrary = { settings = false; openLibraryBackup.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
@@ -482,7 +481,10 @@ import java.io.File
                     backupBusy = state.busy || state.exporting || state.loading || state.loadFailed)
             }
         }
-        if (focalAccountOpen) FocalStudyPanel(state.active, onDismiss = { focalAccountOpen = false })
+        if (focalAccountOpen) FocalAccountPanel(
+            onDismiss = { focalAccountOpen = false },
+            onMistakes = { focalAccountOpen = false; settings = false; showMistakes = true },
+        )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)

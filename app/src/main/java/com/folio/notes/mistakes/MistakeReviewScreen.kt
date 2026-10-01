@@ -236,9 +236,9 @@ import com.folio.notes.*
                             if (revealed) {
                                 HorizontalDivider()
                                 Text("Correction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                RichText(m.correction.ifBlank { "No correction saved in ExamTrack." }, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
+                                RichText(m.correction.ifBlank { "No correction saved in Focal." }, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
                                 Text("What went wrong", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                RichText(m.explanation.ifBlank { "No explanation saved in ExamTrack." }, style = MaterialTheme.typography.bodyMedium.scaledBy(textScale))
+                                RichText(m.explanation.ifBlank { "No explanation saved in Focal." }, style = MaterialTheme.typography.bodyMedium.scaledBy(textScale))
                             }
                         }
                     }
