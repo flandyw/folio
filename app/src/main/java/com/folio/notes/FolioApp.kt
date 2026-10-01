@@ -412,7 +412,13 @@ import java.io.File
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
     BackHandler(state.active != null && !exportBusy && !showMistakes) { model.close() }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled) {
-        Scaffold(snackbarHost = { SnackbarHost(snackbar) }, contentWindowInsets = WindowInsets.safeDrawing) { padding ->
+        // Mistakes has its own top app bar and floating destinations. Let that screen own its
+        // insets so the app scaffold does not leave an opaque strip beneath its content.
+        val mistakesOwnsInsets = showMistakes && !state.loading && !state.loadFailed
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
+            contentWindowInsets = if (mistakesOwnsInsets) WindowInsets(0, 0, 0, 0) else WindowInsets.safeDrawing,
+        ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 val screen = when {
                     state.loading -> "loading"

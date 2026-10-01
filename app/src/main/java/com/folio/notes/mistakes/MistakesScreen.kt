@@ -4,6 +4,8 @@ package com.folio.notes.mistakes
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -27,8 +29,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.*
@@ -482,7 +489,17 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val split = layout.splitLibrary && destination == "Library" && state.userId != null
         val standaloneDetail = selected != null && !split
         val columns = if (standaloneDetail || split) 1 else layout.columns
+        val showDestinations = !standaloneDetail
+        var toolbarHeight by remember { mutableStateOf(80.dp) }
+        // Only the scroll content's trailing padding clears the overlay; the viewport continues
+        // behind it instead of ending at a reserved Scaffold bottom-bar strip.
+        val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
+        val toolbarClearance = bottomInset + if (showDestinations) toolbarHeight + FolioSpacing.dp32 else 0.dp
+        val contentInset = if (tablet) FolioSpacing.dp24 else FolioSpacing.dp16
         Scaffold(
+            // TopAppBar handles the top inset. Draw the body to the bottom edge; navigation/IME
+            // clearance belongs to scroll padding and the floating toolbar, never a full-width bar.
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
             topBar = {
                 TopAppBar(
                     title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
@@ -496,23 +513,18 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     }
                 )
             },
-            bottomBar = {
-                // Material 3 floating toolbar, per the MDC component: it floats above the cards
-                // and slides out of the way while the grid scrolls.
-                if (!standaloneDetail) {
-                    val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
-                    val tab = destination.takeIf { it in tabs } ?: tabs.first()
-                    MistakesDestinationToolbar(tabs, tab) { destination = it; detail = null }
-                }
-            },
-            snackbarHost = { SnackbarHost(snackbar) }
+            snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = toolbarClearance)) }
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
+            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
-                        state = if (standaloneDetail) detailListState else listState, contentPadding = PaddingValues(if (tablet) 24.dp else 16.dp),
+                        state = if (standaloneDetail) detailListState else listState,
+                        contentPadding = PaddingValues(
+                            start = contentInset, top = contentInset, end = contentInset,
+                            bottom = contentInset + toolbarClearance,
+                        ),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
                         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
                     ) {
@@ -642,7 +654,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         VerticalDivider()
                         Surface(Modifier.weight(.58f).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             if (selected != null) key(selected.id) {
-                                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24)) { DetailContent() }
+                                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
+                                    start = FolioSpacing.dp24, top = FolioSpacing.dp24, end = FolioSpacing.dp24,
+                                    bottom = FolioSpacing.dp24 + toolbarClearance,
+                                )) { DetailContent() }
                             } else Column(Modifier.fillMaxSize().padding(FolioSpacing.dp32), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.height(FolioSpacing.dp16))
@@ -654,6 +669,19 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     }
                 }
             }
+        }
+        if (showDestinations) {
+            val tabs = if (state.userId == null) listOf("Connect", "Handwriting") else listOf("Today", "Library", "Handwriting")
+            val tab = destination.takeIf { it in tabs } ?: tabs.first()
+            MistakesDestinationToolbar(
+                destinations = tabs,
+                selected = tab,
+                onSelect = { destination = it; detail = null },
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .padding(start = FolioSpacing.dp16, end = FolioSpacing.dp16, bottom = FolioSpacing.dp16),
+                onHeightChanged = { toolbarHeight = it },
+            )
         }
     }
     if (showAccount && state.userId != null) ModalBottomSheet(onDismissRequest = { showAccount = false }) {
@@ -694,64 +722,64 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
 
 // ---- Destination toolbar -----------------------------------------------------------------------
 
-/**
- * Material 3 floating toolbar pinned to the bottom edge (MDC `FloatingToolbar`): a raised
- * surface that carries the dashboard's destinations, and slides off-screen while the grid
- * scrolls so it never covers a card. The selected destination uses the vibrant container
- * color, the rest the standard content color.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** A centered overlay with equal destination cells and concentric outer/selected pill shapes. */
 @Composable
 private fun MistakesDestinationToolbar(
     destinations: List<String>,
     selected: String,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    onHeightChanged: (Dp) -> Unit = {},
 ) {
-    val toolbarState = rememberFloatingToolbarState()
-    val scrollBehavior = FloatingToolbarDefaults.exitAlwaysScrollBehavior(
-        exitDirection = FloatingToolbarExitDirection.Bottom,
-        state = toolbarState
-    )
     val standard = FloatingToolbarDefaults.standardFloatingToolbarColors()
     val vibrant = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
-    val icons = remember(destinations) {
-        destinations.associateWith {
-            when (it) {
-                "Today" -> Icons.Rounded.Today
-                "Library" -> Icons.Rounded.GridView
-                "Connect" -> Icons.Rounded.CloudOff
-                else -> Icons.Rounded.Draw
-            }
-        }
+    val density = LocalDensity.current
+    val labelStyle = MaterialTheme.typography.labelSmall
+    val textMeasurer = rememberTextMeasurer()
+    val labelWidth = remember(destinations, labelStyle, density) {
+        with(density) { destinations.maxOf { textMeasurer.measure(it, labelStyle).size.width }.toDp() }
     }
-    // A floating toolbar hugs its content and sits centred on the bottom edge; Scaffold's
-    // bottomBar slot lays out from the start, so the centring is done by this box.
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), contentAlignment = Alignment.BottomCenter) {
-        HorizontalFloatingToolbar(
-            expanded = true,
-            scrollBehavior = scrollBehavior,
-            colors = standard,
-            content = {
+    val cellWidth = (labelWidth + FolioSpacing.dp24).coerceAtLeast(72.dp)
+    BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+        val width = (cellWidth * destinations.size + FolioSpacing.dp16).coerceAtMost(maxWidth)
+        Surface(
+            modifier = Modifier.width(width).onSizeChanged { onHeightChanged(with(density) { it.height.toDp() }) },
+            shape = CircleShape,
+            color = standard.toolbarContainerColor,
+            contentColor = standard.toolbarContentColor,
+            tonalElevation = 6.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(Modifier.padding(FolioSpacing.dp8).selectableGroup()) {
                 destinations.forEach { title ->
                     val isSelected = title == selected
+                    val icon = when (title) {
+                        "Today" -> Icons.Rounded.Today
+                        "Library" -> Icons.Rounded.GridView
+                        "Connect" -> Icons.Rounded.CloudOff
+                        else -> Icons.Rounded.Draw
+                    }
                     Surface(
-                        onClick = { onSelect(title) },
-                        shape = FolioShapes.large,
+                        modifier = Modifier.weight(1f).clip(CircleShape).selectable(
+                            selected = isSelected, onClick = { onSelect(title) }, role = Role.Tab,
+                        ),
+                        shape = CircleShape,
                         color = if (isSelected) vibrant.toolbarContainerColor else Color.Transparent,
                         contentColor = if (isSelected) vibrant.toolbarContentColor else standard.toolbarContentColor,
                     ) {
                         Column(
-                            Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp6),
+                            Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                                .padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp8),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)
+                            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.CenterVertically),
                         ) {
-                            Icon(icons[title] ?: Icons.Rounded.Draw, title, Modifier.size(20.dp))
-                            Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            Icon(icon, null, Modifier.size(24.dp))
+                            Text(title, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
             }
-        )
+        }
     }
 }
 
