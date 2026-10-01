@@ -76,9 +76,9 @@ class InkView(context: Context) : View(context) {
     var onSelectionChanged: (CanvasSelection) -> Unit = {}
     /**
      * The selection's frame as fractions of this view (0..1), or null when empty,
-     * so the editor can float its contextual pill near the selection. Reported
+     * so the editor can anchor its context menu near the selection. Reported
      * when the selection settles and when the camera moves under it — never
-     * mid-gesture, where the pill simply holds its place until release.
+     * mid-gesture, when null hides the menu until release.
      */
     var onSelectionViewBounds: (Rect?) -> Unit = {}
     /**
@@ -422,7 +422,7 @@ class InkView(context: Context) : View(context) {
             onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
                 (width - camera.x) / camera.zoom, (height - camera.y) / camera.zoom))
         }
-        // A camera move under a live selection re-anchors the editor's pill,
+        // A camera move under a live selection re-anchors the editor's menu,
         // but never mid-gesture: the release reports the settled frame.
         if (hasSelection() && !movingSelection && !resizingSelection && !rotatingSelection && lasso == null) {
             reportSelectionViewBounds()
@@ -1151,6 +1151,7 @@ class InkView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_CANCEL -> { touchChord.reset(); cancelGesture() }
         }
+        reportSelectionViewBounds()
         if (!dirtyInvalidated) invalidate()
         return true
     }
@@ -1506,10 +1507,11 @@ class InkView(context: Context) : View(context) {
     }
     /**
      * The selection frame in view fractions (0..1) for the editor's floating
-     * pill. Null while empty or before first layout.
+     * menu. Null while empty, being manipulated, or before first layout.
      */
     private fun reportSelectionViewBounds() {
-        val rect = if (!hasSelection() || width <= 0 || height <= 0) null
+        val rect = if (!hasSelection() || width <= 0 || height <= 0 ||
+            movingSelection || resizingSelection || rotatingSelection || lasso != null) null
         else selectionBox()?.let { box ->
             Rect(
                 (originX + box[0] * scale) / width,

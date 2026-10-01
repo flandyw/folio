@@ -52,11 +52,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -66,6 +68,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
@@ -279,7 +282,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var selection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
-    /** Selection frame in view fractions for the floating pill; cleared with the page. */
+    /** Selection frame in view fractions for the context menu; cleared with the page. */
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
@@ -534,6 +537,11 @@ private fun paperLabel(p: Paper): String = when (p) {
         note.pages.getOrNull(state.pageIndex - 1)?.let { model.loadPage(it.id) }
         note.pages.getOrNull(state.pageIndex + 1)?.let { model.loadPage(it.id) }
     }
+    BackHandler(enabled = selected.isNotEmpty() && restyleSelection == null) {
+        activeInkView?.clearSelection()
+        selection = null
+    }
+    var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
             Key.Z -> { if (event.isShiftPressed) model.redo() else model.undo(); true }
@@ -544,8 +552,15 @@ private fun paperLabel(p: Paper): String = when (p) {
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
         var floatingToolbarTop by remember { mutableStateOf(120.dp) }
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .onGloballyPositioned { coordinates ->
+                val origin = coordinates.localToWindow(Offset.Zero)
+                canvasWindowBounds = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
+            }) {
             val density = LocalDensity.current
+            val selectionViewport = canvasWindowBounds?.let { bounds ->
+                bounds.copy(top = (bounds.top + with(density) { floatingToolbarTop.toPx() }).coerceAtMost(bounds.bottom))
+            }
             val viewportWidth = with(density) { maxWidth.toPx() }
             val baseWidth = (maxWidth - 20.dp).coerceAtMost(900.dp)
             val baseWidthPx = with(density) { baseWidth.toPx() }
@@ -566,20 +581,22 @@ private fun paperLabel(p: Paper): String = when (p) {
                 documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
-            /** Drops the lasso selection on canvas and in state, returning to the pen. */
-            fun dismissSelection() { activeInkView?.clearSelection(); selection = null; selectTool(Tool.PEN) }
-            /** Floating contextual pill: Copy · Duplicate · Style · Delete · ⋯ near the selection. */
-            val selectionPill: @Composable BoxScope.() -> Unit = {
-                SelectionPill(
+            /** Deselect without changing the active tool. */
+            fun dismissSelection() { activeInkView?.clearSelection(); selection = null }
+            /** Compact selection actions; secondary commands live in the overflow menu. */
+            val selectionMenu: @Composable (Dp) -> Unit = { availableWidth ->
+                SelectionContextMenu(
+                    availableWidth = availableWidth,
                     canRestyle = selected.strokes.isNotEmpty(),
                     onCopy = { model.copyToClipboard(selected) },
+                    onCut = { model.cutSelection(selected); dismissSelection() },
                     onDuplicate = {
                         model.duplicateSelection(selected)
                         activeInkView?.clearSelection()
                         selection = null
                     },
                     onStyle = { restyleSelection = selected.strokes },
-                    onDelete = { model.deleteSelection(selected); selection = null },
+                    onDelete = { model.deleteSelection(selected); dismissSelection() },
                     onDeselect = ::dismissSelection,
                     onSelectAll = ::selectAllInk
                 )
@@ -600,9 +617,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
                     followEnabled = writingFollowEnabled && !writingStripOpen, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekHeld || writingStripOpen,
-                    onSelectionAnchor = { selectionAnchor = it },
+                    onSelectionAnchor = { if (!writingStripOpen) selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
-                    selectionPill = if (selected.isNotEmpty()) selectionPill else null)
+                    selectionMenuViewport = selectionViewport,
+                    selectionMenu = if (selected.isNotEmpty() && !writingStripOpen && !pages.isScrollInProgress && restyleSelection == null && !peekHeld) selectionMenu else null)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -740,9 +758,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     val movedY = -pages.dispatchRawDelta(-dy)
                                     (documentPan - oldPan) to movedY
                                 },
-                                onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
+                                onSelectionAnchor = { rect -> if (item.id == page.id && !writingStripOpen) selectionAnchor = rect },
                                 selectionAnchor = if (item.id == page.id) selectionAnchor else null,
-                                selectionPill = if (item.id == page.id && selected.isNotEmpty()) selectionPill else null)
+                                selectionMenuViewport = selectionViewport,
+                                selectionMenu = if (item.id == page.id && selected.isNotEmpty() && !writingStripOpen && !pages.isScrollInProgress && restyleSelection == null && !peekHeld) selectionMenu else null)
                             // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
                             // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
                             Box {
@@ -811,7 +830,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                         onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
                         onSelectionAnchor = { selectionAnchor = it }, selectionAnchor = selectionAnchor,
-                        selectionPill = if (selected.isNotEmpty()) selectionPill else null)
+                        selectionMenu = if (selected.isNotEmpty() && restyleSelection == null && !peekHeld) selectionMenu else null)
                 }
             }
             // Keep the original composition and cameras alive. Dismissing this read-only lens is
@@ -1674,11 +1693,13 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, writingStrip: Boolean = false, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
-    /** Selection frame in view fractions (0..1) for the floating pill, or null before it reports. */
+    /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
-    /** Contextual pill shown near the selection; null on pages without one. */
-    selectionPill: (@Composable BoxScope.() -> Unit)? = null,
+    /** Context menu content, given the available pane width; null on pages without a selection. */
+    selectionMenu: (@Composable (Dp) -> Unit)? = null,
+    selectionMenuViewport: Rect? = null,
     onSelectionAnchor: (Rect?) -> Unit = {}) {
+    var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
     val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
@@ -1739,10 +1760,13 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         val target = page.pdfIndex ?: return@remember emptyList<PdfLink>()
         pdfLinks.filter { it.pageIndex == target }
     }
-    // The pill scrolls and zooms with the page because it is laid out in the
-    // page's own box, above the selection when there is room, below it when
-    // the selection sits at the top, top-center until the frame reports.
-    Box(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height)) {
+    // Keep the full page frame in window coordinates, including scrolled-off portions.
+    // The context menu converts the local selection against this frame and clamps to the pane.
+    Box((if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height))
+        .onGloballyPositioned { coordinates ->
+            val origin = coordinates.localToWindow(Offset.Zero)
+            pageWindowFrame = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
+        }) {
         Surface(
             Modifier.fillMaxSize(),
             shape = if (fullscreen) RectangleShape else FolioShapes.medium,
@@ -1803,26 +1827,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
         }
         if (page.loaded && ready && !readOnly && shapeMeasurements) ShapeMeasurementTooltip(shapeMeasurement)
-        // The contextual pill floats over the page near the selection: above it when
-        // there is room, below it when the selection sits at the top, top-center
-        // until the canvas reports the frame. It scrolls and zooms with the page
-        // because it is laid out in the page's own box.
-        if (selectionPill != null && page.loaded && ready) {
-            val pill = selectionPill
-            BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                val hPx = constraints.maxHeight.toFloat()
-                val density = LocalDensity.current
-                // Pill rise + gap in view pixels, so the anchor math never depends on density twice.
-                val risePx = with(density) { 60.dp.toPx() }
-                val gapPx = with(density) { 12.dp.toPx() }
-                val yPx = selectionAnchor?.let { anchor ->
-                    val topPx = anchor.top * hPx
-                    if (topPx > risePx + gapPx) topPx - risePx else anchor.bottom * hPx + gapPx
-                } ?: gapPx
-                val yDp = with(density) { yPx.coerceIn(0f, (hPx - risePx).coerceAtLeast(0f)).toDp() }
-                // Only the pill itself takes input; the rest of the overlay stays transparent to touches.
-                Box(Modifier.offset(y = yDp).guardUiTouches()) { pill() }
-            }
+        if (selectionMenu != null && page.loaded && ready) {
+            SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, selectionMenu)
         }
     }
 }
@@ -2442,64 +2448,6 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             val bitmap = preview
             if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             else if (!page.loaded) LoadingIndicator(Modifier.size(20.dp).semanticsLabel("Loading preview"))
-        }
-    }
-}
-
-/**
- * Floating contextual pill over a lasso selection: Copy · Duplicate · Style ·
- * Delete · ⋯. Resize and rotate live on the selection's own canvas handles,
- * so shrink/grow, fixed rotations and cut stay out of the visible editor.
- */
-@Composable private fun SelectionPill(
-    canRestyle: Boolean,
-    onCopy: () -> Unit, onDuplicate: () -> Unit, onStyle: () -> Unit, onDelete: () -> Unit,
-    onDeselect: () -> Unit, onSelectAll: () -> Unit
-) {
-    var overflow by remember { mutableStateOf(false) }
-    val feedback = LocalHapticFeedback.current
-    // Pops in instead of snapping: a fresh selection feels confirmed, not pasted on.
-    var entered by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (entered) 1f else 0.92f, animationSpec = folioSpring(), label = "pillScale")
-    val alpha by animateFloatAsState(if (entered) 1f else 0f, label = "pillAlpha")
-    LaunchedEffect(Unit) { entered = true }
-    fun tap(action: () -> Unit) {
-        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        action()
-    }
-    Surface(
-        shape = FolioShapes.panel,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 6.dp,
-        tonalElevation = 1.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")
-            .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
-    ) {
-        Row(Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            TextButton({ tap(onCopy) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Copy")
-            }
-            TextButton({ tap(onDuplicate) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.DynamicFeed, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Duplicate")
-            }
-            if (canRestyle) TextButton({ tap(onStyle) }, contentPadding = PaddingValues(horizontal = FolioSpacing.dp10), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Palette, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Style")
-            }
-            TextButton(
-                { tap(onDelete) },
-                contentPadding = PaddingValues(horizontal = FolioSpacing.dp10),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Delete")
-            }
-            Box {
-                IconButton({ overflow = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreHoriz, "More selection options") }
-                DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                    DropdownMenuItem({ Text("Select all") }, { overflow = false; tap(onSelectAll) }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
-                    DropdownMenuItem({ Text("Deselect") }, { overflow = false; tap(onDeselect) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                }
-            }
         }
     }
 }
