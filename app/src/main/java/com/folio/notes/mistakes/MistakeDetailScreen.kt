@@ -45,7 +45,7 @@ internal fun MistakeDetailCard(
     attempts: List<Pair<com.folio.notes.Notebook, LocalMistakeReviewAttempt>>,
     onPractice: () -> Unit,
     onOpenAttempt: (noteId: String, pageId: String, reviewId: String, completed: Boolean) -> Unit,
-    onDelete: () -> Unit = {},
+    onDelete: () -> Unit = {}, now: Long = System.currentTimeMillis(),
 ) {
     var tab by rememberSaveable(mistake.id) { mutableIntStateOf(0) }
     var showMetadata by rememberSaveable(mistake.id) { mutableStateOf(false) }
@@ -56,7 +56,7 @@ internal fun MistakeDetailCard(
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         Text(mistake.question, style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
-        Text(if (mistake.suspended) "Suspended in ExamTrack" else schedule?.let { dueLabel(it.dueAt) } ?: "Ready to practise",
+        Text(if (mistake.suspended) "Suspended in ExamTrack" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
             if (working) LoadingIndicator(Modifier.size(20.dp))
@@ -89,7 +89,7 @@ internal fun MistakeDetailCard(
                     Icon(if (showMetadata) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
                     Text(if (showMetadata) "Hide question information" else "Marks, topic & review information")
                 }
-                if (showMetadata) MistakeMetaGrid(mistake, schedule, due)
+                if (showMetadata) MistakeMetaGrid(mistake, schedule, due, now)
             }
             1 -> {
                 Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -140,14 +140,14 @@ internal fun MistakeDetailCard(
 }
 
 @Composable
-private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule?, due: Boolean) {
+private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule?, due: Boolean, now: Long) {
     val items = buildList {
         if (mistake.totalMarks != null && mistake.marksLost != null) add("Marks lost" to "−${trimMark(mistake.marksLost)} / ${trimMark(mistake.totalMarks)}")
         mistake.category.takeIf { it.isNotBlank() }?.let { add("Category" to it) }
         mistake.areaOfStudy?.takeIf { it.isNotBlank() }?.let { add("Area" to it) }
         mistake.criterion?.takeIf { it.isNotBlank() }?.let { add("Criterion" to it) }
         schedule?.let {
-            add("Status" to if (mistake.suspended) "Suspended" else it.state.wire.replaceFirstChar(Char::uppercase) + " · " + dueLabel(it.dueAt))
+            add("Status" to if (mistake.suspended) "Suspended" else it.state.wire.replaceFirstChar(Char::uppercase) + " · " + dueLabel(it.dueAt, now))
             if (it.repetitions > 0 || it.lapses > 0) add("Reviews" to "${it.repetitions} ✓ · ${it.lapses} ✗")
         }
         if (mistake.reviewHistory.isNotEmpty()) add("History" to "${mistake.reviewHistory.size} review${if (mistake.reviewHistory.size == 1) "" else "s"}")

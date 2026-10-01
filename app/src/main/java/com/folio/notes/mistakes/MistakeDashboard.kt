@@ -102,13 +102,13 @@ import com.folio.notes.rememberLongPressGuard
 @Composable internal fun MistakeLibraryRow(
     mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?, resume: Boolean,
     attempts: Int, onOpen: () -> Unit, onPractice: () -> Unit, working: Boolean, selected: Boolean = false,
-    onDelete: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null, now: Long = System.currentTimeMillis(),
 ) {
     // Long-pressing a card opens its context menu; the tap still opens the details.
     var menu by remember { mutableStateOf(false) }
     val hold = rememberLongPressGuard()
     val previewStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
-    val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt) } ?: "New question"
+    val dueText = if (mistake.suspended) "Suspended" else schedule?.let { dueLabel(it.dueAt, now) } ?: "New question"
     val overdue = !mistake.suspended && dueText.contains("overdue")
     Box {
     OutlinedCard(onClick = hold.click(onOpen), shape = FolioShapes.extraLarge,

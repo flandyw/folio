@@ -50,12 +50,14 @@ import com.folio.notes.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 private val syncDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()) }
-private val dueDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM", Locale.getDefault()) }
 
 private data class ReviewFrame(
     val attempt: LocalMistakeReviewAttempt,
@@ -71,19 +73,17 @@ private fun formatSyncedAt(iso: String?): String {
     }.getOrDefault("Last synced ${iso.replace('T', ' ').take(16)} UTC")
 }
 
-internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis()): String {
-    val diff = runCatching { timestamp(dueAt) - now }.getOrDefault(0L)
-    if (diff <= 0) {
-        val overdueDays = MistakeScheduler.overdueDays(dueAt, now)
-        return if (overdueDays < 1) "Due today" else "${overdueDays}d overdue"
-    }
-    val days = TimeUnit.MILLISECONDS.toDays(diff)
+internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
+    val due = runCatching { Instant.ofEpochMilli(timestamp(dueAt)).atZone(zone) }.getOrNull()
+        ?: return "Unknown due date"
+    val days = ChronoUnit.DAYS.between(Instant.ofEpochMilli(now).atZone(zone).toLocalDate(), due.toLocalDate())
     return when {
-        diff < TimeUnit.HOURS.toMillis(20) -> "Due today"
-        diff < TimeUnit.HOURS.toMillis(44) -> "Due tomorrow"
+        days < 0 -> "${-days}d overdue"
+        due.toInstant().toEpochMilli() <= now -> "Due today"
+        days == 0L -> "Later today · ${due.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+        days == 1L -> "Due tomorrow"
         days < 30 -> "Due in ${days}d"
-        else -> runCatching { "Due ${dueDateFormat.get()!!.format(Date(timestamp(dueAt)))}" }
-            .getOrDefault("Due ${dueAt.take(10)}")
+        else -> "Due ${due.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}"
     }
 }
 
@@ -438,6 +438,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 context = state.cache.contexts[selected.attemptId],
                 schedule = schedules[selected.id],
                 due = selected in due,
+                now = clockNow,
                 working = working,
                 userId = state.userId!!,
                 attachments = model.attachments,
@@ -582,7 +583,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     fullWidthItem { Text("Pick up where you left off", style = MaterialTheme.typography.titleLarge) }
                                     items(unfinished.take(3), key = { "resume-${it.id}" }) { m ->
                                         MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], true, attemptCountMap[m.id] ?: 0,
-                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
+                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) }, now = clockNow)
                                     }
                                 }
                                 if (due.isNotEmpty()) {
@@ -616,7 +617,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                         }
                                         items(cards, key = { "due-${it.id}" }) { m ->
                                             MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
-                                                { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) })
+                                                { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) }, now = clockNow)
                                         }
                                     }
                                 }
@@ -645,7 +646,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 items(visible, key = { it.id }) { m ->
                                     MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
                                         attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
-                                        onDelete = { deleteCard(m.id) })
+                                        onDelete = { deleteCard(m.id) }, now = clockNow)
                                 }
                             }
                         }
