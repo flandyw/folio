@@ -135,6 +135,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         class Once(val block: suspend () -> Unit) : WriteOp
     }
     private val writes = Channel<WriteOp>(Channel.UNLIMITED)
+    /** Writer-owned: retain dirty indexes across batches until the queue actually drains. */
+    private val pendingIndexCheckpoints = LinkedHashSet<String>()
     @Volatile private var autoBackupDirty = false
     /**
      * Per-page undo/redo stacks of edits, not whole page copies: a pen stroke's inverse is the few
@@ -408,7 +410,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     private suspend fun runWrites(batch: List<WriteOp>) {
         val target = _state.value.editGeneration
-        val touched = LinkedHashSet<String>()
         try {
             getApplication<FolioApplication>().storageGate.withLock {
                 var index = 0
@@ -425,7 +426,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                     // Any bytes a record names land first, so a crash cannot leave a placement without its file.
                     group.forEach { it.before() }
                     repository.appendPageTransactions(op.noteId, op.pageId, group.map { it.transaction })
-                    touched += op.noteId
+                    pendingIndexCheckpoints += op.noteId
                     index = end
                 }
             }
@@ -445,7 +446,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 lastSaveProgressAt = if (writes.isEmpty) null else System.currentTimeMillis())
         }
         if (writes.isEmpty) {
-            touched.forEach { queueIndexCheckpoint(it) }
+            val dirty = pendingIndexCheckpoints.toList()
+            pendingIndexCheckpoints.clear()
+            dirty.forEach { queueIndexCheckpoint(it) }
             if (writes.isEmpty) compactPendingPages()
         }
         if (writes.isEmpty && autoBackupDirty) {

@@ -34,6 +34,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.io.Writer
 import java.util.zip.ZipInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -241,7 +242,7 @@ class NoteRepository(private val context: Context) {
         }
 
     /**
-     * Durably appends a batch of transactions to one page's journal: a single write and a single
+     * Durably appends a batch of transactions to one page's journal: buffered writes and a single
      * fsync for the whole batch, so a run of pen-ups that arrived while the writer was busy costs one
      * durable operation rather than one each. Nothing else is written — not the notebook index, not
      * an undo file, not the page snapshot — which is what keeps the cost of a stroke proportional to
@@ -255,16 +256,17 @@ class NoteRepository(private val context: Context) {
         lock.withLock {
             val key = pageKey(noteId, pageId)
             var seq = journalSeqs[key] ?: storedMaxSeq(noteId, pageId)
-            val log = StringBuilder()
-            for (transaction in transactions) {
-                seq += 1
-                log.append(PageJournal.encode(transaction.copy(seq = seq))).append('\n')
-                journalRevs[key] = transaction.revision
-            }
             // Any bytes a record names land first, so a crash cannot leave a placement without its file.
             before()
-            appendJournal(key, pageJournalFile(noteId, pageId), log.toString())
+            appendJournal(key, pageJournalFile(noteId, pageId)) { writer ->
+                for (transaction in transactions) {
+                    seq += 1
+                    writer.write(PageJournal.encode(transaction.copy(seq = seq)))
+                    writer.write("\n")
+                }
+            }
             journalSeqs[key] = seq
+            journalRevs[key] = transactions.last().revision
             if ((journalLengths[key] ?: 0L) > MAX_JOURNAL_BYTES) pendingCompaction += key
         }
     }
@@ -286,7 +288,7 @@ class NoteRepository(private val context: Context) {
         // record on disk. Those records carry no stack effect of their own, so the whole log is
         // still folded over it to pick up anything written since undo state moved into the log.
             ?: legacyHistory(noteId, pageId)?.let { it to 0 }
-        val (base, afterSeq) = carried ?: return@withContext PageJournal.History.EMPTY
+        val (base, afterSeq) = carried ?: (PageJournal.History.EMPTY to 0)
         PageJournal.foldHistory(base, readJournal(storedJournalFile(noteId, pageId)), afterSeq)
     }
 
@@ -471,7 +473,13 @@ class NoteRepository(private val context: Context) {
         val dir = directory(note.id)
         try {
             val pdf = File(dir, "source.pdf")
-            context.contentResolver.openInputStream(uri)?.use { input -> pdf.outputStream().use { input.copyTo(it) } }
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                pdf.outputStream().use { output ->
+                    input.copyTo(output, 256 * 1024)
+                    // Publish the index only after its source PDF is durable too.
+                    output.fd.sync()
+                }
+            }
                 ?: error("This PDF could not be opened")
             val pages = PdfRenderer(ParcelFileDescriptor.open(pdf, ParcelFileDescriptor.MODE_READ_ONLY)).use { renderer ->
                 require(renderer.pageCount > 0) { "This PDF has no pages" }
@@ -493,7 +501,9 @@ class NoteRepository(private val context: Context) {
                     }
                 }.toExamTags()
             }
-            note.copy(pages = pages, exam = exam).also { saveAll(it) }
+            // Empty PDF pages are fully described by the index. Their first annotation creates
+            // a journal lazily; hundreds of empty snapshots/fsyncs buy us no additional data.
+            note.copy(pages = pages, exam = exam).also { saveMeta(it) }
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
     }
 
@@ -1071,7 +1081,14 @@ class NoteRepository(private val context: Context) {
         val key = pageKey(noteId, page.id)
         val effective = seq ?: journalSeqs[key] ?: storedMaxSeq(noteId, page.id)
         atomicWrite(pageFile(noteId, page.id), NotePageCodec.encode(page, effective, history))
-        atomicWrite(pageJournalFile(noteId, page.id), "")
+        val journal = pageJournalFile(noteId, page.id)
+        // A fresh snapshot has no log to clear. Recover an AtomicFile backup before checking
+        // length so a crash during an earlier clear cannot leave old records hidden in .bak.
+        val atomicJournal = AtomicFile(journal)
+        if (journal.exists() || File(journal.path + ".bak").exists()) {
+            atomicJournal.openRead().use { }
+            if (journal.length() > 0L) atomicWrite(journal, "")
+        }
         pageHistoryFile(noteId, page.id).delete()
         journalSeqs[key] = effective
         journalLengths[key] = 0L
@@ -1085,15 +1102,18 @@ class NoteRepository(private val context: Context) {
      * append is rolled back to the length it started from, so a partial batch is never half applied.
      * Both keep the log readable from the front, which is what replay relies on.
      */
-    private fun appendJournal(key: String, file: File, records: String) {
+    private fun appendJournal(key: String, file: File, writeRecords: (Writer) -> Unit) {
         file.parentFile?.mkdirs()
         val known = journalLengths[key]
         if (known == null || known != file.length()) journalLengths[key] = repairJournalTail(file)
         val start = file.length()
         try {
             FileOutputStream(file, true).use { out ->
-                out.write(records.toByteArray(Charsets.UTF_8))
-                out.flush()
+                // Bound temporary memory to one transaction plus the writer's buffer,
+                // rather than keeping the batch as UTF-16 and then again as UTF-8.
+                val writer = out.bufferedWriter(Charsets.UTF_8)
+                writeRecords(writer)
+                writer.flush()
                 out.fd.sync()
             }
             journalLengths[key] = file.length()
