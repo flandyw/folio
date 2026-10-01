@@ -116,12 +116,15 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"])
     private val _state = MutableStateFlow(FolioState(tabs = restoredTabs,
         pdfSearch = restoredTabs.find { it.notebookId == savedState.get<String>("activeId") }?.search ?: PdfSearchState(),
-        companion = WorkspaceSessionCodec.decode(savedState["workspaceCompanion"]).firstOrNull(),
-        companionMode = runCatching { CompanionMode.valueOf(savedState.get<String>("workspaceMode") ?: "SPLIT") }.getOrDefault(CompanionMode.SPLIT),
+        companion = WorkspaceSessionCodec.decode(
+            if (savedState.contains("workspaceCompanion")) savedState.get<String>("workspaceCompanion")
+            else prefs.getString("workspaceCompanion", null)
+        ).firstOrNull(),
+        companionMode = runCatching { CompanionMode.valueOf(savedState.get<String>("workspaceMode") ?: prefs.getString("workspaceMode", "SPLIT") ?: "SPLIT") }.getOrDefault(CompanionMode.SPLIT),
         splitFraction = (savedState.get<Float>("splitFraction")
             ?: prefs.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { prefs.contains(AppPrefs.SPLIT_FRACTION) }
             ?: AppPrefs.DEFAULT_SPLIT).let { AppPrefs.splitFraction(it) },
-        companionLinked = savedState.get<Boolean>("companionLinked") ?: false,
+        companionLinked = savedState.get<Boolean>("companionLinked") ?: prefs.getBoolean("companionLinked", false),
         // A restored session wins; otherwise the side the panes were last left on, so opening
         // Folio tomorrow puts the work document where the user put it.
         editorOnRight = savedState["editorOnRight"] ?: prefs.getBoolean(AppPrefs.EDITOR_ON_RIGHT, AppPrefs.DEFAULT_EDITOR_ON_RIGHT), activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
@@ -341,7 +344,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 if (tab.notebookId == it.activeId) tab.copy(currentPageId = it.page?.id ?: tab.currentPageId, search = it.pdfSearch) else tab
             })
             persistCompanionPosition(it.companion)
-            savedState["workspaceCompanion"] = WorkspaceSessionCodec.encode(listOfNotNull(it.companion))
+            val companionSession = WorkspaceSessionCodec.encode(listOfNotNull(it.companion))
+            savedState["workspaceCompanion"] = companionSession
+            // SavedStateHandle covers recreation; preferences also cover a fresh app launch.
+            prefs.edit()
+                .putString("workspaceCompanion", companionSession)
+                .putString("workspaceMode", it.companionMode.name)
+                .putBoolean("companionLinked", it.companionLinked)
+                .apply()
             savedState["workspaceMode"] = it.companionMode.name
             savedState["splitFraction"] = it.splitFraction
             savedState["companionLinked"] = it.companionLinked
@@ -748,8 +758,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                     val state = _state.value
                     val adjacent = state.tabs.adjacentAfterClosing(id)
                     val remaining = state.tabs.filterNot { it.id == id }
-                    _state.update { it.copy(tabs = remaining,
-                        companion = it.companion?.takeUnless { pane -> pane.notebookId == id }) }
+                    _state.update { it.copy(tabs = remaining) }
                     if (state.activeId == id) {
                         selectNotebookTimer(null)
                         _state.update { it.copy(activeId = null) }
@@ -770,8 +779,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 } else {
                     _state.update { state ->
                         state.copy(
-                            tabs = state.tabs.filter { it.id == keepId || it.notebookId == keepId },
-                            companion = state.companion?.takeUnless { it.notebookId != keepId }
+                            tabs = state.tabs.filter { it.id == keepId || it.notebookId == keepId }
                         )
                     }
                 }
