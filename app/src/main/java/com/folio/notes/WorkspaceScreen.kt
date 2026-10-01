@@ -28,7 +28,9 @@ import kotlin.math.roundToInt
 /** One editor and an independently navigable companion share the same notebook store. */
 @Composable fun WorkspaceScreen(state: FolioState, model: FolioViewModel, finger: Boolean,
     haptics: Boolean, shapeRecognition: Boolean,
-    onSettings: () -> Unit, onExport: () -> Unit) {
+    onSettings: () -> Unit, onExport: () -> Unit,
+    onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
+) {
     var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -110,7 +112,8 @@ import kotlin.math.roundToInt
         }
     }
     // Both workspace dialogs share one host: the picker and the divider's options, never together.
-    picker?.let { purpose -> WorkspacePickerPanel(purpose, state, model, onDismiss = { picker = null }) }
+    picker?.let { purpose -> WorkspacePickerPanel(purpose, state, model,
+        onDismiss = { picker = null }, onBrowseLibrary = onBrowseLibrary) }
     if (paneOptions) SplitOptionsPanel(state, model, onDismiss = { paneOptions = false })
 
 }

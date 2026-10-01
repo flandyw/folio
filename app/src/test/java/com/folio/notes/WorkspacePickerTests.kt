@@ -84,6 +84,16 @@ class WorkspacePickerTests {
         assertTrue(WorkspacePicker.sideHint(false).startsWith("The reference pane is on the right"))
     }
 
+    @Test fun libraryPickingExplainsThePendingActionWithoutLosingTheChosenMode() {
+        assertEquals("Choose a notebook for reference view", WorkspacePicker.libraryCaption(PickerPurpose.COMPANION, CompanionMode.REFERENCE))
+        assertEquals("Choose a notebook for split view", WorkspacePicker.libraryCaption(PickerPurpose.COMPANION, CompanionMode.SPLIT))
+        for (purpose in listOf(PickerPurpose.OPEN, PickerPurpose.TABS)) {
+            for (mode in CompanionMode.entries) {
+                assertEquals("Choose a notebook to open", WorkspacePicker.libraryCaption(purpose, mode))
+            }
+        }
+    }
+
     @Test fun everyPurposeHasItsOwnTitleCaptionAndModeHint() {
         assertEquals("Open beside the editor", WorkspacePicker.title(PickerPurpose.COMPANION))
         assertEquals("Open a document", WorkspacePicker.title(PickerPurpose.OPEN))

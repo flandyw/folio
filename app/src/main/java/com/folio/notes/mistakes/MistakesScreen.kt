@@ -94,7 +94,9 @@ internal fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): Str
 @Composable
 fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: FolioState,
     finger: Boolean, haptics: Boolean, shapes: Boolean, onBack: () -> Unit,
-    onSettings: () -> Unit, onExport: () -> Unit) {
+    onSettings: () -> Unit, onExport: () -> Unit,
+    onReviewMode: (Boolean) -> Unit = {},
+) {
     val state by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -336,6 +338,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         ReviewFrame(active, card, state.cache.contexts[card.attemptId], folioState) else null
     SideEffect { if (currentFrame != null) previousFrame = currentFrame }
     val reviewFrame = currentFrame ?: previousFrame?.takeIf { activeReview != null && (working || (active != null && card != null)) }
+    LaunchedEffect(reviewFrame != null) { onReviewMode(reviewFrame != null) }
+    DisposableEffect(Unit) { onDispose { onReviewMode(false) } }
     if (reviewFrame != null) {
         val active = reviewFrame.attempt
         val card = reviewFrame.card

@@ -100,6 +100,13 @@ object WorkspacePicker {
         CompanionMode.REFERENCE -> "The other pane is read only, with its own zoom, search and page controls."
     }
 
+    /** The Library remains a picker until a notebook is tapped or the user cancels. */
+    fun libraryCaption(purpose: PickerPurpose, mode: CompanionMode): String = when {
+        purpose != PickerPurpose.COMPANION -> "Choose a notebook to open"
+        mode == CompanionMode.REFERENCE -> "Choose a notebook for reference view"
+        else -> "Choose a notebook for split view"
+    }
+
     /** The title the panel carries for each purpose. */
     fun title(purpose: PickerPurpose): String = when (purpose) {
         PickerPurpose.COMPANION -> "Open beside the editor"

@@ -89,17 +89,19 @@ internal val EditorFloatingGroupHeight = 56.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane, including the narrower mistake-review split.
         // Only the tool tray scrolls; Back and overflow always remain on screen.
-        val compact = maxWidth < 840.dp
+        // Hide the title first, then move timing controls into the notebook menu.
+        val collapsedTitle = maxWidth < 840.dp
+        val compact = maxWidth < 680.dp
         val sideWidth = ((maxWidth - 480.dp) / 2).coerceAtLeast(0.dp)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Row(if (compact) Modifier else Modifier.width(sideWidth),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            Row(if (collapsedTitle) Modifier else Modifier.width(sideWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                 EditorGlassSurface(Modifier.width(48.dp)) {
                     IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") }
                 }
-                if (!compact) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
+                if (!collapsedTitle) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
                     Row(Modifier.clickable(role = Role.Button, onClickLabel = "Notebook actions") { overflow = true }
                         .padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
@@ -109,10 +111,13 @@ internal val EditorFloatingGroupHeight = 56.dp
                 }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-            Row(if (compact) Modifier else Modifier.width(sideWidth),
+            Row(if (collapsedTitle) Modifier else Modifier.width(sideWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.End)) {
-                if (!compact) Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.End)) {
+                if (!compact) Box(
+                    if (collapsedTitle) Modifier.widthIn(max = sideWidth) else Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
                     EditorGlassSurface {
                         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp6),
                             verticalAlignment = Alignment.CenterVertically) { timer() }
@@ -239,4 +244,3 @@ internal val EditorFloatingGroupHeight = 56.dp
         }
     )
 }
-

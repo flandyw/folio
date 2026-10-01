@@ -150,7 +150,7 @@ import androidx.compose.ui.unit.dp
                 )
             }
             LazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = 280.dp),
+                Modifier.fillMaxWidth().heightIn(max = 328.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
             ) {
                 items(note.pages.indices.toList(), key = { note.pages[it].id }) { index ->

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,7 +41,15 @@ fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = la
 /** Top-level destinations in the Library sidebar: notebooks or score progress. */
 enum class LibrarySection { LIBRARY, PROGRESS }
 
-@Composable fun LibraryScreen(state: FolioState, model: FolioViewModel, onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit, onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {}) {
+@Composable fun LibraryScreen(
+    state: FolioState, model: FolioViewModel,
+    onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit,
+    onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {},
+    showMistakes: Boolean = false, onLibrary: () -> Unit = {},
+    onOpenNotebook: (String) -> Unit = model::open,
+    selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
+    mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
@@ -64,6 +73,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     LaunchedEffect(listView) { libraryPrefs.edit().putBoolean(AppPrefs.LIB_LIST, listView).apply() }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(LibrarySection.LIBRARY) }
+    val libraryGridState = rememberLazyGridState()
+    val progressScrollState = rememberScrollState()
+    var reviewMode by remember { mutableStateOf(false) }
+    val destinationState = rememberSaveableStateHolder()
+    val showNavigation = !showMistakes || !reviewMode
+    val pickingNotebook = selectionCaption != null
     var sortMenu by remember { mutableStateOf(false) }
     var sidebarImportMenu by remember { mutableStateOf(false) }
     var newButtonMenu by remember { mutableStateOf(false) }
@@ -103,16 +118,17 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     }
     val filtersActive = kind != LibraryKind.ALL || unfiled || examFilter.isActive
     val folderName = state.folders.find { it.id == state.folderId }?.name
-    BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
+    // Never put the library's palm guard above the native handwriting surface.
+    BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                if (wide) NavigationRail(
+                if (wide && showNavigation) NavigationRail(
                     // Material 3.5's rail only enforces a *minimum* width (80dp), so a full-width
                     // child — the divider between the destinations and Import/Settings — stretches
                     // the rail over the whole screen and squeezes the shelf to nothing. Pin it to
                     // the rail's own width so the grid always keeps the rest of the screen.
-                    modifier = Modifier.width(80.dp),
+                    modifier = Modifier.width(80.dp).guardUiTouches(),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     header = {
                         // MDC's rail puts the logo and primary action in its header; the hold opens
@@ -135,10 +151,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         }
                     }
                 ) {
-                    RailItem("Library", Icons.Rounded.GridView, section == LibrarySection.LIBRARY && !starred && state.folderId == null) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) }
-                    RailItem("Mistakes", Icons.Rounded.School, false) { onMistakes() }
-                    RailItem("Progress", Icons.Rounded.Insights, section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS }
-                    RailItem("Favorites", Icons.Rounded.StarOutline, section == LibrarySection.LIBRARY && starred) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null) }
+                    RailItem("Library", Icons.Rounded.GridView, !showMistakes && section == LibrarySection.LIBRARY && !starred && state.folderId == null) { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() }
+                    if (!pickingNotebook) {
+                        RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
+                        RailItem("Progress", Icons.Rounded.Insights, !showMistakes && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
+                    }
+                    RailItem("Favorites", Icons.Rounded.StarOutline, !showMistakes && section == LibrarySection.LIBRARY && starred) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null); onLibrary() }
                     // Folders live in the shelf's filter row, as they already did on narrow screens:
                     // a rail is icon-only, so folder names have no room here.
                     Spacer(Modifier.height(FolioSpacing.dp4))
@@ -153,10 +171,24 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
-                if (section == LibrarySection.LIBRARY) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
+                if (showMistakes) Box(Modifier.weight(1f).fillMaxHeight()) {
+                    destinationState.SaveableStateProvider("mistakes") {
+                        mistakesContent { reviewMode = it }
+                    }
+                }
+                if (!showMistakes && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
+                    state = libraryGridState,
                     contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            if (selectionCaption != null) Surface(
+                                shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(selectionCaption, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                    TextButton(onCancelSelection, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                                }
+                            }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 if (!wide) Brand() else Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                                 if (!wide) Spacer(Modifier.weight(1f))
@@ -239,7 +271,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                     leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
                                     trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-                                TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
+                                if (!pickingNotebook) TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
                                     modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
                                     shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                             }
@@ -332,8 +364,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         }
                     }
                     items(notes, key = { it.id }) { note ->
-                        val open = { if (selecting) toggleSelection(note.id) else model.open(note.id) }
-                        val longPress = { enterSelecting(note.id) }
+                        val open = { if (pickingNotebook || !selecting) onOpenNotebook(note.id) else toggleSelection(note.id) }
+                        val longPress = { if (!pickingNotebook) enterSelecting(note.id) }
                         val folder = state.folders.find { it.id == note.folderId }?.name
                         if (listView) Surface(
                             shape = FolioShapes.large,
@@ -366,7 +398,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                if (!showMistakes && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                         if (!wide) Spacer(Modifier.weight(1f))
@@ -381,12 +413,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
-        if (!wide) ShortNavigationBar {
-            ShortNavigationBarItem(section == LibrarySection.LIBRARY && !starred && state.folderId == null,
-                { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null) },
+        if (!wide && showNavigation && !pickingNotebook) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
+            ShortNavigationBarItem(!showMistakes && section == LibrarySection.LIBRARY && !starred && state.folderId == null,
+                { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() },
                 icon = { Icon(Icons.Rounded.GridView, "Library") }, label = { Text("Library") })
-            ShortNavigationBarItem(false, onMistakes, icon = { Icon(Icons.Rounded.School, "Mistakes") }, label = { Text("Mistakes") })
-            ShortNavigationBarItem(section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS },
+            ShortNavigationBarItem(showMistakes, onMistakes, icon = { Icon(Icons.Rounded.School, "Mistakes") }, label = { Text("Mistakes") })
+            ShortNavigationBarItem(!showMistakes && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
                 icon = { Icon(Icons.Rounded.Insights, "Progress") }, label = { Text("Progress") })
         }
         }

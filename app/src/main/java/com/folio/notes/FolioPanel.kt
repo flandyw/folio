@@ -37,12 +37,12 @@ import androidx.core.view.WindowInsetsControllerCompat
         }
         BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(FolioSpacing.dp16), contentAlignment = Alignment.Center) {
             // Folio is used in both orientations. A narrow, very tall panel is particularly
-            // awkward in landscape, so give it a wider, shorter canvas there. Portrait keeps
-            // the familiar 640dp width for easy reading, while both orientations stay within
-            // the available window and let the panel's content scroll when necessary.
+            // awkward in landscape, so give it a wider canvas there. The slightly taller
+            // limits use spare tablet space, while both orientations remain bounded by the
+            // safe window (and shrink above the keyboard). Short dialogs still wrap content.
             val landscape = maxWidth > maxHeight
             val panelWidth = minOf(if (landscape) 920.dp else 640.dp, maxWidth)
-            val panelMaxHeight = minOf(if (landscape) 600.dp else 720.dp, maxHeight)
+            val panelMaxHeight = minOf(if (landscape) 680.dp else 800.dp, maxHeight)
             Surface(
                 modifier = Modifier.folioEntrance().width(panelWidth).heightIn(max = panelMaxHeight),
                 shape = if (landscape) FolioShapes.panel else FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh

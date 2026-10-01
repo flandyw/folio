@@ -1115,7 +1115,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 468.dp), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (visiblePages.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1407,7 +1407,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             } else {
                 Text("${hits.size} ${if (hits.size == 1) "page matches" else "pages match"} — most matches first.",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 368.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     items(hits, key = { it.pageIndex }) { hit ->
                         Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
@@ -1492,7 +1492,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 368.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         items(search.results, key = { it.pageIndex }) { hit ->
                             Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
@@ -1523,7 +1523,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp).padding(bottom = FolioSpacing.dp16), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 428.dp).padding(bottom = FolioSpacing.dp16), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 itemsIndexed(outline) { _, entry ->
                     Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {

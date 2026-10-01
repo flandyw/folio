@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,7 +54,8 @@ import androidx.compose.ui.unit.dp
     purpose: PickerPurpose,
     state: FolioState,
     model: FolioViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf(state.companionMode) }
@@ -129,7 +129,7 @@ import androidx.compose.ui.unit.dp
                     FilledTonalButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
                 }
                 if (!state.loading && state.notes.isEmpty()) {
-                    FilledTonalButton({ onDismiss(); model.close() }, shapes = ButtonDefaults.shapes()) {
+                    FilledTonalButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text("Browse library")
@@ -138,7 +138,7 @@ import androidx.compose.ui.unit.dp
             }
         } else {
             LazyColumn(
-                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 420.dp),
+                Modifier.fillMaxWidth().weight(1f, fill = false),
                 contentPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
             ) {
@@ -208,7 +208,7 @@ import androidx.compose.ui.unit.dp
             Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, top = FolioSpacing.dp8, bottom = FolioSpacing.dp16),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton({ keyboard?.hide(); onDismiss(); model.close() }, shapes = ButtonDefaults.shapes()) {
+            OutlinedButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text("Browse library")

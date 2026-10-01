@@ -45,6 +45,9 @@ import java.io.File
     val state by model.state.collectAsStateWithLifecycle()
     val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var showMistakes by rememberSaveable { mutableStateOf(false) }
+    // Keep the editor open while the Library temporarily chooses another workspace document.
+    var workspaceLibraryPurpose by rememberSaveable { mutableStateOf<PickerPurpose?>(null) }
+    var workspaceLibraryMode by rememberSaveable { mutableStateOf(CompanionMode.SPLIT) }
     var focalAccountOpen by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner, mistakes) {
@@ -410,20 +413,25 @@ import java.io.File
     }
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
-    BackHandler(state.active != null && !exportBusy && !showMistakes) { model.close() }
+    LaunchedEffect(state.loading, state.activeId) {
+        if (!state.loading && state.activeId == null) workspaceLibraryPurpose = null
+    }
+    BackHandler(state.active != null && !exportBusy && !showMistakes && workspaceLibraryPurpose == null) { model.close() }
+    BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled) {
-        // Mistakes has its own top app bar and floating destinations. Let that screen own its
-        // insets so the app scaffold does not leave an opaque strip beneath its content.
-        val mistakesOwnsInsets = showMistakes && !state.loading && !state.loadFailed
+        // The shared library/mistakes shell owns safe edges; nested app bars consume them.
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
-            contentWindowInsets = if (mistakesOwnsInsets) WindowInsets(0, 0, 0, 0) else WindowInsets.safeDrawing,
+            contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
+            Box(Modifier.fillMaxSize().padding(padding).then(
+                if (showMistakes || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
+            )) {
                 val screen = when {
                     state.loading -> "loading"
                     state.loadFailed -> "failed"
                     showMistakes -> "mistakes"
+                    workspaceLibraryPurpose != null -> "workspace-library"
                     state.active != null -> "editor"
                     else -> "library"
                 }
@@ -436,10 +444,38 @@ import java.io.File
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        showMistakes -> com.folio.notes.mistakes.MistakesScreen(mistakes, model, state, finger, haptics, shapeRecognition,
-                            onBack = { showMistakes = false }, onSettings = { settings = true }, onExport = { exportMenu = true })
-                        state.active != null -> WorkspaceScreen(state, model, finger, haptics, shapeRecognition, onSettings = { settings = true }, onExport = { exportMenu = true })
-                        else -> LibraryScreen(state.copy(notes = state.notes.filterNot { it.mistakePractice }), model, onMistakes = { showMistakes = true }, onNew = { newNote = true }, onImport = { pdfPicker.launch(arrayOf("application/pdf")) }, onImportArchive = { archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }, onFolder = { folderDialog = true }, onSettings = { settings = true })
+                        state.active != null && !showMistakes && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                            state, model, finger, haptics, shapeRecognition,
+                            onSettings = { settings = true }, onExport = { exportMenu = true },
+                            onBrowseLibrary = { purpose, mode ->
+                                workspaceLibraryMode = mode
+                                workspaceLibraryPurpose = purpose
+                                showMistakes = false
+                            },
+                        )
+                        else -> LibraryScreen(
+                            state.copy(notes = state.notes.filterNot { it.mistakePractice }), model,
+                            onMistakes = { workspaceLibraryPurpose = null; showMistakes = true },
+                            onNew = { workspaceLibraryPurpose = null; showMistakes = false; newNote = true },
+                            onImport = { workspaceLibraryPurpose = null; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
+                            onImportArchive = { workspaceLibraryPurpose = null; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
+                            onFolder = { folderDialog = true }, onSettings = { settings = true },
+                            showMistakes = showMistakes,
+                            onLibrary = { showMistakes = false; if (workspaceLibraryPurpose == null) model.close() },
+                            onOpenNotebook = { id ->
+                                if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)
+                                else model.open(id)
+                                workspaceLibraryPurpose = null
+                            },
+                            selectionCaption = workspaceLibraryPurpose?.let { WorkspacePicker.libraryCaption(it, workspaceLibraryMode) },
+                            onCancelSelection = { workspaceLibraryPurpose = null },
+                        ) { onReviewMode ->
+                            com.folio.notes.mistakes.MistakesScreen(
+                                mistakes, model, state, finger, haptics, shapeRecognition,
+                                onBack = { showMistakes = false }, onSettings = { settings = true },
+                                onExport = { exportMenu = true }, onReviewMode = onReviewMode,
+                            )
+                        }
                     }
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
@@ -483,7 +519,7 @@ import java.io.File
         }
         if (focalAccountOpen) FocalAccountPanel(
             onDismiss = { focalAccountOpen = false },
-            onMistakes = { focalAccountOpen = false; settings = false; showMistakes = true },
+            onMistakes = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = true },
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -698,7 +734,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
         onDismissRequest = onDismiss,
         title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
         text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Column(Modifier.heightIn(max = 528.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Text("Review the detected exam details. You can change anything before importing.")
                 reviewed.forEachIndexed { index, item ->
                     val tags = item.exam
