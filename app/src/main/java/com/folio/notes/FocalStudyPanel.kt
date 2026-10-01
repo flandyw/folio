@@ -136,7 +136,11 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Icon(Icons.Rounded.School, null)
                     Column(Modifier.weight(1f)) {
-                        Text("$today min studied today", style = MaterialTheme.typography.titleMedium)
+                        val minutes = today % 60
+                        val hours = today / 60
+                        val duration = if (hours == 0L) "$today ${if (today == 1L) "minute" else "minutes"}"
+                            else "$hours ${if (hours == 1L) "hour" else "hours"} $minutes ${if (minutes == 1L) "minute" else "minutes"}"
+                        Text("$duration studied today", style = MaterialTheme.typography.titleMedium)
                         Text("Active time from study sessions only — pauses are excluded.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
