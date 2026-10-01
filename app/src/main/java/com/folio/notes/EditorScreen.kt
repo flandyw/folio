@@ -392,8 +392,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex, initialFirstVisibleItemScrollOffset = session?.viewport?.scrollOffset ?: 0)
     var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
     LaunchedEffect(note.id, pages) {
-        snapshotFlow { WorkspaceViewport(documentZoom, documentPan, pages.firstVisibleItemScrollOffset,
-            savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom) to tool }
+        snapshotFlow {
+            val current = visibleCurrentPage(pages, note.pages.size)
+            // Tab restoration starts at the current page, which may no longer be the first
+            // visible one. Keep its actual position rather than the previous page's offset.
+            val offset = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index == current }?.let { -it.offset }
+                ?: pages.firstVisibleItemScrollOffset
+            WorkspaceViewport(documentZoom, documentPan, offset,
+                savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom) to tool
+        }
             .distinctUntilChanged()
             .debounce(250)
             .collect { (viewport, selectedTool) ->
@@ -526,9 +533,10 @@ private fun paperLabel(p: Paper): String = when (p) {
             try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() }
         } else emptyList()
     }
-    LaunchedEffect(note.id, page.infinite) {
+    LaunchedEffect(note.id, page.infinite, note.pages.size) {
         if (page.infinite) return@LaunchedEffect
-        snapshotFlow { pages.firstVisibleItemIndex }.distinctUntilChanged().collect { model.selectPage(it) }
+        snapshotFlow { visibleCurrentPage(pages, note.pages.size) }
+            .distinctUntilChanged().collect { index -> index?.let(model::selectPage) }
     }
     // The pages beside the open one are read before they are scrolled to, so previous/next and
     // the fast-scroll thumb land on ink instead of a spinner. Loading is deduplicated in the
@@ -1590,6 +1598,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
 }
 
+/** One visibility rule for active-page actions (including sharing) and the scroll label. */
+private fun visibleCurrentPage(pages: LazyListState, pageCount: Int): Int? {
+    val info = pages.layoutInfo
+    return DocumentViewport.currentPage(
+        info.visibleItemsInfo.map { DocumentViewport.VisiblePage(it.index, it.offset, it.size) },
+        info.viewportStartOffset, info.viewportEndOffset, pageCount
+    )
+}
+
 private const val FastScrollChipHoldMs = 900L
 
 private data class FastScrollGeometry(val top: Float, val height: Float)
@@ -1644,7 +1661,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-            val current = DocumentViewport.displayedPage(pages.firstVisibleItemIndex, pages.canScrollForward, pageCount)
+            val current = visibleCurrentPage(pages, pageCount) ?: pages.firstVisibleItemIndex.coerceIn(0, pageCount - 1)
             Text("${current + 1} / $pageCount",
                 Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)

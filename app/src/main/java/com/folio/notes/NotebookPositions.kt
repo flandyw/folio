@@ -40,7 +40,7 @@ object NotebookPositionCodec {
             viewport = WorkspaceViewport(
                 finite("zoom", 1f).coerceIn(.1f, 8f),
                 finite("pan", 0f),
-                item.optInt("scroll").coerceAtLeast(0),
+                item.optInt("scroll"), // Negative when the current page starts below the viewport top.
                 finite("x", 0f),
                 finite("y", 0f),
                 finite("scale", 1f).coerceIn(.1f, 8f)

@@ -41,6 +41,30 @@ object DocumentViewport {
     fun displayedPage(firstIndex: Int, canScrollForward: Boolean, pageCount: Int): Int =
         if (pageCount <= 0) 0 else if (!canScrollForward) pageCount - 1 else firstIndex.coerceIn(0, pageCount - 1)
 
+    data class VisiblePage(val index: Int, val offset: Int, val size: Int)
+
+    /**
+     * Current means the page occupying the most viewport space, not the first sliver at the
+     * top. Compare absolute overlap (not percentage of each page), so short PDF pages don't
+     * beat a much larger visible page. Equal overlaps favour the page nearest the centre.
+     * Non-page items, such as the trailing Add button, never become current.
+     */
+    fun currentPage(visible: List<VisiblePage>, viewportStart: Int, viewportEnd: Int,
+                    pageCount: Int): Int? {
+        if (viewportEnd <= viewportStart || pageCount <= 0) return null
+        val centre = (viewportStart.toDouble() + viewportEnd) / 2
+        return visible.asSequence().filter { it.index in 0 until pageCount && it.size > 0 }
+            .map { page ->
+                val start = maxOf(page.offset, viewportStart).toDouble()
+                val end = minOf(page.offset.toLong() + page.size, viewportEnd.toLong()).toDouble()
+                Triple(page.index, end - start, abs((start + end) / 2 - centre))
+            }
+            .filter { it.second > 0 }
+            .sortedWith(compareByDescending<Triple<Int, Double, Double>> { it.second }
+                .thenBy { it.third }.thenBy { it.first })
+            .firstOrNull()?.first
+    }
+
     /** The share of the track the thumb fills when [visible] of [pageCount] pages are on screen. */
     fun thumbFraction(visible: Int, pageCount: Int): Float =
         if (pageCount <= 0) 1f else (visible.toFloat() / pageCount).coerceIn(MIN_THUMB_SHARE, 1f)
