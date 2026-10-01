@@ -36,42 +36,39 @@ object InkColors {
     /** Every colour group that has its own row and presets. */
     val groups: List<String> = listOf(INK_GROUP, HIGHLIGHTER_GROUP)
 
-    /** Curated exam colours: black, two blues, teal, red, purple, orange, grey. */
-    val ExamColors: List<Int> = ToolOptions.ExamColors
-
-    /** Bright, translucent-friendly colours that read well through the highlighter's low opacity. */
-    val highlighterPalette = ColorPalette("Highlighter", listOf(
-        ink(0xFFE9BF44), ink(0xFF8FD18F), ink(0xFFE879A0), ink(0xFF7FB3E8), ink(0xFFF0A860), ink(0xFFB79CE0), ink(0xFF9FE0D8)
-    ))
-
-    /** Palettes offered in the editor, the exam-relevant ones first. */
-    val palettes: List<ColorPalette> = listOf(
-        ColorPalette("Exam", ExamColors),
-        highlighterPalette,
-        ColorPalette("Classic", listOf(ink(0xFF202124), ink(0xFFD93025), ink(0xFF1A73E8), ink(0xFF188038), ink(0xFFF9AB00), ink(0xFF9334E6), ink(0xFFE8710A))),
-        ColorPalette("Pastel", listOf(ink(0xFFE8A0A0), ink(0xFFA8C6E8), ink(0xFFA8D5BA), ink(0xFFE8D5A0), ink(0xFFC9A8E8), ink(0xFFA0D5D5), ink(0xFFD8C3A5))),
-        ColorPalette("Vivid", listOf(ink(0xFFFF3B30), ink(0xFF007AFF), ink(0xFF34C759), ink(0xFFFFCC00), ink(0xFFFF9500), ink(0xFFAF52DE), ink(0xFFFF2D55))),
-        ColorPalette("Cool", listOf(ink(0xFF0B3C5D), ink(0xFF1A73E8), ink(0xFF00A6A6), ink(0xFF2E8B57), ink(0xFF6A5ACD), ink(0xFF4682B4), ink(0xFF3A3A3A))),
-        ColorPalette("Warm", listOf(ink(0xFF8B2E2E), ink(0xFFC0392B), ink(0xFFD2691E), ink(0xFFE67E22), ink(0xFFB8860B), ink(0xFF8B4513), ink(0xFF3A3A3A))),
-        ColorPalette("Iroshizuku", listOf(ink(0xFFE12E2C), ink(0xFF00A0DF), ink(0xFF007E4F), ink(0xFF94BD4E), ink(0xFFEF881F), ink(0xFF1E1D1E), ink(0xFF660D5B))),
-        ColorPalette("Graphite", listOf(ink(0xFF1A1C1A), ink(0xFF3A3A3A), ink(0xFF6E6E6E), ink(0xFF9E9E9E), ink(0xFFC7C7C7), ink(0xFFFFFFFF), ink(0xFF000000)))
+    /**
+     * Restrained, opaque writing inks. Each clears 4.5:1 contrast on white and warm paper
+     * (#FFF8E7), keeping fine handwriting legible without neon or washed-out pastels.
+     * The first five balance everyday writing, colour coding and corrections.
+     */
+    val namedSwatches: List<Pair<String, Int>> = listOf(
+        "Graphite" to ink(0xFF252A30),
+        "Blue ink" to ink(0xFF2854A0),
+        "Deep teal" to ink(0xFF176B68),
+        "Crimson" to ink(0xFFA83246),
+        "Aubergine" to ink(0xFF704080),
+        "Midnight navy" to ink(0xFF203858),
+        "Forest green" to ink(0xFF356344),
+        "Burnt sienna" to ink(0xFFA04B2D),
+        "Indigo" to ink(0xFF514B91),
+        "Slate" to ink(0xFF596573)
     )
 
-    /** Applied to a new ink row when the user has not chosen a palette yet. */
-    val defaultPalette: ColorPalette = palettes.first()
+    val swatches: List<Int> = namedSwatches.map { it.second }
+    val defaultPalette = ColorPalette("Writing inks", swatches)
+    val palettes: List<ColorPalette> = listOf(defaultPalette)
+    val defaultQuick: List<Int> = quickRow(swatches)
 
-    /** The quick row shown to a new user: the first five exam colours. */
-    val defaultQuick: List<Int> = quickRow(ExamColors)
-
-    /** Everything the editor offers in its colour grid, deduplicated. */
-    val swatches: List<Int> = (palettes.flatMap { it.colors } +
-        listOf(ink(0xFFA64B30), ink(0xFF48674B), ink(0xFF426EAD), ink(0xFF8B60A3), ink(0xFF26A6A1))).distinct()
+    /** Retired built-in rows are replaced; hand-edited rows and saved presets are retained. */
+    fun restoredQuick(group: String, colors: List<Int>?, palette: String?): List<Int> =
+        if (!palette.isNullOrEmpty() && palettes.none { it.name == palette }) defaultQuick(group)
+        else colors?.let { quickRow(it, defaultQuick(group)) } ?: defaultQuick(group)
 
     /** The colour group a tool writes with: the highlighter stands apart from the ink tools. */
     fun groupOf(tool: Tool): String = if (tool == Tool.HIGHLIGHTER) HIGHLIGHTER_GROUP else INK_GROUP
 
     /** The palette a fresh option row for [group] starts from. */
-    fun paletteFor(group: String): ColorPalette = if (group == HIGHLIGHTER_GROUP) highlighterPalette else defaultPalette
+    fun paletteFor(group: String): ColorPalette = defaultPalette
 
     /** The row of exactly [SLOT_COUNT] colours a fresh [group] starts from. */
     fun defaultQuick(group: String): List<Int> {
@@ -80,11 +77,11 @@ object InkColors {
     }
 
     /**
-     * The row of exactly [SLOT_COUNT] colours, padded from [fallback] (by default the exam colours)
+     * The row of exactly [SLOT_COUNT] colours, padded from [fallback] (by default the writing inks)
      * when [colors] is short, so the toolbar always renders the same number of swatches.
      */
-    fun quickRow(colors: List<Int>, fallback: List<Int> = ExamColors): List<Int> {
-        val base = fallback.take(SLOT_COUNT).ifEmpty { ExamColors.take(SLOT_COUNT) }
+    fun quickRow(colors: List<Int>, fallback: List<Int> = swatches): List<Int> {
+        val base = fallback.take(SLOT_COUNT).ifEmpty { swatches.take(SLOT_COUNT) }
         return (0 until SLOT_COUNT).map { index -> colors.getOrNull(index) ?: base.getOrElse(index) { base.last() } }
     }
 
@@ -161,10 +158,11 @@ class QuickColorsState(private val prefs: SharedPreferences) {
             val legacyRow = if (group == InkColors.INK_GROUP) prefs.getString(KEY_COLORS, null) else null
             val legacyPresets = if (group == InkColors.INK_GROUP) prefs.getString(KEY_PRESETS, null) else null
             val legacyPalette = if (group == InkColors.INK_GROUP) prefs.getString(KEY_PALETTE, null) else null
-            rows[group] = (InkColors.decodeColors(prefs.getString(key(group, KEY_COLORS), legacyRow)))?.let { InkColors.quickRow(it, InkColors.defaultQuick(group)) }
-                ?: InkColors.defaultQuick(group)
+            val storedPalette = prefs.getString(key(group, KEY_PALETTE), legacyPalette)
+            rows[group] = InkColors.restoredQuick(group, InkColors.decodeColors(prefs.getString(key(group, KEY_COLORS), legacyRow)), storedPalette)
             saved[group] = InkColors.decodePresets(prefs.getString(key(group, KEY_PRESETS), legacyPresets))
-            chosen[group] = prefs.getString(key(group, KEY_PALETTE), legacyPalette) ?: InkColors.paletteFor(group).name
+            chosen[group] = storedPalette?.takeIf { it.isEmpty() || InkColors.palettes.any { palette -> palette.name == it } }
+                ?: InkColors.paletteFor(group).name
         }
     }
 

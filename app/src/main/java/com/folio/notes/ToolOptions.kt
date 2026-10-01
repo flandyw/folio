@@ -37,11 +37,9 @@ data class ToolOptions(
     companion object {
         /** Finer defaults for math: thin pen, tiny ruler-straight line, compact eraser. */
         fun defaults(tool: Tool) = ToolOptions(
-            if (tool == Tool.HIGHLIGHTER) 0xFFE9BF44.toInt() else 0xFF303431.toInt(),
+            if (tool == Tool.HIGHLIGHTER) InkColors.swatches[2] else InkColors.swatches.first(),
             when (tool) { Tool.HIGHLIGHTER -> 18f; Tool.ERASER -> 26f; in ShapePickerTools -> 2f; else -> 2.2f },
             if (tool == Tool.HIGHLIGHTER) 72f / 255f else 1f, true)
-        /** Curated exam colours: black, two blues, red, green, orange — covers most annotations. */
-        val ExamColors: List<Int> = listOf(0xFF1A1C1A, 0xFF2E5AAC, 0xFF1B7A6E, 0xFFC0392B, 0xFF7A3BA6, 0xFFE67E22, 0xFF3A3A3A).map { it.toInt() }
         fun load(prefs: SharedPreferences, tool: Tool): ToolOptions {
             val d = defaults(tool)
             return ToolOptions(prefs.getInt("${tool.name}.color", d.color), prefs.getFloat("${tool.name}.width", d.width),
@@ -303,8 +301,8 @@ object EditorQuickPrefs {
 }
 
 /**
- * The colour controls in the tool sheet: the editable quick row, the built-in palettes, a wide
- * colour grid and the user's saved presets. [quick] is the same state the toolbar swatches render.
+ * The colour controls in the tool sheet: the editable quick row, curated writing inks,
+ * custom hex colours and the user's saved presets. [quick] is the same state the toolbar swatches render.
  * [group] keeps the highlighter's row and presets apart from the ink tools'.
  */
 @Composable private fun InkColorsSection(options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, group: String) {
@@ -346,21 +344,13 @@ object EditorQuickPrefs {
         }
         if (editing) Text("Tap a colour below to store it in slot ${slot + 1}, or tap another slot above to change which one you are editing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-        Text("Palettes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            InkColors.palettes.forEach { palette ->
-                FilterChip(
-                    selected = quick.palette(group) == palette.name,
-                    onClick = { quick.applyPalette(group, palette); load(quick.colors(group)) },
-                    label = { Text(palette.name) }
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (editing) "Writing ink for slot ${slot + 1}" else "Writing inks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            TextButton({ quick.applyPalette(group, InkColors.defaultPalette); load(quick.colors(group)) }, shapes = ButtonDefaults.shapes()) { Text("Reset quick colours") }
         }
-
-        Text(if (editing) "Colour for slot ${slot + 1}" else "More colours", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            InkColors.swatches.forEach { color ->
-                InkColorDot(color, options.color == color, { pick(color) }, touch = 38.dp, dot = 24.dp, label = "Colour")
+            InkColors.namedSwatches.forEach { (name, color) ->
+                InkColorDot(color, options.color == color, { pick(color) }, touch = 38.dp, dot = 24.dp, label = "$name #${InkColors.hex(color)}")
             }
         }
 
