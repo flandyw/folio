@@ -594,7 +594,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     suspend fun createMistakePractice(user: String, mistake: com.folio.notes.mistakes.ExamTrackMistake, openWhenReady: Boolean = true): com.folio.notes.mistakes.LocalMistakeReviewAttempt {
         ready.await()
-        val page = NotePage(paper = Paper.MATH_GRID, infinite = true, title = mistake.question)
+        // Infinite canvas either way; the paper is just the printed guide behind it.
+        val paper = AppPrefs.mistakePaper(prefs.getString(AppPrefs.MISTAKE_PAPER, null))
+        val page = NotePage(paper = paper, infinite = true, title = mistake.question)
         val noteId = UUID.randomUUID().toString()
         val attempt = com.folio.notes.mistakes.LocalMistakeReviewAttempt(user, mistake.id, UUID.randomUUID().toString(), noteId, page.id)
         val note = Notebook(id = noteId, title = "${mistake.question} · Mistake practice", pages = listOf(page),

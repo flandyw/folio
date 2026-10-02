@@ -5,14 +5,25 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 
-val CoverColors = listOf(Color(0xFFE5AD91), Color(0xFFC6CEB8), Color(0xFFCFC5E1), Color(0xFFBCD2DD), Color(0xFFE8D59E), Color(0xFFD7B9BF))
+/** The covers Folio ships with. A notebook stores an index into this list plus any [coverColors]. */
+val BuiltInCoverColors = listOf(Color(0xFFE5AD91), Color(0xFFC6CEB8), Color(0xFFCFC5E1), Color(0xFFBCD2DD), Color(0xFFE8D59E), Color(0xFFD7B9BF))
+
+/**
+ * Every cover a notebook may use: the built-ins first, then the colours the user added.
+ * Keeping the user's colours at the end is what lets an older notebook keep its cover after
+ * someone adds or removes a colour.
+ */
+fun coverColors(custom: List<Color> = emptyList()): List<Color> = BuiltInCoverColors + custom
 
 /** Whether the app follows the system dark setting or forces light/dark. */
 enum class ThemeMode(val label: String, val description: String) {
@@ -237,6 +248,10 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
     mode: ThemeMode = ThemeMode.SYSTEM,
     palette: ThemePalette = ThemePalette.FOLIO,
     amoled: Boolean = false,
+    /** A colour the user picked; null keeps the palette's own accents. */
+    accent: Color? = null,
+    /** Extra multiplier on top of the system font size, for reading the app more comfortably. */
+    textScale: Float = 1f,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -245,14 +260,20 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
     val base = if (effective == ThemePalette.DYNAMIC && Build.VERSION.SDK_INT >= 31) {
         if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
     } else if (dark) darkSchemeFor(effective) else lightSchemeFor(effective)
-    val colors = if (AppTheme.isAmoledEffective(amoled, dark)) base.withAmoled() else base
-    MaterialExpressiveTheme(colorScheme = colors, shapes = FolioMaterialShapes, motionScheme = MotionScheme.expressive(), typography = Typography(
-        displaySmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 38.sp, lineHeight = 44.sp),
-        headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontSize = 32.sp, lineHeight = 39.sp),
-        headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontSize = 28.sp, lineHeight = 34.sp),
-        headlineSmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 24.sp, lineHeight = 32.sp),
-        titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
-        titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
-        labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
-    ), content = content)
+    // The accent wins over wallpaper colors: picking a colour of your own is a deliberate choice.
+    val tinted = AccentTones.tinted(base, accent)
+    val colors = if (AppTheme.isAmoledEffective(amoled, dark)) tinted.withAmoled() else tinted
+    val density = LocalDensity.current
+    val scale = textScale.takeIf { it.isFinite() && it > 0f } ?: 1f
+    CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * scale)) {
+        MaterialExpressiveTheme(colorScheme = colors, shapes = FolioMaterialShapes, motionScheme = MotionScheme.expressive(), typography = Typography(
+            displaySmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 38.sp, lineHeight = 44.sp),
+            headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontSize = 32.sp, lineHeight = 39.sp),
+            headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontSize = 28.sp, lineHeight = 34.sp),
+            headlineSmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 24.sp, lineHeight = 32.sp),
+            titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
+            titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
+            labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
+        ), content = content)
+    }
 }

@@ -2,9 +2,6 @@
 package com.folio.notes
 
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -88,7 +85,7 @@ import kotlin.math.roundToInt
             if (companion == null || note == null) Box(Modifier.weight(1f)) { editor() }
             else if (compact) Column(Modifier.weight(1f)) {
                 Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction)) { if (state.editorOnRight) secondary() else editor() }
-                SplitDivider(
+                SplitPaneHandle(
                     vertical = false,
                     onDrag = { dragFraction(it, totalHeightPx) },
                     onRelease = ::snapFraction,
@@ -99,7 +96,7 @@ import kotlin.math.roundToInt
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
             } else Row(Modifier.weight(1f)) {
                 Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction)) { if (state.editorOnRight) secondary() else editor() }
-                SplitDivider(
+                SplitPaneHandle(
                     vertical = true,
                     onDrag = { dragFraction(it, totalWidthPx) },
                     onRelease = ::snapFraction,
@@ -303,9 +300,10 @@ import kotlin.math.roundToInt
 /**
  * The draggable split between editor and companion. Drag resizes (settling on
  * 30/70, 50/50 or 70/30 on release), a tap swaps which pane holds the editor, double-tap
- * returns to 50/50, and long-press opens the pane options panel.
+ * returns to 50/50, and long-press opens the pane options panel. The handle itself is the
+ * shared [SplitDivider]; only the pane actions are workspace-specific.
  */
-@Composable private fun SplitDivider(
+@Composable private fun SplitPaneHandle(
     vertical: Boolean,
     onDrag: (Float) -> Unit,
     onRelease: () -> Unit,
@@ -313,22 +311,13 @@ import kotlin.math.roundToInt
     onFlip: () -> Unit,
     onOpenOptions: () -> Unit
 ) {
-    val drag = rememberDraggableState(onDrag)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = (if (vertical) Modifier.width(28.dp).fillMaxHeight() else Modifier.height(28.dp).fillMaxWidth())
-            .combinedClickable(
-                onClick = onFlip,
-                onDoubleClick = onDoubleTap,
-                onLongClick = onOpenOptions,
-                onLongClickLabel = "Pane options"
-            )
-            .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
-            .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, onDragStopped = { onRelease() })
-    ) {
-        Box(
-            Modifier.then(if (vertical) Modifier.width(4.dp).height(48.dp) else Modifier.height(4.dp).width(48.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
-        )
-    }
+    SplitDivider(
+        vertical = vertical,
+        onDrag = onDrag,
+        onRelease = onRelease,
+        onDoubleTap = onDoubleTap,
+        contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options.",
+        onClick = onFlip,
+        onLongClick = onOpenOptions,
+    )
 }

@@ -32,11 +32,19 @@ import com.folio.notes.*
     actionMessage: String? = null,
     onRate: (ReviewRating) -> Unit,
     onDelete: () -> Unit = {}) {
+    val androidContext = LocalContext.current
+    val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
-    var landscapeShare by rememberSaveable { mutableFloatStateOf(.36f) }
-    var portraitShare by rememberSaveable { mutableFloatStateOf(.30f) }
+    // The question/editor split is remembered across cards and sessions: a wide question needs
+    // more room than a one-line prompt, and re-tuning it per card is the thing to avoid.
+    var landscapeShare by rememberSaveable {
+        mutableFloatStateOf(MistakeSplit.coerce(preferences.getFloat(MistakeSplit.KEY_LANDSCAPE, MistakeSplit.DEFAULT_LANDSCAPE)))
+    }
+    var portraitShare by rememberSaveable {
+        mutableFloatStateOf(MistakeSplit.coerce(preferences.getFloat(MistakeSplit.KEY_PORTRAIT, MistakeSplit.DEFAULT_PORTRAIT)))
+    }
     var showPrevious by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var showDelete by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     // Earlier handwriting for the same question, newest first. The current page is excluded
@@ -44,8 +52,6 @@ import com.folio.notes.*
     val previousAttempts = remember(state.notes, attempt.userId, m.id, attempt.reviewId) {
         previousPracticeAttempts(state.notes, attempt.userId, m.id, attempt.reviewId)
     }
-    val androidContext = LocalContext.current
-    val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
     var textScale by remember { mutableFloatStateOf(preferences.getFloat("mistakeTextScale", 1f).coerceIn(.75f, 2f)) }
     var pendingAction by remember(attempt.reviewId, busy, revealed) { mutableStateOf<String?>(null) }
     var firstTapAt by remember(attempt.reviewId) { mutableLongStateOf(0L) }
@@ -181,6 +187,32 @@ import com.folio.notes.*
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val wide = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
             val referenceHeight = maxHeight * portraitShare
+            val splitWidth = maxWidth
+            val splitHeight = maxHeight
+            // Drag the handle to resize; a release settles on a comfortable share and the last
+            // position is remembered for the next card and the next session.
+            fun draggedShare(deltaPx: Float, totalPx: Float) {
+                val next = MistakeSplit.dragged(if (wide) landscapeShare else portraitShare, deltaPx, totalPx)
+                if (wide) landscapeShare = next else portraitShare = next
+            }
+            fun releaseShare() {
+                if (wide) {
+                    landscapeShare = MistakeSplit.snap(landscapeShare)
+                    preferences.edit().putFloat(MistakeSplit.KEY_LANDSCAPE, landscapeShare).apply()
+                } else {
+                    portraitShare = MistakeSplit.snap(portraitShare)
+                    preferences.edit().putFloat(MistakeSplit.KEY_PORTRAIT, portraitShare).apply()
+                }
+            }
+            fun resetShare() {
+                if (wide) {
+                    landscapeShare = MistakeSplit.DEFAULT_LANDSCAPE
+                    preferences.edit().putFloat(MistakeSplit.KEY_LANDSCAPE, landscapeShare).apply()
+                } else {
+                    portraitShare = MistakeSplit.DEFAULT_PORTRAIT
+                    preferences.edit().putFloat(MistakeSplit.KEY_PORTRAIT, portraitShare).apply()
+                }
+            }
             @Composable fun ReferencePane(modifier: Modifier) {
                 Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxSize()) {
@@ -196,8 +228,10 @@ import com.folio.notes.*
                                 text = {
                                     Column {
                                         Text("Question space · ${((if (wide) landscapeShare else portraitShare) * 100).toInt()}%")
-                                        Slider(value = if (wide) landscapeShare else portraitShare,
-                                            onValueChange = { if (wide) landscapeShare = it else portraitShare = it }, valueRange = .2f.. .55f)
+                                        Slider(value = MistakeSplit.coerce(if (wide) landscapeShare else portraitShare),
+                                            onValueChange = { if (wide) landscapeShare = it else portraitShare = it },
+                                            onValueChangeFinished = { releaseShare() },
+                                            valueRange = MistakeSplit.MIN..MistakeSplit.MAX)
                                         Text("Text size · ${(textScale * 100).toInt()}%")
                                         Slider(value = textScale, onValueChange = { textScale = it },
                                             onValueChangeFinished = { preferences.edit().putFloat("mistakeTextScale", textScale).apply() },
@@ -246,10 +280,27 @@ import com.folio.notes.*
             }
             if (wide) Row(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.weight(landscapeShare).fillMaxHeight())
-                VerticalDivider()
+                SplitDivider(
+                    vertical = true,
+                    onDrag = { draggedShare(it, splitWidth.value) },
+                    onRelease = ::releaseShare,
+                    onDoubleTap = ::resetShare,
+                    contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
+                )
                 Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
             } else Column(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
+                // A collapsed question panel is still a handle: any drag reopens and resizes it.
+                SplitDivider(
+                    vertical = false,
+                    onDrag = { delta ->
+                        if (!questionExpanded) questionExpanded = true
+                        draggedShare(delta, splitHeight.value)
+                    },
+                    onRelease = ::releaseShare,
+                    onDoubleTap = ::resetShare,
+                    contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
+                )
                 Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
             }
         }

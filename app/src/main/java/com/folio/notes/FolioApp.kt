@@ -86,6 +86,10 @@ import java.io.File
         )
     }
     var amoled by rememberSaveable { mutableStateOf(prefs.getBoolean(AppTheme.AMOLED_PREF_KEY, false)) }
+    // The accent and text scale live in preferences too, so they survive a restart and follow
+    // edits made in Settings without the theme re-reading storage itself.
+    val accentState = rememberAccentState()
+    var uiTextScale by remember { mutableFloatStateOf(AppPrefs.uiTextScale(prefs.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { prefs.contains(AppPrefs.UI_TEXT_SCALE) })) }
     var finger by rememberSaveable { mutableStateOf(prefs.getBoolean("finger", true)) }
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
@@ -114,6 +118,7 @@ import java.io.File
                 AppPrefs.FULLSCREEN -> fullscreen = prefs.getBoolean(key, AppPrefs.DEFAULT_FULLSCREEN)
                 AppPrefs.KEEP_SCREEN_ON -> keepScreenOn = prefs.getBoolean(key, AppPrefs.DEFAULT_KEEP_SCREEN_ON)
                 AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
+                AppPrefs.UI_TEXT_SCALE -> uiTextScale = AppPrefs.uiTextScale(prefs.getFloat(key, AppPrefs.DEFAULT_UI_TEXT_SCALE))
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -424,7 +429,7 @@ import java.io.File
     }
     BackHandler(state.active != null && !exportBusy && !showMistakes && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
-    FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled) {
+    FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale) {
         // The shared library/mistakes shell owns safe edges; nested app bars consume them.
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -656,6 +661,8 @@ import java.io.File
 @Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
     val context = LocalContext.current
     val dialogPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    // Colours the user added join the built-in covers here, so a new notebook can wear one.
+    val covers = coverColors(rememberCustomCoverColors())
     var title by rememberSaveable { mutableStateOf("") }
     var cover by rememberSaveable { mutableIntStateOf(AppPrefs.defaultCover(dialogPrefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { dialogPrefs.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
     var paper by rememberSaveable { mutableStateOf(AppPrefs.defaultPaper(dialogPrefs.getString(AppPrefs.DEFAULT_PAPER, null))) }
@@ -689,7 +696,7 @@ import java.io.File
             OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, placeholder = { Text("e.g. Calculus — exam practice") }, singleLine = true)
             Text("Cover color", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                CoverColors.forEachIndexed { index, color ->
+                covers.forEachIndexed { index, color ->
                     IconButton({ cover = index }, shapes = IconButtonDefaults.shapes()) {
                         Surface(Modifier.size(34.dp), shape = FolioShapes.medium, color = color, border = if (index == cover) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
                             if (index == cover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }

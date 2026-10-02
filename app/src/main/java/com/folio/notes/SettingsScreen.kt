@@ -26,11 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Palette
@@ -308,6 +310,9 @@ private fun SettingsDetails(
                                 }
                             }
                             PreferenceSwitch("Pure black dark", "Use true black backgrounds whenever the dark theme is active. Accents and ink colors stay the same.", amoled, onAmoled)
+                            AccentSection()
+                            HorizontalDivider()
+                            AppTextScaleSection()
                             PrefsSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
                         }
                         SettingsCategory.LIBRARY -> {
@@ -377,6 +382,7 @@ private fun SettingsDetails(
                             ScribbleSettingsSection(showPracticeInitially = false)
                         }
                         SettingsCategory.FOLLOW -> WritingFollowDefaultsSection()
+        SettingsCategory.MISTAKES -> MistakePracticeSection()
                         SettingsCategory.WORKFLOW -> WorkflowSection()
                         SettingsCategory.ACCOUNT -> {
                             SectionTitle("Focal")
@@ -403,12 +409,13 @@ private enum class SettingsCategory(
     val icon: ImageVector,
     val searchTerms: String,
 ) {
-    APPEARANCE("Appearance", "Theme, colors, pure black and fullscreen", Icons.Rounded.Palette, "theme dark light colour color amoled black fullscreen display"),
+    APPEARANCE("Appearance", "Theme, accent colour, text size, pure black and fullscreen", Icons.Rounded.Palette, "theme dark light colour color accent tint custom highlight picker app text size font bigger smaller amoled black fullscreen display"),
     WRITING("Writing & tools", "Finger drawing, shapes, default pen and text", Icons.Rounded.Edit, "finger palm drawing pen pencil shape tool text font size alignment"),
     STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures", Icons.Rounded.Gesture, "stylus pencil pen haptics vibration palm touch gestures undo redo shortcut"),
-    LIBRARY("Library & notebooks", "Shelf layout, sorting, paper, covers and backup", Icons.AutoMirrored.Rounded.MenuBook, "library notebook notebooks shelf sort filter cover paper backup restore save"),
+    LIBRARY("Library & notebooks", "Shelf layout, sorting, paper, covers and backup", Icons.AutoMirrored.Rounded.MenuBook, "library notebook notebooks shelf sort filter cover paper colour colour custom new backup restore save"),
     WORKFLOW("Timer & workspace", "Exam timer, screen, image export and split view", Icons.Rounded.Timer, "timer exam minutes idle screen export png image split view workspace"),
     FOLLOW("Writing follow", "Page movement, writing direction and line return", Icons.Rounded.AutoStories, "follow page move direction hand left right line return glide"),
+    MISTAKES("Mistake practice", "Paper for handwritten practice pages", Icons.Rounded.EditNote, "mistake practice question wrong revision review handwriting paper grid dots line unlimited infinite canvas"),
     ERASING("Erasing", "Pressure, whole strokes and scribble-to-erase", Icons.Rounded.CleaningServices, "erase eraser pressure stroke scribble clean"),
     ACCOUNT("Account & updates", "Focal account, sync and app updates", Icons.Rounded.AccountCircle, "account focal mistake study sessions sync sign in update github version");
 
@@ -458,6 +465,72 @@ private enum class SettingsCategory(
 
 @Composable private fun SectionTitle(text: String) {
     Text(text, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+}
+
+// ---- Accent & app text ------------------------------------------------------------------------
+
+/** One colour of your own, applied to every Folio palette by re-tinting its accents. */
+@Composable private fun AccentSection() {
+    val accent = rememberAccentState()
+    var picking by remember { mutableStateOf(false) }
+    val chosen = accent.accent
+    SectionTitle("Accent colour")
+    SectionHint("Tint the buttons, selections and highlights with a colour of your own. Ink colours on the page are separate and never change, and your accent replaces the wallpaper colours when both are on.")
+    if (chosen == null) {
+        SectionHint("Using the palette's own colours.")
+    } else {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            AccentPresets.forEach { preset ->
+                ColorSwatch(preset, AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) })
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        OutlinedButton({ picking = true }, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
+        if (accent.accent != null) {
+            TextButton(accent::clear, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
+        }
+    }
+    if (picking) {
+        // The live preview lives with the dialog, so dismissing it leaves the accent alone.
+        var preview by remember { mutableStateOf(accent.accent ?: AccentPresets.first()) }
+        Dialog(onDismissRequest = { picking = false }) {
+            Surface(shape = FolioShapes.panel, modifier = Modifier.fillMaxWidth().padding(FolioSpacing.dp24)) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    SectionTitle("Accent colour")
+                    ColorChooser(preview, "Accent", onPreview = { preview = it }, onConfirm = {
+                        accent.set(it)
+                        picking = false
+                    }, onClear = {
+                        accent.clear()
+                        picking = false
+                    })
+                    TextButton({ picking = false }, shapes = ButtonDefaults.shapes()) { Text("Close") }
+                }
+            }
+        }
+    }
+}
+
+/** Scales every sp-based label and heading, on top of the device's own font size. */
+@Composable private fun AppTextScaleSection() {
+    val p = prefs()
+    var scale by remember { mutableFloatStateOf(AppPrefs.uiTextScale(p.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { p.contains(AppPrefs.UI_TEXT_SCALE) })) }
+    DisposableEffect(p) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
+            if (k == AppPrefs.UI_TEXT_SCALE) scale = AppPrefs.uiTextScale(p.getFloat(k, AppPrefs.DEFAULT_UI_TEXT_SCALE))
+        }
+        p.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    SectionTitle("Text size")
+    SectionHint("Scales every label and heading in Folio. Handwriting width and typed text size are set separately and are unaffected.")
+    Text("App text: ${(scale * 100).roundToInt()}%", style = MaterialTheme.typography.titleSmall)
+    Slider(scale, {
+        scale = AppPrefs.uiTextScale(it)
+        p.edit().putFloat(AppPrefs.UI_TEXT_SCALE, scale).apply()
+    }, valueRange = AppPrefs.UI_TEXT_SCALE_MIN..AppPrefs.UI_TEXT_SCALE_MAX, steps = 10)
+    SectionHint("Multiplies your device's font size, so a larger system font still wins. 100% leaves things exactly as they are.")
 }
 
 @Composable private fun SectionHint(text: String) {
@@ -536,7 +609,7 @@ private enum class SettingsCategory(
     }
     Text("Default cover color", style = MaterialTheme.typography.titleSmall)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        CoverColors.forEachIndexed { index, color ->
+        BuiltInCoverColors.forEachIndexed { index, color ->
             IconButton({
                 defaultCover = index
                 p.edit().putInt(AppPrefs.DEFAULT_COVER, index).apply()
@@ -553,6 +626,53 @@ private enum class SettingsCategory(
         pageCover = it
         p.edit().putBoolean(AppPrefs.DEFAULT_PAGE_COVER, it).apply()
     })
+    CustomCoverSection()
+}
+
+// ---- Custom cover colours -----------------------------------------------------------------------
+
+/** Add, remove and preview the cover colours that sit after the built-in covers. */
+@Composable private fun CustomCoverSection() {
+    val custom = rememberCustomCoverColors()
+    val palette = rememberCoverPalette()
+    var picking by remember { mutableStateOf(false) }
+    HorizontalDivider()
+    SectionTitle("Your cover colours")
+    SectionHint("Colours you add join every notebook picker and the shelf. Existing notebooks keep the cover they were given.")
+    if (custom.isEmpty()) SectionHint("None yet.")
+    else {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            // A notebook stores a cover *index*, so only the newest colour can be removed
+            // without moving the colours that follow it onto other notebooks.
+            custom.forEachIndexed { index, color ->
+                val newest = index == custom.lastIndex
+                ColorSwatch(color, false, if (newest) "Remove cover colour ${AccentTones.hex(color)}" else "Cover colour ${AccentTones.hex(color)}",
+                    if (newest) ({ palette.remove(color) }) else ({ }))
+            }
+        }
+        SectionHint("Tap the newest colour to remove it. Removing from further down would change the covers of notebooks already using those colours.")
+    }
+    OutlinedButton({ picking = true }, enabled = custom.size < CoverPalette.MAX, shapes = ButtonDefaults.shapes()) {
+        Text(if (custom.size < CoverPalette.MAX) "Add a cover colour" else "Maximum ${CoverPalette.MAX} colours reached")
+    }
+    if (picking) {
+        var preview by remember { mutableStateOf(AccentPresets.first()) }
+        Dialog(onDismissRequest = { picking = false }) {
+            Surface(shape = FolioShapes.panel, modifier = Modifier.fillMaxWidth().padding(FolioSpacing.dp24)) {
+                Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    SectionTitle("New cover colour")
+                    ColorChooser(AccentPresets.first(), "Cover colour", onPreview = { preview = it }, onConfirm = {
+                        palette.add(it)
+                        picking = false
+                    })
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        TextButton({ picking = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                        Button({ palette.add(preview); picking = false }, shapes = ButtonDefaults.shapes()) { Text("Save colour") }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun paperLabel(paper: Paper): String = when (paper) {
@@ -701,6 +821,33 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         autoReturn = it
         p.edit().putBoolean("follow.autoReturn", it).apply()
     }, enabled = mode == FollowMode.TEXT)
+}
+
+// ---- Mistake practice ------------------------------------------------------------------------
+
+/** The printed guide a new mistake-practice page starts with; the canvas itself stays infinite. */
+@Composable private fun MistakePracticeSection() {
+    val p = prefs()
+    var paper by remember { mutableStateOf(AppPrefs.mistakePaper(p.getString(AppPrefs.MISTAKE_PAPER, null))) }
+    DisposableEffect(p) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
+            if (k == AppPrefs.MISTAKE_PAPER) paper = AppPrefs.mistakePaper(p.getString(k, null))
+        }
+        p.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    SectionTitle("Practice pages")
+    SectionHint("Every question you practise opens on its own infinite canvas. This picks the guide printed behind it.")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Paper.entries.forEach { item ->
+            FilterChip(paper == item, {
+                paper = item
+                p.edit().putString(AppPrefs.MISTAKE_PAPER, item.name).apply()
+            }, { Text(paperLabel(item)) })
+        }
+    }
+    SectionHint("Applies to the next question you practise; pages you have already written keep their own paper.")
+    SectionHint("The question sits beside your writing while you work. Drag the divider to give one more room than the other, or double-tap it for the default split; the last position is remembered.")
 }
 
 // ---- Workflow: timer, export, split ---------------------------------------------------

@@ -19,6 +19,8 @@ object AppPrefs {
     const val LIB_LIST = "library.listView"
     const val DEFAULT_TOOL = "editor.defaultTool"
     const val DEFAULT_PAPER = "notebook.defaultPaper"
+    /** Paper new mistake-practice pages start on; they are always infinite canvases. */
+    const val MISTAKE_PAPER = "mistake.paper"
     const val DEFAULT_COVER = "notebook.defaultCover"
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val PALM_MS = "input.palmMs"
@@ -32,6 +34,12 @@ object AppPrefs {
     /** Which side the editor sits on when a companion pane is open; remembered between sessions. */
     const val EDITOR_ON_RIGHT = "workspace.editorOnRight"
     const val TEXT_SIZE_KEY = "text.size"
+    /** The user's own accent colour as `#RRGGBB`; absent means the palette's own colours. */
+    const val ACCENT = "theme.accent"
+    /** Notebook cover colours the user added, stored after the built-in ones. */
+    const val CUSTOM_COVERS = "notebook.customCovers"
+    /** Multiplier on the app's sp text, independent of the system font size. */
+    const val UI_TEXT_SCALE = "display.textScale"
     const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
     const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
@@ -40,6 +48,7 @@ object AppPrefs {
     const val DEFAULT_KEEP_SCREEN_ON = false
     const val DEFAULT_AUTO_UPDATE = true
     const val DEFAULT_LIST_VIEW = false
+    val DEFAULT_MISTAKE_PAPER = Paper.MATH_GRID
     const val DEFAULT_PAGE_COVER_ENABLED = true
     const val DEFAULT_COVER_INDEX = 0
     const val DEFAULT_PALM_MS = 500L
@@ -63,6 +72,9 @@ object AppPrefs {
     const val DEFAULT_TEXT_SIZE = 26f
     const val TEXT_SIZE_MIN = 12f
     const val TEXT_SIZE_MAX = 72f
+    const val DEFAULT_UI_TEXT_SCALE = 1f
+    const val UI_TEXT_SCALE_MIN = 0.85f
+    const val UI_TEXT_SCALE_MAX = 1.4f
 
     fun defaultTool(raw: String?): Tool =
         runCatching { Tool.valueOf(raw ?: "") }.getOrDefault(Tool.PEN)
@@ -70,14 +82,19 @@ object AppPrefs {
     fun defaultPaper(raw: String?): Paper =
         runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(Paper.MATH_GRID)
 
+    /** Mistake practice pages are infinite canvases, so the paper only picks the printed guide. */
+    fun mistakePaper(raw: String?): Paper =
+        runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(DEFAULT_MISTAKE_PAPER)
+
     fun librarySort(raw: String?): LibrarySort =
         runCatching { LibrarySort.valueOf(raw ?: "") }.getOrDefault(LibrarySort.RECENT)
 
     fun libraryKind(raw: String?): LibraryKind =
         runCatching { LibraryKind.valueOf(raw ?: "") }.getOrDefault(LibraryKind.ALL)
 
+    /** The default cover always points into the built-in covers, never a removable custom one. */
     fun defaultCover(index: Int): Int =
-        if (CoverColors.isEmpty()) 0 else index.coerceIn(0, CoverColors.lastIndex)
+        if (BuiltInCoverColors.isEmpty()) 0 else index.coerceIn(0, BuiltInCoverColors.lastIndex)
 
     fun palmMs(value: Long?): Long =
         (value ?: DEFAULT_PALM_MS).coerceIn(PALM_MIN_MS, PALM_MAX_MS)
@@ -105,4 +122,8 @@ object AppPrefs {
     fun textSize(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_TEXT_SIZE
         else value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
+
+    fun uiTextScale(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_UI_TEXT_SCALE
+        else value.coerceIn(UI_TEXT_SCALE_MIN, UI_TEXT_SCALE_MAX)
 }

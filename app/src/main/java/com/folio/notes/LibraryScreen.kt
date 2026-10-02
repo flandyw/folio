@@ -691,7 +691,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 }
 
 @Composable fun NotebookCover(note: Notebook, modifier: Modifier = Modifier, compact: Boolean = false) {
-    val color = CoverColors[note.cover.mod(CoverColors.size)]
+    val covers = coverColors(rememberCustomCoverColors())
+    val color = covers[note.cover.mod(covers.size)]
     Box(modifier.clip(RoundedCornerShape(FolioShapes.smallRadius, FolioShapes.extraLargeRadius, FolioShapes.extraLargeRadius, FolioShapes.smallRadius)).background(color)) {
         Canvas(Modifier.fillMaxSize()) {
             drawRect(Color.Black.copy(alpha = .06f), size = size.copy(width = size.width * .065f))
