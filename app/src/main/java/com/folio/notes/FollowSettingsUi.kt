@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -32,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -57,7 +59,7 @@ fun FollowSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
             ) {
                 FollowSectionTitle("Choose how following feels")
-                Text("The page stays still while your pen is down. Choose a starting point, then adjust the feel.",
+                Text("Write naturally. The page moves after a pause, holds still for corrections, and learns your rhythm. Use Pause in the editor to keep the view still.",
                     style = MaterialTheme.typography.bodyMedium)
                 val presets = listOf("Relaxed" to 0f, "Balanced" to .5f, "Responsive" to 1f)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -76,10 +78,13 @@ fun FollowSettingsDialog(
                 FollowTimingPreview(preferences)
                 Text("Presets keep your hand, reading direction, writing position and automatic-return choice.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FollowToggle("Automatic line return", preferences.automaticReturn) {
+                FollowToggle("Automatic line return", preferences.automaticReturn, enabled = preferences.mode == FollowMode.TEXT) {
                     onPreferences(preferences.copy(automaticReturn = it))
                 }
-                Text("When off, tap Next line to return. Touch down to stop any glide.", style = MaterialTheme.typography.bodySmall)
+                Text(if (preferences.mode == FollowMode.TEXT)
+                    "Returns after writing across a line and pausing near the area's edge. Touch down to cancel. On an infinite canvas, select an answer area first."
+                    else "Maths moves down as your working grows. Tap Next line when you want a new row.",
+                    style = MaterialTheme.typography.bodySmall)
 
                 // 1 · What are you writing?
                 FollowSectionTitle("What are you writing?")
@@ -103,8 +108,7 @@ fun FollowSettingsDialog(
                         "Follow across a line, then use Next line or enable automatic return. " +
                             "Tall fractions and long underlines never trigger a return."
                     else
-                        "Example: a column of working slides straight down. Sideways drift is off, " +
-                            "so long equations and diagrams stay where you put them.",
+                        "Fractions, radicals and long equations reveal room below your working after a pause. The horizontal position stays fixed.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -112,7 +116,7 @@ fun FollowSettingsDialog(
                 HorizontalDivider()
 
                 // 2 · Reading direction + pen hand (kept together: both confuse users when split).
-                FollowSectionTitle("Reading direction")
+                FollowSectionTitle("Writing direction")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
@@ -178,7 +182,7 @@ fun FollowSettingsDialog(
                         FollowSliderRow(
                             label = "Writing column",
                             valueText = "${preferences.horizontalPercent}% across · ${FollowPreferences.horizontalLabel(preferences.horizontalPosition)}",
-                            hint = "Example: 50% centres each new line. Move left if your sleeve covers the start of lines.",
+                            hint = "Where the end of your writing lands after a sideways glide. Next line returns to the printed margin or where you began writing.",
                             value = preferences.horizontalPosition,
                             onValueChange = { onPreferences(preferences.copy(horizontalPosition = it)) },
                             valueRange = .35f..0.65f,
@@ -195,6 +199,15 @@ fun FollowSettingsDialog(
 
                     // 4 · Line spacing in mm with presets and a scaled example.
                     FollowSectionTitle("Blank-page line spacing")
+                    FollowToggle("Learn my line spacing", preferences.adaptiveSpacing, enabled = preferences.mode == FollowMode.TEXT) {
+                        onPreferences(preferences.copy(adaptiveSpacing = it))
+                    }
+                    Text(if (preferences.mode == FollowMode.MATH)
+                        "In Maths, Next line uses the spacing below where there are no printed lines."
+                        else if (preferences.adaptiveSpacing)
+                        "Starts with the spacing below, then learns from two confirmed line breaks. Printed lines always take priority."
+                        else "Next line uses the spacing below where there are no printed lines.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         FollowPreferences.spacingLabel(preferences.spacing),
                         style = MaterialTheme.typography.titleSmall,
@@ -249,7 +262,7 @@ fun FollowSettingsDialog(
                         FollowSliderRow(
                             label = "Pause before following",
                             valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                            hint = "Line return uses this delay. With adaptive timing, same-line follow waits at least 0.5 s and learns longer word gaps.",
+                            hint = "With rhythm learning, following and automatic return both wait at least 0.5 s and allow for your usual word gaps.",
                             value = preferences.returnDelayMs / 1000f,
                             onValueChange = {
                                 onPreferences(
@@ -421,10 +434,10 @@ private fun SpacingExample(spacing: Float) {
 }
 
 @Composable
-private fun FollowToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun FollowToggle(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, enabled = enabled, onCheckedChange = null)
     }
 }
 
@@ -444,7 +457,7 @@ private fun FollowTimingPreview(preferences: FollowPreferences) {
             drawRect(glideColor, topLeft = Offset(pause, 0f), size = androidx.compose.ui.geometry.Size(glide, size.height))
         }
         Text("Pause ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms" +
-            if (preferences.adaptiveTiming) ". Learning your rhythm may extend the pause within a line." else ". Fixed pause.",
+            if (preferences.adaptiveTiming) ". Your writing rhythm may extend the pause before following or returning." else ". Fixed pause.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

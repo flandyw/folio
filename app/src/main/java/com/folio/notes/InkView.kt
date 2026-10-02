@@ -204,7 +204,16 @@ class InkView(context: Context) : View(context) {
     var writingRegions: List<WritingLane> = emptyList()
     var onWritingRegions: (List<WritingLane>) -> Unit = {}
     var onWritingRegion: (WritingLane?) -> Unit = {}
-    var onFollowStatus: (String) -> Unit = {}
+    private var followMessage = "Write to start following"
+    var onFollowStatus: (WritingFollowStatus) -> Unit = {}
+        set(value) {
+            field = value
+            value(WritingFollowStatus(followMessage, followPaused || followManuallyPaused, followBack.entry != null))
+        }
+    private fun reportFollowStatus(message: String) {
+        followMessage = message
+        onFollowStatus(WritingFollowStatus(message, followPaused || followManuallyPaused, followBack.entry != null))
+    }
     var writingStrip = false
     private var stripInitialized = false
     private var stripInitialArea: WritingLane? = null
@@ -226,12 +235,14 @@ class InkView(context: Context) : View(context) {
     private var regionDraft: WritingLane? = null
     private var followLastPoint: InkPoint? = null
     private var followPaused = false
-    private var followLiftedAt = 0L
+    private var followManuallyPaused = false
+    val isWritingFollowManuallyPaused get() = followManuallyPaused
+    private var returnStartAt = 0L
     private var pendingReturn: WritingAdvance? = null
     private val followBack = FollowBackHistory()
     fun selectWritingRegion() {
         suspendWritingFollow(); selectingWritingRegion = true
-        onFollowStatus("Drag an answer area with your pen")
+        reportFollowStatus("Drag an answer area with your pen")
     }
     fun clearWritingRegion() {
         writingRegions = emptyList(); onWritingRegions(writingRegions)
@@ -250,7 +261,7 @@ class InkView(context: Context) : View(context) {
             dx * dx + dy * dy
         }
         onWritingRegion(writingRegion)
-        onFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
+        reportFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
     }
     private fun followRegion(): WritingLane {
         writingRegion?.let { return it }
@@ -261,26 +272,40 @@ class InkView(context: Context) : View(context) {
             while (true) { end = WritingGuides.next(end, writingGuides) ?: break }
             return WritingLane(guide.left, guide.y - 32f, guide.right, end.y)
         }
-        return WritingLane(36f, 0f, page.width - 36f, if (page.infinite) Float.MAX_VALUE else page.height - 24f)
+        if (page.infinite) {
+            // An unbounded canvas has no automatic line end. Manual returns still use the
+            // actual writing start, including handwriting to the left or above the origin.
+            val anchor = currentPeekAnchor()
+            val start = writingFollow.state.lineStartX ?: point?.x ?: anchor?.left ?: 0f
+            val left = if (followPreferences.direction == WritingDirection.LTR) start else start - page.width
+            return WritingLane(left, minOf(0f, point?.y ?: anchor?.top ?: 0f), left + page.width, Float.MAX_VALUE)
+        }
+        return WritingLane(36f, 0f, page.width - 36f, page.height - 24f)
     }
+    private fun nextFollowLine(baseline: Float, region: WritingLane): WritingAdvance? = FollowNavigation.next(
+        baseline, region, writingGuides, writingFollow.lineSpacing(followPreferences.spacing,
+            followPreferences.adaptiveSpacing && followPreferences.mode == FollowMode.TEXT),
+        writingFollow.state.lineStartX, followPreferences.direction)
+
     fun nextWritingLine() {
-        if (isWritingGesture || inputBlocked || readOnly) return
+        if (isWritingGesture || inputBlocked || readOnly || lineAdvance != null) return
         val region = followRegion()
-        val baseline = writingFollow.state.baselineY ?: followLastPoint?.y ?: (region.top + followPreferences.spacing)
-        val next = FollowNavigation.next(baseline, region, writingGuides, followPreferences.spacing)
-        if (next == null) { onFollowStatus("End of answer area"); return }
+        val baseline = writingFollow.state.baselineY ?: followLastPoint?.y
+            ?: ((if (page.infinite) currentPeekAnchor()?.top ?: 0f else region.top) + followPreferences.spacing)
+        val next = nextFollowLine(baseline, region)
+        if (next == null) { reportFollowStatus("End of answer area"); return }
         followPaused = false; writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
         pendingReturn = null
         startLineAdvance(next)
     }
     fun backWritingView() {
         if (isWritingGesture || inputBlocked || readOnly) return
-        val back = followBack.entry ?: run { onFollowStatus("No previous follow movement"); return }
+        val back = followBack.entry ?: run { reportFollowStatus("No previous follow movement"); return }
         val dx = -back.x; val dy = -back.y
         suspendWritingFollow()
         if (page.infinite || writingStrip) { camera.pan(dx, dy); reportCanvasViewport(); invalidate() } else onFollowPan(dx, dy)
         writingFollow.state = back.state
-        followBack.clear(); onFollowStatus("View restored · follow paused")
+        followBack.clear(); reportFollowStatus(if (followManuallyPaused) "View restored · paused" else "View restored · write to resume")
     }
     var followEnabled = false
         set(value) {
@@ -303,12 +328,29 @@ class InkView(context: Context) : View(context) {
     private var advanceStartAt = 0L
     private var sameLineWaiting = false
     private var captureFollowBack = false
-    fun suspendWritingFollow(clearBack: Boolean = true) {
-        followPaused = true; pendingReturn = null; if (clearBack) followBack.clear() else followBack.cancelPending()
-        onFollowStatus("Follow paused · resume by writing")
-        writingFollow.suspend(SystemClock.uptimeMillis())
-        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
+    private var followMotionMoved = false
+    private fun cancelFollowMotion() {
+        pendingReturn = null; followBack.cancelPending()
+        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
+        lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; followMotionMoved = false
         removeCallbacks(followFrame)
+    }
+    fun pauseWritingFollow() {
+        followManuallyPaused = true
+        cancelFollowMotion()
+        reportFollowStatus("Paused · tap Resume when ready")
+    }
+    fun resumeWritingFollow() {
+        followManuallyPaused = false; followPaused = false
+        writingFollow.state = writingFollow.state.copy(suspendedUntil = 0, candidateLane = null, candidateAt = null)
+        reportFollowStatus("Write to start following")
+    }
+    fun suspendWritingFollow(clearBack: Boolean = true) {
+        followPaused = true
+        cancelFollowMotion()
+        if (clearBack) followBack.clear()
+        writingFollow.suspend(SystemClock.uptimeMillis())
+        reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Follow paused · write to resume")
     }
     fun currentPeekAnchor(): PeekAnchor? {
         if (!getLocalVisibleRect(followVisible)) return null
@@ -336,15 +378,14 @@ class InkView(context: Context) : View(context) {
         override fun run() {
             val now = SystemClock.uptimeMillis()
             if (!followEnabled || inputBlocked || readOnly || !getLocalVisibleRect(followVisible)) {
-                pendingReturn = null
-                advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
+                cancelFollowMotion()
                 return
             }
             val down = isWritingGesture || selectingWritingRegion
-            if (down || followPaused) return
+            if (down || followPaused || (followManuallyPaused && lineAdvance == null)) return
             val pending = pendingReturn
             if (pending != null) {
-                val remaining = followPreferences.returnDelayMs.coerceIn(300, 2000) - (now - followLiftedAt)
+                val remaining = returnStartAt - now
                 if (remaining > 0) { postDelayed(this, remaining); return }
                 pendingReturn = null
                 startLineAdvance(pending)
@@ -357,6 +398,7 @@ class InkView(context: Context) : View(context) {
                 advanceStartAt = now
             }
             var ax = 0f; var ay = 0f
+            var finished = false
             val advancing = !down && (advanceTotalX != 0f || advanceTotalY != 0f)
             if (advancing) {
                 val t = writingFollow.lineAdvanceProgress(advanceStartAt, now, followPreferences.glideDurationMs)
@@ -366,12 +408,13 @@ class InkView(context: Context) : View(context) {
                 ax = targetX - advanceDoneX
                 ay = targetY - advanceDoneY
                 advanceDoneX = targetX; advanceDoneY = targetY
-                if (t >= 1f) { lineAdvance?.let { writingFollow.arrived(it); onFollowStatus("Next line · Back restores the view") }; advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false }
+                finished = t >= 1f
             }
             val dx = ax
             val dy = ay
             if (dx == 0f && dy == 0f) {
-                if (advanceTotalX != 0f || advanceTotalY != 0f) postOnAnimation(this)
+                if (finished || lineAdvance != null && !advancing) finishFollowMotion()
+                else if (advancing) postOnAnimation(this)
                 return
             }
             if (captureFollowBack) {
@@ -382,8 +425,26 @@ class InkView(context: Context) : View(context) {
                 camera.pan(dx, dy); reportCanvasViewport(); invalidate(); dx to dy
             } else onFollowPan(dx, dy)
             followBack.moved(applied.first, applied.second)
-            postOnAnimation(this)
+            if (applied.first != 0f || applied.second != 0f) {
+                if (!followMotionMoved) {
+                    followMotionMoved = true
+                    reportFollowStatus(if (lineAdvance != null) "Moving to next line · touch down to stop" else "Following · touch down to stop")
+                }
+            }
+            if (finished) finishFollowMotion() else postOnAnimation(this)
         }
+    }
+    private fun finishFollowMotion() {
+        val returned = lineAdvance != null
+        if (followMotionMoved) lineAdvance?.let(writingFollow::arrived)
+        val moved = followMotionMoved
+        cancelFollowMotion()
+        reportFollowStatus(when {
+            followManuallyPaused -> "Paused · tap Resume when ready"
+            !moved -> "View edge · pan or zoom to continue"
+            returned -> "Next line · Back restores the view"
+            else -> "Following · Back restores the view"
+        })
     }
     private fun scheduleFollow() {
         removeCallbacks(followFrame)
@@ -402,6 +463,7 @@ class InkView(context: Context) : View(context) {
         lineAdvance = advance
         sameLineWaiting = false
         captureFollowBack = false
+        followMotionMoved = false
         advanceStartAt = SystemClock.uptimeMillis()
         scheduleFollow()
     }
@@ -503,7 +565,13 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
-        if (page.id != value.id || page.infinite != value.infinite) { stripInitialized = false; followPaused = false; pendingReturn = null; followLastPoint = null; followBack.clear(); writingFollow.state = WritingFollowState(); advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; removeCallbacks(followFrame); cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false; clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry() }
+        if (page.id != value.id || page.infinite != value.infinite) {
+            stripInitialized = false; followPaused = false; followLastPoint = null
+            followBack.clear(); writingFollow.state = WritingFollowState(); cancelFollowMotion()
+            reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Write to start following")
+            cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false
+            clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null; resetDraftGeometry()
+        }
         else if (page.strokes !== value.strokes && value.strokes.size <= page.strokes.size) {
             // Ordinary pen commits only append. Growing replacements are also safe because
             // both geometry caches are identity keyed and bounded. Prune on shrink/equal-size
@@ -826,8 +894,8 @@ class InkView(context: Context) : View(context) {
                 MotionEvent.ACTION_MOVE -> regionStart?.let { regionDraft = WritingLane(min(it.x, pt.x), min(it.y, pt.y), max(it.x, pt.x), max(it.y, pt.y)) }
                 MotionEvent.ACTION_UP -> {
                     regionStart?.let { val r = WritingLane(min(it.x, pt.x), min(it.y, pt.y), max(it.x, pt.x), max(it.y, pt.y))
-                        if (r.right - r.left >= 48f && r.bottom - r.top >= 32f) { writingRegions = (writingRegions + r).distinct(); onWritingRegions(writingRegions); writingRegion = r; onWritingRegion(r); onFollowStatus("Answer area selected") }
-                        else onFollowStatus("Area too small · try again") }
+                        if (r.right - r.left >= 48f && r.bottom - r.top >= 32f) { writingRegions = (writingRegions + r).distinct(); onWritingRegions(writingRegions); writingRegion = r; onWritingRegion(r); reportFollowStatus("Answer area selected · write to resume") }
+                        else reportFollowStatus("Area too small · try again") }
                     regionDraft = null; regionStart = null; selectingWritingRegion = false; parent?.requestDisallowInterceptTouchEvent(false)
                 }
                 MotionEvent.ACTION_CANCEL -> { regionDraft = null; regionStart = null; selectingWritingRegion = false; parent?.requestDisallowInterceptTouchEvent(false) }
@@ -835,9 +903,9 @@ class InkView(context: Context) : View(context) {
             invalidate(); return true
         }
         if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-            if (pendingReturn != null) onFollowStatus("Return cancelled · keep writing")
-            pendingReturn = null; followBack.cancelPending(); removeCallbacks(followFrame)
-            advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
+            if (pendingReturn != null) reportFollowStatus("Return cancelled · keep writing")
+            else if (lineAdvance != null || followMotionMoved) reportFollowStatus("Movement stopped · keep writing")
+            cancelFollowMotion()
         }
         var dirtyInvalidated = false
         val hasStylus = (0 until event.pointerCount).any { isStylus(event, it) }
@@ -1167,56 +1235,7 @@ class InkView(context: Context) : View(context) {
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })?.let { page.strokes + it } ?: erasing
         if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
-            val now = SystemClock.uptimeMillis()
-            drawn.points.lastOrNull()?.let { point ->
-                WritingGuides.regionAt(if (followPreferences.autoSwitchAreas) writingRegions else emptyList(), point.x, point.y)?.let { area ->
-                    if (area != writingRegion) {
-                        writingRegion = area
-                        writingFollow.state = WritingFollowState()
-                        onWritingRegion(area)
-                    }
-                }
-            }
-            followPaused = false
-            writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
-            val progressing = writingFollow.progresses(drawn.points, followPreferences.direction)
-            val previousBaseline = writingFollow.state.baselineY
-            writingFollow.completed(drawn.points, now)
-            followLastPoint = drawn.points.lastOrNull()
-            followLiftedAt = now
-            val region = followRegion()
-            val pt = followLastPoint
-            if (writingFollow.state.liftedAt == now && pt != null && pt.x in region.left..region.right && pt.y in region.top..region.bottom) {
-                val baseline = writingFollow.state.baselineY ?: pt.y
-                val next = FollowNavigation.next(baseline, region, writingGuides, followPreferences.spacing)
-                val zoom = if (page.infinite || writingStrip) camera.zoom else documentFollowZoom
-                val nearEnd = FollowNavigation.nearEnd(drawn.points, region, followPreferences.direction, followPreferences.endMargin)
-                if (progressing && nearEnd && next != null && followPreferences.mode == FollowMode.TEXT && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)) {
-                    onFollowStatus(if (followPreferences.automaticReturn && zoom >= followPreferences.minimumZoom) "Next line in ${FollowPreferences.returnDelayLabel(followPreferences.returnDelayMs)}… touch down to cancel" else "Next line ready")
-                    if (followPreferences.automaticReturn && zoom >= followPreferences.minimumZoom) pendingReturn = next
-                } else onFollowStatus(if (next == null) "End of answer area" else "Following")
-                val newLine = previousBaseline != null && kotlin.math.abs(baseline - previousBaseline) > maxOf(28f, writingFollow.laneHeight() * 1.5f)
-                if (pendingReturn == null && (progressing || newLine) &&
-                    FollowNavigation.isTextStroke(drawn.points, followPreferences.spacing) && getLocalVisibleRect(followVisible)) {
-                    if (zoom >= followPreferences.minimumZoom) {
-                        val frontier = if (followPreferences.direction == WritingDirection.LTR) drawn.points.maxOf { it.x } else drawn.points.minOf { it.x }
-                        val sx = originX + frontier * scale
-                        val sy = originY + baseline * scale
-                        val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
-                        val dx = if (followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && followVisible.width() > 0)
-                            writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
-                                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width() else 0f
-                        val desiredY = followVisible.top + followVisible.height() * followPreferences.position
-                        val dy = if (followPreferences.verticalFollow && sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand) desiredY - sy else 0f
-                        advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
-                        advanceStartAt = now + writingFollow.sameLineDelayMs(followPreferences.returnDelayMs, followPreferences.adaptiveTiming)
-                        sameLineWaiting = dx != 0f || dy != 0f
-                        // A cancelled request must not overwrite Back for the last actual glide.
-                        captureFollowBack = sameLineWaiting
-                    }
-                }
-                scheduleFollow()
-            }
+            followCompletedStroke(drawn)
         }
         val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
         val beforeStrokes = page.strokes
@@ -1241,6 +1260,77 @@ class InkView(context: Context) : View(context) {
             else onStrokesChanged(page.strokes)
         }
         if (shouldNotifyEraser) onEraserFinished?.invoke()
+    }
+
+    private fun followCompletedStroke(drawn: Stroke) {
+        val point = drawn.points.lastOrNull() ?: return
+        val now = SystemClock.uptimeMillis()
+        val previousArea = if (writingRegion == null && writingGuides.isNotEmpty()) followRegion() else null
+        if (followPreferences.autoSwitchAreas) {
+            WritingGuides.regionAt(writingRegions, point.x, point.y)?.let { area ->
+                if (area != writingRegion) { writingRegion = area; onWritingRegion(area) }
+            }
+        }
+        followLastPoint = point
+        val region = followRegion()
+        if (writingRegion == null && previousArea != null &&
+            (point.x !in previousArea.left..previousArea.right || point.y !in previousArea.top..previousArea.bottom)) {
+            suspendWritingFollow()
+        }
+        if ((!page.infinite || writingRegion != null) && drawn.points.any {
+                it.x !in region.left..region.right || it.y !in region.top..region.bottom
+            }) {
+            reportFollowStatus("Outside answer area · select an area to follow here")
+            return
+        }
+        followPaused = false
+        writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
+        val progress = writingFollow.completed(drawn.points, now, followPreferences)
+        if (followManuallyPaused) { reportFollowStatus("Paused · tap Resume when ready"); return }
+        if (progress == WritingProgress.NONE) {
+            reportFollowStatus(if (writingFollow.state.candidateLane != null) "New line · keep writing" else "View held · keep writing")
+            return
+        }
+        val baseline = writingFollow.state.baselineY ?: return
+        val next = nextFollowLine(baseline, region)
+        val zoom = if (page.infinite || writingStrip) camera.zoom else documentFollowZoom
+        if (zoom < followPreferences.minimumZoom) {
+            reportFollowStatus("Zoom to ${"%.1f".format(followPreferences.minimumZoom)}× to follow · Next line moves manually")
+            return
+        }
+        val delay = writingFollow.sameLineDelayMs(followPreferences.returnDelayMs, followPreferences.adaptiveTiming)
+        val atEnd = (!page.infinite || writingRegion != null) && followPreferences.mode == FollowMode.TEXT &&
+            writingFollow.readyForReturn() && FollowNavigation.nearEnd(drawn.points, region,
+                followPreferences.direction, followPreferences.endMargin) &&
+            next != null && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)
+        reportFollowStatus(when {
+            atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(delay)} · touch down to cancel"
+            atEnd -> "Next line ready · tap Next line"
+            next == null -> "End of answer area"
+            else -> "Following"
+        })
+        if (atEnd && followPreferences.automaticReturn) {
+            pendingReturn = next; returnStartAt = now + delay
+            scheduleFollow()
+            return
+        }
+        if (!getLocalVisibleRect(followVisible)) return
+        val frontier = if (followPreferences.direction == WritingDirection.LTR)
+            writingFollow.state.frontierRight ?: point.x else writingFollow.state.frontierLeft ?: point.x
+        val sx = originX + frontier * scale
+        val sy = originY + baseline * scale
+        val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
+        val dx = if (followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && followVisible.width() > 0)
+            writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
+                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width() else 0f
+        val desiredY = followVisible.top + followVisible.height() * followPreferences.position
+        val dy = if (followPreferences.verticalFollow && sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)
+            desiredY - sy else 0f
+        if (dx == 0f && dy == 0f) return
+        advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
+        advanceStartAt = now + delay
+        sameLineWaiting = true; captureFollowBack = true; followMotionMoved = false
+        scheduleFollow()
     }
     /** A tidied single line follows the grid and 15° snapping the user already has switched on. */
     private fun snapShapes(shapes: List<Stroke>): List<Stroke> {
@@ -1656,7 +1746,7 @@ class InkView(context: Context) : View(context) {
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
         // Cancel on contact, including strokes that finish before the next animation frame.
-        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f; lineAdvance = null; sameLineWaiting = false; captureFollowBack = false
+        cancelFollowMotion()
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         var start = clampToPage(raw)

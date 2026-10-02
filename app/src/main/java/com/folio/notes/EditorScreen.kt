@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, kotlinx.coroutines.FlowPreview::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes
 
 import android.graphics.Bitmap
@@ -109,6 +109,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
+    var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
     var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
     var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
     var followSettingsOpen by remember { mutableStateOf(false) }
@@ -121,6 +122,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
         returnDelayMs = appPrefs.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
         adaptiveTiming = appPrefs.getBoolean("follow.adaptiveTiming", true),
+        adaptiveSpacing = appPrefs.getBoolean("follow.adaptiveSpacing", true),
         horizontalFollow = appPrefs.getBoolean("follow.horizontalFollow", true),
         verticalFollow = appPrefs.getBoolean("follow.verticalFollow", true),
         autoSwitchAreas = appPrefs.getBoolean("follow.autoSwitchAreas", true),
@@ -132,6 +134,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(followPreferences) {
         appPrefs.edit()
             .putBoolean("follow.adaptiveTiming", followPreferences.adaptiveTiming)
+            .putBoolean("follow.adaptiveSpacing", followPreferences.adaptiveSpacing)
             .putBoolean("follow.horizontalFollow", followPreferences.horizontalFollow)
             .putBoolean("follow.verticalFollow", followPreferences.verticalFollow)
             .putBoolean("follow.autoSwitchAreas", followPreferences.autoSwitchAreas)
@@ -149,7 +152,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         appPrefs.edit().putString("writingHand", value.name).apply()
     }
     var writingStripOpen by rememberSaveable { mutableStateOf(false) }
-    var followStatus by remember(page.id) { mutableStateOf("Ready to write") }
+    var followStatus by remember(page.id) { mutableStateOf(WritingFollowStatus()) }
     val regionKey = "follow.region.${note.id}.${page.id}"
     var writingRegion by remember(regionKey) { mutableStateOf(runCatching {
         val values = appPrefs.getString(regionKey, null)?.split(",")?.map { it.toFloat() } ?: return@runCatching null
@@ -259,6 +262,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     var stripInkView by remember(page.id) { mutableStateOf<InkView?>(null) }
     val activeInkView = if (writingStripOpen) stripInkView else mainInkView
     val followView = activeInkView
+    fun setWritingFollow(enabled: Boolean) {
+        writingFollowEnabled = enabled
+        writingFollowPaused = false
+        appPrefs.edit().putBoolean("writingFollow", enabled).apply()
+        followView?.let { view ->
+            view.resumeWritingFollow()
+            view.followEnabled = enabled
+        }
+    }
     fun applyStylusShortcut(action: StylusShortcut) {
         val effect = StylusShortcuts.effect(action, tool, previousTool)
         if (effect != StylusShortcutEffect.None) penHaptics?.pulse()
@@ -303,6 +315,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             val edit = appPrefs.edit()
             if (region == null) edit.remove(regionKey) else edit.putString(regionKey, "${region.left},${region.top},${region.right},${region.bottom}")
             edit.apply()
+        }
+        if (view.isWritingFollowManuallyPaused != writingFollowPaused) {
+            if (writingFollowPaused) view.pauseWritingFollow() else view.resumeWritingFollow()
         }
         view.onFollowStatus = { followStatus = it }
     }
@@ -561,6 +576,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
         var floatingToolbarTop by remember { mutableStateOf(120.dp) }
+        var writingControlsHeight by remember { mutableStateOf(72.dp) }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)
             .onGloballyPositioned { coordinates ->
                 val origin = coordinates.localToWindow(Offset.Zero)
@@ -815,7 +831,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         fullscreen = true, readOnly = true, inputBlocked = peekHeld,
                         onSelectAllView = { it.writingRegions = writingRegions; it.writingRegion = writingRegion })
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f).padding(bottom = 72.dp)
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.45f).padding(bottom = writingControlsHeight)
                     .zIndex(8f).background(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
                         Text("Writing strip", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
@@ -867,144 +883,150 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
-            val pillHold = rememberLongPressGuard()
-            Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16)
+            Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
+                .onSizeChanged { writingControlsHeight = with(density) { it.height.toDp() } }
+                .padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shadowElevation = 4.dp, tonalElevation = 1.dp,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2)) {
-                        Box {
-                            // Tap opens the follow menu; a hold flips writing follow on and off at once.
-                            IconButton(pillHold.click { followMenu = true }, enabled = !peekHeld, modifier = Modifier.size(40.dp).longPressAction(pillHold) {
-                                writingFollowEnabled = !writingFollowEnabled
-                                appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
-                                followView?.suspendWritingFollow(clearBack = false)
-                            }, shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.SwipeRight, "Writing follow options — hold to toggle",
-                                    tint = if (writingFollowEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                    Column(Modifier.widthIn(max = 600.dp).padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2)) {
+                        FlowRow(verticalArrangement = Arrangement.Center) {
+                            TextButton({ setWritingFollow(!writingFollowEnabled) }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.SwipeRight, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp4))
+                                Text(if (writingFollowEnabled) "Follow on" else "Follow off")
                             }
-                            DropdownMenu(followMenu, { followMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                DropdownMenuItem(
-                                    { Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") },
-                                    {
-                                        writingFollowEnabled = !writingFollowEnabled
-                                        appPrefs.edit().putBoolean("writingFollow", writingFollowEnabled).apply()
-                                        followView?.suspendWritingFollow(clearBack = false)
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
-                                    trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }
-                                )
-                                DropdownMenuItem(
-                                    { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
-                                    {
-                                        setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
-                                        followView?.suspendWritingFollow()
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
-                                )
-                                DropdownMenuItem(
-                                    { Text("Follow mode: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
-                                    {
-                                        followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
-                                        followMenu = false
-                                    },
-                                    leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) },
-                                    trailingIcon = { if (followPreferences.mode == FollowMode.MATH) Icon(Icons.Rounded.Check, "Maths on") }
-                                )
-                                DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
-                                DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
-                                DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text("Auto-detect answer areas")
-                                            Text("Current page only, as you scroll", style = MaterialTheme.typography.bodySmall)
-                                        }
-                                    },
-                                    trailingIcon = { Checkbox(checked = autoDetectAnswerAreas, onCheckedChange = null) },
-                                    onClick = {
-                                        autoDetectAnswerAreas = !autoDetectAnswerAreas
-                                        val edit = appPrefs.edit().putBoolean("follow.autoDetectAnswerAreas", autoDetectAnswerAreas)
-                                        if (autoDetectAnswerAreas) {
-                                            writingFollowEnabled = true
-                                            edit.putBoolean("writingFollow", true)
-                                        }
-                                        edit.apply()
+                            Box {
+                                IconButton({ followMenu = true }, enabled = !peekHeld, shapes = IconButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.Tune, "Writing follow options")
+                                }
+                                DropdownMenu(followMenu, { followMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                    DropdownMenuItem(
+                                        { Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") },
+                                        {
+                                            setWritingFollow(!writingFollowEnabled)
+                                            followMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
+                                        trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }
+                                    )
+                                    DropdownMenuItem(
+                                        { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
+                                        {
+                                            setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
+                                            followView?.suspendWritingFollow()
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
+                                    )
+                                    DropdownMenuItem(
+                                        { Text("Follow mode: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
+                                        {
+                                            followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
+                                            followMenu = false
+                                        },
+                                        leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) },
+                                        trailingIcon = { if (followPreferences.mode == FollowMode.MATH) Icon(Icons.Rounded.Check, "Maths on") }
+                                    )
+                                    DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
+                                    DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
+                                    DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Auto-detect answer areas")
+                                                Text("Current page only, as you scroll", style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        },
+                                        trailingIcon = { Checkbox(checked = autoDetectAnswerAreas, onCheckedChange = null) },
+                                        onClick = {
+                                            autoDetectAnswerAreas = !autoDetectAnswerAreas
+                                            val edit = appPrefs.edit().putBoolean("follow.autoDetectAnswerAreas", autoDetectAnswerAreas)
+                                            if (autoDetectAnswerAreas) {
+                                                writingFollowEnabled = true
+                                                edit.putBoolean("writingFollow", true)
+                                            }
+                                            edit.apply()
+                                            followMenu = false
+                                        })
+                                    if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
+                                    DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
+                                        activeInkView?.suspendWritingFollow()
+                                        motion.reset()
+                                        writingStripOpen = !writingStripOpen
+                                        writingFollowEnabled = true
+                                        appPrefs.edit().putBoolean("writingFollow", true).apply()
                                         followMenu = false
                                     })
-                                if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
-                                DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
-                                    activeInkView?.suspendWritingFollow()
-                                    motion.reset()
-                                    writingStripOpen = !writingStripOpen
-                                    writingFollowEnabled = true
-                                    appPrefs.edit().putBoolean("writingFollow", true).apply()
-                                    followMenu = false
-                                })
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    { Text("Set current view as Peek Anchor") },
-                                    {
-                                        activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
-                                        followMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
-                                )
-                                DropdownMenuItem(
-                                    { Text("Auto Peek Anchor (full page)") },
-                                    {
-                                        model.setPeekAnchor(page.fullPagePeekAnchor())
-                                        followMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
-                                )
-                                if (peekAnchor != null) DropdownMenuItem(
-                                    { Text("Remove Peek Anchor") },
-                                    { model.setPeekAnchor(null); followMenu = false },
-                                    leadingIcon = { Icon(Icons.Rounded.Close, null) }
-                                )
-                            }
-                        }
-                        if (writingFollowEnabled) {
-                            IconButton(
-                                pillHold.click {
-                                    followPreferences = followPreferences.copy(
-                                        mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        { Text("Set current view as Peek Anchor") },
+                                        {
+                                            activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
+                                            followMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
                                     )
-                                },
-                                enabled = !peekHeld,
-                                modifier = Modifier.size(40.dp).longPressAction(pillHold) { followSettingsOpen = true },
-                                shapes = IconButtonDefaults.shapes()) {
-                                Icon(
-                                    if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
-                                    if (followPreferences.mode == FollowMode.TEXT) "Text follow — switch to Maths, hold for follow settings" else "Maths follow — switch to Text, hold for follow settings",
-                                    tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                                )
+                                    DropdownMenuItem(
+                                        { Text("Auto Peek Anchor (full page)") },
+                                        {
+                                            model.setPeekAnchor(page.fullPagePeekAnchor())
+                                            followMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
+                                    )
+                                    if (peekAnchor != null) DropdownMenuItem(
+                                        { Text("Remove Peek Anchor") },
+                                        { model.setPeekAnchor(null); followMenu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.Close, null) }
+                                    )
+                                }
                             }
-                            TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Next line") }
-                            TextButton({ followView?.backWritingView() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Back") }
-                        }
-                        if (peekAnchor != null) {
-                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                            PeekHoldButton(peekAnchor) { held ->
-                                if (!held) peekHeld = false
-                                else if (activeInkView?.isWritingGesture == false) {
-                                    motion.reset()
-                                    peekHeld = true
+                            if (writingFollowEnabled) {
+                                TextButton(
+                                    {
+                                        followPreferences = followPreferences.copy(
+                                            mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
+                                        )
+                                    },
+                                    enabled = !peekHeld,
+                                    shapes = ButtonDefaults.shapes()) {
+                                    Icon(
+                                        if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
+                                        null, Modifier.size(18.dp),
+                                        tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                    )
+                                    Spacer(Modifier.width(FolioSpacing.dp4))
+                                    Text(if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths")
+                                }
+                                TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Next line") }
+                                TextButton({ followView?.backWritingView() }, enabled = !peekHeld && followStatus.canGoBack, shapes = ButtonDefaults.shapes()) { Text("Back") }
+                                TextButton({
+                                    writingFollowPaused = !followStatus.paused
+                                    if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
+                                }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text(if (followStatus.paused) "Resume" else "Pause") }
+                            }
+                            if (peekAnchor != null) {
+                                Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                                PeekHoldButton(peekAnchor) { held ->
+                                    if (!held) peekHeld = false
+                                    else if (activeInkView?.isWritingGesture == false) {
+                                        motion.reset()
+                                        peekHeld = true
+                                    }
                                 }
                             }
                         }
                         if (writingFollowEnabled) {
                             Text(
-                                followStatus,
-                                modifier = Modifier.weight(1f, fill = false).widthIn(max = 280.dp)
-                                    .padding(horizontal = FolioSpacing.dp12),
+                                followStatus.message,
+                                modifier = Modifier.widthIn(max = 400.dp)
+                                    .padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }

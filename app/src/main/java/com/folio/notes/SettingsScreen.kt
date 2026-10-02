@@ -695,10 +695,12 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             p.edit().putString("writingHand", WritingHand.LEFT.name).apply()
         })
     }
-    PreferenceSwitch("Automatic line return", "Finishing near the edge shows “Next line…” and glides by itself. Touch the pen down quickly to cancel.", autoReturn, {
+    PreferenceSwitch("Automatic line return", if (mode == FollowMode.TEXT)
+        "After writing across a line, pause near the answer area's edge to return. Touch down to cancel."
+        else "Available in Text mode. In Maths, tap Next line when you want a new row.", autoReturn, {
         autoReturn = it
         p.edit().putBoolean("follow.autoReturn", it).apply()
-    })
+    }, enabled = mode == FollowMode.TEXT)
 }
 
 // ---- Workflow: timer, export, split ---------------------------------------------------
