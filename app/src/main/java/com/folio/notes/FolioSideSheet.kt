@@ -1,8 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -15,8 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -28,7 +27,7 @@ import androidx.core.view.WindowInsetsControllerCompat
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Dialog(onDismissRequest, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
         val view = LocalView.current
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -40,19 +39,17 @@ import androidx.core.view.WindowInsetsControllerCompat
             }
             onDispose { }
         }
-        var entered by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { entered = true }
+        val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
         BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
             val sheetWidth = minOf(400.dp, (maxWidth - 24.dp).coerceAtLeast(0.dp))
-            val slideOffset by animateDpAsState(if (entered) 0.dp else sheetWidth, tween(250), label = "Account sheet entrance")
             // The dialog window supplies the scrim; this target dismisses outside the sheet.
             Box(Modifier.matchParentSize().clickable(
                 interactionSource = remember { MutableInteractionSource() }, indication = null,
-                onClick = onDismissRequest,
+                onClick = dismiss,
             ))
             Surface(
                 modifier = Modifier.align(Alignment.CenterEnd)
-                    .offset(x = slideOffset)
+                    .graphicsLayer { translationX = direction * (1f - progress.value) * sheetWidth.toPx() }
                     .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
                     .width(sheetWidth)
                     .fillMaxHeight(),
@@ -62,7 +59,7 @@ import androidx.core.view.WindowInsetsControllerCompat
                 Column {
                     Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp16, bottom = FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        IconButton(onDismissRequest, shapes = IconButtonDefaults.shapes()) {
+                        IconButton(dismiss, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.Close, "Close $title")
                         }
                     }

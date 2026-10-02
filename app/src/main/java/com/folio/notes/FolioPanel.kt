@@ -10,8 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,7 +22,7 @@ import androidx.core.view.WindowInsetsControllerCompat
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Dialog(onDismissRequest, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
         val view = LocalView.current
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -44,13 +43,18 @@ import androidx.core.view.WindowInsetsControllerCompat
             val panelWidth = minOf(if (landscape) 920.dp else 640.dp, maxWidth)
             val panelMaxHeight = minOf(if (landscape) 680.dp else 800.dp, maxHeight)
             Surface(
-                modifier = Modifier.folioEntrance().width(panelWidth).heightIn(max = panelMaxHeight),
+                modifier = Modifier.graphicsLayer {
+                    alpha = progress.value
+                    translationY = (1f - progress.value) * 20.dp.toPx()
+                    scaleX = .96f + .04f * progress.value
+                    scaleY = scaleX
+                }.width(panelWidth).heightIn(max = panelMaxHeight),
                 shape = if (landscape) FolioShapes.panel else FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column {
                     Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        IconButton(onDismissRequest, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close $title") }
+                        IconButton(dismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close $title") }
                     }
                     Column(Modifier.weight(1f, fill = false), content = content)
                 }

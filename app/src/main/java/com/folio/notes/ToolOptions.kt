@@ -292,7 +292,7 @@ object EditorQuickPrefs {
         contentAlignment = Alignment.Center
     ) {
         Box(
-            Modifier.size(dot).background(Color(color), CircleShape).border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), CircleShape),
+            Modifier.size(dot).folioSelected(selected).background(Color(color), CircleShape).border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(dot * 0.55f), tint = if (InkColors.isLight(color)) Color.Black else Color.White)
@@ -342,7 +342,9 @@ object EditorQuickPrefs {
                 )
             }
         }
-        if (editing) Text("Tap a colour below to store it in slot ${slot + 1}, or tap another slot above to change which one you are editing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FolioExpand(editing) {
+            Text("Tap a colour below to store it in slot ${slot + 1}, or tap another slot above to change which one you are editing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (editing) "Writing ink for slot ${slot + 1}" else "Writing inks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))

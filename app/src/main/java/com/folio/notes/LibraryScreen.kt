@@ -2,6 +2,7 @@
 package com.folio.notes
 
 import android.graphics.Bitmap
+import androidx.compose.animation.animateColorAsState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.platform.LocalFocusManager
@@ -204,12 +205,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
-                if (showMistakes) Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (showMistakes) Box(Modifier.weight(1f).fillMaxHeight().folioEntrance()) {
                     destinationState.SaveableStateProvider("mistakes") {
                         mistakesContent { reviewMode = it }
                     }
                 }
-                if (!showMistakes && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight(),
+                if (!showMistakes && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().folioEntrance(),
                     state = libraryGridState,
                     contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -303,22 +304,25 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
                                     modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                     leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
-                                    trailingIcon = { Icon(if (filtersExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+                                    trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp).folioDisclosure(filtersExpanded)) })
                                 if (!pickingNotebook) TextButton(shelfHold.click { selecting = !selecting; selectedIds = emptyList() },
                                     modifier = Modifier.longPressAction(shelfHold) { selecting = true; selectedIds = notes.map { it.id } },
                                     enabled = selecting || notes.isNotEmpty(),
                                     shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                                 if (scoped) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
                             }
-                            if (filtersActive) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            FolioExpand(filtersActive) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Filtered results · ${notes.size} notebooks", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 TextButton({ kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
+                                }
                             }
                             state.daysToExam?.let { days ->
                                 Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
                                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                             }
-                            if (filtersExpanded) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            FolioExpand(filtersExpanded) {
+                                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
                                     LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
@@ -363,8 +367,10 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         }, { Text("Under 70%") })
                                     }
                                 }
+                                }
                             }
-                            if (selecting) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            FolioExpand(selecting) {
+                                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
                                     Spacer(Modifier.weight(1f))
@@ -383,8 +389,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                         shapes = ButtonDefaults.shapes()) { Text("Delete") }
                                 }
+                                }
                             }
-                            if (state.saveFailed) FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
+                            FolioExpand(state.saveFailed) {
+                                FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
+                            }
                         }
                     }
                     if (notes.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -402,9 +411,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         val open = { if (pickingNotebook || !selecting) onOpenNotebook(note.id) else toggleSelection(note.id) }
                         val longPress = { if (!pickingNotebook) enterSelecting(note.id) }
                         val folder = state.folders.find { it.id == note.folderId }?.name
+                        val selectionColor by animateColorAsState(
+                            if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f)
+                            else MaterialTheme.colorScheme.surfaceContainerLow,
+                            animationSpec = folioSpring(), label = "notebookSelection",
+                        )
                         if (listView) Surface(
                             shape = FolioShapes.large,
-                            color = if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surfaceContainerLow,
+                            color = selectionColor,
                             modifier = Modifier.animateItem(placementSpec = folioSpring()).semantics { if (selecting) selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
                         ) {
                                 Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -417,7 +431,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
                                     }
                                     if (!selecting) {
-                                        IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") }
+                                        IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
                                         NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) })
                                     }
                                 }
@@ -433,7 +447,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (!showMistakes && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                if (!showMistakes && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().folioEntrance().verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                         if (!wide) Spacer(Modifier.weight(1f))
@@ -570,7 +584,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     shape = FolioShapes.medium,
                     color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .92f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.align(Alignment.TopStart).padding(FolioSpacing.dp8).size(30.dp).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
+                    modifier = Modifier.align(Alignment.TopStart).padding(FolioSpacing.dp8).size(30.dp).folioSelected(checked).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
@@ -582,7 +596,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         if (note.starred) "Remove from favorites" else "Add to favorites",
                         tint = if (note.starred) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .85f),
-                        modifier = Modifier.size(21.dp)
+                        modifier = Modifier.size(21.dp).folioSelected(note.starred)
                     )
                 }
             }

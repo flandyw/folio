@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.*
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -1688,14 +1690,15 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     // fades out again once the document settles, so it never clutters a still page.
     var chipActive by remember { mutableStateOf(false) }
     LaunchedEffect(pages, scrubbing) {
-        snapshotFlow { pages.isScrollInProgress || scrubbing }.collect { active ->
+        snapshotFlow { pages.isScrollInProgress || scrubbing }.collectLatest { active ->
             if (active) chipActive = true else {
                 delay(FastScrollChipHoldMs)
                 chipActive = false
             }
         }
     }
-    val chipAlpha by animateFloatAsState(if (chipActive) 1f else 0f, label = "fastScrollChipAlpha")
+    val chipAlpha by animateFloatAsState(if (chipActive) 1f else 0f,
+        animationSpec = tween(if (chipActive) 140 else 220), label = "fastScrollChipAlpha")
     // The thumb brightens and thickens smoothly when grabbed instead of snapping.
     val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
     val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, animationSpec = folioSpring(), label = "fastScrollWidth")
@@ -1711,7 +1714,12 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         val labelTop = (geometry.top + geometry.height / 2 - labelHeightPx / 2)
             .coerceIn(0f, (constraints.maxHeight - labelHeightPx).coerceAtLeast(0f))
         Surface(Modifier.align(Alignment.TopEnd).offset { IntOffset(0, labelTop.roundToInt()) }.padding(end = FolioSpacing.dp32)
-            .graphicsLayer { alpha = chipAlpha },
+            .graphicsLayer {
+                alpha = chipAlpha
+                translationX = (1f - chipAlpha) * 8.dp.toPx()
+                scaleX = .94f + .06f * chipAlpha
+                scaleY = scaleX
+            },
             shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = if (scrubbing) 6.dp else 2.dp, tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {

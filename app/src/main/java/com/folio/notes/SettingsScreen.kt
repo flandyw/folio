@@ -113,7 +113,7 @@ private fun SettingsPage(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     key(selected) {
-        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        Box(modifier = modifier.fillMaxWidth().folioEntrance(selected ?: "home"), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 760.dp).fillMaxWidth()
                     .verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24),

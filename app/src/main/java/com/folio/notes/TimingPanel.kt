@@ -45,7 +45,7 @@ internal fun TimingPanel(
                 label = { Text("Stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
             )
         }
-        Box(Modifier.weight(1f, fill = false)) {
+        Box(Modifier.weight(1f, fill = false).folioEntrance(selectedTab)) {
             if (selectedTab == 0) {
                 ExamTimerContent(timer, onStartTimer, onStopTimer, onAdjustTimer, onSkipTimer, onPauseTimer)
             } else {
