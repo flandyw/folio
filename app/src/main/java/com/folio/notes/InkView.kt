@@ -260,12 +260,17 @@ class InkView(context: Context) : View(context) {
             return WritingLane(guide.left, guide.y - 32f, guide.right, end.y)
         }
         if (page.infinite) {
-            // An unbounded canvas has no automatic line end. Manual returns still use the
-            // actual writing start, including handwriting to the left or above the origin.
+            // An unbounded canvas has no printed line end, so the lane is the visible viewport:
+            // the line ends where the writer can see it end, and returns go back to the column
+            // they started from. Manual returns still use the actual writing start, including
+            // handwriting to the left or above the origin.
             val anchor = currentPeekAnchor()
-            val start = writingFollow.state.lineStartX ?: point?.x ?: anchor?.left ?: 0f
+            if (anchor != null) return FollowNavigation.infiniteRegion(
+                WritingLane(anchor.left, anchor.top, anchor.right, anchor.bottom),
+                followPreferences.direction, writingFollow.state.lineStartX ?: point?.x, followPreferences.endMargin)
+            val start = writingFollow.state.lineStartX ?: point?.x ?: 0f
             val left = if (followPreferences.direction == WritingDirection.LTR) start else start - page.width
-            return WritingLane(left, minOf(0f, point?.y ?: anchor?.top ?: 0f), left + page.width, Float.MAX_VALUE)
+            return WritingLane(left, minOf(0f, point?.y ?: 0f), left + page.width, Float.MAX_VALUE)
         }
         return WritingLane(36f, 0f, page.width - 36f, page.height - 24f)
     }
@@ -347,6 +352,8 @@ class InkView(context: Context) : View(context) {
     fun snapshot() = ViewportSnapshot(page.id, WorkspaceViewport(canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom))
     fun restore(snapshot: ViewportSnapshot) {
         if (snapshot.pageId != page.id) return
+        // The viewport the lane is measured from just moved; follow picks up again on the next stroke.
+        if (page.infinite) suspendWritingFollow(clearBack = false)
         camera.restore(snapshot.viewport.canvasX, snapshot.viewport.canvasY, snapshot.viewport.canvasZoom)
         reportCanvasViewport(); invalidate()
     }
@@ -460,6 +467,9 @@ class InkView(context: Context) : View(context) {
     fun restoreWorkspaceCamera(viewport: WorkspaceViewport?) {
         if (workspaceCameraRestored) return
         workspaceCameraRestored = true
+        // Re-opening on a saved canvas position is navigation, not writing; do not let the
+        // restored viewport yank the view again the moment a stroke lands.
+        if (page.infinite && viewport != null) suspendWritingFollow(clearBack = false)
         if (viewport != null) camera.restore(viewport.canvasX, viewport.canvasY, viewport.canvasZoom)
     }
     private val camera = InfiniteViewport()
@@ -1279,13 +1289,21 @@ class InkView(context: Context) : View(context) {
         }
         val baseline = writingFollow.state.baselineY ?: return
         val next = nextFollowLine(baseline, region)
-        val zoom = if (page.infinite) camera.zoom else documentFollowZoom
-        if (zoom < followPreferences.minimumZoom) {
+        // A page has one absolute scale, so its zoom factor is the honest test. A canvas zooms
+        // relative to the view it fits, so there ask whether the writing is big enough to read.
+        if (page.infinite) {
+            if (!FollowLegibility.isReadable(writingFollow.laneHeight(), camera.zoom)) {
+                reportFollowStatus("Zoom in a little for writing follow · Next line moves manually")
+                return
+            }
+        } else if (documentFollowZoom < followPreferences.minimumZoom) {
             reportFollowStatus("Zoom to ${"%.1f".format(followPreferences.minimumZoom)}× to follow · Next line moves manually")
             return
         }
         val delay = writingFollow.sameLineDelayMs(followPreferences.returnDelayMs, followPreferences.adaptiveTiming)
-        val atEnd = (!page.infinite || writingRegion != null) && followPreferences.mode == FollowMode.TEXT &&
+        // The viewport lane on a canvas already describes the writing area, so a return is
+        // always in scope there; a page still needs an answer area when it has printed rules.
+        val atEnd = followPreferences.mode == FollowMode.TEXT &&
             writingFollow.readyForReturn() && FollowNavigation.nearEnd(drawn.points, region,
                 followPreferences.direction, followPreferences.endMargin) &&
             next != null && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)

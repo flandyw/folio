@@ -306,10 +306,41 @@ data class FollowPreferences(
 }
 
 object FollowNavigation {
+    /** A lane narrower than this is a mistake, not a column; returns never aim that far in. */
+    const val MIN_LANE_UNITS = 48f
+
     fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean = points.isNotEmpty() &&
         points.all { it.x.isFinite() && it.y.isFinite() } && spacing.isFinite() && spacing > 0f &&
         points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f &&
         points.maxOf { it.x } - points.minOf { it.x } < 80f
+
+    /**
+     * The writing lane on an unbounded canvas: the visible viewport inset by the end margin,
+     * with the writer's own start column kept as the leading edge while it is still in view.
+     *
+     * An infinite page carries a nominal page box it is not bound by, so a lane measured from
+     * page coordinates puts "end of line" somewhere the writer cannot see. Anchoring the lane
+     * to the viewport instead makes the line end the visible edge at every zoom, which is what
+     * lets automatic line return work on a canvas at all.
+     */
+    fun infiniteRegion(viewport: WritingLane, direction: WritingDirection, startX: Float? = null,
+                       endMargin: Float = .08f): WritingLane {
+        val width = viewport.right - viewport.left
+        if (!width.isFinite() || width <= 0f) return viewport
+        val margin = (width * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
+        // A column started long ago may be far off screen; fall back to the viewport edge then.
+        val remembered = startX?.takeIf {
+            it.isFinite() && it in (viewport.left - width * .25f)..(viewport.right + width * .25f)
+        }
+        val (left, right) = if (direction == WritingDirection.LTR) {
+            val trailing = viewport.right - margin
+            (remembered ?: viewport.left + margin).coerceAtMost(trailing - MIN_LANE_UNITS) to trailing
+        } else {
+            val leading = viewport.left + margin
+            (remembered ?: viewport.right - margin).coerceAtLeast(leading + MIN_LANE_UNITS) to leading
+        }
+        return WritingLane(left, viewport.top, right, Float.MAX_VALUE)
+    }
 
     fun next(baseline: Float, region: WritingLane, guides: List<WritingGuide>, spacing: Float,
              lineStartX: Float? = null, direction: WritingDirection = WritingDirection.LTR): WritingAdvance? {
@@ -335,6 +366,24 @@ object FollowNavigation {
         return if (direction == WritingDirection.LTR) points.maxOf { it.x } >= region.right - margin
         else points.minOf { it.x } <= region.left + margin
     }
+}
+
+/**
+ * How big writing has to look on screen before following the view is worth doing.
+ *
+ * A page has an absolute scale, so a zoom factor means something on a printed page. An infinite
+ * canvas zooms relative to whatever the view happens to fit, where the same 1.0x can be tiny or
+ * huge, so the test is the size of a line of handwriting in screen pixels instead.
+ */
+object FollowLegibility {
+    /** About the smallest handwriting worth gliding the view for. */
+    const val MIN_STROKE_PX = 8f
+
+    /** The current lane's median stroke height, measured on screen. */
+    fun strokePx(laneHeight: Float, scale: Float): Float =
+        if (laneHeight.isFinite() && scale.isFinite() && scale > 0f) laneHeight * scale else 0f
+
+    fun isReadable(laneHeight: Float, scale: Float): Boolean = strokePx(laneHeight, scale) >= MIN_STROKE_PX
 }
 
 /** One approachable control for related movement thresholds and timing. Personal choices stay intact. */
