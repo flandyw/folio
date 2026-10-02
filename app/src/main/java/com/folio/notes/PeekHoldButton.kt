@@ -1,6 +1,7 @@
 package com.folio.notes
 
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -11,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -22,7 +24,9 @@ import androidx.compose.ui.unit.dp
     val window = androidx.compose.ui.platform.LocalWindowInfo.current
     LaunchedEffect(window.isWindowFocused) { if (!window.isWindowFocused) callback(false) }
     DisposableEffect(Unit) { onDispose { callback(false) } }
-    Box(Modifier.size(48.dp).semantics { contentDescription = "Hold to peek; release to return" }
+    Box(Modifier.size(48.dp).clip(FolioShapes.large)
+        .background(MaterialTheme.colorScheme.secondaryContainer)
+        .semantics { contentDescription = "Hold to peek; release to return" }
         .pointerInput(anchor) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -36,6 +40,6 @@ import androidx.compose.ui.unit.dp
                 } finally { callback(false) }
             }
         }, contentAlignment = Alignment.Center) {
-        Icon(Icons.Rounded.Visibility, null, tint = MaterialTheme.colorScheme.primary)
+        Icon(Icons.Rounded.Visibility, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
     }
 }

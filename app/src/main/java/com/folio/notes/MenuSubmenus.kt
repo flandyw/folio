@@ -1,26 +1,42 @@
 package com.folio.notes
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Surface
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.*
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 
-/** How far right a submenu sits, clear of the parent menu's own width. */
-private val SubmenuDx = 252.dp
+/** Align with the parent row, flipping sides before clamping at a window edge. */
+internal class SubmenuPositionProvider(private val margin: Int, private val gap: Int) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+        layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val right = anchorBounds.right + gap
+        val left = anchorBounds.left - gap - popupContentSize.width
+        val candidates = if (layoutDirection == LayoutDirection.Ltr) listOf(right, left) else listOf(left, right)
+        val maxX = (windowSize.width - margin - popupContentSize.width).coerceAtLeast(margin)
+        val maxY = (windowSize.height - margin - popupContentSize.height).coerceAtLeast(margin)
+        val x = candidates.firstOrNull { it in margin..maxX } ?: candidates.first().coerceIn(margin, maxX)
+        return IntOffset(x, (anchorBounds.top - margin).coerceIn(margin, maxY))
+    }
+}
 
 /**
  * A menu row that opens a second-level menu beside itself. Material 3 has no submenu, so the child
- * menu is anchored to this row and offset clear of the parent menu; the caller dismisses its own
+ * menu is anchored to this row's measured bounds; the caller dismisses its own
  * menu, so any action run from the submenu should close both.
  */
 @Composable
@@ -28,6 +44,10 @@ internal fun SubmenuItem(
     label: String, icon: ImageVector, expanded: Boolean, onExpandedChange: (Boolean) -> Unit,
     enabled: Boolean = true, content: @Composable () -> Unit
 ) {
+    val density = LocalDensity.current
+    val positionProvider = remember(density) {
+        with(density) { SubmenuPositionProvider(8.dp.roundToPx(), 4.dp.roundToPx()) }
+    }
     Box {
         DropdownMenuItem(
             text = { Text(label) },
@@ -36,12 +56,18 @@ internal fun SubmenuItem(
             trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Open submenu") },
             enabled = enabled
         )
-        DropdownMenu(
-            expanded = expanded,
+        if (expanded) Popup(
+            popupPositionProvider = positionProvider,
             onDismissRequest = { onExpandedChange(false) },
-            offset = DpOffset(SubmenuDx, 0.dp),
-            modifier = Modifier.guardUiTouches()
-        ) { content() }
+            properties = PopupProperties(focusable = true)
+        ) {
+            Surface(shape = MaterialTheme.shapes.extraSmall,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shadowElevation = 3.dp) {
+                Column(Modifier.guardUiTouches().width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 320.dp)
+                    .verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) { content() }
+            }
+        }
     }
 }
 

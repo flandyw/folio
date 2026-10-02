@@ -48,6 +48,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -89,7 +90,7 @@ import java.io.ByteArrayOutputStream
     ) {
         IconButton(
             onClick, modifier = Modifier.size(48.dp), enabled = enabled,
-            shape = CircleShape,
+            shape = FolioShapes.large,
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                 contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else LocalContentColor.current
@@ -844,7 +845,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             // an exact return, including scroll offset, tool, and transient handwriting lane.
             if (peekHeld && peekAnchor != null) {
                 val target = peekAnchor.resolve(note.pages)
-                if (target != null) Box(Modifier.fillMaxSize().zIndex(10f).background(MaterialTheme.colorScheme.surface)) {
+                if (target != null) Box(Modifier.fillMaxSize().zIndex(10f).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
                     EditorPage(note.id, target, model, Tool.HAND, options, false, false, false, false,
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
                         onLoad = { model.loadPage(target.id) }, fullscreen = true, readOnly = true,
@@ -993,7 +994,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
                 if (peekAnchor != null) {
-                    Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                     PeekHoldButton(peekAnchor) { held ->
                         if (!held) peekHeld = false
                         else if (activeInkView?.isWritingGesture == false) {
@@ -1738,6 +1738,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     selectionMenuViewport: Rect? = null,
     onSelectionAnchor: (Rect?) -> Unit = {}) {
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
+    val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
@@ -1817,7 +1818,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Surface(
             Modifier.fillMaxSize(),
             shape = if (fullscreen) RectangleShape else FolioShapes.medium,
-            color = Color.White,
+            color = if (fullscreen) canvasBackground else Color.White,
             shadowElevation = if (fullscreen) 0.dp else 3.dp,
             tonalElevation = 0.dp,
             border = if (fullscreen) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -1831,6 +1832,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
             }
             else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
+                view.canvasBackgroundColor = canvasBackground.toArgb()
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color

@@ -23,6 +23,9 @@ import kotlin.math.*
 class InkView(context: Context) : View(context) {
     var page = NotePage(); private set
     var background: Bitmap? = null
+    /** Theme canvas behind the paper, including reference and peek views. */
+    var canvasBackgroundColor: Int = Color.TRANSPARENT
+        set(value) { if (field != value) { field = value; invalidate() } }
     var tool = Tool.PEN
         set(value) {
             if (field == value) return
@@ -713,7 +716,7 @@ class InkView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         reportShapeMeasurement()
-        canvas.drawColor(Color.rgb(234, 232, 226))
+        canvas.drawColor(canvasBackgroundColor)
         canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale)
         if (!page.infinite) canvas.drawRect(-1f, -1f, page.width + 2f, page.height + 3f, shadowPaint)
         if (!page.infinite) canvas.clipRect(0f, 0f, page.width, page.height)
