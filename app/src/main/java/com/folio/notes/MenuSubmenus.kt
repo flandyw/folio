@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
@@ -50,8 +51,28 @@ internal fun SubmenuItem(
     enabled: Boolean = true, content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
-    val positionProvider = remember(density) {
-        with(density) { SubmenuPositionProvider(8.dp.roundToPx(), 4.dp.roundToPx()) }
+    val view = LocalView.current
+    val positionProvider = remember(density, view) {
+        val delegate = with(density) { SubmenuPositionProvider(8.dp.roundToPx(), 4.dp.roundToPx()) }
+        val screenLocation = IntArray(2)
+        val windowLocation = IntArray(2)
+        object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+                layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                // Compose 1.8 supplies bounds inside the parent popup's window, but Android
+                // positions nested popup windows in screen coordinates. Convert before
+                // choosing a side and clamping against the display edges.
+                view.getLocationOnScreen(screenLocation)
+                view.getLocationInWindow(windowLocation)
+                val windowOffset = IntOffset(
+                    screenLocation[0] - windowLocation[0],
+                    screenLocation[1] - windowLocation[1]
+                )
+                return delegate.calculatePosition(
+                    anchorBounds.translate(windowOffset), windowSize, layoutDirection, popupContentSize
+                )
+            }
+        }
     }
     Box {
         DropdownMenuItem(
