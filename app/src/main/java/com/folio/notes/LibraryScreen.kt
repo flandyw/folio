@@ -155,6 +155,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     // Never put the library's palm guard above the native handwriting surface.
     BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
+        // With a sidebar the destinations are peer panes of one layout, so swapping them is a
+        // repaint rather than a navigation: only the full-screen (no rail) layout animates.
+        val entrance = if (wide) Modifier else Modifier.folioEntrance()
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (wide && showNavigation) NavigationRail(
@@ -205,12 +208,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
-                if (showMistakes) Box(Modifier.weight(1f).fillMaxHeight().folioEntrance()) {
+                if (showMistakes) Box(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
                     destinationState.SaveableStateProvider("mistakes") {
                         mistakesContent { reviewMode = it }
                     }
                 }
-                if (!showMistakes && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().folioEntrance(),
+                if (!showMistakes && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().then(entrance),
                     state = libraryGridState,
                     contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -447,7 +450,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (!showMistakes && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().folioEntrance().verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                if (!showMistakes && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().then(entrance).verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                         if (!wide) Spacer(Modifier.weight(1f))

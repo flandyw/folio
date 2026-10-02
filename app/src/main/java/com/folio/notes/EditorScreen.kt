@@ -79,7 +79,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
-/** Compact icons retain full touch targets and spoken labels inside the floating toolbar. */
+/**
+ * Compact icons retain full touch targets and spoken labels inside the floating toolbar.
+ *
+ * The active (highlighted) container is a circle: the toolbar's own corner is nearly square, so a
+ * rounded square inside it read as a mismatched chip. Only the highlight has a visible shape, so
+ * the circle keeps every state the same size and the row visually even.
+ */
 @Composable private fun WritingFollowControl(
     icon: ImageVector, label: String, enabled: Boolean = true, active: Boolean = false,
     onClick: () -> Unit
@@ -90,7 +96,7 @@ import java.io.ByteArrayOutputStream
     ) {
         IconButton(
             onClick, modifier = Modifier.size(48.dp), enabled = enabled,
-            shape = FolioShapes.large,
+            shape = CircleShape,
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                 contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else LocalContentColor.current
