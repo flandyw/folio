@@ -865,7 +865,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             // Keep the default Material shape, colors and elevation, with a shorter container.
             // Secondary actions overflow in narrow companion panes instead of shrinking targets.
-            val followToolbarWidth = 48.dp * (if (peekAnchor != null) 5 else 4) + 8.dp
+            val followToolbarWidth = 48.dp * (if (peekAnchor != null) 6 else 5) + 8.dp
             val overflowFollowActions = maxWidth < followToolbarWidth + 32.dp
             fun toggleFollowPause() {
                 writingFollowPaused = !followStatus.paused
@@ -889,6 +889,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 if (writingFollowEnabled && !overflowFollowActions) {
                     WritingFollowControl(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next writing line",
                         enabled = !peekHeld, onClick = { followView?.nextWritingLine() })
+                    WritingFollowControl(Icons.AutoMirrored.Rounded.Undo, "Back to previous view",
+                        enabled = !peekHeld && followStatus.canGoBack, onClick = { followView?.backWritingView() })
                     WritingFollowControl(
                         if (followStatus.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
                         if (followStatus.paused) "Resume writing follow" else "Pause writing follow",
