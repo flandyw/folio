@@ -108,6 +108,22 @@ class WritingFollow {
         return state.recent.size >= 2 && right - left >= maxOf(32f, laneHeight() * 2f)
     }
 
+    private fun overlapsBody(box: WritingLane): Boolean {
+        val baseline = state.baselineY ?: return false
+        val height = laneHeight()
+        val tops = state.recent.map { it.top }.sorted()
+        val top = tops.getOrNull(tops.size / 2) ?: (baseline - height)
+        return box.top <= top + height * .35f && box.bottom >= baseline - height * .25f
+    }
+
+    /** A letter spanning the current body may also have an ascender and a descender. */
+    fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean {
+        if (points.isEmpty()) return false
+        val box = WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
+        val allowance = if (overlapsBody(box)) minOf(laneHeight(), spacing * .5f) else 0f
+        return FollowNavigation.isTextStroke(points, spacing, allowance)
+    }
+
     fun completed(points: List<InkPoint>, now: Long, preferences: FollowPreferences = FollowPreferences()): WritingProgress {
         if (now < state.suspendedUntil || points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return WritingProgress.NONE
         val box = WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
@@ -125,16 +141,19 @@ class WritingFollow {
         }
         // Diagrams and tall flourishes must not pull a handwriting lane down the page.
         val height = laneHeight()
-        if (!FollowNavigation.isTextStroke(points, maxOf(preferences.spacing, height * 1.5f))) return WritingProgress.NONE
+        if (!isTextStroke(points, maxOf(preferences.spacing, height * 1.5f))) return WritingProgress.NONE
         val spacing = lineSpacing(preferences.spacing, preferences.adaptiveSpacing)
         val threshold = minOf(spacing * .55f, height).coerceAtLeast(10f)
         if (baseline != null && strokeHeight < height * .55f && box.top > baseline - height * .25f)
             return WritingProgress.NONE
-        // A new line's body lies below the old baseline. A descender starts in the old body.
-        // The top gate stays wide (a full lane height) so tall capitals still count as a new
-        // line: a misclassified descender merely stages a candidate that needs a second
-        // stroke on the same level to confirm, so it never moves the view on its own.
-        val changedLane = baseline != null && box.bottom - baseline > threshold && box.top >= baseline - height
+        // A descender still spans the old body: keep following its horizontal progress,
+        // without teaching its bottom as a new baseline. A tall capital on the next line
+        // can span that body too, but returning behind the frontier permits confirmation.
+        val returned = if (preferences.direction == WritingDirection.LTR)
+            state.frontierRight?.let { box.right < it - maxOf(32f, height * 2f) } == true
+        else state.frontierLeft?.let { box.left > it + maxOf(32f, height * 2f) } == true
+        val changedLane = baseline != null && box.bottom - baseline > threshold && box.top >= baseline - height &&
+            (!overlapsBody(box) || returned)
         val recent = if (changedLane) {
             val last = state.candidateLane
             // A thinking pause between the first and second stroke of a new line must not
@@ -324,9 +343,9 @@ object FollowNavigation {
     /** A lane narrower than this is a mistake, not a column; returns never aim that far in. */
     const val MIN_LANE_UNITS = 48f
 
-    fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean = points.isNotEmpty() &&
+    fun isTextStroke(points: List<InkPoint>, spacing: Float, descenderAllowance: Float = 0f): Boolean = points.isNotEmpty() &&
         points.all { it.x.isFinite() && it.y.isFinite() } && spacing.isFinite() && spacing > 0f &&
-        points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f &&
+        points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f + descenderAllowance.coerceIn(0f, spacing * .5f) &&
         // A cursive word in one stroke is easily 30-50 mm wide; only very long
         // underlines/diagrams (55+ mm) are rejected here.
         points.maxOf { it.x } - points.minOf { it.x } < 220f

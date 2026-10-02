@@ -250,10 +250,18 @@ class InkView(context: Context) : View(context) {
         onWritingRegion(writingRegion)
         reportFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
     }
-    private fun followRegion(): WritingLane {
+    private fun followRegion(strokeY: Float? = null): WritingLane {
         writingRegion?.let { return it }
         val point = followLastPoint
-        val guide = point?.let { p -> writingGuides.filter { p.x in it.left..it.right && kotlin.math.abs(it.y - p.y) <= 16f }.minByOrNull { kotlin.math.abs(it.y - p.y) } }
+        val guide = point?.let { p ->
+            // A descender can finish nearer the rule below. Keep the established line as
+            // the anchor; before it exists, use the stroke's body rather than its endpoint.
+            val y = writingFollow.state.baselineY?.takeIf {
+                kotlin.math.abs(it - (strokeY ?: p.y)) <= maxOf(followPreferences.spacing, writingFollow.laneHeight() * 1.5f)
+            } ?: strokeY ?: p.y
+            writingGuides.filter { p.x in it.left..it.right && kotlin.math.abs(it.y - y) <= 16f }
+                .minByOrNull { kotlin.math.abs(it.y - y) }
+        }
         if (guide != null) {
             var end: WritingGuide = guide
             while (true) { end = WritingGuides.next(end, writingGuides) ?: break }
@@ -1268,7 +1276,7 @@ class InkView(context: Context) : View(context) {
             }
         }
         followLastPoint = point
-        val region = followRegion()
+        val region = followRegion((drawn.points.minOf { it.y } + drawn.points.maxOf { it.y }) * .5f)
         if (writingRegion == null && previousArea != null &&
             (point.x !in previousArea.left..previousArea.right || point.y !in previousArea.top..previousArea.bottom)) {
             suspendWritingFollow()
@@ -1306,7 +1314,7 @@ class InkView(context: Context) : View(context) {
         val atEnd = followPreferences.mode == FollowMode.TEXT &&
             writingFollow.readyForReturn() && FollowNavigation.nearEnd(drawn.points, region,
                 followPreferences.direction, followPreferences.endMargin) &&
-            next != null && FollowNavigation.isTextStroke(drawn.points, next.to.y - next.from.y)
+            next != null && writingFollow.isTextStroke(drawn.points, next.to.y - next.from.y)
         reportFollowStatus(when {
             atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(delay)} · touch down to cancel"
             atEnd -> "Next line ready · tap Next line"
