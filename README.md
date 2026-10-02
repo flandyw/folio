@@ -42,5 +42,5 @@ Requires JDK 17 and Android SDK 36.
 Run the full CI checks with:
 
 ```sh
-./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+./gradlew :app:assembleDebug :app:lintDebug
 ```

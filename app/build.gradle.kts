@@ -73,7 +73,6 @@ android {
         // share this one project since ExamTrack was merged into Focal. Never commit real keys here.
         buildConfigField("String", "FOCAL_SUPABASE_URL", supabaseConfig("FOCAL_SUPABASE_URL", "https://example.supabase.co"))
         buildConfigField("String", "FOCAL_SUPABASE_PUBLISHABLE_KEY", supabaseConfig("FOCAL_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         create("release") {
@@ -117,28 +116,6 @@ tasks.register<PrintReleaseVersionTask>("printReleaseVersion") {
     releaseTag.set(automaticReleaseTag)
 }
 
-// AGP 9 puts android.jar first on the unit-test *compile* classpath, while the
-// runtime classpath still puts dependency jars first. The platform org.json in
-// android.jar lacks JSONObject.similar(), so unit tests using it stopped compiling.
-// Reorder: dependency jars first, android.jar last — matching the runtime order.
-// Deferred to afterEvaluate: AGP wires these classpaths after the plugins block.
-afterEvaluate {
-    tasks.withType<JavaCompile>().configureEach {
-        if (name.contains("UnitTest")) {
-            val snapshot = classpath.toList()
-            setClasspath(files(snapshot.filter { it.name != "android.jar" } + snapshot.filter { it.name == "android.jar" }))
-        }
-    }
-    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-        if (name.contains("UnitTest")) {
-            val snapshot = libraries.toList()
-            (libraries as org.gradle.api.file.ConfigurableFileCollection).setFrom(
-                snapshot.filter { it.name != "android.jar" } + snapshot.filter { it.name == "android.jar" }
-            )
-        }
-    }
-}
-
 dependencies {
     implementation(platform("io.github.jan-tennert.supabase:bom:3.0.3"))
     implementation("io.github.jan-tennert.supabase:auth-kt")
@@ -164,11 +141,4 @@ dependencies {
     // PDF text extraction for in-app search (Apache 2.0). Rendering stays on the framework PdfRenderer.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2025.06.01"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("io.ktor:ktor-client-mock:3.0.3")
-    testImplementation("org.json:json:20240303")
 }

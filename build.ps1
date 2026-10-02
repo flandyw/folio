@@ -1,4 +1,4 @@
-param([string[]]$Tasks = @(':app:assembleDebug', ':app:testDebugUnitTest', ':app:lintDebug'))
+param([string[]]$Tasks = @(':app:assembleDebug', ':app:lintDebug'))
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {

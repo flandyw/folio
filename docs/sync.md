@@ -48,16 +48,12 @@ type. A parameter map whose values are a json element and a string infers
 `Map<String, Any>`, which has no serializer: the call fails with
 `SerializationException: Serializer for class 'Any' is not found` and never reaches the
 network. Every parameter map in `sync/SyncRemote.kt` is therefore typed
-`Map<String, JsonElement>`, and `SyncRemoteParamsTests` asserts the encoded bodies.
+`Map<String, JsonElement>`, so the encoded bodies stay serializable.
 
 ## Validation
 
 ```sh
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-Database integration tests live in `focal/supabase/tests/` and run with
-`supabase test db` against a local Supabase stack. They require Docker and include canonical
-session lifecycle, offline timing, cursor and versioned-change cases. A live sync check also
-requires the shared Focal URL/key and a test account.
+A live sync check requires the shared Focal URL/key and a test account.

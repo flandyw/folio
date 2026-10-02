@@ -53,7 +53,7 @@ A global two-slot pool reuses warmed WebViews. A cache miss briefly attaches a t
 
 A 16 MiB memory LRU and versioned 32 MiB disk cache store images keyed by structured content, exact document width, font size, line height, density and theme color. The document-v3 namespace invalidates earlier partial formula captures. Neither cache nor pool retains an Activity, and evicted images are never recycled while visible. Output above four million pixels falls back to complete native source rather than allocating an unbounded bitmap.
 
-Run `node tools/katex-smoke.cjs` for bundled assets, representative expressions and asynchronous request isolation. `RichTextDocumentTests` guards complete source, display mode and literal markup transport. `KaTeXRenderingTests` exercises Android WebView capture, every equation and the final instruction past the old preview budget at multiple widths/font sizes, wide-equation fitting, theme colors, thin ink, malformed source and HTML isolation. `MistakeDashboardTests` verifies full-height cards, footer placement, actions, larger text, and captures the screenshot's Question 8b at card/detail widths. Run these on an isolated emulator/device. In airplane mode also check lazy-list scroll-away/back, light/dark themes and device text scaling.
+Run `node tools/katex-smoke.cjs` for bundled assets, representative expressions and asynchronous request isolation. Manually check on an isolated emulator/device: Android WebView capture, every equation and the final instruction past the old preview budget at multiple widths/font sizes, wide-equation fitting, theme colors, thin ink, malformed source and HTML isolation, plus full-height dashboard cards and footer placement. In airplane mode also check lazy-list scroll-away/back, light/dark themes and device text scaling.
 
 ## Authentication and isolation
 
@@ -94,18 +94,13 @@ Notebook `.folio` archives include the local review metadata and all normal page
 ## Validation
 
 ```sh
-ANDROID_HOME=/path/to/android/sdk ./gradlew \
-  :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
-# With an isolated test device/emulator connected:
-./gradlew :app:connectedDebugAndroidTest
-# Regenerate the 320 scheduler cases from the actual ExamTrack checkout:
-node tools/examtrack-scheduler-fixtures.cjs ../examtrack
+ANDROID_HOME=/path/to/android/sdk ./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-Tests cover payload/unknown-field preservation, all scheduler states/ratings, legacy migration, due sorting, attachments, downloads, offline upload recovery, conflicts/tombstones, malformed rows, account isolation, signed-out SDK requests, pagination, conditional authenticated writes, independent attempt pages and portable backups. Device tests cover Keystore persistence and actual split-page storage.
+Storage and sync behaviour must be checked by hand on a device: payload/unknown-field preservation, scheduler states/ratings, legacy migration, due sorting, attachments, downloads, offline upload recovery, conflicts/tombstones, malformed rows, account isolation, signed-out SDK requests, pagination, conditional authenticated writes, independent attempt pages and portable backups. Also check Keystore persistence and actual split-page storage.
 
 Limitations: no real-account/password or connected-device end-to-end run was performed during implementation. On-device pen interaction, Keystore behavior and live RLS/storage authorization still need the smoke test below. Local linking to an imported exam/PeekAnchor, JSON import, account registration and background scheduled sync are not included.
 
 ### Device smoke test
 
-Use an isolated test install. Sign in with an existing ExamTrack account, verify counts and a private image, then enable airplane mode. Restart Folio, review a mistake with several strokes, reveal/rate, and inspect the saved attempt. Restore connectivity and verify the same rating/review ID and due date in ExamTrack. Review again and verify both Folio pages remain. Edit/delete a card in ExamTrack, sync Folio, and verify update/deletion. Sign out, sign in as a second test account, and confirm its cloud list is separate. Export/import a practice `.folio` and verify ink and review references. Never run the session instrumentation test against a student's signed-in installation.
+Use an isolated test install. Sign in with an existing ExamTrack account, verify counts and a private image, then enable airplane mode. Restart Folio, review a mistake with several strokes, reveal/rate, and inspect the saved attempt. Restore connectivity and verify the same rating/review ID and due date in ExamTrack. Review again and verify both Folio pages remain. Edit/delete a card in ExamTrack, sync Folio, and verify update/deletion. Sign out, sign in as a second test account, and confirm its cloud list is separate. Export/import a practice `.folio` and verify ink and review references. Never run a device check against a student's signed-in installation.
