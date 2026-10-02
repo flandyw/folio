@@ -76,6 +76,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
+/** Small, uniform controls keep the writing bar on one line, including on phones. */
+@Composable private fun WritingFollowControl(
+    icon: ImageVector, label: String, enabled: Boolean = true, active: Boolean = false,
+    onClick: () -> Unit
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()
+    ) {
+        IconButton(
+            onClick, modifier = Modifier.size(48.dp), enabled = enabled,
+            shapes = IconButtonDefaults.shapes(),
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) { Icon(icon, label, Modifier.size(20.dp)) }
+    }
+}
+
 private fun paperLabel(p: Paper): String = when (p) {
     Paper.PLAIN -> "Plain"
     Paper.RULED -> "Ruled"
@@ -800,16 +820,16 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                DropdownMenu(pageMenuFor == item.id, { pageMenuFor = null }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("Name page") }, { pageMenuFor = null; namedPage = item; pageTitle = item.title }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                    DropdownMenuItem({ Text(if (item.bookmarked) "Remove bookmark" else "Bookmark page") }, { pageMenuFor = null; model.togglePageBookmark(item.id) }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
-                                    DropdownMenuItem({ Text(if (item.redoFlag) "Clear redo flag" else "Flag to redo") }, { pageMenuFor = null; model.setPageRedoFlag(note.id, item.id, !item.redoFlag) }, leadingIcon = { Icon(Icons.Rounded.OutlinedFlag, null) })
-                                    HorizontalDivider()
-                                    DropdownMenuItem({ Text("Insert page after") }, { pageMenuFor = null; revealNewPage(model.insertPage(index + 1)) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                                    DropdownMenuItem({ Text("Duplicate page") }, { pageMenuFor = null; model.duplicatePage(index)?.let { revealNewPage(it) } }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                    DropdownMenuItem({ Text("Move page…") }, { pageMenuFor = null; movingPage = item.id; destinationPage = (index + 1).toString() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
-                                    if (note.pages.size > 1) DropdownMenuItem({ Text("Delete page") }, { pageMenuFor = null; deletingPage = item.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
-                                }
+                                PageRowMenu(item, pageMenuFor == item.id, { pageMenuFor = null },
+                                    canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
+                                    onName = { namedPage = item; pageTitle = item.title },
+                                    onBookmark = { model.togglePageBookmark(item.id) },
+                                    onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
+                                    onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
+                                    onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
+                                    onInsert = { revealNewPage(model.insertPage(index + 1)) },
+                                    onDuplicate = { model.duplicatePage(index)?.let { revealNewPage(it) } },
+                                    onDelete = { deletingPage = item.id })
                             }
                         }
                     }
@@ -885,52 +905,82 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             Row(Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
                 .onSizeChanged { writingControlsHeight = with(density) { it.height.toDp() } }
-                .padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16)
+                .padding(FolioSpacing.dp8)
                 .zIndex(11f), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shadowElevation = 4.dp, tonalElevation = 1.dp,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 ) {
-                    Column(Modifier.widthIn(max = 600.dp).padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2)) {
-                        FlowRow(verticalArrangement = Arrangement.Center) {
-                            TextButton({ setWritingFollow(!writingFollowEnabled) }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.SwipeRight, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(FolioSpacing.dp4))
-                                Text(if (writingFollowEnabled) "Follow on" else "Follow off")
-                            }
-                            Box {
-                                IconButton({ followMenu = true }, enabled = !peekHeld, shapes = IconButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.Tune, "Writing follow options")
+                    Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                        WritingFollowControl(
+                            Icons.Rounded.SwipeRight,
+                            if (writingFollowEnabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
+                            enabled = !peekHeld, active = writingFollowEnabled,
+                            onClick = { setWritingFollow(!writingFollowEnabled) }
+                        )
+                        WritingFollowControl(
+                            Icons.Rounded.HorizontalSplit,
+                            if (writingStripOpen) "Close writing strip" else "Open writing strip",
+                            enabled = !peekHeld, active = writingStripOpen,
+                            onClick = {
+                                activeInkView?.suspendWritingFollow()
+                                motion.reset()
+                                writingStripOpen = !writingStripOpen
+                                if (writingStripOpen) {
+                                    writingFollowEnabled = true
+                                    appPrefs.edit().putBoolean("writingFollow", true).apply()
                                 }
-                                DropdownMenu(followMenu, { followMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem(
-                                        { Text("Writing follow: " + if (writingFollowEnabled) "on" else "off") },
-                                        {
-                                            setWritingFollow(!writingFollowEnabled)
-                                            followMenu = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Rounded.SwipeRight, null) },
-                                        trailingIcon = { if (writingFollowEnabled) Icon(Icons.Rounded.Check, "On") }
-                                    )
-                                    DropdownMenuItem(
-                                        { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
-                                        {
-                                            setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
-                                            followView?.suspendWritingFollow()
-                                        },
-                                        leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
-                                    )
-                                    DropdownMenuItem(
-                                        { Text("Follow mode: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
-                                        {
-                                            followPreferences = followPreferences.copy(mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
-                                            followMenu = false
-                                        },
-                                        leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) },
-                                        trailingIcon = { if (followPreferences.mode == FollowMode.MATH) Icon(Icons.Rounded.Check, "Maths on") }
-                                    )
-                                    DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
+                            }
+                        )
+                        if (writingFollowEnabled) {
+                            WritingFollowControl(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next writing line",
+                                enabled = !peekHeld, onClick = { followView?.nextWritingLine() })
+                            WritingFollowControl(
+                                if (followStatus.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                                if (followStatus.paused) "Resume writing follow" else "Pause writing follow",
+                                enabled = !peekHeld, active = followStatus.paused,
+                                onClick = {
+                                    writingFollowPaused = !followStatus.paused
+                                    if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
+                                }
+                            )
+                        }
+                        Box {
+                            var followSub by remember { mutableStateOf<FollowSub?>(null) }
+                            val openSub: (FollowSub) -> Unit = { followSub = if (followSub == it) null else it }
+                            WritingFollowControl(Icons.Rounded.Tune, "Writing follow options",
+                                enabled = !peekHeld, onClick = { followMenu = true })
+                            DropdownMenu(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches()) {
+                                if (writingFollowEnabled) {
+                                    Text(followStatus.message,
+                                        Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    DropdownMenuItem({ Text("Back to previous view") },
+                                        { followView?.backWritingView(); followMenu = false },
+                                        enabled = !peekHeld && followStatus.canGoBack,
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
+                                    HorizontalDivider()
+                                }
+                                DropdownMenuItem(
+                                    { Text("Follow mode: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
+                                    {
+                                        followPreferences = followPreferences.copy(
+                                            mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
+                                        followMenu = false
+                                    },
+                                    leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) }
+                                )
+                                DropdownMenuItem(
+                                    { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
+                                    {
+                                        setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
+                                        followView?.suspendWritingFollow()
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
+                                )
+                                SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
                                     DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
                                     DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
                                     DropdownMenuItem(
@@ -952,17 +1002,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                                             followMenu = false
                                         })
                                     if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
-                                    DropdownMenuItem({ Text(if (writingStripOpen) "Close writing strip" else "Open writing strip") }, {
-                                        activeInkView?.suspendWritingFollow()
-                                        motion.reset()
-                                        writingStripOpen = !writingStripOpen
-                                        writingFollowEnabled = true
-                                        appPrefs.edit().putBoolean("writingFollow", true).apply()
-                                        followMenu = false
-                                    })
-                                    HorizontalDivider()
+                                }
+                                DropdownMenuItem({ Text("Follow settings") }, { followSettingsOpen = true; followMenu = false })
+                                HorizontalDivider()
+                                SubmenuItem("Peek anchor…", Icons.Rounded.PushPin, followSub == FollowSub.ANCHOR, { openSub(FollowSub.ANCHOR) }) {
                                     DropdownMenuItem(
-                                        { Text("Set current view as Peek Anchor") },
+                                        { Text(if (peekAnchor == null) "Set current view as Peek Anchor" else "Replace Peek Anchor with this view") },
                                         {
                                             activeInkView?.currentPeekAnchor()?.let { model.setPeekAnchor(it) }
                                             followMenu = false
@@ -978,57 +1023,22 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
                                     )
                                     if (peekAnchor != null) DropdownMenuItem(
-                                        { Text("Remove Peek Anchor") },
+                                        { Text("Clear Peek Anchor") },
                                         { model.setPeekAnchor(null); followMenu = false },
                                         leadingIcon = { Icon(Icons.Rounded.Close, null) }
                                     )
                                 }
                             }
-                            if (writingFollowEnabled) {
-                                TextButton(
-                                    {
-                                        followPreferences = followPreferences.copy(
-                                            mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT
-                                        )
-                                    },
-                                    enabled = !peekHeld,
-                                    shapes = ButtonDefaults.shapes()) {
-                                    Icon(
-                                        if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions,
-                                        null, Modifier.size(18.dp),
-                                        tint = if (followPreferences.mode == FollowMode.MATH) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                                    )
-                                    Spacer(Modifier.width(FolioSpacing.dp4))
-                                    Text(if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths")
-                                }
-                                TextButton({ followView?.nextWritingLine() }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text("Next line") }
-                                TextButton({ followView?.backWritingView() }, enabled = !peekHeld && followStatus.canGoBack, shapes = ButtonDefaults.shapes()) { Text("Back") }
-                                TextButton({
-                                    writingFollowPaused = !followStatus.paused
-                                    if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
-                                }, enabled = !peekHeld, shapes = ButtonDefaults.shapes()) { Text(if (followStatus.paused) "Resume" else "Pause") }
-                            }
-                            if (peekAnchor != null) {
-                                Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                                PeekHoldButton(peekAnchor) { held ->
-                                    if (!held) peekHeld = false
-                                    else if (activeInkView?.isWritingGesture == false) {
-                                        motion.reset()
-                                        peekHeld = true
-                                    }
-                                }
-                            }
                         }
-                        if (writingFollowEnabled) {
-                            Text(
-                                followStatus.message,
-                                modifier = Modifier.widthIn(max = 400.dp)
-                                    .padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        if (peekAnchor != null) {
+                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            PeekHoldButton(peekAnchor) { held ->
+                                if (!held) peekHeld = false
+                                else if (activeInkView?.isWritingGesture == false) {
+                                    motion.reset()
+                                    peekHeld = true
+                                }
+                            }
                         }
                     }
                 }
@@ -1110,9 +1120,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onExport = onExport,
                             onPageOptions = { more = true },
                             additionalMenus = {
-                                    PageOptionsMenu(more, { more = false }, page, snapEnabled, state.saveFailed, state.clipboard.isNotEmpty(),
+                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed, state.clipboard.isNotEmpty(),
                                         onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
-                                        onSnap = { setSnap(!snapEnabled) }, onPaste = { model.pasteClipboard() },
+                                        onPaste = { model.pasteClipboard() },
                                         onClear = { clear = true }, onRetry = model::retrySave,
                                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
@@ -1201,6 +1211,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onDelete = { deletingPage = item.id },
                     onName = { namedPage = item; pageTitle = item.title },
                     onBookmark = { model.togglePageBookmark(item.id) },
+                    onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
                     onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
@@ -2098,14 +2109,16 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
+            var toolSub by remember { mutableStateOf<ToolSub?>(null) }
+            val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
             IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
-            DropdownMenu(shapes, { shapes = false }, modifier = Modifier.guardUiTouches()) {
+            DropdownMenu(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches()) {
                 if (compactTools) {
                     DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
                     HorizontalDivider()
                 }
-                if (toolbarLayout.overflow.isNotEmpty()) Text("Tools", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (toolbarLayout.overflow.isNotEmpty()) MenuSectionHeader("Tools")
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
                         ShapePickerTools.forEach { value ->
@@ -2124,38 +2137,37 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
                 if (toolbarLayout.overflow.isNotEmpty()) HorizontalDivider()
                 if (presets.isNotEmpty() && onApplyPreset != null) {
-                    Text("Presets", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    presets.forEach { preset ->
-                        DropdownMenuItem(
-                            { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
-                            { onApplyPreset(preset); shapes = false },
-                            leadingIcon = { Icon(Icons.Rounded.Bookmark, null) }
-                        )
+                    SubmenuItem("Presets…", Icons.Rounded.Bookmark, toolSub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
+                        MenuSectionHeader("Presets")
+                        presets.forEach { preset ->
+                            DropdownMenuItem(
+                                { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
+                                { onApplyPreset(preset); shapes = false },
+                                leadingIcon = { Icon(Icons.Rounded.Bookmark, null) }
+                            )
+                        }
                     }
-                    HorizontalDivider()
                 }
                 if (onSelectAll != null) {
                     DropdownMenuItem({ Text("Select all") }, { onSelectAll(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
-                    HorizontalDivider()
                 }
-                Text("Tool behaviour", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                MenuSectionHeader("Tool behaviour")
                 if (!isDrawing && tool != Tool.ERASER) {
                     DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
                     if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
-                    HorizontalDivider()
                 }
+                // Pen, highlighter and eraser share these four; one row beats four toggles in the open menu.
                 if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                    if (onEraserSingleStroke != null) DropdownMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
-                    if (onEraserPressure != null) DropdownMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
-                    if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
-                    if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
-                    HorizontalDivider()
+                    val label = if (tool == Tool.ERASER) "Eraser options…" else if (tool == Tool.HIGHLIGHTER) "Highlighter options…" else "Pen options…"
+                    SubmenuItem(label, toolbarSlotIcon(ToolbarSlot.ERASER, tool, lastShape), toolSub == ToolSub.TOOL, { openSub(ToolSub.TOOL) }) {
+                        if (onEraserSingleStroke != null) DropdownMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
+                        if (onEraserPressure != null) DropdownMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
+                        if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
+                        if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
+                    }
                 }
-                if (onMultiTouchUndo != null) {
-                    DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
-                    HorizontalDivider()
-                }
-                DropdownMenuItem({ Text("Tool settings") }, { onPalette(true); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                HorizontalDivider()
+                if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             }
         }
@@ -2394,52 +2406,93 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
 
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
 @Composable private fun PageOptionsMenu(
-    expanded: Boolean, onDismiss: () -> Unit, page: NotePage, snapEnabled: Boolean, saveFailed: Boolean,
+    expanded: Boolean, onDismiss: () -> Unit, page: NotePage, saveFailed: Boolean,
     canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
-    onSnap: () -> Unit, onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
+    onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
     onFitAll: (() -> Unit)? = null
 ) {
+    var submenu by remember { mutableStateOf<Submenu?>(null) }
+    val open: (Submenu) -> Unit = { submenu = if (submenu == it) null else it }
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
-        Text("Page", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        MenuSectionHeader("Page")
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
-        HorizontalDivider()
-        Text("Study", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        DropdownMenuItem(
-            { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
-            { onDismiss(); onRedo() },
-            leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
-        )
-        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
-        DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
-        DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
-        HorizontalDivider()
-        Text("Insert & find", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
-        DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
-        DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
-        DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-        HorizontalDivider()
-        Text("View & editing", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        if (onFitAll != null) {
-            DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-            DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
-        } else {
-            DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+        SubmenuItem("Study tools", Icons.Rounded.School, submenu == Submenu.STUDY, { open(Submenu.STUDY) }) {
+            DropdownMenuItem(
+                { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
+                { onDismiss(); onRedo() },
+                leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
+            )
+            DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
+            DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
+            DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
         }
-        DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
-        DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
-        DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onDismiss(); onSnap() }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
-        DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
+        SubmenuItem("Insert & find", Icons.Rounded.AddPhotoAlternate, submenu == Submenu.INSERT, { open(Submenu.INSERT) }) {
+            DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
+            DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
+            DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
+            DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+            DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+        }
+        SubmenuItem("Page & view", Icons.Rounded.FitScreen, submenu == Submenu.VIEW, { open(Submenu.VIEW) }) {
+            if (onFitAll != null) {
+                DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
+            } else {
+                DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+            }
+            DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
+            DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
+            HorizontalDivider()
+            DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
+        }
+        if (saveFailed) {
+            HorizontalDivider()
+            DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
+        }
         HorizontalDivider()
-        DropdownMenuItem({ Text("Editor settings") }, { onDismiss(); onSettings() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
-        if (saveFailed) DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
+        DropdownMenuItem({ Text("App settings…") }, { onDismiss(); onSettings() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+    }
+}
+
+/** The second-level menus under [PageOptionsMenu]. */
+private enum class Submenu { STUDY, INSERT, VIEW }
+
+/** The second-level menus under the toolbar's ⋯ menu. */
+private enum class ToolSub { PRESETS, TOOL }
+
+/** The second-level menus under the writing follow ⚙ menu. */
+private enum class FollowSub { AREAS, ANCHOR }
+
+/**
+ * The page commands shared by the page drawer and the page browser row, so one list of moves
+ * governs a page wherever it is shown. Callers close their own menu via [onDismiss].
+ */
+@Composable private fun PageRowMenu(
+    page: NotePage, expanded: Boolean, onDismiss: () -> Unit,
+    canMoveUp: Boolean, canMoveDown: Boolean, canDelete: Boolean,
+    onName: () -> Unit, onBookmark: () -> Unit, onRedoFlag: () -> Unit, onMoveTo: () -> Unit,
+    onMoveUp: () -> Unit, onMoveDown: () -> Unit, onInsert: () -> Unit, onDuplicate: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val run: (() -> Unit) -> Unit = { onDismiss(); it() }
+    DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
+        DropdownMenuItem({ Text("Name page") }, { run(onName) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+        DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { run(onBookmark) }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
+        DropdownMenuItem({ Text(if (page.redoFlag) "Clear redo flag" else "Flag to redo") }, { run(onRedoFlag) }, leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) })
+        HorizontalDivider()
+        DropdownMenuItem({ Text("Move to position…") }, { run(onMoveTo) }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
+        DropdownMenuItem({ Text("Move up") }, { run(onMoveUp) }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) })
+        DropdownMenuItem({ Text("Move down") }, { run(onMoveDown) }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
+        DropdownMenuItem({ Text("Insert blank page after") }, { run(onInsert) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+        DropdownMenuItem({ Text("Duplicate page") }, { run(onDuplicate) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+        HorizontalDivider()
+        DropdownMenuItem({ Text("Delete page") }, { run(onDelete) }, enabled = canDelete, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
     }
 }
 
@@ -2448,7 +2501,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     page: NotePage, index: Int, current: Boolean, dragging: Boolean, modifier: Modifier = Modifier,
     onOpen: () -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit,
     onDuplicate: () -> Unit, onInsert: () -> Unit, onDelete: () -> Unit,
-    onName: () -> Unit, onBookmark: () -> Unit, onMoveTo: () -> Unit,
+    onName: () -> Unit, onBookmark: () -> Unit, onRedoFlag: () -> Unit, onMoveTo: () -> Unit,
     canMoveUp: Boolean, canMoveDown: Boolean, canDelete: Boolean,
     noteId: String, thumbnails: PageThumbnailCache
 ) {
@@ -2487,16 +2540,11 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 tint = if (page.bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             Box {
                 IconButton({ menu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
-                DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                    DropdownMenuItem({ Text("Name page") }, { menu = false; onName() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                    DropdownMenuItem({ Text("Move to position…") }, { menu = false; onMoveTo() }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
-                    DropdownMenuItem({ Text("Move up") }, { menu = false; onMoveUp() }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) })
-                    DropdownMenuItem({ Text("Move down") }, { menu = false; onMoveDown() }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
-                    DropdownMenuItem({ Text("Duplicate page") }, { menu = false; onDuplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                    DropdownMenuItem({ Text("Insert blank page after") }, { menu = false; onInsert() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                    HorizontalDivider()
-                    DropdownMenuItem({ Text("Delete page") }, { menu = false; onDelete() }, enabled = canDelete, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
-                }
+                PageRowMenu(page, menu, { menu = false },
+                    canMoveUp = canMoveUp, canMoveDown = canMoveDown, canDelete = canDelete,
+                    onName = onName, onBookmark = onBookmark,
+                    onRedoFlag = onRedoFlag, onMoveTo = onMoveTo, onMoveUp = onMoveUp, onMoveDown = onMoveDown,
+                    onInsert = onInsert, onDuplicate = onDuplicate, onDelete = onDelete)
             }
         }
     }
