@@ -999,7 +999,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
                 if (peekAnchor != null) {
-                    PeekHoldButton(peekAnchor) { held ->
+                    PeekHoldButton(peekAnchor, peekHeld) { held ->
                         if (!held) peekHeld = false
                         else if (activeInkView?.isWritingGesture == false) {
                             motion.reset()

@@ -69,8 +69,10 @@ class WritingFollow {
         val gaps = state.writingGaps.sorted()
         // Learn normal pen-up gaps, not stroke duration or long thinking breaks. A high
         // percentile protects word spaces; a small buffer leaves time to touch down again.
-        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 200).toInt() else 500
-        return maxOf(returnDelayMs.coerceIn(500, 2000), learned.coerceIn(500, 1400))
+        // The floor stays near letter gaps (not word gaps) so fast writers still get a
+        // glide between words instead of outrunning the view.
+        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 200).toInt() else 350
+        return maxOf(returnDelayMs.coerceIn(300, 2000), learned.coerceIn(300, 1400))
     }
 
     /** Keep a real dead band even when the preferred writing column is near an edge. */
@@ -129,23 +131,36 @@ class WritingFollow {
         if (baseline != null && strokeHeight < height * .55f && box.top > baseline - height * .25f)
             return WritingProgress.NONE
         // A new line's body lies below the old baseline. A descender starts in the old body.
-        val changedLane = baseline != null && box.bottom - baseline > threshold && box.top >= baseline - height * .25f
+        // The top gate stays wide (a full lane height) so tall capitals still count as a new
+        // line: a misclassified descender merely stages a candidate that needs a second
+        // stroke on the same level to confirm, so it never moves the view on its own.
+        val changedLane = baseline != null && box.bottom - baseline > threshold && box.top >= baseline - height
         val recent = if (changedLane) {
             val last = state.candidateLane
-            val fresh = state.candidateAt?.let { now - it in 0..4000 } == true
-            val extends = last != null && if (preferences.direction == WritingDirection.LTR)
-                box.right > last.right + 2f else box.left < last.left - 2f
-            if (last != null && fresh && extends && abs(last.bottom - box.bottom) <= maxOf(6f, threshold * .6f))
+            // A thinking pause between the first and second stroke of a new line must not
+            // force a third stroke to confirm it.
+            val fresh = state.candidateAt?.let { now - it in 0..15000 } == true
+            // Any second stroke on the same new level confirms the line. Requiring it to
+            // extend further right than the first fails for short second words ("a" after
+            // "Hello") and makes single-word lines need three strokes.
+            if (last != null && fresh && abs(last.bottom - box.bottom) <= maxOf(6f, threshold * .6f))
                 listOf(last, box)
             else { state = state.copy(candidateLane = box, candidateAt = now, pendingGap = null); return WritingProgress.NONE }
         } else {
-            // Corrections cannot shift the median, frontier or learned rhythm. Returning to
-            // the current line also discards an unconfirmed subscript/descender candidate.
+            // Corrections must hold the view but must not kill a new line in progress.
+            // Only continuing the old line (extending its frontier at the old level)
+            // proves the staged drop was a descender and discards it.
             val progresses = if (preferences.direction == WritingDirection.LTR)
                 state.frontierRight?.let { box.right > it + 2f } ?: true
             else state.frontierLeft?.let { box.left < it - 2f } ?: true
-            if (baseline != null && (baseline - box.bottom > height * .8f || !progresses)) {
+            val continuedOldLine = baseline != null && progresses &&
+                abs(box.bottom - baseline) <= threshold
+            if (continuedOldLine) {
                 state = state.copy(candidateLane = null, candidateAt = null, pendingGap = null)
+            } else if (baseline != null && (baseline - box.bottom > height * .8f || !progresses)) {
+                // Dotting an "i" or touching up the previous line holds the view but keeps
+                // the staged new-line candidate so the next stroke below still confirms.
+                state = state.copy(pendingGap = null)
                 return WritingProgress.NONE
             }
             if (baseline != null && box.bottom - baseline > threshold) state.recent
@@ -233,7 +248,7 @@ data class FollowPreferences(
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
     val spacing: Float = 32f,
-    /** Pause after pen lift before an automatic return fires. Same-line follow uses at least 500 ms. */
+    /** Pause after pen lift before an automatic return fires. Same-line follow uses at least 300 ms. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** Carriage-return glide length. 120..800 ms. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
@@ -312,7 +327,9 @@ object FollowNavigation {
     fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean = points.isNotEmpty() &&
         points.all { it.x.isFinite() && it.y.isFinite() } && spacing.isFinite() && spacing > 0f &&
         points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f &&
-        points.maxOf { it.x } - points.minOf { it.x } < 80f
+        // A cursive word in one stroke is easily 30-50 mm wide; only very long
+        // underlines/diagrams (55+ mm) are rejected here.
+        points.maxOf { it.x } - points.minOf { it.x } < 220f
 
     /**
      * The writing lane on an unbounded canvas: the visible viewport inset by the end margin,
@@ -322,22 +339,36 @@ object FollowNavigation {
      * page coordinates puts "end of line" somewhere the writer cannot see. Anchoring the lane
      * to the viewport instead makes the line end the visible edge at every zoom, which is what
      * lets automatic line return work on a canvas at all.
+     *
+     * The trailing edge is measured from the start column plus the viewport width, not from
+     * the current viewport edge, so following pans do not chase the end of the line away:
+     * same-line pans move the viewport but leave the page-space line end where it was, and
+     * writing reliably reaches it.
      */
     fun infiniteRegion(viewport: WritingLane, direction: WritingDirection, startX: Float? = null,
                        endMargin: Float = .08f): WritingLane {
         val width = viewport.right - viewport.left
         if (!width.isFinite() || width <= 0f) return viewport
         val margin = (width * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
+        // A full viewport lane inset on both sides; the trailing edge below derives from
+        // this width so pans never move it.
+        val laneWidth = maxOf(width - 2f * margin, MIN_LANE_UNITS)
         // A column started long ago may be far off screen; fall back to the viewport edge then.
         val remembered = startX?.takeIf {
             it.isFinite() && it in (viewport.left - width * .25f)..(viewport.right + width * .25f)
         }
         val (left, right) = if (direction == WritingDirection.LTR) {
-            val trailing = viewport.right - margin
-            (remembered ?: viewport.left + margin).coerceAtMost(trailing - MIN_LANE_UNITS) to trailing
+            if (remembered != null) remembered to remembered + laneWidth
+            else {
+                val trailing = viewport.right - margin
+                (viewport.left + margin).coerceAtMost(trailing - MIN_LANE_UNITS) to trailing
+            }
         } else {
-            val leading = viewport.left + margin
-            (remembered ?: viewport.right - margin).coerceAtLeast(leading + MIN_LANE_UNITS) to leading
+            if (remembered != null) remembered - laneWidth to remembered
+            else {
+                val leading = viewport.left + margin
+                leading to (viewport.right - margin).coerceAtLeast(leading + MIN_LANE_UNITS)
+            }
         }
         return WritingLane(left, viewport.top, right, Float.MAX_VALUE)
     }

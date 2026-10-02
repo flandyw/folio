@@ -1319,18 +1319,31 @@ class InkView(context: Context) : View(context) {
             return
         }
         if (!getLocalVisibleRect(followVisible)) return
+        val isNewLine = progress == WritingProgress.NEW_LINE
         val frontier = if (followPreferences.direction == WritingDirection.LTR)
             writingFollow.state.frontierRight ?: point.x else writingFollow.state.frontierLeft ?: point.x
         val sx = originX + frontier * scale
         val sy = originY + baseline * scale
         val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
-        val dx = if (followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && followVisible.width() > 0)
-            writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
-                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width() else 0f
+        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT || followVisible.width() <= 0) 0f
+        else if (isNewLine) {
+            // A fresh line starts at the remembered column, which is off-screen left after
+            // the previous line was followed rightwards. Edge-triggered shifts never fire
+            // there (the frontier is left, not past the edge), so return to the preferred
+            // column directly, like a carriage return.
+            val startX = writingFollow.state.lineStartX ?: frontier
+            (followVisible.left + followVisible.width() * target) - (originX + startX * scale)
+        } else writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
+                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width()
         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
-        val dy = if (followPreferences.verticalFollow && sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)
+        val dy = if (!followPreferences.verticalFollow) 0f
+        else if (isNewLine) desiredY - sy
+        else if (sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)
             desiredY - sy else 0f
+        // A new line pins itself to the preferred height even for small steps; rounding
+        // noise below half a pixel is still not worth scheduling a glide for.
         if (dx == 0f && dy == 0f) return
+        if (isNewLine && kotlin.math.abs(dx) < .5f && kotlin.math.abs(dy) < .5f) return
         advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
         advanceStartAt = now + delay
         sameLineWaiting = true; captureFollowBack = true; followMotionMoved = false

@@ -262,7 +262,7 @@ fun FollowSettingsDialog(
                         FollowSliderRow(
                             label = "Pause before following",
                             valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                            hint = "With rhythm learning, following and automatic return both wait at least 0.5 s and allow for your usual word gaps.",
+                            hint = "With rhythm learning, following and automatic return both wait at least 0.3 s and allow for your usual word gaps.",
                             value = preferences.returnDelayMs / 1000f,
                             onValueChange = {
                                 onPreferences(
