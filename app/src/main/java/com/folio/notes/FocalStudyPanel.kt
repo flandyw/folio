@@ -35,6 +35,7 @@ import java.util.Date
 fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
+    val entries = remember(state.entries, state.userId) { state.visibleEntries }
     var now by remember { mutableLongStateOf(manager.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -44,7 +45,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     }
     val examActive = timer.active && timer.startedAt != null
     val focus = state.focus
-    val sharedActive = state.visibleEntries.firstOrNull { it.active }
+    val sharedActive = entries.firstOrNull { it.active }
     val activeElapsed = when {
         focus != null -> focus.elapsed(now)
         sharedActive != null -> sharedActive.intervals.sumOf { interval ->
@@ -108,6 +109,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
 fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismiss: () -> Unit) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
+    val entries = remember(state.entries, state.userId) { state.visibleEntries }
     var subjectId by remember(note?.id) { mutableStateOf(note?.let { FocalSubjects.suggest(it) }) }
     var subjectMenu by remember { mutableStateOf(false) }
     var notes by rememberSaveable { mutableStateOf("") }
@@ -123,11 +125,11 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
     }
     val focus = state.focus
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
-    val today = remember(now / 60_000L, state.visibleEntries) {
+    val today = remember(now / 60_000L, entries) {
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        focalStudyMillisBetween(state.visibleEntries, start, now) / 60_000L
+        focalStudyMillisBetween(entries, start, now) / 60_000L
     }
     FolioPanel("Study sessions", onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
@@ -268,9 +270,11 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) { Text("Save session") }
             }
 
-            val sharedActive = state.visibleEntries.filter { entry ->
-                entry.active && entry.id != focus?.sessionId &&
-                    !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
+            val sharedActive = remember(entries, focus?.sessionId, examRecording?.startedAt) {
+                entries.filter { entry ->
+                    entry.active && entry.id != focus?.sessionId &&
+                        !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
+                }
             }
             if (sharedActive.isNotEmpty()) {
                 HorizontalDivider()
@@ -333,9 +337,10 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
             if (state.error != null && !state.syncing) Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             com.folio.notes.mistakes.FocalAccountContent()
 
-            val recent = state.visibleEntries.filter { it.completed && !focalIsCalendarPlaceholder(it) }
-                .sortedByDescending { it.endedAt }
-                .take(5)
+            val recent = remember(entries) {
+                entries.filter { it.completed && !focalIsCalendarPlaceholder(it) }
+                    .sortedByDescending { it.endedAt }.take(5)
+            }
             if (recent.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Recent sessions", style = MaterialTheme.typography.titleMedium)
@@ -360,7 +365,7 @@ fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismis
         }
     }
     bulkAction?.let { action ->
-        val ids = state.visibleEntries.filter { it.active && it.paused && it.id != focus?.sessionId &&
+        val ids = entries.filter { it.active && it.paused && it.id != focus?.sessionId &&
             !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }.map { it.id }
         AlertDialog(onDismissRequest = { bulkAction = null }, modifier = Modifier.guardUiTouches(),
             title = { Text(if (action == "discard") "Discard ${ids.size} paused sessions?" else "Finish ${ids.size} paused sessions?") },

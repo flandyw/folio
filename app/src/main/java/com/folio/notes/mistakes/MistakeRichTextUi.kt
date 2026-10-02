@@ -50,7 +50,7 @@ fun RichText(
         runCatching { RichTextParser.parse(source) }.getOrDefault(emptyList())
             .ifEmpty { listOf(RichBlock.Para(listOf(RichInline.Run(source)))) }
     }
-    val hasMath = remember(blocks) { RichTextParser.containsMath(source) }
+    val hasMath = remember(blocks) { RichTextParser.containsMath(blocks) }
     if (hasMath) {
         val document = remember(blocks) { RichTextDocument.encode(blocks) }
         KaTeXDocument(document, source, modifier, style)

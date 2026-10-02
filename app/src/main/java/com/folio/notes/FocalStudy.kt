@@ -141,6 +141,16 @@ data class FocalStudyEntry(
 
 data class FocalStudyInterval(val startAt: Long, val endAt: Long?)
 
+internal fun focalEncodeIntervals(intervals: List<FocalStudyInterval>): JSONArray = JSONArray().also { array ->
+    intervals.forEach { array.put(JSONObject().put("startAt", it.startAt).put("endAt", it.endAt)) }
+}
+
+internal fun focalDecodeIntervals(saved: JSONArray?): List<FocalStudyInterval> =
+    (0 until (saved?.length() ?: 0)).mapNotNull { position -> runCatching {
+        val interval = saved!!.getJSONObject(position)
+        FocalStudyInterval(interval.getLong("startAt"), interval.optLong("endAt").takeIf { it > 0 })
+    }.getOrNull() }
+
 /** A single exam boundary, retained only until its canonical mutation is acknowledged. */
 data class FocalExamBoundary(
     val id: String = UUID.randomUUID().toString(),
@@ -381,8 +391,7 @@ internal fun focalReconcileFocus(current: FocalFocus, session: FocalStudyEntry):
     val runningStart = session.intervals.lastOrNull()?.takeIf { it.endAt == null }?.startAt
     // An incomplete server timeline cannot establish a new start; keep the last known timer.
     if (!session.paused && runningStart == null) return current
-    val accumulated = session.intervals.filter { it.endAt != null }
-        .sumOf { (it.endAt!! - it.startAt).coerceAtLeast(0L) }
+    val accumulated = session.intervals.sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
     return current.copy(intervals = session.intervals,
         accumulatedMillis = maxOf(session.activeMillis, accumulated),
         resumedAt = if (session.paused) null else runningStart)
@@ -462,7 +471,7 @@ data class FocalStudyState(
 ) {
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
     val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) }
-    val hasActiveSession get() = focus != null || visibleEntries.any { it.active }
+    val hasActiveSession get() = focus != null || entries.any { it.active && (it.userId == null || it.userId == userId) }
     val canStartFocus get() = focus == null
     val syncStatus get() = when {
         syncing -> syncDetail ?: "Connecting to Focal…"
@@ -493,7 +502,7 @@ internal fun focalElapsedFromServerBoundary(boundary: String?, serverNow: Long?)
 }
 
 private fun focalJsonCanonical(value: Any?): String = when (value) {
-    is JSONObject -> value.keys().asSequence().toList().sorted().joinToString(",", "{", "}") { key ->
+    is JSONObject -> value.keys().asSequence().sorted().joinToString(",", "{", "}") { key ->
         "${JSONObject.quote(key)}:${focalJsonCanonical(value.opt(key))}"
     }
     is JSONArray -> (0 until value.length()).joinToString(",", "[", "]") { index -> focalJsonCanonical(value.opt(index)) }
@@ -791,12 +800,7 @@ class FocalStudyManager(context: Context) {
                             request = event.optString("request").takeIf { it.isNotBlank() && it != "null" })
                     }.getOrNull() }
                 },
-                intervals = (row.optJSONArray("intervals") ?: JSONArray()).let { saved ->
-                    (0 until saved.length()).mapNotNull { position -> runCatching {
-                        val interval = saved.getJSONObject(position)
-                        FocalStudyInterval(interval.getLong("startAt"), interval.optLong("endAt").takeIf { it > 0 })
-                    }.getOrNull() }
-                }
+                intervals = focalDecodeIntervals(row.optJSONArray("intervals"))
             )
         }.getOrNull() }
         val focus = data.optJSONObject("focus")?.let { row -> runCatching {
@@ -805,12 +809,7 @@ class FocalStudyManager(context: Context) {
                 subjectId = row.optString("subjectId").ifBlank { null }, startedAt = row.getLong("startedAt"),
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 resumedAt = row.optLong("resumedAt").takeIf { it > 0 }, accumulatedMillis = row.optLong("accumulatedMillis"),
-                intervals = (row.optJSONArray("intervals") ?: JSONArray()).let { saved ->
-                    (0 until saved.length()).mapNotNull { position -> runCatching {
-                        val interval = saved.getJSONObject(position)
-                        FocalStudyInterval(interval.getLong("startAt"), interval.optLong("endAt").takeIf { it > 0 })
-                    }.getOrNull() }
-                })
+                intervals = focalDecodeIntervals(row.optJSONArray("intervals")))
         }.getOrNull() }
         // Recovery closes at the last durable checkpoint. A new process cannot reuse the
         // prior process's monotonic delta, and a reboot cannot reuse elapsedRealtime at all.
@@ -856,16 +855,12 @@ class FocalStudyManager(context: Context) {
                     .put("monotonicAt", event.monotonicAt).put("bootCount", event.bootCount)
                     .put("request", event.request))
             } })
-            .put("intervals", JSONArray().also { array -> entry.intervals.forEach { interval ->
-                array.put(JSONObject().put("startAt", interval.startAt).put("endAt", interval.endAt))
-            } })) }
+            .put("intervals", focalEncodeIntervals(entry.intervals))) }
         val focus = snapshot.focus?.let { if (parkRunningAt == null) it else it.pause(parkRunningAt) }?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
             .put("title", it.title).put("subjectId", it.subjectId).put("notebookTitle", it.notebookTitle)
             .put("startedAt", it.startedAt)
             .put("resumedAt", it.resumedAt).put("accumulatedMillis", it.accumulatedMillis)
-            .put("intervals", JSONArray().also { array -> it.intervals.forEach { interval ->
-                array.put(JSONObject().put("startAt", interval.startAt).put("endAt", interval.endAt))
-            } }) }
+            .put("intervals", focalEncodeIntervals(it.intervals)) }
         val bytes = JSONObject().put("entries", rows).put("focus", focus)
             .put("remoteRevision", snapshot.remoteRevision).put("remoteRevisionUser", snapshot.remoteRevisionUser)
             .put("remoteLamport", snapshot.remoteLamport)

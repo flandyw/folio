@@ -166,17 +166,18 @@ object SyncProtocol {
         changes: List<Change>
     ): ReduceResult {
         val next = state.toMutableList()
+        val indices = HashMap<String, Int>()
+        next.forEachIndexed { index, row -> indices.putIfAbsent(row.key, index) }
         val applied = mutableListOf<Change>()
         val deferred = mutableListOf<Change>()
         var high = cursor
         for (change in changes.sortedBy { it.seq }) {
             if (change.seq <= cursor) continue
-            val current = next.firstOrNull { it.key == change.key }
-            when (decide(change, current, pending, ownClientId)) {
+            val index = indices[change.key]
+            when (decide(change, index?.let { next[it] }, pending, ownClientId)) {
                 Decision.APPLY -> {
-                    val index = next.indexOfFirst { it.key == change.key }
-                    val row = toRowState(change)
-                    if (index == -1) next.add(row) else next[index] = row
+                    if (index == null) indices[change.key] = next.size.also { next.add(toRowState(change)) }
+                    else next[index] = toRowState(change)
                     applied.add(change)
                 }
                 Decision.DEFERRED -> deferred.add(change)
@@ -199,10 +200,11 @@ object SyncProtocol {
         head: Long
     ): ReduceResult {
         val next = state.filter { it.key in pending }.toMutableList()
+        val indices = HashMap<String, Int>()
         for (row in rows) {
             if (row.key in pending) continue
-            val index = next.indexOfFirst { it.key == row.key }
-            if (index == -1) next.add(row) else next[index] = row
+            val index = indices.getOrPut(row.key) { next.size.also { next.add(row) } }
+            next[index] = row
         }
         return ReduceResult(next, head, emptyList(), emptyList())
     }

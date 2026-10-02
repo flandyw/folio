@@ -19,6 +19,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /** Shared spatial spring. Compose honours the system animator duration scale. */
 internal fun <T> folioSpring() = spring<T>(dampingRatio = .76f, stiffness = 380f)
@@ -74,6 +79,17 @@ internal fun <T> folioSpring() = spring<T>(dampingRatio = .76f, stiffness = 380f
         if (visibility.isIdle && !visibility.currentState && !visibility.targetState) latestDismiss()
     }
     Dialog(dismiss, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val view = LocalView.current
+        DisposableEffect(view) {
+            val window = (view.parent as? DialogWindowProvider)?.window
+            window?.let {
+                WindowCompat.getInsetsController(it, view).apply {
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    hide(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+            onDispose { }
+        }
         content(progress, dismiss)
     }
 }

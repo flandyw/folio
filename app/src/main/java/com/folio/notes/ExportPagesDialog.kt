@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -153,7 +152,7 @@ import androidx.compose.ui.unit.dp
                 Modifier.fillMaxWidth().heightIn(max = 328.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
             ) {
-                items(note.pages.indices.toList(), key = { note.pages[it].id }) { index ->
+                items(count = note.pages.size, key = { note.pages[it].id }) { index ->
                     val page = note.pages[index]
                     val checked = index in selected
                     val hold = rememberLongPressGuard()
@@ -221,7 +220,7 @@ import androidx.compose.ui.unit.dp
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 val count = selected.size
-                val indices = normalizeExportIndices(selected, note.pages.size)
+                val indices = remember(selected, note.pages.size) { normalizeExportIndices(selected, note.pages.size) }
                 Button(
                     onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format, pdfMode)) },
                     enabled = selected.isNotEmpty(),

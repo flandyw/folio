@@ -299,16 +299,18 @@ object RichTextParser {
 
     fun containsMath(source: String): Boolean {
         if (!source.contains('$') && !source.contains('\\')) return false
-        return runCatching { parse(source) }.getOrNull()?.any { block ->
-            when (block) {
-                is RichBlock.DisplayMath -> true
-                is RichBlock.Para -> block.inlines.any { it is RichInline.Math }
-                is RichBlock.Heading -> block.inlines.any { it is RichInline.Math }
-                is RichBlock.Bullets -> block.items.any { items -> items.any { it is RichInline.Math } }
-                is RichBlock.Numbers -> block.items.any { items -> items.any { it is RichInline.Math } }
-                is RichBlock.Quote -> block.inlines.any { it is RichInline.Math }
-                else -> false
-            }
-        } == true
+        return runCatching { containsMath(parse(source)) }.getOrDefault(false)
+    }
+
+    internal fun containsMath(blocks: List<RichBlock>): Boolean = blocks.any { block ->
+        when (block) {
+            is RichBlock.DisplayMath -> true
+            is RichBlock.Para -> block.inlines.any { it is RichInline.Math }
+            is RichBlock.Heading -> block.inlines.any { it is RichInline.Math }
+            is RichBlock.Bullets -> block.items.any { items -> items.any { it is RichInline.Math } }
+            is RichBlock.Numbers -> block.items.any { items -> items.any { it is RichInline.Math } }
+            is RichBlock.Quote -> block.inlines.any { it is RichInline.Math }
+            else -> false
+        }
     }
 }

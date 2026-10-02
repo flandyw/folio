@@ -316,27 +316,15 @@ import kotlin.math.roundToInt
     val drag = rememberDraggableState(onDrag)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = if (vertical) {
-            Modifier.width(28.dp).fillMaxHeight()
-                .combinedClickable(
-                    onClick = onFlip,
-                    onDoubleClick = onDoubleTap,
-                    onLongClick = onOpenOptions,
-                    onLongClickLabel = "Pane options"
-                )
-                .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
-                .draggable(drag, Orientation.Horizontal, onDragStopped = { onRelease() })
-        } else {
-            Modifier.height(28.dp).fillMaxWidth()
-                .combinedClickable(
-                    onClick = onFlip,
-                    onDoubleClick = onDoubleTap,
-                    onLongClick = onOpenOptions,
-                    onLongClickLabel = "Pane options"
-                )
-                .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
-                .draggable(drag, Orientation.Vertical, onDragStopped = { onRelease() })
-        }
+        modifier = (if (vertical) Modifier.width(28.dp).fillMaxHeight() else Modifier.height(28.dp).fillMaxWidth())
+            .combinedClickable(
+                onClick = onFlip,
+                onDoubleClick = onDoubleTap,
+                onLongClick = onOpenOptions,
+                onLongClickLabel = "Pane options"
+            )
+            .semantics { contentDescription = "Split divider. Tap to swap the two panes. Drag to resize them. Double-tap for an equal split. Long-press for options." }
+            .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, onDragStopped = { onRelease() })
     ) {
         Box(
             Modifier.then(if (vertical) Modifier.width(4.dp).height(48.dp) else Modifier.height(4.dp).width(48.dp))

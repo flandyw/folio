@@ -8,13 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 
 /** A bounded, centered panel whose own window preserves the app's immersive mode. */
 @Composable internal fun FolioPanel(
@@ -23,17 +18,6 @@ import androidx.core.view.WindowInsetsControllerCompat
     content: @Composable ColumnScope.() -> Unit
 ) {
     FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
-        val view = LocalView.current
-        DisposableEffect(view) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            window?.let {
-                WindowCompat.getInsetsController(it, view).apply {
-                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    hide(WindowInsetsCompat.Type.systemBars())
-                }
-            }
-            onDispose { }
-        }
         BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(FolioSpacing.dp16), contentAlignment = Alignment.Center) {
             // Folio is used in both orientations. A narrow, very tall panel is particularly
             // awkward in landscape, so give it a wider canvas there. The slightly taller

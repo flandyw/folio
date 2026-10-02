@@ -184,8 +184,7 @@ internal val EditorFloatingGroupHeight = 56.dp
     lastSaveProgressAt: Long?,
     saving: Boolean,
     onRetrySave: () -> Unit,
-    onClose: () -> Unit,
-    compact: Boolean = false
+    onClose: () -> Unit
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var detailsOpen by remember { mutableStateOf(false) }

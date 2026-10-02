@@ -11,15 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 
 /** Modal supplementary content anchored to the logical end of the window. */
 @Composable internal fun FolioSideSheet(
@@ -28,17 +23,6 @@ import androidx.core.view.WindowInsetsControllerCompat
     content: @Composable ColumnScope.() -> Unit,
 ) {
     FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
-        val view = LocalView.current
-        DisposableEffect(view) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            window?.let {
-                WindowCompat.getInsetsController(it, view).apply {
-                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    hide(WindowInsetsCompat.Type.systemBars())
-                }
-            }
-            onDispose { }
-        }
         val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
         BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
             val sheetWidth = minOf(400.dp, (maxWidth - 24.dp).coerceAtLeast(0.dp))

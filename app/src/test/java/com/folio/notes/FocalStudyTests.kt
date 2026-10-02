@@ -7,6 +7,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FocalStudyTests {
+    @Test fun savedIntervalCodecPreservesWireShapeAndSkipsMalformedRows() {
+        val intervals = listOf(FocalStudyInterval(10, 20), FocalStudyInterval(30, null))
+        val encoded = focalEncodeIntervals(intervals)
+        assertEquals(10L, encoded.getJSONObject(0).getLong("startAt"))
+        assertEquals(20L, encoded.getJSONObject(0).getLong("endAt"))
+        assertEquals(setOf("startAt", "endAt"), encoded.getJSONObject(0).keySet())
+        assertEquals(setOf("startAt"), encoded.getJSONObject(1).keySet())
+        assertEquals(intervals, focalDecodeIntervals(encoded))
+        assertTrue(focalDecodeIntervals(null).isEmpty())
+        val legacy = org.json.JSONArray("""[null,{},"bad",{"startAt":40,"endAt":0},
+            {"startAt":50,"endAt":-1},{"startAt":60,"endAt":null},{"startAt":70,"endAt":"invalid"}]""")
+        assertEquals(listOf(40L, 50L, 60L, 70L).map { FocalStudyInterval(it, null) }, focalDecodeIntervals(legacy))
+    }
+
+    @Test fun activeSessionCheckIgnoresDeletedCompletedPlannedAndOtherUsers() {
+        val session = active()
+        val hidden = listOf(session.copy(deleted = true), session.copy(completed = true),
+            session.copy(planned = true), session.copy(userId = "other"))
+        assertFalse(FocalStudyState(entries = hidden, userId = "current").hasActiveSession)
+        for (user in listOf(null, "current")) {
+            assertTrue(FocalStudyState(entries = hidden + session.copy(userId = user), userId = "current").hasActiveSession)
+        }
+        assertTrue(FocalStudyState(entries = hidden, focus = FocalFocus("n", "t", null, 0, null)).hasActiveSession)
+    }
+
+    @Test fun focusReconciliationCountsOnlyNonnegativeClosedIntervals() {
+        val focus = FocalFocus("notebook", "Study", "mm", 0, null, sessionId = "session")
+        val intervals = listOf(FocalStudyInterval(0, 5_000), FocalStudyInterval(10_000, 9_000),
+            FocalStudyInterval(20_000, null))
+        val session = active().copy(intervals = intervals, activeMillis = 0, paused = true)
+        assertEquals(5_000L, focalReconcileFocus(focus, session)!!.accumulatedMillis)
+        assertEquals(8_000L, focalReconcileFocus(focus, session.copy(activeMillis = 8_000))!!.accumulatedMillis)
+    }
+
     @Test fun customSubjectsApplyOrderedFeedUpdatesAndTombstones() {
         val subjects = mutableMapOf<String, FocalSubject>()
         focalApplyCustomSubject(subjects, "custom-1", "put", JSONObject("""{"id":"custom-1","name":"Data Science"}"""))

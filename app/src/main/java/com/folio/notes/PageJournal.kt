@@ -415,17 +415,21 @@ object PageJournal {
      * read alongside a journal that still holds the records it folded in.
      */
     fun foldHistory(base: History, transactions: List<PageTransaction>, afterSeq: Int): History {
-        var undo = base.undo.takeLast(HISTORY_LIMIT)
-        var redo = base.redo.takeLast(HISTORY_LIMIT)
+        val undo = ArrayDeque(base.undo.takeLast(HISTORY_LIMIT))
+        val redo = ArrayDeque(base.redo.takeLast(HISTORY_LIMIT))
+        fun ArrayDeque<PageEdit>.push(edit: PageEdit) {
+            if (size == HISTORY_LIMIT) removeFirst()
+            addLast(edit)
+        }
         for (transaction in transactions) {
             if (transaction.seq <= afterSeq) continue
-            if (transaction.undoPop && undo.isNotEmpty()) undo = undo.dropLast(1)
-            if (transaction.redoPop && redo.isNotEmpty()) redo = redo.dropLast(1)
-            if (transaction.clearRedo) redo = emptyList()
-            transaction.undoPush?.let { undo = (undo + it).takeLast(HISTORY_LIMIT) }
-            transaction.redoPush?.let { redo = (redo + it).takeLast(HISTORY_LIMIT) }
+            if (transaction.undoPop) undo.removeLastOrNull()
+            if (transaction.redoPop) redo.removeLastOrNull()
+            if (transaction.clearRedo) redo.clear()
+            transaction.undoPush?.let { undo.push(it) }
+            transaction.redoPush?.let { redo.push(it) }
         }
-        return History(undo, redo)
+        return History(undo.toList(), redo.toList())
     }
 
     fun encodeHistory(history: History): String = JSONObject().apply {

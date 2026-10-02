@@ -125,16 +125,9 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         runCatching { File(dir, ThumbnailKeys.name(page.id, page.revision, width)).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) } }
         // Earlier revisions at this size can no longer be asked for, so they go with it. Other sizes
         // of the page are still in use by whoever asked for them, so they are left alone.
-        // Pruning scans the directory; skip it until enough files accumulate to matter.
-        val files = dir.listFiles() ?: return
-        if (files.size < PRUNE_THRESHOLD) {
-            // Still drop this page's own stale revisions (usually 0-1 files, cheap filter).
-            files.forEach { file ->
-                if (ThumbnailKeys.isStale(file.name, page.id, page.revision, width)) file.delete()
-            }
-            return
+        dir.listFiles()?.forEach { file ->
+            if (ThumbnailKeys.isStale(file.name, page.id, page.revision, width)) file.delete()
         }
-        files.filter { ThumbnailKeys.isStale(it.name, page.id, page.revision, width) }.forEach { it.delete() }
     }
 
     private fun decode(file: File): Bitmap? = try {
@@ -151,9 +144,6 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         const val FULL_MAX_WIDTH = 2560
         const val FULL_MAX_HEIGHT = 4096
         const val FULL_MAX_PIXELS = 10_000_000
-
-        /** Skip full directory pruning until this many previews accumulate. */
-        const val PRUNE_THRESHOLD = 50
 
         /**
          * A shelf of covers plus an open page browser fits comfortably; the disk copies are the

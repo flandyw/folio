@@ -270,6 +270,35 @@ class PageJournalTests {
         assertEquals("500", (folded.undo.last().texts?.first()?.id))
     }
 
+    @Test fun historyDequeMatchesListFoldingWithoutMutatingSnapshotStacks() {
+        val random = kotlin.random.Random(604)
+        fun edit(index: Int) = PageEdit(strokes = StrokesEdit.Remove(listOf(index)))
+        val base = PageJournal.History(List(90) { edit(it) }, List(75) { edit(-it) })
+        val unchanged = base.copy(undo = base.undo.toList(), redo = base.redo.toList())
+        val records = List(2_000) { index ->
+            PageTransaction(index + 1, forward = edit(index),
+                undoPush = edit(index).takeIf { random.nextBoolean() },
+                undoPop = random.nextBoolean(), redoPush = edit(-index).takeIf { random.nextBoolean() },
+                redoPop = random.nextBoolean(), clearRedo = random.nextInt(10) == 0)
+        }
+        for (afterSeq in listOf(0, 50, 500, 2_000)) {
+            var undo = base.undo.takeLast(PageJournal.HISTORY_LIMIT)
+            var redo = base.redo.takeLast(PageJournal.HISTORY_LIMIT)
+            for (transaction in records) {
+                if (transaction.seq <= afterSeq) continue
+                if (transaction.undoPop && undo.isNotEmpty()) undo = undo.dropLast(1)
+                if (transaction.redoPop && redo.isNotEmpty()) redo = redo.dropLast(1)
+                if (transaction.clearRedo) redo = emptyList()
+                transaction.undoPush?.let { undo = (undo + it).takeLast(PageJournal.HISTORY_LIMIT) }
+                transaction.redoPush?.let { redo = (redo + it).takeLast(PageJournal.HISTORY_LIMIT) }
+            }
+            assertEquals(PageJournal.History(undo, redo), PageJournal.foldHistory(base, records, afterSeq))
+            assertEquals(unchanged, base)
+        }
+        val popEmpty = listOf(PageTransaction(1, forward = edit(0), undoPop = true, redoPop = true, clearRedo = true))
+        assertEquals(PageJournal.History.EMPTY, PageJournal.foldHistory(PageJournal.History.EMPTY, popEmpty, 0))
+    }
+
     @Test fun historyRoundTripsThroughTheCodec() {
         val undo = listOf(PageEdit(strokes = StrokesEdit.Remove(listOf(2))), PageEdit(texts = emptyList()))
         val redo = listOf(PageEdit(strokes = StrokesEdit.Add(listOf(d))))

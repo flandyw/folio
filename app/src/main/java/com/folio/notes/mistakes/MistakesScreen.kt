@@ -429,22 +429,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 attempts = folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
                     .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id },
                 onPractice = { start(selected) },
-                onDelete = {
-                    val id = selected.id
-                    if (!working) {
-                        working = true
-                        scope.launch {
-                            try {
-                                model.deleteMistake(id)
-                                if (detail == id) detail = null
-                                reviewQueue = reviewQueue.filterNot { it == id }
-                                showTransient("Card deleted · handwriting kept on this device.")
-                            } catch (e: CancellationException) { throw e }
-                            catch (_: Exception) { showTransient("Could not delete this card. Please try again.") }
-                            finally { working = false }
-                        }
-                    }
-                },
+                onDelete = { deleteCard(selected.id) },
                 onOpenAttempt = { noteId, pageId, reviewId, completed ->
                     if (completed) {
                         val idx = folioState.notes.find { it.id == noteId }

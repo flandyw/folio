@@ -26,10 +26,15 @@ internal class SubmenuPositionProvider(private val margin: Int, private val gap:
         layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val right = anchorBounds.right + gap
         val left = anchorBounds.left - gap - popupContentSize.width
-        val candidates = if (layoutDirection == LayoutDirection.Ltr) listOf(right, left) else listOf(left, right)
+        val first = if (layoutDirection == LayoutDirection.Ltr) right else left
+        val second = if (layoutDirection == LayoutDirection.Ltr) left else right
         val maxX = (windowSize.width - margin - popupContentSize.width).coerceAtLeast(margin)
         val maxY = (windowSize.height - margin - popupContentSize.height).coerceAtLeast(margin)
-        val x = candidates.firstOrNull { it in margin..maxX } ?: candidates.first().coerceIn(margin, maxX)
+        val x = when {
+            first in margin..maxX -> first
+            second in margin..maxX -> second
+            else -> first.coerceIn(margin, maxX)
+        }
         return IntOffset(x, (anchorBounds.top - margin).coerceIn(margin, maxY))
     }
 }

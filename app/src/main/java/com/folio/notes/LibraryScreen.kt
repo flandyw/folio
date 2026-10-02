@@ -334,12 +334,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 }
                                 // Exam filters: one chip per subject that is actually in use, then year,
                                 // company and status, so the shelf narrows to "Methods · 2022 · VCAA".
-                                val examNotes = state.notes.filter { it.exam.isTagged }
+                                val examNotes = remember(state.notes) { state.notes.filter { it.exam.isTagged } }
+                                val subjects = remember(examNotes) { examNotes.mapNotNull { it.exam.subject }.toSet() }
                                 if (examNotes.isNotEmpty()) {
                                     Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                         VceSubject.entries.forEach { subject ->
-                                            val count = examNotes.count { it.exam.subject == subject }
-                                            if (count > 0) {
+                                            if (subject in subjects) {
                                                 SubjectChip(subject, examFilter.subject == subject, {
                                                     model.setExamFilter(if (examFilter.subject == subject) examFilter.copy(subject = null) else examFilter.copy(subject = subject))
                                                 })
@@ -347,12 +347,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         }
                                     }
                                     Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                        examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6).forEach { year ->
+                                        remember(examNotes) { examNotes.mapNotNull { it.exam.year }.distinct().sortedDescending().take(6) }.forEach { year ->
                                             FilterChip(examFilter.year == year, {
                                                 model.setExamFilter(if (examFilter.year == year) examFilter.copy(year = null) else examFilter.copy(year = year))
                                             }, { Text("$year") })
                                         }
-                                        examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6).forEach { company ->
+                                        remember(examNotes) { examNotes.map { it.exam.company }.filter { it.isNotBlank() }.distinct().take(6) }.forEach { company ->
                                             FilterChip(examFilter.company == company, {
                                                 model.setExamFilter(if (examFilter.company == company) examFilter.copy(company = null) else examFilter.copy(company = company))
                                             }, { Text(company) })
@@ -381,7 +381,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
                                     TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
                                     TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
-                                    val allStarred = selection.isNotEmpty() && notes.filter { it.id in selection }.all { it.starred }
+                                    val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
                                     TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
                                     TextButton(
                                         { bulkDelete = true },

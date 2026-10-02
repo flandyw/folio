@@ -57,6 +57,37 @@ class LibraryWorkspaceSelectionTests {
         compose.runOnIdle { assertEquals(listOf("reference"), picked) }
     }
 
+    @Test fun examFilterSuggestionsRefreshWhenNotebookMetadataChanges() {
+        var notes by mutableStateOf(listOf(Notebook(id = "tagged", title = "Paper", exam = ExamTags(
+            subject = VceSubject.MATHS_METHODS, year = 2022, company = "VCAA"
+        ))))
+        compose.setContent {
+            MaterialTheme {
+                val model: FolioViewModel = viewModel()
+                LibraryScreen(
+                    // An empty folder keeps cover badges out of the suggestion assertions.
+                    FolioState(loading = false, folderId = "empty-folder", notes = notes), model,
+                    onNew = {}, onImport = {}, onImportArchive = {}, onFolder = {}, onSettings = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Filters").performScrollTo().performClick()
+        compose.onNodeWithText(VceSubject.MATHS_METHODS.label).assertExists()
+        compose.onNodeWithText("2022").assertExists()
+        compose.onNodeWithText("VCAA").assertExists()
+        compose.runOnIdle {
+            notes = listOf(notes.single().copy(exam = ExamTags(
+                subject = VceSubject.PHYSICS, year = 2023, company = "NEAP"
+            )))
+        }
+        compose.onNodeWithText(VceSubject.MATHS_METHODS.label).assertDoesNotExist()
+        compose.onNodeWithText("2022").assertDoesNotExist()
+        compose.onNodeWithText("VCAA").assertDoesNotExist()
+        compose.onNodeWithText(VceSubject.PHYSICS.label).assertExists()
+        compose.onNodeWithText("2023").assertExists()
+        compose.onNodeWithText("NEAP").assertExists()
+    }
+
     @Test fun cancelDoesNotSelectANotebook() {
         show(1000, CompanionMode.REFERENCE)
         compose.onNodeWithText("Cancel").performClick()

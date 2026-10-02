@@ -763,8 +763,6 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
     val defaultReading = AppPrefs.timerReadingMinutes(timerPrefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_READING_MIN) })
     val idleMinutes = AppPrefs.timerIdleMinutes(timerPrefs.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_IDLE_MIN) })
     var customMinutes by rememberSaveable { mutableStateOf("$defaultCustom") }
-    var customPreset by remember { mutableStateOf(ExamTimerPreset.CUSTOM) }
-    LaunchedEffect(timer.phase) { if (timer.phase == ExamTimerPhase.DONE) kotlinx.coroutines.delay(2500) }
     Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
@@ -804,8 +802,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                                 )
                                 Button({
                                     val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())
-                                    customPreset = ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60)
-                                    onStart(customPreset)
+                                    onStart(ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60))
                                 }, shapes = ButtonDefaults.shapes()) { Text("Start") }
                             }
                         }

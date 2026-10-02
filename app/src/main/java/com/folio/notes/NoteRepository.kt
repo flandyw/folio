@@ -576,16 +576,7 @@ class NoteRepository(private val context: Context) {
 
     private fun registerBackupAsset(file: File, assets: MutableMap<String, File>): String {
         require(file.length() <= LibraryBackup.MAX_ENTRY_BYTES) { "Backup asset is too large" }
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        val hash = digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+        val hash = sha256(file)
         assets.putIfAbsent(hash, file)
         return hash
     }

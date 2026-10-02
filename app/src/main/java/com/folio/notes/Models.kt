@@ -526,19 +526,7 @@ object InkGeometry {
         return inside
     }
 
-    private fun polygonBounds(polygon: List<InkPoint>): FloatArray {
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        for (p in polygon) {
-            if (p.x < minX) minX = p.x
-            if (p.x > maxX) maxX = p.x
-            if (p.y < minY) minY = p.y
-            if (p.y > maxY) maxY = p.y
-        }
-        return floatArrayOf(minX, minY, maxX, maxY)
-    }
-
-    private fun strokeBoundsOf(points: List<InkPoint>): FloatArray {
+    private fun pointBounds(points: List<InkPoint>): FloatArray {
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         for (p in points) {
@@ -554,12 +542,12 @@ object InkGeometry {
      * Loop bounds as `[minX, minY, maxX, maxY]`. Hoist this once per lasso gesture: the old
      * per-stroke lookup re-walked the loop for every stroke on the page (O(N×L)).
      */
-    fun lassoBounds(polygon: List<InkPoint>): FloatArray = polygonBounds(polygon)
+    fun lassoBounds(polygon: List<InkPoint>): FloatArray = pointBounds(polygon)
 
     /** A stroke is selected only when every sample is enclosed, so a half-crossed stroke stays put. */
     fun lassoSelects(polygon: List<InkPoint>, stroke: Stroke): Boolean {
         if (polygon.size < 3) return false
-        return lassoSelects(polygon, polygonBounds(polygon), stroke)
+        return lassoSelects(polygon, pointBounds(polygon), stroke)
     }
 
     /**
@@ -571,7 +559,7 @@ object InkGeometry {
         val points = pathPoints(stroke)
         if (points.isEmpty()) return false
         // Cheap box reject: a stroke fully outside the loop's bounds needs no ray casts.
-        val box = strokeBoundsOf(points)
+        val box = pointBounds(points)
         if (box[2] < loop[0] || box[0] > loop[2] || box[3] < loop[1] || box[1] > loop[3]) return false
         return points.all { lassoContains(polygon, it) }
     }
@@ -582,7 +570,7 @@ object InkGeometry {
      */
     fun lassoSelectsRect(polygon: List<InkPoint>, left: Float, top: Float, right: Float, bottom: Float): Boolean {
         if (polygon.size < 3) return false
-        return lassoSelectsRect(polygon, polygonBounds(polygon), left, top, right, bottom)
+        return lassoSelectsRect(polygon, pointBounds(polygon), left, top, right, bottom)
     }
 
     /** [lassoSelectsRect] with hoisted [loop] bounds, so boxes skip the loop walk and ray casts when outside. */
@@ -628,6 +616,7 @@ object InkGeometry {
             if (bottom > maxY) maxY = bottom
         }
         for (stroke in strokes) {
+            // Shape corners already bound the geometry, without expanding ellipses into 65 samples.
             val pts = if (stroke.tool in ShapeTools) stroke.points else pathPoints(stroke)
             for (p in pts) include(p.x, p.y, p.x, p.y)
         }
@@ -707,25 +696,8 @@ object InkGeometry {
         stroke.copy(points = stroke.points.map { InkPoint(it.x + dx, it.y + dy, it.pressure) })
 
     /** The bounding box of a stroke set as `[minX, minY, maxX, maxY]`, or null when there is no ink. */
-    fun bounds(strokes: List<Stroke>, margin: Float = 0f): FloatArray? {
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        var any = false
-        for (stroke in strokes) {
-            // Shapes re-derive from two corners; their raw points already bound the geometry
-            // without expanding an ellipse into 65 samples.
-            val pts = if (stroke.tool in ShapeTools) stroke.points else pathPoints(stroke)
-            for (p in pts) {
-                any = true
-                if (p.x < minX) minX = p.x
-                if (p.x > maxX) maxX = p.x
-                if (p.y < minY) minY = p.y
-                if (p.y > maxY) maxY = p.y
-            }
-        }
-        if (!any) return null
-        return floatArrayOf(minX - margin, minY - margin, maxX + margin, maxY + margin)
-    }
+    fun bounds(strokes: List<Stroke>, margin: Float = 0f): FloatArray? =
+        selectionBounds(strokes, emptyList(), emptyList(), { 0f }, margin)
 
     /** The middle of a stroke set's bounding box, used as the pivot for rotation and resizing. */
     fun center(strokes: List<Stroke>): InkPoint? =
@@ -914,8 +886,22 @@ object InkGeometry {
         val path = pathPoints(stroke)
         val distance = radius + stroke.width / 2
         if (path.size == 1) return hypot(path[0].x - point.x, path[0].y - point.y) <= distance
-        return path.zipWithNext().any { (a, b) -> segmentDistance(point, a, b) <= distance }
+        return anySegment(path) { a, b -> segmentDistance(point, a, b) <= distance }
     }
+
+    /** Walk adjacent samples lazily, without building a list of pairs before the first hit. */
+    private inline fun anySegment(points: List<InkPoint>, matches: (InkPoint, InkPoint) -> Boolean): Boolean {
+        val samples = points.iterator()
+        if (!samples.hasNext()) return false
+        var a = samples.next()
+        while (samples.hasNext()) {
+            val b = samples.next()
+            if (matches(a, b)) return true
+            a = b
+        }
+        return false
+    }
+
     fun segmentDistance(p: InkPoint, a: InkPoint, b: InkPoint): Float {
         val dx = b.x - a.x; val dy = b.y - a.y
         val length = dx * dx + dy * dy
@@ -1143,18 +1129,11 @@ object InkGeometry {
         val reach = radius + target.width / 2f
         if (sweep.size == 1) return hits(target, sweep.first(), radius)
         // Cheap box reject before the O(sweep × path) narrow phase.
-        val sweepBox = strokeBoundsOf(sweep)
-        val pathBox = strokeBoundsOf(path)
+        val sweepBox = pointBounds(sweep)
+        val pathBox = pointBounds(path)
         if (pathBox[2] < sweepBox[0] - reach || pathBox[0] > sweepBox[2] + reach ||
             pathBox[3] < sweepBox[1] - reach || pathBox[1] > sweepBox[3] + reach) return false
-        return sweep.zipWithNext().any { (a, b) ->
-            if (path.size == 1) segmentDistance(path.first(), a, b) <= reach
-            else path.zipWithNext().any { (c, d) ->
-                segmentsCross(a, b, c, d) ||
-                    minOf(segmentDistance(a, c, d), segmentDistance(b, c, d),
-                        segmentDistance(c, a, b), segmentDistance(d, a, b)) <= reach
-            }
-        }
+        return anySegment(sweep) { a, b -> legHits(a, b, path, reach) }
     }
 
     private fun segmentsCross(a: InkPoint, b: InkPoint, c: InkPoint, d: InkPoint): Boolean {
@@ -1171,7 +1150,7 @@ object InkGeometry {
     private fun legHits(a: InkPoint, b: InkPoint, path: List<InkPoint>, reach: Float): Boolean {
         if (path.isEmpty()) return false
         if (path.size == 1) return segmentDistance(path.first(), a, b) <= reach
-        return path.zipWithNext().any { (c, d) ->
+        return anySegment(path) { c, d ->
             segmentsCross(a, b, c, d) ||
                 minOf(segmentDistance(a, c, d), segmentDistance(b, c, d),
                     segmentDistance(c, a, b), segmentDistance(d, a, b)) <= reach
@@ -1182,11 +1161,11 @@ object InkGeometry {
     fun scribbleErase(
         strokes: List<Stroke>, scribble: Stroke, radius: Float,
         sensitivity: Float = ScribbleSensitivity.DEFAULT,
-        boundsOf: (Stroke) -> FloatArray = { strokeBoundsOf(it.points) }
+        boundsOf: (Stroke) -> FloatArray = { pointBounds(it.points) }
     ): List<Stroke> {
         val ease = ScribbleSensitivity.normalize(sensitivity)
         if (strokes.isEmpty() || !isScribble(scribble.points, ease)) return strokes
-        val bounds = strokeBoundsOf(scribble.points)
+        val bounds = pointBounds(scribble.points)
         val span = hypot(bounds[2] - bounds[0], bounds[3] - bounds[1])
         val legs = simplify(scribble.points, max(2f, span * .025f)).zipWithNext()
             .filter { (a, b) -> distance(a, b) >= max(8f - 2f * ease, span * (.18f - .06f * ease)) }

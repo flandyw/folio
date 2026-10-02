@@ -177,17 +177,6 @@ object EditorQuickPrefs {
                 }
                 Text("Shows length/angle or width×height while drawing the shape.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (tool == Tool.LASSO) {
-                var tapUndo by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Two-finger tap undo", Modifier.weight(1f))
-                    Switch(tapUndo, {
-                        tapUndo = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, it).apply()
-                    })
-                }
-                Text("Two fingers: undo, three fingers: redo — on the page canvas (not the toolbar).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             TextButton({ onChange(ToolOptions.defaults(tool)) }, shapes = ButtonDefaults.shapes()) { Text("Reset $label settings") }
         }
     }

@@ -5,6 +5,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RichTextDocumentTests {
+    @Test fun mathDetectionReusesParsedBlocksWithoutChangingDelimiterAndCodeRules() {
+        val samples = mapOf(
+            "Ordinary prose" to false,
+            "`\\(literal\\)`" to false,
+            "```\n\$literal\$\n```" to false,
+            "\\\$literal" to false,
+            "\\(unclosed" to false,
+            "# Heading \\(x\\)" to true,
+            "> Quoted \\(x\\)" to true,
+            "- Bullet \\(x\\)" to true,
+            "1. Numbered \\(x\\)" to true,
+            "\$\$\nx^2\n\$\$" to true,
+            "Prose \\(x\\)" to true
+        )
+        samples.forEach { (source, expected) ->
+            assertEquals(source, expected, RichTextParser.containsMath(source))
+            assertEquals(source, expected, RichTextParser.containsMath(RichTextParser.parse(source)))
+        }
+        assertFalse(RichTextParser.containsMath(emptyList()))
+    }
+
     @Test fun questionKeepsDisplayMathAndFinalInstructionBeyondFormerPreviewBudget() {
         val source = "Let \\(f : \\mathbb{R} \\to \\mathbb{R}\\) be defined by\n\n" +
             "\$\$f(x)=x^2e^{kx},\$\$\n\nwhere \\(k\\) is a positive real constant.\n\n" +

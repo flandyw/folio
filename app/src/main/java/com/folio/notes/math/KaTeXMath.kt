@@ -288,46 +288,42 @@ private fun RenderedContent(
                 inFlight[state.key] = pending!!
             }
             val result = pending!!
-            try {
-                if (owner) {
-                    try {
-                        val rendered = renderContent(appContext, state) { fresh = it }
-                        // An owner that is cancelled still has to release the waiters.
-                        withContext(NonCancellable) { result.complete(rendered) }
-                    } catch (cancelled: CancellationException) {
-                        withContext(NonCancellable) { result.complete(null) }
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        // Missing/broken WebView, assets or pathological input: native source stays visible.
-                        android.util.Log.w("FolioMath", "Offline content rendering failed", failure)
-                        withContext(NonCancellable) { result.complete(null) }
-                    } finally {
-                        inFlight.remove(state.key)
-                    }
-                    // Persist after the pool slot is released; failures keep memory-only caching.
-                    fresh?.let {
-                        try {
-                            saveDiskBitmap(appContext, state.key, it)
-                        } catch (_: Exception) {
-                        }
-                    }
+            if (owner) {
+                try {
+                    val rendered = renderContent(appContext, state) { fresh = it }
+                    // An owner that is cancelled still has to release the waiters.
+                    withContext(NonCancellable) { result.complete(rendered) }
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) { result.complete(null) }
+                    throw cancelled
+                } catch (failure: Exception) {
+                    // Missing/broken WebView, assets or pathological input: native source stays visible.
+                    android.util.Log.w("FolioMath", "Offline content rendering failed", failure)
+                    withContext(NonCancellable) { result.complete(null) }
+                } finally {
+                    inFlight.remove(state.key)
                 }
-                val shared = withTimeoutOrNull(QUEUE_TIMEOUT_MS) { result.await() }
-                if (shared != null) state.bitmap = shared
-                else if (!owner) {
-                    // A lazy-list owner can scroll away while this occurrence remains on screen.
-                    // Its cancellation must not strand the remaining document on source fallback.
+                // Persist after the pool slot is released; failures keep memory-only caching.
+                fresh?.let {
                     try {
-                        state.bitmap = renderContent(appContext, state) { fresh = it }
-                        fresh?.let { saveDiskBitmap(appContext, state.key, it) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
+                        saveDiskBitmap(appContext, state.key, it)
                     } catch (_: Exception) {
-                        // Keep the complete native fallback on renderer failure.
                     }
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
+            }
+            val shared = withTimeoutOrNull(QUEUE_TIMEOUT_MS) { result.await() }
+            if (shared != null) state.bitmap = shared
+            else if (!owner) {
+                // A lazy-list owner can scroll away while this occurrence remains on screen.
+                // Its cancellation must not strand the remaining document on source fallback.
+                try {
+                    state.bitmap = renderContent(appContext, state) { fresh = it }
+                    fresh?.let { saveDiskBitmap(appContext, state.key, it) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the complete native fallback on renderer failure.
+                }
             }
         }
     }

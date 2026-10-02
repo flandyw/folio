@@ -14,6 +14,8 @@ data class WritingAdvance(val from: WritingGuide, val to: WritingGuide) {
 object WritingGuides {
     /** Partition all printed rules into separate answer areas, including adjacent columns. */
     fun regions(guides: List<WritingGuide>): List<WritingLane> {
+        // Each nearest-neighbour scan is O(N); resolve it once, not for every edge candidate.
+        val following = guides.associateWith { next(it, guides) }
         val remaining = guides.sortedWith(compareBy({ it.y }, { it.left })).toMutableSet()
         val result = mutableListOf<WritingLane>()
         while (remaining.isNotEmpty()) {
@@ -22,7 +24,7 @@ object WritingGuides {
             while (queue.isNotEmpty()) {
                 val line = queue.removeFirst()
                 remaining.remove(line)
-                val neighbours = remaining.filter { next(line, guides) == it || next(it, guides) == line }
+                val neighbours = remaining.filter { following[line] == it || following[it] == line }
                 for (neighbour in neighbours) if (group.add(neighbour)) queue.add(neighbour)
             }
             if (group.size >= 2) result += WritingLane(group.minOf { it.left },
@@ -36,7 +38,7 @@ object WritingGuides {
         .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
 
     /** Only move within the same answer column, never across a question-sized gap. */
-    fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides
+    fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides.asSequence()
         .filter {
             val overlap = min(line.right, it.right) - max(line.left, it.left)
             it.y - line.y in 12f..64f && overlap >= min(line.right - line.left, it.right - it.left) * .8f &&
@@ -101,7 +103,9 @@ object WritingGuides {
             }
             thin && occupied.toFloat() / (band.right - band.left + 1) < .18f && !verticalBorder(band.left) && !verticalBorder(band.right)
         }.map { WritingGuide(it.left * sx, it.right * sx, (it.top + it.bottom) * .5f * sy) }
-        return candidates.filter { line -> next(line, candidates) != null || candidates.any { next(it, candidates) == line } }
+        val following = candidates.associateWith { next(it, candidates) }
+        val reached = following.values.toHashSet()
+        return candidates.filter { following[it] != null || it in reached }
             .sortedWith(compareBy({ it.y }, { it.left }))
     }
 }

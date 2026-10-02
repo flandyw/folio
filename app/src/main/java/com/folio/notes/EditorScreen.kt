@@ -234,7 +234,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun setMultiTouchUndo(v: Boolean) { multiTouchUndo = v; appPrefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, v).apply() }
     // One encoded string, so the graph sheet and the page never disagree about the dressing.
     var graphStyle by remember { mutableStateOf(GraphStyle.load(appPrefs)) }
-    fun setGraphStyle(v: GraphStyle) { graphStyle = v; GraphStyle.save(appPrefs, v) }
     // Observe external pref changes (e.g. from ToolOptionsPanel): re-read when screen re-enters foreground
     androidx.compose.runtime.DisposableEffect(Unit) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->

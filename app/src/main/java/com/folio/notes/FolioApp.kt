@@ -460,7 +460,7 @@ import java.io.File
                             },
                         )
                         else -> LibraryScreen(
-                            state.copy(notes = state.notes.filterNot { it.mistakePractice }), model,
+                            state.copy(notes = remember(state.notes) { state.notes.filterNot { it.mistakePractice } }), model,
                             onMistakes = { workspaceLibraryPurpose = null; showMistakes = true },
                             onNew = { workspaceLibraryPurpose = null; showMistakes = false; newNote = true },
                             onImport = { workspaceLibraryPurpose = null; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
