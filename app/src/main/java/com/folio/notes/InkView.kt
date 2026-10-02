@@ -214,22 +214,6 @@ class InkView(context: Context) : View(context) {
         followMessage = message
         onFollowStatus(WritingFollowStatus(message, followPaused || followManuallyPaused, followBack.entry != null))
     }
-    var writingStrip = false
-    private var stripInitialized = false
-    private var stripInitialArea: WritingLane? = null
-    private var stripInitialView: PeekAnchor? = null
-    fun initializeWritingStrip(region: WritingLane?, visible: PeekAnchor?) {
-        if (stripInitialized) return
-        stripInitialArea = region; stripInitialView = visible
-        if (width == 0 || height == 0) return
-        stripInitialized = true
-        val area = region ?: visible?.let { WritingLane(it.left, it.top, it.right, it.bottom) }
-            ?: WritingLane(36f, 40f, page.width - 36f, 180f)
-        val stripHeight = min(96f, (area.bottom - area.top).coerceAtLeast(32f))
-        val stripWidth = min((area.right - area.left).coerceAtLeast(48f), width.toFloat() / height * stripHeight)
-        val left = if (followPreferences.direction == WritingDirection.LTR) area.left else area.right - stripWidth
-        fitPeekAnchor(PeekAnchor(page.id, left, area.top, left + stripWidth, area.top + stripHeight))
-    }
     private var selectingWritingRegion = false
     private var regionStart: InkPoint? = null
     private var regionDraft: WritingLane? = null
@@ -303,7 +287,7 @@ class InkView(context: Context) : View(context) {
         val back = followBack.entry ?: run { reportFollowStatus("No previous follow movement"); return }
         val dx = -back.x; val dy = -back.y
         suspendWritingFollow()
-        if (page.infinite || writingStrip) { camera.pan(dx, dy); reportCanvasViewport(); invalidate() } else onFollowPan(dx, dy)
+        if (page.infinite) { camera.pan(dx, dy); reportCanvasViewport(); invalidate() } else onFollowPan(dx, dy)
         writingFollow.state = back.state
         followBack.clear(); reportFollowStatus(if (followManuallyPaused) "View restored · paused" else "View restored · write to resume")
     }
@@ -421,7 +405,7 @@ class InkView(context: Context) : View(context) {
                 followBack.begin(writingFollow.state)
                 captureFollowBack = false
             }
-            val applied = if (page.infinite || writingStrip) {
+            val applied = if (page.infinite) {
                 camera.pan(dx, dy); reportCanvasViewport(); invalidate(); dx to dy
             } else onFollowPan(dx, dy)
             followBack.moved(applied.first, applied.second)
@@ -478,7 +462,7 @@ class InkView(context: Context) : View(context) {
     private val camera = InfiniteViewport()
     var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
     private fun reportCanvasViewport() {
-        if ((page.infinite || readOnly || writingStrip) && workspaceCameraRestored && width > 0 && height > 0) {
+        if ((page.infinite || readOnly) && workspaceCameraRestored && width > 0 && height > 0) {
             onWorkspaceCamera(WorkspaceViewport(canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom))
             onCanvasZoom(camera.zoom)
             onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
@@ -493,7 +477,6 @@ class InkView(context: Context) : View(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         peekRegion?.let(::fitPeekAnchor)
-        if (writingStrip) initializeWritingStrip(stripInitialArea, stripInitialView)
         reportCanvasViewport()
     }
     fun fitCanvas(bounds: androidx.compose.ui.geometry.Rect) {
@@ -539,10 +522,10 @@ class InkView(context: Context) : View(context) {
                 reportCanvasViewport(); invalidate(); return true
             }
         }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
-    private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (readOnly || writingStrip) camera.zoom else 1f)
+    private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (readOnly) camera.zoom else 1f)
     private val pageScale get() = min(width / page.width, height / page.height).coerceAtLeast(.01f)
-    private val originX get() = if (page.infinite) camera.x else if (readOnly || writingStrip) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
-    private val originY get() = if (page.infinite) camera.y else if (readOnly || writingStrip) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else (height - page.height * scale) / 2
+    private val originX get() = if (page.infinite) camera.x else if (readOnly) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else if (readOnly) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -566,7 +549,7 @@ class InkView(context: Context) : View(context) {
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) {
-            stripInitialized = false; followPaused = false; followLastPoint = null
+            followPaused = false; followLastPoint = null
             followBack.clear(); writingFollow.state = WritingFollowState(); cancelFollowMotion()
             reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Write to start following")
             cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false
@@ -927,7 +910,7 @@ class InkView(context: Context) : View(context) {
                 touchChord.move(event.getPointerId(i), event.getX(i), event.getY(i))
             }
         }
-        if ((page.infinite || readOnly || writingStrip) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
+        if ((page.infinite || readOnly) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
             zoomDetector.onTouchEvent(event)
         }
         // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
@@ -1055,7 +1038,7 @@ class InkView(context: Context) : View(context) {
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
                     // Held back until the contact reads as a drag, so a settling hand moves nothing.
                     if (panGate.moved(x, y)) {
-                        if (page.infinite || readOnly || writingStrip) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
+                        if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
                     }
                     lastX = x; lastY = y
                 } else {
@@ -1293,7 +1276,7 @@ class InkView(context: Context) : View(context) {
         }
         val baseline = writingFollow.state.baselineY ?: return
         val next = nextFollowLine(baseline, region)
-        val zoom = if (page.infinite || writingStrip) camera.zoom else documentFollowZoom
+        val zoom = if (page.infinite) camera.zoom else documentFollowZoom
         if (zoom < followPreferences.minimumZoom) {
             reportFollowStatus("Zoom to ${"%.1f".format(followPreferences.minimumZoom)}× to follow · Next line moves manually")
             return
