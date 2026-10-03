@@ -82,7 +82,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     var filtersExpanded by rememberSaveable { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(LibrarySection.LIBRARY) }
     val libraryGridState = rememberLazyGridState()
-    val progressScrollState = rememberScrollState()
     var reviewMode by remember { mutableStateOf(false) }
     val destinationState = rememberSaveableStateHolder()
     val showNavigation = showStudy || !showMistakes || !reviewMode
@@ -456,17 +455,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (!showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.PROGRESS) Column(Modifier.weight(1f).fillMaxHeight().then(entrance).verticalScroll(progressScrollState).padding(if (wide) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        if (!wide) Brand() else Text("Progress", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                        if (!wide) Spacer(Modifier.weight(1f))
-                        if (!wide) FilledTonalIconButton(onNew, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "New notebook") }
-                        if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
-                    }
-                    Text("Averages come from every recorded attempt; recent attempts average each paper's latest mark.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        ExamProgressContent(state.notes, Modifier.fillMaxWidth(), scrollEnabled = false)
-                    }
+                if (!showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.PROGRESS) {
+                    com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().then(entrance),
+                        onSettings, onMistakes, onStudy, onOpenNotebook)
                 }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.

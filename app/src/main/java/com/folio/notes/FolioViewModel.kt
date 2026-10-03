@@ -24,6 +24,7 @@ class FolioApplication : Application() {
     /** App-scoped so a pen connection survives configuration changes but is still editor-bound. */
     val penHaptics by lazy { PenHapticsManager(this) }
     val focalStudy by lazy { FocalStudyManager(this) }
+    val focalProgress by lazy { com.folio.notes.progress.ExamProgressManager(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -943,6 +944,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun deleteAttempt(noteId: String, attemptId: String) {
         val note = _state.value.notes.find { it.id == noteId } ?: return
         updateNote(note.copy(attempts = note.attempts.filterNot { it.id == attemptId }))
+    }
+    /** Keep the notebook mark consistent when its detailed Progress log is edited. */
+    fun updateAttempt(noteId: String, attempt: ExamAttempt) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        if (note.attempts.none { it.id == attempt.id }) return
+        updateNote(note.copy(attempts = note.attempts.map { if (it.id == attempt.id) attempt else it }))
     }
     fun moveNotebooks(ids: Set<String>, folderId: String?) {
         if (folderId != null && _state.value.folders.none { it.id == folderId }) return
