@@ -159,8 +159,18 @@ fun main() {
         val reach = (30f + 10 * 18f + 14f - view.left) / view.width
         check(t.host.x > partial && reach in .38f..0.5f) { "frontier landed at $reach" }
     }
-    scenario("Writing sinking below the band moves the line back to the writing height") {
+    scenario("Without height keeping the page holds still vertically until the bottom edge") {
         val t = Trace()
+        for (i in 0..3) t.write(letter(30f + i * 18f, 180f))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 212f))
+        t.settle()
+        check(t.host.y == 0f) { "moved to ${t.host.y}" }
+        for (i in 0..3) t.write(letter(30f + i * 18f, 244f))
+        t.settle()
+        check(t.host.y > 0f) { "never followed to the bottom edge" }
+    }
+    scenario("Writing sinking below the band moves the line back to the writing height") {
+        val t = Trace(prefs = FollowPreferences(keepHeight = true))
         for (i in 0..3) t.write(letter(30f + i * 18f, 180f))
         for (i in 0..3) t.write(letter(30f + i * 18f, 212f))
         t.settle()

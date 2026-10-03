@@ -36,8 +36,10 @@ Rules a writer can rely on:
 - Sideways: once the end of the writing passes the feel's trigger (68–86 % across), the view glides
   so it sits at about 42 % (47 % when the hand covers the written side). It never glides past the
   line end, so the end can always be reached.
-- Vertical: once the baseline sinks more than the band (10–22 %) below the writing height, the view
-  moves it back up. Writing near the top is left alone.
+- Vertical: by default the page stays still vertically while you write along a line, and only moves
+  the line back up to the writing height if it nears the bottom 12 % of the view. With *Keep my line
+  at this height* on (Text mode), a baseline sinking more than the band (10-22 %) below the writing
+  height is also nudged back up. Maths always does this. Next line always uses the writing height.
 - Near the visible edge, a letter gap is enough to start a move, and the glide is quicker.
 - Handwriting smaller than 8 px on screen is readable as it is, so the view does not follow it.
   Next line still works.
@@ -53,7 +55,7 @@ reached its end.
 **Maths** reads the block of working touching the stroke (fractions included) and only moves down.
 
 **Settings:** Feel (one value controlling the pauses, trigger, band and glide), Text/Maths,
-automatic line return, direction, hand and writing height. Keys are listed in `FollowPrefsStore`.
+automatic line return, direction, hand, writing height and *Keep my line at this height*. Keys are listed in `FollowPrefsStore`.
 The earlier tuning keys and per-page `follow.region.*` answer areas are removed the first time the
 editor opens.
 

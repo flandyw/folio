@@ -44,6 +44,7 @@ object FollowPrefsStore {
     const val AUTO_RETURN = "follow.autoReturn"
     const val FEEL = AppPrefs.FOLLOW_FEEL
     const val HEIGHT = "follow.position"
+    const val KEEP_HEIGHT = "follow.keepHeight"
 
     /** The earlier tuning sliders and per-page answer areas; everything they set is now measured. */
     private val RETIRED = setOf("follow.horizontal", "follow.spacing", "follow.returnDelayMs", "follow.glideMs",
@@ -59,12 +60,14 @@ object FollowPrefsStore {
             automaticReturn = p.getBoolean(AUTO_RETURN, false),
             feel = FollowPreferences.clampFeel(p.getFloat(FEEL, FollowPreferences.DEFAULT_FEEL)),
             height = FollowPreferences.clampHeight(p.getFloat(HEIGHT, FollowPreferences.DEFAULT_HEIGHT)),
+            keepHeight = p.getBoolean(KEEP_HEIGHT, false),
         )
     }
 
     fun save(p: SharedPreferences, value: FollowPreferences) {
         p.edit().putString(DIRECTION, value.direction.name).putString(MODE, value.mode.name)
-            .putBoolean(AUTO_RETURN, value.automaticReturn).putFloat(FEEL, value.feel).putFloat(HEIGHT, value.height).apply()
+            .putBoolean(AUTO_RETURN, value.automaticReturn).putFloat(FEEL, value.feel).putFloat(HEIGHT, value.height)
+            .putBoolean(KEEP_HEIGHT, value.keepHeight).apply()
     }
 
     fun hand(p: SharedPreferences): WritingHand =
@@ -147,6 +150,12 @@ fun FollowSettingsDialog(
 
                 HorizontalDivider()
                 SectionTitle("Writing height")
+                Toggle("Keep my line at this height", preferences.keepHeight, enabled = preferences.mode == FollowMode.TEXT) {
+                    onPreferences(preferences.copy(keepHeight = it))
+                }
+                Hint(if (preferences.mode == FollowMode.MATH) "Maths always moves down to keep your working in view."
+                    else "Off: the page stays still vertically while you write along a line, and only moves down if you near the bottom edge. " +
+                        "On: it also nudges the line back up to the height below. Next line always uses this height.")
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Slider(preferences.height, { onPreferences(preferences.copy(height = FollowPreferences.clampHeight(it))) },
                         Modifier.weight(1f), valueRange = FollowPreferences.MIN_HEIGHT..FollowPreferences.MAX_HEIGHT)

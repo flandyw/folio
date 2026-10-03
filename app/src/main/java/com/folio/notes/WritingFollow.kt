@@ -14,6 +14,11 @@ data class FollowPreferences(
     val feel: Float = DEFAULT_FEEL,
     /** Where the writing line sits after a move, as a fraction down the view. */
     val height: Float = DEFAULT_HEIGHT,
+    /**
+     * Text only: keep the line at [height] while writing across it. Off, the page stays put
+     * vertically until the line nears the bottom edge; Next line always moves regardless.
+     */
+    val keepHeight: Boolean = false,
 ) {
     private fun blend(relaxed: Float, responsive: Float) = relaxed + (responsive - relaxed) * feel.coerceIn(0f, 1f)
     /** How far across the view the end of the writing may go before the view glides sideways. */
@@ -365,7 +370,10 @@ class WritingFollow(private val host: FollowHost) {
     /** Upward travel once the line sinks into the band above the writer's hand. */
     private fun vertical(baseline: Float, view: InkBox): Float {
         val target = view.top + view.height * preferences.height
-        return if (baseline > target + view.height * preferences.verticalBand) baseline - target else 0f
+        val keep = preferences.keepHeight || preferences.mode == FollowMode.MATH
+        // Without height keeping, only the bottom edge (where the hand would run out of room) triggers.
+        val limit = if (keep) target + view.height * preferences.verticalBand else view.bottom - view.height * EDGE_BAND
+        return if (baseline > limit) baseline - target else 0f
     }
 
     /** Puts a line's start at the writing height and, if it is out of comfortable view, near the leading edge. */
@@ -511,6 +519,8 @@ class WritingFollow(private val host: FollowHost) {
         /** The printed margin on ruled pages; blank pages use the same one. */
         const val PAGE_MARGIN = 36f
         const val MARKER_MS = 1400L
+        /** Fraction of the view's bottom that counts as running out of room. */
+        const val EDGE_BAND = .12f
         const val MAX_BACK = 12
     }
 }
