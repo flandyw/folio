@@ -637,6 +637,45 @@ fun main() {
         val detected = boxed.analyze()
         check(detected.guides.map { it.y.toInt() } == listOf(110, 138, 166, 194, 222)) { "$detected" }
     }
+    scenario("Detection streams rows, matches the whole-array scan and is reused from the cache") {
+        val page = PrintedPage(scale = 2)
+        for (y in 0 until 50) page.prompt(40, 20 + y * 18)      // a page of printed text
+        for (y in listOf(1000, 1028, 1056)) page.rule(40, 380, y, 3, 3)
+        val started = System.nanoTime()
+        val found = page.analyze()
+        val ms = (System.nanoTime() - started) / 1_000_000
+        println("  (analyze 1680x2376 text page: $ms ms)")
+        check(found.guides.size == 3 && found.areas.size == 1) { "$found" }
+        val first = WritingGuides.cached("k") { found }
+        check(WritingGuides.cached("k") { error("recomputed") } === first)
+    }
+    scenario("Page furniture is not an answer: header and divider rules, labelled gridlines, leader lines") {
+        val page = PrintedPage()
+        page.prompt(40, 28); page.rule(40, 780, 44)                 // running header and its rule
+        page.rule(40, 780, 300)                                     // divider with the header's extent
+        page.prompt(80, 452); page.rule(80, 645, 500)               // a real single-line answer
+        for (y in listOf(700, 730, 760, 790)) {                     // chart gridlines with axis labels
+            page.rect(60, y - 4, 74, y + 4); page.rule(80, 645, y)
+        }
+        page.rect(176, 900, 190, 908); page.rect(610, 900, 624, 908); page.rule(200, 600, 904) // contents leader
+        // A two-line contents table: text at both ends of each leader, which sit 26 units apart.
+        for (y in listOf(1000, 1026)) { page.rect(176, y - 4, 190, y + 4); page.rect(650, y - 4, 664, y + 4); page.rule(200, 640, y) }
+        // A chart axis with tick marks across it.
+        page.rule(100, 500, 1100)
+        for (x in 100..500 step 80) page.rect(x, 1094, x + 1, 1106)
+        val detected = page.analyze()
+        check(detected.areas.size == 1 && detected.areas.single().bottom == 500f) { "$detected" }
+    }
+    scenario("An answer area starts under question text that reaches into its writing room") {
+        val page = PrintedPage()
+        page.prompt(40, 112)                                          // text ending at y = 120
+        for (y in listOf(128, 156)) page.rule(40, 380, y)
+        val tall = page.analyze().areas.single()
+        check(tall.top in 119f..132f) { "area should start under the text: ${tall.top}" }
+        val clear = PrintedPage()
+        for (y in listOf(128, 156)) clear.rule(40, 380, y)
+        check(abs(clear.analyze().areas.single().top - 100f) < .5f)  // nothing above: one line spacing
+    }
     scenario("Glide easing reaches its target exactly and reports clamped travel") {
         val motion = FollowMotion()
         motion.start(-100f, 0f, 200)

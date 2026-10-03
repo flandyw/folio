@@ -58,11 +58,19 @@ Rules a writer can rely on:
 
 **Line ends and Next line.** A line ends at its printed response line's end. On a PDF, the background
 scan groups aligned solid, dashed or dotted response lines into answer areas. The area runs from
-one line spacing above its first rule down to its last rule, with the rules' horizontal extent.
+one line spacing above its first rule (or just under question text that reaches into that space) down to its last rule, with the rules' horizontal extent.
 No enclosing rectangle is needed. A larger gap relative to the local line spacing, intervening
 question text, or a different column starts a separate block. A long isolated response line also
 forms an area; short isolated underlines, text, thick bars and table/box borders are rejected.
 These boundaries are inferred from the unannotated background, so handwriting cannot change them.
+Page furniture is rejected: a lone rule in the top 7 % / bottom 5 % of the page or with exactly the
+running header's extent, a lone rule without about a line of clear writing room above it (a label on its own row is fine) or with text close beneath it, a leader line (text at both
+ends), and gridlines (aligned rules with axis labels, or crossed by plotted data). Checked against the
+2025 VCAA Mathematical Methods (NHT) 1 and Physical Education papers; the title-page dividers are
+rejected by the room-above rule. Dashed and dotted rules count only when their gaps are evenly spaced, so
+text rows cannot pass as dotted lines.
+The scan runs only for the page being written on, off the UI thread: the raster is read one row at a time
+into a dark-pixel mask (no copy of the page), and the result is cached per page for 32 pages.
 On a blank page a line ends at the 36-unit margin. Next line goes to the next printed rule in the same answer block
 and stops at the block's last rule, including when the next question has aligned response lines.
 Without rules it goes one measured line spacing down, back to where the paragraph's lines start,

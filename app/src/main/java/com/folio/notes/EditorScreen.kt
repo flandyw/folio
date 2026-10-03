@@ -1735,11 +1735,13 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         writingGuides = if (!active || !followEnabled || page.infinite) DetectedGuides(emptyList(), emptyList()) else withContext(Dispatchers.Default) {
             val bitmap = background
             when {
-                page.pdfIndex != null && bitmap != null -> {
-                    val pixels = IntArray(bitmap.width * bitmap.height)
-                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                    WritingGuides.analyze(pixels, bitmap.width, bitmap.height, page.width, page.height)
-                }
+                page.pdfIndex != null && bitmap != null ->
+                    WritingGuides.cached("$noteId/${page.pdfIndex}/${page.width}x${page.height}/${bitmap.width}") {
+                        // One row at a time: no copy of the whole page's pixels.
+                        WritingGuides.analyze(bitmap.width, bitmap.height, page.width, page.height) { y, row ->
+                            bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+                        }
+                    }
                 page.pdfIndex == null && (page.paper == Paper.RULED || page.paper == Paper.SPLIT_RULED) ->
                     DetectedGuides(WritingGuides.ruled(page.width, page.height), emptyList())
                 else -> DetectedGuides(emptyList(), emptyList())

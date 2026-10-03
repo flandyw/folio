@@ -49,25 +49,74 @@ object WritingGuides {
     fun detect(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): List<WritingGuide> =
         analyze(pixels, width, height, pageWidth, pageHeight).guides
 
-    /** Group response lines into answer areas using alignment, spacing and clear space between them. */
     fun analyze(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): DetectedGuides {
         require(width > 0 && height > 0 && pixels.size.toLong() == width.toLong() * height)
+        return analyze(width, height, pageWidth, pageHeight) { y, row -> System.arraycopy(pixels, y * width, row, 0, width) }
+    }
+
+    /** One byte per pixel: ink dark enough to be a printed rule. Computed once, then only looked up. */
+    private fun darkMask(width: Int, height: Int, readRow: (Int, IntArray) -> Unit): BooleanArray {
+        val mask = BooleanArray(width * height)
+        val row = IntArray(width)
+        for (y in 0 until height) {
+            readRow(y, row)
+            val base = y * width
+            for (x in 0 until width) {
+                val c = row[x]
+                val a = c ushr 24
+                if (a == 0) continue
+                val luminance = (2126 * ((c ushr 16) and 255) + 7152 * ((c ushr 8) and 255) + 722 * (c and 255)) / 10000
+                // Composited over white, like the page it is drawn on.
+                mask[base + x] = 255 - a * (255 - luminance) / 255 < 225
+            }
+        }
+        return mask
+    }
+
+    /** Detected areas for an unannotated page, reused when the same page comes back into view. */
+    fun cached(key: String, compute: () -> DetectedGuides): DetectedGuides {
+        synchronized(cache) { cache[key]?.let { return it } }
+        return compute().also { found -> synchronized(cache) { cache[key] = found } }
+    }
+
+    private val cache = object : LinkedHashMap<String, DetectedGuides>(16, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DetectedGuides>?) = size > 32
+    }
+
+    /**
+     * Group response lines into answer areas using alignment, spacing and clear space between them.
+     * [readRow] fills one raster row (ARGB), so a caller never needs the whole page's pixels at once.
+     */
+    fun analyze(width: Int, height: Int, pageWidth: Float, pageHeight: Float, readRow: (Int, IntArray) -> Unit): DetectedGuides {
+        require(width > 0 && height > 0)
         require(pageWidth.isFinite() && pageHeight.isFinite() && pageWidth > 0 && pageHeight > 0)
         val sx = pageWidth / width
         val sy = pageHeight / height
         val gap = ceil(6f / sx).toInt().coerceAtLeast(1)
         val minLength = max(60f, pageWidth * .12f) / sx
-        fun dark(x: Int, y: Int): Boolean {
-            if (x !in 0 until width || y !in 0 until height) return false
-            val color = pixels[y * width + x]
-            val alpha = (color ushr 24) / 255f
-            val luminance = .2126f * ((color ushr 16) and 255) +
-                .7152f * ((color ushr 8) and 255) + .0722f * (color and 255)
-            return 255f - alpha * (255f - luminance) < 225f
+        val mask = darkMask(width, height, readRow)
+        fun dark(x: Int, y: Int): Boolean = x in 0 until width && y in 0 until height && mask[y * width + x]
+        /** A dashed or dotted rule has evenly spaced gaps; a row of text does not. */
+        fun regularDashes(y: Int, left: Int, right: Int): Boolean {
+            val gaps = ArrayList<Int>()
+            var x = left
+            var inGap = 0
+            while (x <= right) {
+                if (mask[y * width + x]) { if (inGap > 0) gaps += inGap; inGap = 0 } else inGap++
+                x++
+            }
+            if (gaps.size < 8) return false
+            val sorted = gaps.sorted()
+            val median = sorted[sorted.size / 2]
+            val tolerance = max(1, ceil(median * .4f).toInt())
+            return gaps.count { abs(it - median) <= tolerance } >= gaps.size * .85f
         }
         data class Band(var left: Int, var right: Int, val top: Int, var bottom: Int)
         val bands = mutableListOf<Band>()
+        var open = mutableListOf<Band>()
         for (y in 0 until height) {
+            val previous = open
+            open = mutableListOf()
             var x = 0
             while (x < width) {
                 if (!dark(x, y)) { x++; continue }
@@ -79,16 +128,18 @@ object WritingGuides {
                     x++
                 }
                 if (right - left < minLength || ink.toFloat() / (right - left + 1) < .15f) continue
-                val band = bands.lastOrNull { it.bottom == y - 1 && abs(it.left - left) <= gap * 2 && abs(it.right - right) <= gap * 2 }
-                if (band == null) bands += Band(left, right, y, y)
-                else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y }
+                if (ink.toFloat() / (right - left + 1) < .45f && !regularDashes(y, left, right)) continue
+                val band = previous.lastOrNull { abs(it.left - left) <= gap * 2 && abs(it.right - right) <= gap * 2 }
+                if (band == null) Band(left, right, y, y).also { bands += it; open += it }
+                else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y; open += band }
             }
         }
+        if (bands.isEmpty()) return DetectedGuides(emptyList(), emptyList())
         // A rule whose ends meet a printed border may be an answer-box line or a table row; blocks decide.
         val bordered = mutableSetOf<WritingGuide>()
         val candidates = bands.mapNotNull { band ->
             val thin = (band.bottom - band.top + 1) * sy <= 3.5f
-            val reach = ceil(8f / sy).toInt().coerceAtLeast(3)
+            val reach = ceil(16f / sy).toInt().coerceAtLeast(3)
             fun verticalBorder(x: Int): Boolean = (-1..1).any { offset ->
                 (1..reach).count { dark(x + offset, band.top - it) } >= reach * .8f ||
                     (1..reach).count { dark(x + offset, band.bottom + it) } >= reach * .8f
@@ -144,6 +195,94 @@ object WritingGuides {
             }
             if (block == null) blocks += mutableListOf(guide) else block += guide
         }
+        /** Fraction of the columns in [x0, x1] (pixels) with ink anywhere in rows [y0, y1]. */
+        fun coverage(x0: Int, x1: Int, y0: Int, y1: Int): Float {
+            if (x1 < x0) return 0f
+            var columns = 0
+            for (x in x0..x1) if ((y0..y1).any { dark(x, it) }) columns++
+            return columns.toFloat() / (x1 - x0 + 1)
+        }
+        fun textLeft(rule: WritingGuide, reachUnits: Float): Boolean {
+            val reach = ceil(reachUnits / sx).toInt()
+            val rows = ceil(5f / sy).toInt().coerceAtLeast(1)
+            val row = (rule.y / sy).toInt()
+            val x0 = ceil(rule.left / sx).toInt()
+            return coverage(x0 - reach, x0 - 1, row - rows, row + rows) > 0f
+        }
+        fun textRight(rule: WritingGuide, reachUnits: Float): Boolean {
+            val reach = ceil(reachUnits / sx).toInt()
+            val rows = ceil(5f / sy).toInt().coerceAtLeast(1)
+            val row = (rule.y / sy).toInt()
+            val x1 = (rule.right / sx).toInt()
+            return coverage(x1 + 1, x1 + reach, row - rows, row + rows) > 0f
+        }
+        /** Tick marks or grid lines cross the rule: it is an axis or a grid, not writing space. */
+        fun crossed(rule: WritingGuide): Boolean {
+            val row = (rule.y / sy).toInt()
+            val near = ceil(2f / sy).toInt().coerceAtLeast(2)
+            val far = ceil(7f / sy).toInt().coerceAtLeast(near + 1)
+            val x0 = ceil(rule.left / sx).toInt()
+            val x1 = (rule.right / sx).toInt()
+            var both = 0
+            for (x in x0..x1) {
+                if ((near..far).any { dark(x, row - it) } && (near..far).any { dark(x, row + it) }) both++
+            }
+            return both >= 2
+        }
+        /** Leader lines carry text at both ends; chart gridlines carry axis labels at one. */
+        fun labelled(block: List<WritingGuide>): Boolean {
+            val tagged = block.count { rule ->
+                if (block.size >= 3) textLeft(rule, 12f) || textRight(rule, 12f)
+                else textLeft(rule, 24f) && textRight(rule, 24f)
+            }
+            return tagged * 2 >= block.size
+        }
+        // Running header and footer rules; a rule of exactly their extent anywhere else is the same furniture.
+        val furniture = candidates.filter { it.y < pageHeight * .07f || it.y > pageHeight * .93f }
+        fun plausibleSingle(rule: WritingGuide): Boolean {
+            if (rule.y < pageHeight * .07f || rule.y > pageHeight * .95f) return false
+            if (furniture.any { it.y != rule.y && abs(it.left - rule.left) <= 6f && abs(it.right - rule.right) <= 6f }) return false
+            val x0 = ceil(rule.left / sx).toInt()
+            val x1 = (rule.right / sx).toInt()
+            val near = ceil(3f / sy).toInt().coerceAtLeast(2)
+            val far = ceil(14f / sy).toInt()
+            val row = (rule.y / sy).toInt()
+            if (max(coverage(x0, x1, row - far, row - near), coverage(x0, x1, row + near, row + far)) >= .2f) return false
+            // An answer line leaves a line of writing room above it (a short label on its own row aside);
+            // a rule with text just above is a divider or underline.
+            if (coverage(x0, x1, row - ceil(28f / sy).toInt(), row - ceil(8f / sy).toInt()) >= .1f) return false
+            // Writing room lies below an answer line's question, not under the next paragraph of text.
+            if (coverage(x0, x1, row + near, row + ceil(22f / sy).toInt()) >= .3f) return false
+            val labelLeft = textLeft(rule, 12f)
+            val labelRight = textRight(rule, 12f)
+            // A leader line runs between two pieces of text on its own row.
+            if (textLeft(rule, 24f) && textRight(rule, 24f)) return false
+            if (crossed(rule)) return false
+            val neighbours = candidates.count { it !== rule && (follows(it, rule) || follows(rule, it)) }
+            return !(neighbours >= 2 || ((labelLeft || labelRight) && neighbours >= 1))
+        }
+        /**
+         * One line spacing above the first rule is the writing room, unless question text reaches into
+         * it: then the area starts just under that text, so the outline never cuts through it.
+         */
+        fun topOf(first: WritingGuide, left: Float, right: Float, pitch: Float): Float {
+            val x0 = ceil(left / sx).toInt()
+            val x1 = (right / sx).toInt()
+            val minInk = ceil(3f / sx).toInt().coerceAtLeast(2)
+            val textHeight = ceil(2f / sy).toInt().coerceAtLeast(2)
+            val limit = max(0f, first.y - pitch)
+            val floor = first.y - 4f
+            var rows = 0
+            var y = ((first.y - 4f) / sy).toInt()
+            while (y * sy >= limit && y >= 0) {
+                var ink = 0
+                for (x in x0..x1) if (dark(x, y) && ++ink >= minInk) break
+                rows = if (ink >= minInk) rows + 1 else 0
+                if (rows >= textHeight) return min(floor, (y + rows) * sy).coerceAtLeast(limit)
+                y--
+            }
+            return limit
+        }
         val guides = mutableListOf<WritingGuide>()
         val areas = mutableListOf<AnswerArea>()
         for (found in blocks) {
@@ -156,11 +295,15 @@ object WritingGuides {
                 if (inner.size < 3) continue
                 inner
             }
+            // Decoration is not an answer: a rule hugging text (page headers, dividers, leader lines)
+            // and gridlines whose ends carry axis labels both look like rules but have nothing to write in.
+            if (block.size == 1 && !plausibleSingle(block.first())) continue
+            if (found.none { it in bordered } && (labelled(block) || block.count(::crossed) * 2 >= block.size)) continue
             if (block.size == 1 && block.first().right - block.first().left < max(120f, pageWidth * .25f)) continue
             val pitch = block.zipWithNext { a, b -> b.y - a.y }.minOrNull() ?: 28f
             val id = areas.size
             guides += block.map { it.copy(block = id) }
-            areas += AnswerArea(block.minOf { it.left }, max(0f, block.first().y - pitch),
+            areas += AnswerArea(block.minOf { it.left }, topOf(block.first(), block.minOf { it.left }, block.maxOf { it.right }, pitch),
                 block.maxOf { it.right }, block.last().y)
         }
         return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas)
