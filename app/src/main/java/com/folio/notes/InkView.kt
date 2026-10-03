@@ -201,6 +201,10 @@ class InkView(context: Context) : View(context) {
         color = 0xCC387C83.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
     }
     private val followVisible = android.graphics.Rect()
+    private val predictionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val predicted = FloatArray(2)
     private val markCache = IdentityCache<Stroke, InkMark>(MAX_CACHED_STROKES)
     private val followTick: Runnable = Runnable { follow.tick(SystemClock.uptimeMillis()) }
     /** What writing follow sees of this view: the visible page, the camera and the pen ink. */
@@ -643,7 +647,18 @@ class InkView(context: Context) : View(context) {
         if (draftStroke == null) resetDraftGeometry()
         else {
             val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
-            if (live != null) InkRenderer.drawRendered(canvas, draftStroke, live)
+            if (live != null) {
+                InkRenderer.drawRendered(canvas, draftStroke, live)
+                // Stylus only: a finger is slow and its tail would read as lag the other way.
+                if (stylus && draftStroke.tool == Tool.PEN &&
+                    StrokePrediction.predict(draftStroke.points, scale, predicted)) {
+                    val tip = draftStroke.points.last()
+                    predictionPaint.color = draftStroke.color
+                    predictionPaint.alpha = (Color.alpha(draftStroke.color) * draftStroke.opacity).toInt().coerceIn(0, 255)
+                    predictionPaint.strokeWidth = draftStroke.width * InkRenderer.penPressureScale(tip.pressure)
+                    canvas.drawLine(tip.x, tip.y, predicted[0], predicted[1], predictionPaint)
+                }
+            }
             else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
             else InkRenderer.stroke(canvas, draftStroke)
         }
@@ -679,7 +694,7 @@ class InkView(context: Context) : View(context) {
         }
         // Tight margin: stroke width + small spline overshoot + eraser ring. The old
         // 64px×scale margin dirtied half the screen per tip move.
-        val margin = inkWidth * scale + 16f * scale.coerceAtMost(2f) + 12f
+        val margin = inkWidth * scale + 16f * scale.coerceAtMost(2f) + 12f + StrokePrediction.MAX_TAIL_PX
         val l = (originX + minX * scale - margin).toInt()
         val t = (originY + minY * scale - margin).toInt()
         val r = (originX + maxX * scale + margin).toInt()

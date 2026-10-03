@@ -25,7 +25,9 @@ object InkCodec {
 
     fun decodeStrokes(array: JSONArray?): List<Stroke> {
         if (array == null) return emptyList()
-        return (0 until array.length()).map { decodeStroke(array.getJSONObject(it)) }
+        val out = ArrayList<Stroke>(array.length())
+        for (i in 0 until array.length()) out += decodeStroke(array.getJSONObject(i))
+        return out
     }
 
     fun decodeStroke(s: JSONObject): Stroke {
@@ -33,8 +35,12 @@ object InkCodec {
         val toolName = s.optString("tool", "PEN")
         val tool = runCatching { Tool.valueOf(toolName) }.getOrDefault(Tool.PEN)
         return Stroke(tool, s.getInt("color"), s.getDouble("width").toFloat(),
-            (0 until points.length()).map { i -> val pt = points.getJSONArray(i)
-                InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat()) },
+            ArrayList<InkPoint>(points.length()).also { list ->
+                for (i in 0 until points.length()) {
+                    val pt = points.getJSONArray(i)
+                    list += InkPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat(), pt.getDouble(2).toFloat())
+                }
+            },
             s.optDouble("opacity", if (toolName == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
             if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
     }
