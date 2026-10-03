@@ -84,7 +84,9 @@ object WritingGuides {
                 else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y }
             }
         }
-        val candidates = bands.filter { band ->
+        // A rule whose ends meet a printed border may be an answer-box line or a table row; blocks decide.
+        val bordered = mutableSetOf<WritingGuide>()
+        val candidates = bands.mapNotNull { band ->
             val thin = (band.bottom - band.top + 1) * sy <= 3.5f
             val reach = ceil(8f / sy).toInt().coerceAtLeast(3)
             fun verticalBorder(x: Int): Boolean = (-1..1).any { offset ->
@@ -97,8 +99,11 @@ object WritingGuides {
             val occupied = (band.left..band.right).count { x ->
                 (2..clearance).any { dark(x, band.top - it) || dark(x, band.bottom + it) }
             }
-            thin && occupied.toFloat() / (band.right - band.left + 1) < .18f && !verticalBorder(band.left) && !verticalBorder(band.right)
-        }.map { WritingGuide(it.left * sx, it.right * sx, (it.top + it.bottom) * .5f * sy) }
+            if (!thin || occupied.toFloat() / (band.right - band.left + 1) >= .18f) return@mapNotNull null
+            WritingGuide(band.left * sx, band.right * sx, (band.top + band.bottom) * .5f * sy).also {
+                if (verticalBorder(band.left) || verticalBorder(band.right)) bordered += it
+            }
+        }
         // Only inspect the shared column: content in a neighbouring column is irrelevant.
         fun clearBetween(above: WritingGuide, below: WritingGuide): Boolean {
             val left = ceil(max(above.left, below.left) / sx).toInt()
@@ -141,7 +146,16 @@ object WritingGuides {
         }
         val guides = mutableListOf<WritingGuide>()
         val areas = mutableListOf<AnswerArea>()
-        for (block in blocks) {
+        for (found in blocks) {
+            // Lines inside a ruled box touch its borders. The box's own top and bottom edges are not
+            // places to write, and fewer than three inner rules looks like a table, not an answer.
+            val block = if (found.none { it in bordered }) found else {
+                val inner = found.toMutableList()
+                if (inner.first() in bordered) inner.removeFirst()
+                if (inner.isNotEmpty() && inner.last() in bordered) inner.removeLast()
+                if (inner.size < 3) continue
+                inner
+            }
             if (block.size == 1 && block.first().right - block.first().left < max(120f, pageWidth * .25f)) continue
             val pitch = block.zipWithNext { a, b -> b.y - a.y }.minOrNull() ?: 28f
             val id = areas.size

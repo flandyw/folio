@@ -281,9 +281,9 @@ fun main() {
         val t = Trace(host, FollowPreferences(automaticReturn = true))
         var x = 40f
         while (x < 340f) { t.write(letter(x)); x += 18f }
-        check(t.host.last.message.startsWith("Next line in")) { t.host.last.message }
+        // At the edge of a zoomed view the room comes first, then the return follows by itself.
         t.settle()
-        val marker = t.follow.marker(t.now) ?: error("no return")
+        val marker = t.follow.marker(t.now) ?: error("no return: ${t.host.last.message}")
         check(marker.x == 40f && marker.y > 100f)
     }
     scenario("Detected response lines return at their edge and stop before the next question") {
@@ -363,7 +363,7 @@ fun main() {
                 t.write(letter(x.toFloat(), baseline, baseline - 4f, baseline, 4f)); t.settle()
                 val marker = t.follow.marker(t.now)
                 if (marker != null && marker.y == baseline + 28f) {
-                    check(x >= 780) { "returned before the visible end: $x" }
+                    check(x >= 770) { "returned more than a word before the end: $x" }
                     check(marker.x == 40f)
                     check(marker.x in host.viewport().left..host.viewport().right)
                     check(abs((marker.y - host.y) / host.viewport().height - .55f) < .01f)
@@ -570,6 +570,72 @@ fun main() {
         t.follow.nextLine(t.now); t.settle()
         val marker = t.follow.marker(t.now) ?: error(t.host.last.message)
         check(marker.x == 30f && marker.y > 100f)
+    }
+    scenario("Next line is a carriage return: down and back to the start of the answer line") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128, 156)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        // Zoomed in: the 340-unit response line is wider than the 200-unit view.
+        val t = Trace(FakeHost(viewW = 400f, scale = 2f), guides = detected.guides)
+        t.follow.areas = detected.areas
+        for (i in 0..3) t.write(letter(40f + i * 18f))
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        check(abs(t.host.x - (40f - 16f)) < 1f) { "start should sit at the leading edge, view left=${t.host.x}" }
+        // Having written far along the next line, the following return comes all the way back.
+        var x = 40f
+        while (x < 330f) { t.write(letter(x, 128f)); x += 18f }
+        t.settle()
+        check(t.host.x > 100f) { "writing should have carried the view across: ${t.host.x}" }
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 156f && abs(t.host.x - 24f) < 1f) { "left=${t.host.x}" }
+    }
+    scenario("Next line from a fully visible line only brings the start into view") {
+        val host = FakeHost(pageWidth = 840f, viewW = 840f, scale = 1f)
+        val t = Trace(host, guides = listOf(100f, 128f).map { WritingGuide(36f, 400f, it) })
+        for (i in 0..3) t.write(letter(40f + i * 18f))
+        t.follow.nextLine(t.now); t.settle()
+        check(t.host.x == 0f)
+    }
+    scenario("Automatic return fires a word before the end of an indented response line") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        var x = 40f
+        while (x < 300f) { t.write(letter(x)); x += 18f }
+        check(!t.host.last.message.startsWith("Next line in")) { "too early: ${t.host.last.message}" }
+        while (x < 334f) { t.write(letter(x)); x += 18f }
+        check(t.host.last.message.startsWith("Next line in")) { "no room for another word: ${t.host.last.message}" }
+        t.settle()
+        check(t.follow.marker(t.now)?.let { it.x == 40f && it.y == 128f } == true)
+    }
+    scenario("Automatic return learns where this writer wraps") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128, 156, 184)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        fun fill(until: Float, y: Float) { var x = 40f; while (x < until) { t.write(letter(x, y)); x += 18f } }
+        fill(290f, 100f)
+        check(!t.host.last.message.startsWith("Next line in"))
+        t.follow.nextLine(t.now); t.settle()
+        fill(290f, 128f)
+        check(t.host.last.message.startsWith("Next line in")) { "learned wrap: ${t.host.last.message}" }
+    }
+    scenario("Rules inside a ruled answer box are response lines; a sparse box is not") {
+        val page = PrintedPage()
+        page.rect(40, 80, 380, 81); page.rect(40, 240, 380, 241)
+        page.rect(40, 80, 41, 241); page.rect(379, 80, 380, 241)
+        for (y in listOf(120, 160)) page.rule(40, 380, y)
+        check(page.analyze().guides.isEmpty())
+        val boxed = PrintedPage()
+        boxed.rect(40, 80, 380, 81); boxed.rect(40, 250, 380, 251)
+        boxed.rect(40, 80, 41, 251); boxed.rect(379, 80, 380, 251)
+        for (y in listOf(110, 138, 166, 194, 222)) boxed.rule(40, 380, y)
+        val detected = boxed.analyze()
+        check(detected.guides.map { it.y.toInt() } == listOf(110, 138, 166, 194, 222)) { "$detected" }
     }
     scenario("Glide easing reaches its target exactly and reports clamped travel") {
         val motion = FollowMotion()

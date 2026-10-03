@@ -149,12 +149,16 @@ class WritingFollow(private val host: FollowHost) {
     /** Where lines of this paragraph start and (on a canvas) end, in page units. */
     private var columnStart: Float? = null
     private var columnEnd: Float? = null
+    /** How far along its line (0..1) this writer usually gets before starting the next one. */
+    private var wrapReach: Float? = null
     private var armed = false
     private var penDownAt: Long? = null
     private var lastUp: Long? = null
     private val rhythm = WritingRhythm()
     private val motion = FollowMotion()
     private var plan: Plan? = null
+    /** A full line whose return waits for the view to finish revealing room for its last words. */
+    private var resume: WritingLine? = null
     private var moving: BackEntry? = null
     private var movingToLine = false
     private val history = ArrayDeque<BackEntry>()
@@ -171,7 +175,7 @@ class WritingFollow(private val host: FollowHost) {
     fun reset(page: FollowPage) {
         stop()
         this.page = page
-        line = null; cursor = null; columnStart = null; columnEnd = null
+        line = null; cursor = null; columnStart = null; columnEnd = null; wrapReach = null
         armed = false; marker = null; lastUp = null; penDownAt = null
         history.clear()
         report(readyMessage())
@@ -221,7 +225,9 @@ class WritingFollow(private val host: FollowHost) {
             else report("Holding still · keep writing")
             return
         }
-        val relation = relate(cursor ?: line, current, seed.box)
+        val previous = cursor ?: line
+        val relation = relate(previous, current, seed.box)
+        if (relation == Relation.NEXT && previous != null) learnReach(previous)
         line = current
         cursor = null
         when (relation) {
@@ -249,6 +255,7 @@ class WritingFollow(private val host: FollowHost) {
         val from = cursor ?: line?.let(::refreshLine)?.also { line = it } ?: visibleLine(view)?.also {
             line = it; startColumn(it)
         }
+        from?.let(::learnReach)
         val next = if (from != null) nextAfter(from) ?: return report(endMessage(from))
             else firstGuideIn(view) ?: return report("Write a line first, then Next line")
         val (vx, vy) = lineTarget(next, view)
@@ -288,7 +295,7 @@ class WritingFollow(private val host: FollowHost) {
         motion.applied(applied.first, applied.second)
         // A clamp at the document's edge ends the move; it never counts as travel.
         val blocked = (abs(step.dx) >= .5f || abs(step.dy) >= .5f) && applied.first == 0f && applied.second == 0f
-        if (step.finished || blocked) finish() else host.schedule(0)
+        if (step.finished || blocked) finish(now) else host.schedule(0)
     }
 
     /** The marker to draw, if it has not expired. */
@@ -307,14 +314,16 @@ class WritingFollow(private val host: FollowHost) {
             host.redraw(); host.redraw(MARKER_MS + 16)
         }
         motion.start((view.left - pending.left) * scale, (view.top - pending.top) * scale, pending.durationMs)
-        if (!motion.active) { finish(); return false }
+        if (!motion.active) { finish(now); return false }
         report(if (movingToLine) "Moving to the next line · touch down to stop" else "Following · touch down to stop")
         return true
     }
 
-    private fun finish() {
+    private fun finish(now: Long) {
         val wasLine = movingToLine
         val moved = motion.moved
+        val waiting = resume
+        resume = null
         record()
         report(when {
             paused -> "Paused · tap Resume when ready"
@@ -322,11 +331,13 @@ class WritingFollow(private val host: FollowHost) {
             moved -> "Following · Back restores the view"
             else -> "View is at the edge · pan to continue"
         })
+        // The room is revealed: now the full line can start its return, if the ink is unchanged.
+        if (!paused && !wasLine && waiting != null && refreshLine(waiting) == waiting) plan(waiting, Relation.PROGRESS, now, roomFirstAllowed = false)
     }
 
     /** Stops planned and running movement, keeping whatever already moved undoable. */
     private fun stop() {
-        plan = null
+        plan = null; resume = null
         if (motion.active && movingToLine) {
             cursor = moving?.cursor
             marker = null
@@ -346,31 +357,36 @@ class WritingFollow(private val host: FollowHost) {
         motion.reset()
     }
 
-    private fun plan(l: WritingLine, relation: Relation, now: Long) {
+    private fun plan(l: WritingLine, relation: Relation, now: Long, roomFirstAllowed: Boolean = true) {
         val view = host.viewport() ?: return
         val scale = host.scale
         if (l.body * scale < MIN_BODY_PX) { report("Zoom in to follow · Next line still works"); return }
         val text = preferences.mode == FollowMode.TEXT
         val atEnd = text && atLineEnd(l)
+        val (vx, reach) = sideways(l, view)
+        val vy = vertical(l.baseline, view)
+        // Near the visible edge the pen is about to run out of room: a letter gap is enough.
+        val urgent = reach > .92f || (1f - reach) * view.width < l.body * 1.5f
         var settled = if (atEnd) "Line end · tap Next line" else "Following"
         if (atEnd && relation == Relation.PROGRESS && preferences.automaticReturn) {
             val next = nextAfter(l)
-            if (next != null && !occupied(next)) {
+            // Inside the end zone with the pen at the edge of the screen and line left to write on,
+            // room comes first; the return follows once the writer settles.
+            val roomFirst = roomFirstAllowed && urgent && !pastEnd(l)
+            resume = if (roomFirst) l else null
+            if (next != null && !occupied(next) && !roomFirst) {
                 val delay = rhythm.returnPauseMs(preferences.returnPauseMs)
-                val (vx, vy) = lineTarget(next, view)
-                plan = Plan(view.left + vx, view.top + vy, now + delay, returnDuration(vx, view), next, l)
+                val (rx, ry) = lineTarget(next, view)
+                plan = Plan(view.left + rx, view.top + ry, now + delay, returnDuration(rx, view), next, l)
                 report("Next line in ${FollowPreferences.seconds(delay)} · touch down to cancel")
                 host.schedule(delay.toLong())
                 return
             }
             // Finishing the last answer line still needs sideways/vertical room at high zoom.
-            settled = if (next == null) endMessage(l) else "Next line already has ink · tap Next line to move there"
+            if (next == null) settled = endMessage(l)
+            else if (!roomFirst) settled = "Next line already has ink · tap Next line to move there"
         }
-        val (vx, reach) = sideways(l, view)
-        val vy = vertical(l.baseline, view)
         if (abs(vx) * scale < .5f && abs(vy) * scale < .5f) { report(settled); return }
-        // Near the visible edge the pen is about to run out of room: a letter gap is enough.
-        val urgent = reach > .92f || (1f - reach) * view.width < l.body * 1.5f
         val delay = rhythm.pauseMs(preferences.pauseMs, urgent)
         plan = Plan(view.left + vx, view.top + vy, now + delay,
             if (urgent) min(preferences.glideMs, 120) else preferences.glideMs, null, l)
@@ -406,16 +422,29 @@ class WritingFollow(private val host: FollowHost) {
         return if (baseline > limit) baseline - target else 0f
     }
 
-    /** Puts a line's start at the writing height and, if it is out of comfortable view, near the leading edge. */
+    /**
+     * A carriage return: the line's start goes to the writing height and, unless the whole line already
+     * fits on screen, to the leading edge, so every return lands in the same place however far the
+     * view had travelled. A line that fits is only nudged until all of it is visible.
+     */
     private fun lineTarget(next: WritingLine, view: InkBox): Pair<Float, Float> {
         val vy = next.baseline - (view.top + view.height * preferences.height)
         if (preferences.mode != FollowMode.TEXT || view.width <= 0f) return 0f to vy
         val ltr = preferences.direction == WritingDirection.LTR
         val start = next.start(preferences.direction)
-        val fraction = if (ltr) (start - view.left) / view.width else (view.right - start) / view.width
-        if (fraction in .03f..0.6f) return 0f to vy
-        val vx = if (ltr) start - (view.left + view.width * .08f) else start - (view.right - view.width * .08f)
-        return vx to vy
+        val end = lineEnd(next)
+        if (end != null && abs(end - start) <= view.width * .96f) {
+            val margin = view.width * .02f
+            val low = min(start, end)
+            val high = max(start, end)
+            return when {
+                low < view.left + margin -> low - (view.left + margin)
+                high > view.right - margin -> high - (view.right - margin)
+                else -> 0f
+            } to vy
+        }
+        val lead = view.width * LEAD
+        return (if (ltr) start - (view.left + lead) else start - (view.right - lead)) to vy
     }
 
     private fun relate(previous: WritingLine?, current: WritingLine, seed: InkBox): Relation {
@@ -548,16 +577,46 @@ class WritingFollow(private val host: FollowHost) {
         l.guide?.block?.let { areas.getOrNull(it) }
             ?: WritingGuides.areaAt(areas, (l.left + l.right) / 2f, l.baseline)
 
-    /** A full line that reached its end; a short note scribbled near the edge is not one. */
+    /** How far along its line the writing has got, 0 at the start to 1 at the end. */
+    private fun reachOf(l: WritingLine): Float? {
+        val end = lineEnd(l) ?: return null
+        val start = lineStart(l) ?: return null
+        val width = abs(end - start)
+        if (width < l.body * 4f) return null
+        val travelled = if (preferences.direction == WritingDirection.LTR) l.frontier(preferences.direction) - start
+            else start - l.frontier(preferences.direction)
+        return (travelled / width).coerceIn(0f, 1.2f)
+    }
+
+    /** The writing has reached or passed the line's end, with no further room to write on it. */
+    private fun pastEnd(l: WritingLine): Boolean {
+        val end = lineEnd(l) ?: return true
+        return if (preferences.direction == WritingDirection.LTR) l.right >= end - l.body else l.left <= end + l.body
+    }
+
+    /** Remember where a line was left for the next one, but only from lines that were really filled. */
+    private fun learnReach(l: WritingLine) {
+        if (l.strokes == 0) return
+        val reach = reachOf(l)?.takeIf { it >= LEARN_MIN_REACH } ?: return
+        wrapReach = wrapReach?.let { (it + reach) / 2f } ?: reach
+    }
+
+    /**
+     * The line is full when another word would not fit before its end, or when it reaches where this
+     * writer has been wrapping. A student does not write to the very edge of a printed response line,
+     * so the end is a zone about one word wide; a short note near the edge is still not a full line.
+     */
     private fun atLineEnd(l: WritingLine): Boolean {
         val end = lineEnd(l) ?: return false
         val start = lineStart(l) ?: return false
         val width = abs(end - start)
-        if (width < l.body * 4f) return false
-        // At high zoom a page-sized end tolerance can skip several visible words.
-        val margin = min(max(l.body * 2f, width * .03f), (host.viewport()?.width ?: width) * .15f)
-        val near = if (preferences.direction == WritingDirection.LTR) l.right >= end - margin else l.left <= end + margin
-        return near && l.right - l.left >= width * .4f
+        val reach = reachOf(l) ?: return false
+        if (reach < MIN_FULL_REACH || l.right - l.left < width * MIN_FULL_REACH) return false
+        val zone = min(max(l.body * WORD_ROOM, width * .02f), min(width * .2f, (host.viewport()?.width ?: width) * .3f))
+        if (abs(end - l.frontier(preferences.direction)) <= zone ||
+            (preferences.direction == WritingDirection.LTR && l.right >= end) ||
+            (preferences.direction == WritingDirection.RTL && l.left <= end)) return true
+        return wrapReach?.let { reach >= max(MIN_LEARNED_REACH, it * .94f) } ?: false
     }
 
     private fun nextAfter(l: WritingLine): WritingLine? {
@@ -629,5 +688,12 @@ class WritingFollow(private val host: FollowHost) {
         /** Fraction of the view's bottom that counts as running out of room. */
         const val EDGE_BAND = .12f
         const val MAX_BACK = 12
+        /** Where a line's start sits across the view after a return. */
+        const val LEAD = .08f
+        /** Room, in letter heights, a further word needs before the end of a line. */
+        const val WORD_ROOM = 4.5f
+        const val MIN_FULL_REACH = .5f
+        const val LEARN_MIN_REACH = .7f
+        const val MIN_LEARNED_REACH = .6f
     }
 }

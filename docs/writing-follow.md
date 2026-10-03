@@ -66,12 +66,24 @@ These boundaries are inferred from the unannotated background, so handwriting ca
 On a blank page a line ends at the 36-unit margin. Next line goes to the next printed rule in the same answer block
 and stops at the block's last rule, including when the next question has aligned response lines.
 Without rules it goes one measured line spacing down, back to where the paragraph's lines start,
-and stops at the bottom of a page. A short marker shows where the next line begins. Automatic line
-return does the same after a pause, but only once a full line (at least 40 % of its width) has
-reached its end. The end tolerance shrinks with the visible width at high zoom, so a page-sized
-tolerance cannot skip several visible words. The final answer line still glides to keep its ending
-visible, even though there is no next line. A different detected answer block is a jump, not the
-natural continuation of the previous answer.
+and stops at the bottom of a page. A short marker shows where the next line begins.
+
+**Next line is a carriage return.** It goes down *and back* to the line's start, whatever the view
+had travelled: with the whole line on screen the view only moves until all of it is visible, and
+otherwise the start lands at the leading edge (8 % across), so every return ends in the same place.
+Rules inside a ruled answer box count as response lines too; the box's own edges do not, and fewer
+than three inner rules reads as a table instead.
+
+**Automatic line return** does the same after a pause, and the writer does not have to reach the
+edge. A line is full when another word would not fit (the last ~4.5 letter heights before the
+response line's end, at least half the line written) or when it reaches where this writer has been
+wrapping: Next line and wrapping to a new line teach the engine the fraction of the line (from
+70 %) the writer usually fills, and a line within 6 % of that, and past 60 %, also counts as full.
+If the pen is at the edge of the screen with line left to write on, the view makes room first and
+the return follows once it has settled. The end zone is about a word, not a page fraction, so at
+high zoom it cannot skip several visible words. The final answer line still glides to keep its
+ending visible, even though there is no next line. A different detected answer block is a jump,
+not the natural continuation of the previous answer.
 
 **Canvas paragraphs.** With automatic return off, sideways writing continues without an artificial
 edge; Next line still goes back to the paragraph start. With it on, *Canvas line length* chooses
@@ -133,7 +145,7 @@ partial glides in a fast writing rhythm, not only fully completed animations.
 
 | Use case | Intended behaviour | Regression coverage |
 | --- | --- | --- |
-| Exam, high zoom and small handwriting | Reveal room between strokes, read the full response line, return near its actual end, stop at the last rule | Multi-line exam at 8×, fast 120 ms gaps, final answer line, occupied destination |
+| Exam, high zoom and small handwriting | Reveal room between strokes, read the full response line, return near its actual end, stop at the last rule | Multi-line exam at 8×, fast 120 ms gaps, final answer line, occupied destination, return a word before the end, learned wrap point, carriage return to the start, ruled answer boxes |
 | Infinite canvas, long horizontal notes | Glide across any number of screens when automatic return is off | Long lines in both directions, explicit return to paragraph start |
 | Infinite canvas, paragraphs | Wrap at a stable chosen width through several lines; extend when the writer continues past it | 1, 2 and 4 screen widths, both directions, repeated returns, cancelled wrap |
 | Interrupted return | Repeat Next line to reach the same destination; Back undoes actual travel | Partial return and double-tap, clamped travel, interrupted sideways glide |
