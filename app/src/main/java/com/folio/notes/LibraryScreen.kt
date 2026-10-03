@@ -157,9 +157,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     // Never put the library's palm guard above the native handwriting surface.
     BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
-        // With a sidebar the destinations are peer panes of one layout, so swapping them is a
-        // repaint rather than a navigation: only the full-screen (no rail) layout animates.
-        val entrance = if (wide) Modifier else Modifier.folioEntrance()
+        // Sidebar/bottom-bar destinations are peer panes of one layout, so swapping them is a
+        // repaint rather than a navigation: no entrance animation on any layout.
+        val entrance = Modifier
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (wide && showNavigation) NavigationRail(
@@ -428,7 +428,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         if (listView) Surface(
                             shape = FolioShapes.large,
                             color = selectionColor,
-                            modifier = Modifier.animateItem(placementSpec = folioSpring()).semantics { if (selecting) selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
+                            modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
                         ) {
                                 Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     if (selecting) {
@@ -451,7 +451,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 selected = note.id in selection, onLongPress = longPress,
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
                                 duplicate = { model.duplicateNotebook(note) },
-                                modifier = Modifier.animateItem(placementSpec = folioSpring()).semantics { if (selecting) selected = note.id in selection }
+                                modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) selected = note.id in selection }
                             )
                     }
 

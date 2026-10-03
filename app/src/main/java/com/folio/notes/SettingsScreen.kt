@@ -96,10 +96,11 @@ import kotlin.math.roundToInt
                     SettingsPage(
                         selected = selected,
                         modifier = Modifier.weight(1f),
+                        animateEntrance = false,
                     ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking) }
                 }
             } else {
-                SettingsPage(selected = selected, modifier = Modifier.fillMaxSize()) {
+                SettingsPage(selected = selected, modifier = Modifier.fillMaxSize(), animateEntrance = maxWidth < 840.dp) {
                     if (selected == null) SettingsHome(onSelect = { category = it })
                     else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking)
                 }
@@ -112,10 +113,11 @@ import kotlin.math.roundToInt
 private fun SettingsPage(
     selected: SettingsCategory?,
     modifier: Modifier = Modifier,
+    animateEntrance: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     key(selected) {
-        Box(modifier = modifier.fillMaxWidth().folioEntrance(selected ?: "home"), contentAlignment = Alignment.TopCenter) {
+        Box(modifier = modifier.fillMaxWidth().then(if (animateEntrance) Modifier.folioEntrance(selected ?: "home") else Modifier), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 760.dp).fillMaxWidth()
                     .verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24),
