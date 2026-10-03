@@ -128,6 +128,8 @@ class WritingFollow(private val host: FollowHost) {
     var hand = WritingHand.RIGHT
         set(value) { if (field != value) { field = value; navigated() } }
     var guides: List<WritingGuide> = emptyList()
+    /** Answer boundaries inferred from response lines in the unannotated PDF. */
+    var areas: List<AnswerArea> = emptyList()
     var page = FollowPage()
         private set
 
@@ -437,6 +439,7 @@ class WritingFollow(private val host: FollowHost) {
     private fun lineEnd(l: WritingLine): Float? {
         val ltr = preferences.direction == WritingDirection.LTR
         l.guide?.let { return if (ltr) it.right else it.left }
+        areaOf(l)?.let { return if (ltr) it.right else it.left }
         if (!page.infinite) return if (ltr) page.width - PAGE_MARGIN else PAGE_MARGIN
         return columnEnd
     }
@@ -444,9 +447,15 @@ class WritingFollow(private val host: FollowHost) {
     private fun lineStart(l: WritingLine): Float? {
         val ltr = preferences.direction == WritingDirection.LTR
         l.guide?.let { return if (ltr) it.left else it.right }
+        areaOf(l)?.let { return if (ltr) it.left else it.right }
         if (!page.infinite) return if (ltr) PAGE_MARGIN else page.width - PAGE_MARGIN
         return columnStart
     }
+
+    /** Prefer the rule's block; maths working may extend past its baseline. */
+    private fun areaOf(l: WritingLine): AnswerArea? =
+        l.guide?.block?.let { areas.getOrNull(it) }
+            ?: WritingGuides.areaAt(areas, (l.left + l.right) / 2f, l.baseline)
 
     /** A full line that reached its end; a short note scribbled near the edge is not one. */
     private fun atLineEnd(l: WritingLine): Boolean {
@@ -462,9 +471,13 @@ class WritingFollow(private val host: FollowHost) {
     private fun nextAfter(l: WritingLine): WritingLine? {
         val direction = preferences.direction
         if (preferences.mode == FollowMode.MATH) {
-            val below = guides.filter { l.left <= it.right && l.right >= it.left && it.y > l.bottom + l.body * .3f }.minByOrNull { it.y }
+            val area = areaOf(l)
+            val below = guides.filter {
+                l.left <= it.right && l.right >= it.left && it.y > l.bottom + l.body * .3f &&
+                    (area == null || area.contains((it.left + it.right) / 2f, it.y))
+            }.minByOrNull { it.y }
             val y = below?.y ?: (l.bottom + l.pitch)
-            if (!page.infinite && y > page.height - PAGE_MARGIN) return null
+            if ((!page.infinite && y > page.height - PAGE_MARGIN) || (area != null && y > area.bottom)) return null
             return placed(y, l.start(direction), l, below)
         }
         val start = columnStart ?: l.start(direction)
@@ -475,6 +488,8 @@ class WritingFollow(private val host: FollowHost) {
         }
         val y = l.baseline + l.pitch
         if (!page.infinite && y > page.height - PAGE_MARGIN) return null
+        // The last response line ends the answer area, even if the writing did not snap to it.
+        areaOf(l)?.let { if (y > it.bottom) return null }
         return placed(y, start, l, null)
     }
 
@@ -497,7 +512,7 @@ class WritingFollow(private val host: FollowHost) {
     }
 
     private fun endMessage(l: WritingLine) = when {
-        l.guide != null -> "End of this answer area"
+        l.guide != null || areaOf(l) != null -> "End of this answer area"
         !page.infinite -> "End of the page"
         else -> "No next line"
     }

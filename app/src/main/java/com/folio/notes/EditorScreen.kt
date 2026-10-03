@@ -158,10 +158,16 @@ private fun paperLabel(p: Paper): String = when (p) {
     )
     var followMenu by remember { mutableStateOf(false) }
     // One peek view per notebook. A held peek closes on release; a tapped one stays until closed.
-    val peekAnchor = note.livePeekAnchor
+    val pinnedPeek = note.livePeekAnchor
+    // Auto peek needs no pin: it is always the whole of the page being written on (a canvas has no page edge).
+    var autoPeek by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.AUTO_PEEK, false)) }
+    val peekAnchor = if (autoPeek && !page.infinite) PeekAnchor.wholePage(page) else pinnedPeek
     var peekMode by remember(note.id) { mutableStateOf<PeekMode?>(null) }
+    // The view is fixed when the peek opens, so the page behind it changing can never re-frame it.
+    var peekShown by remember(note.id) { mutableStateOf<PeekAnchor?>(null) }
+    LaunchedEffect(peekMode) { if (peekMode == null) peekShown = null }
     LaunchedEffect(peekAnchor == null) { if (peekAnchor == null) peekMode = null }
-    val peekOpen = peekMode != null && peekAnchor != null
+    val peekOpen = peekMode != null && (peekShown ?: peekAnchor) != null
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
     val toolbarLayouts = remember(appPrefs) { ToolbarLayoutState(appPrefs) }
@@ -787,17 +793,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                     }
                     item {
-                        val footerHold = rememberLongPressGuard()
-                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = FolioSpacing.dp4).longPressAction(footerHold) { openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}")
-                        }
+                        AddPageButton(
+                            label = "Add page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}",
+                            onClick = ::addPage,
+                            onLongClick = { openPaperMenu(true) },
+                            modifier = Modifier.padding(top = FolioSpacing.dp4)
+                        )
                     }
                 }
             }
             // Keep the original composition and cameras alive underneath. Closing the peek is an
             // exact return, including scroll offset, tool and the follow engine's line.
             if (peekOpen) {
-                val anchor = peekAnchor!!
+                val anchor = (peekShown ?: peekAnchor)!!
                 val target = anchor.page(note.pages)
                 if (target != null) Box(Modifier.fillMaxSize().zIndex(10f).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
                     // A held peek is a glance; one kept open can be panned and zoomed to read.
@@ -905,7 +913,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         Text("Peek view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         DropdownMenuItem(
-                            { Text(if (peekAnchor == null) "Pin this view" else "Replace with this view") },
+                            { Text(if (pinnedPeek == null) "Pin this view" else "Replace with this view") },
                             { pinPeekView(wholePage = false); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
                         )
@@ -914,7 +922,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             { pinPeekView(wholePage = true); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.FitScreen, null) }
                         )
-                        if (peekAnchor != null) DropdownMenuItem(
+                        DropdownMenuItem(
+                            { Text(if (autoPeek) "Auto peek: whole page (on)" else "Auto peek: whole page (off)") },
+                            { autoPeek = !autoPeek; appPrefs.edit().putBoolean(AppPrefs.AUTO_PEEK, autoPeek).apply(); followMenu = false },
+                            leadingIcon = { Icon(Icons.Rounded.Visibility, null) }
+                        )
+                        if (pinnedPeek != null) DropdownMenuItem(
                             { Text("Remove peek view") },
                             { model.setPeekAnchor(null); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Close, null) }
@@ -930,7 +943,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             mode == null -> { peekMode = null; true }
                             // Opening mid-stroke would cut the stroke off under the lens.
                             activeInkView?.isWritingGesture == true -> false
-                            else -> { motion.reset(); peekMode = mode; true }
+                            else -> { motion.reset(); peekShown = peekAnchor; peekMode = mode; true }
                         }
                     }
                 }
@@ -1108,7 +1121,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a blank page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}") } }
+            item {
+                AddPageButton(
+                    label = "Add a blank page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}",
+                    onClick = { addPage(); pageBrowser = false },
+                    onLongClick = { pageBrowser = false; openPaperMenu(true) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
     namedPage?.let { target ->
@@ -1684,7 +1704,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
-    var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
+    var writingGuides by remember(page.id) { mutableStateOf(DetectedGuides(emptyList(), emptyList())) }
     var ready by remember(page.id) { mutableStateOf(page.pdfIndex == null) }
     var error by remember(page.id) { mutableStateOf(false) }
     var retry by remember(page.id) { mutableIntStateOf(0) }
@@ -1708,16 +1728,17 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     // Detect only the immutable paper/PDF background, never the user's ink. Pixel scanning
     // runs off the input thread and reruns only when the source or follow setting changes.
     LaunchedEffect(page.id, page.paper, page.width, page.height, background, active, followEnabled) {
-        writingGuides = if (!active || !followEnabled || page.infinite) emptyList() else withContext(Dispatchers.Default) {
+        writingGuides = if (!active || !followEnabled || page.infinite) DetectedGuides(emptyList(), emptyList()) else withContext(Dispatchers.Default) {
             val bitmap = background
             when {
                 page.pdfIndex != null && bitmap != null -> {
                     val pixels = IntArray(bitmap.width * bitmap.height)
                     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                    WritingGuides.detect(pixels, bitmap.width, bitmap.height, page.width, page.height)
+                    WritingGuides.analyze(pixels, bitmap.width, bitmap.height, page.width, page.height)
                 }
-                page.pdfIndex == null && (page.paper == Paper.RULED || page.paper == Paper.SPLIT_RULED) -> WritingGuides.ruled(page.width, page.height)
-                else -> emptyList()
+                page.pdfIndex == null && (page.paper == Paper.RULED || page.paper == Paper.SPLIT_RULED) ->
+                    DetectedGuides(WritingGuides.ruled(page.width, page.height), emptyList())
+                else -> DetectedGuides(emptyList(), emptyList())
             }
         }
     }
@@ -1770,7 +1791,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
-                view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand
+                view.writingGuides = writingGuides.guides; view.writingAreas = writingGuides.areas; view.followEnabled = followEnabled; view.writingHand = writingHand
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
@@ -2693,6 +2714,36 @@ private enum class ToolSub { PRESETS, TOOL }
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ onApply(left, top, right, bottom) }, enabled = valid && changed, shapes = ButtonDefaults.shapes()) { Text("Crop") }
             }
+        }
+    }
+}
+
+/** One gesture recognizer owns both actions, so holding never also adds a page. */
+@Composable
+private fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
+    val haptics = LocalHapticFeedback.current
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = FolioShapes.large,
+        modifier = modifier.guardUiTouches().clip(FolioShapes.large).combinedClickable(
+            role = androidx.compose.ui.semantics.Role.Button,
+            onClick = onClick,
+            onLongClickLabel = "Choose next page paper",
+            onLongClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onLongClick()
+            }
+        )
+    ) {
+        Row(
+            Modifier.defaultMinSize(minHeight = 40.dp).padding(horizontal = 24.dp, vertical = FolioSpacing.dp8),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(FolioSpacing.dp8))
+            Text(label, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

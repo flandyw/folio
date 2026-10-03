@@ -86,7 +86,83 @@ private fun scenario(name: String, block: () -> Unit) {
 
 private fun line(read: LineRead) = (read as? LineRead.Line)?.line ?: error("expected a line, got $read")
 
+/** Unannotated exam background; raster scale changes, page coordinates do not. */
+private class PrintedPage(private val scale: Int = 1) {
+    private val width = 840 * scale
+    private val height = 1188 * scale
+    private val pixels = IntArray(width * height) { -1 }
+    fun rect(left: Int, top: Int, right: Int, bottom: Int, color: Int = 0xff333333.toInt()) {
+        for (y in top * scale until bottom * scale) for (x in left * scale until right * scale) {
+            pixels[y * width + x] = color
+        }
+    }
+    fun rule(left: Int, right: Int, y: Int, dash: Int = right - left, gap: Int = 0) {
+        for (x in left until right step dash + gap) rect(x, y, minOf(right, x + dash), y + 1)
+    }
+    fun prompt(left: Int, y: Int) {
+        for (x in left until left + 160 step 9) rect(x, y, x + 4, y + 8)
+    }
+    fun analyze() = WritingGuides.analyze(pixels, width, height, 840f, 1188f)
+}
+
 fun main() {
+    scenario("Solid, dashed and dotted response lines define areas at either raster scale") {
+        for (scale in listOf(1, 2)) for ((dash, gap) in listOf(340 to 0, 5 to 4, 1 to 5)) {
+            val page = PrintedPage(scale)
+            for (y in listOf(100, 128, 156)) page.rule(40, 380, y, dash, gap)
+            val detected = page.analyze()
+            check(detected.guides.size == 3 && detected.areas.size == 1) { "$scale, $dash/$gap: $detected" }
+            val area = detected.areas.single()
+            check(area.left == 40f && area.right in 374f..380f && abs(area.top - 72f) < .5f && abs(area.bottom - 156f) < .5f)
+            check(WritingGuides.areaAt(detected.areas, 80f, 90f) == area)
+            check(WritingGuides.areaAt(detected.areas, 80f, 170f) == null)
+            check(WritingGuides.next(detected.guides[0], detected.guides) == detected.guides[1])
+            check(WritingGuides.next(detected.guides.last(), detected.guides) == null)
+        }
+    }
+    scenario("Question gaps and neighbouring columns keep response areas separate") {
+        val page = PrintedPage()
+        for (left in listOf(40, 440)) for (y in listOf(100, 128, 156, 212, 240, 268)) {
+            page.rule(left, left + 340, y)
+        }
+        val detected = page.analyze()
+        check(detected.guides.size == 12 && detected.areas.size == 4) { "$detected" }
+        for (left in listOf(40f, 440f)) {
+            val last = detected.guides.single { it.left == left && it.y == 156f }
+            check(WritingGuides.next(last, detected.guides) == null)
+            check(WritingGuides.spacing(last, detected.guides) == 28f)
+        }
+    }
+    scenario("Question text splits aligned rules even at the same line spacing") {
+        val page = PrintedPage()
+        for (left in listOf(40, 440)) for (y in listOf(100, 128, 156, 184, 212, 240)) page.rule(left, left + 340, y)
+        page.prompt(40, 166)
+        val detected = page.analyze()
+        check(detected.guides.size == 12 && detected.areas.size == 3) { "$detected" }
+        val left = detected.guides.single { it.left == 40f && it.y == 156f }
+        val right = detected.guides.single { it.left == 440f && it.y == 156f }
+        check(WritingGuides.next(left, detected.guides) == null)
+        check(WritingGuides.next(right, detected.guides)?.y == 184f)
+    }
+    scenario("A long single response line is an area; short isolated underlines are not") {
+        val page = PrintedPage()
+        page.rule(40, 380, 100, 1, 5)
+        page.rule(40, 140, 250)
+        val detected = page.analyze()
+        check(detected.guides.size == 1 && detected.areas.size == 1) { "$detected" }
+        check(WritingGuides.next(detected.guides.single(), detected.guides) == null)
+        check(LineReader.guideFor(InkBox(50f, 50f, 65f, 62f), detected.guides) == null)
+    }
+    scenario("Closed boxes, table borders, thick bars and printed text are not response areas") {
+        val page = PrintedPage()
+        page.rect(40, 80, 380, 81); page.rect(40, 240, 380, 241)
+        page.rect(40, 80, 41, 241); page.rect(379, 80, 380, 241)
+        page.rule(40, 380, 120); page.rule(40, 380, 160)
+        page.rect(440, 100, 780, 108); page.rect(440, 128, 780, 136)
+        page.prompt(440, 200); page.prompt(440, 228)
+        val detected = page.analyze()
+        check(detected.guides.isEmpty() && detected.areas.isEmpty()) { "$detected" }
+    }
     scenario("Descenders, capitals and first-letter descenders share the letters' baseline") {
         val marks = listOf(descender(40f), letter(60f), capital(80f), descender(100f), letter(120f), letter(140f))
             .map { InkMark.of(it)!! }
@@ -197,6 +273,52 @@ fun main() {
         t.settle()
         val marker = t.follow.marker(t.now) ?: error("no return")
         check(marker.x == 40f && marker.y > 100f)
+    }
+    scenario("Detected response lines return at their edge and stop before the next question") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128, 156, 212, 240)) page.rule(40, 380, y, 1, 5)
+        val detected = page.analyze()
+        val host = FakeHost(pageWidth = 840f, viewW = 840f, scale = 1f)
+        val t = Trace(host, FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        var x = 40f
+        while (x < 370f) { t.write(letter(x)); x += 18f }
+        check(t.host.last.message.startsWith("Next line in")) { t.host.last.message }
+        t.settle()
+        val marker = t.follow.marker(t.now) ?: error("no return")
+        check(marker.x == 40f && marker.y == 128f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 156f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.host.last.message == "End of this answer area")
+        x = 40f
+        while (x < 370f) { t.write(letter(x, 156f)); x += 18f }
+        check(t.host.last.message == "End of this answer area")
+        check(t.host.due == null)
+    }
+    scenario("Right-to-left return uses the same detected response block") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128)) page.rule(440, 780, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(), FollowPreferences(direction = WritingDirection.RTL, automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        for (x in 760 downTo 454 step 18) t.write(letter(x.toFloat()))
+        check(t.host.last.message.startsWith("Next line in")) { t.host.last.message }
+        t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        check(t.follow.marker(t.now)?.x == 774f)
+    }
+    scenario("Maths Next line also stops at the detected answer area's last response line") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128, 184, 212)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(prefs = FollowPreferences(mode = FollowMode.MATH), guides = detected.guides)
+        t.follow.areas = detected.areas
+        for (i in 0..3) t.write(letter(40f + i * 18f))
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.host.last.message == "End of this answer area")
     }
     scenario("A short note at the right edge does not trigger a return") {
         val host = FakeHost(pageWidth = 400f, viewW = 400f, scale = 2f)

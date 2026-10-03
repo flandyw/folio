@@ -55,6 +55,8 @@ data class FolioState(
     val tabs: List<EditorTab> = emptyList(),
     val companion: EditorTab? = null,
     val companionMode: CompanionMode = CompanionMode.SPLIT,
+    /** The notebook a reference pane was opened beside; opening any other notebook closes the pane. */
+    val companionHostId: String? = null,
     /** Share of the split given to the editor pane (0.2..0.8); the companion takes the rest. */
     val splitFraction: Float = 0.5f,
     /** When true, turning the editor's page also turns the companion (linked reference). */
@@ -126,6 +128,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             ?: prefs.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { prefs.contains(AppPrefs.SPLIT_FRACTION) }
             ?: AppPrefs.DEFAULT_SPLIT).let { AppPrefs.splitFraction(it) },
         companionLinked = savedState.get<Boolean>("companionLinked") ?: prefs.getBoolean("companionLinked", false),
+        companionHostId = if (savedState.contains("companionHostId")) savedState.get<String>("companionHostId") else prefs.getString("companionHostId", null),
         // A restored session wins; otherwise the side the panes were last left on, so opening
         // Folio tomorrow puts the work document where the user put it.
         editorOnRight = savedState["editorOnRight"] ?: prefs.getBoolean(AppPrefs.EDITOR_ON_RIGHT, AppPrefs.DEFAULT_EDITOR_ON_RIGHT), activeId = savedState["activeId"], pageIndex = savedState["pageIndex"] ?: 0, folderId = savedState["folderId"]))
@@ -337,7 +340,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 .distinctUntilChanged { a, b ->
                     a.activeId == b.activeId && a.pageIndex == b.pageIndex && a.folderId == b.folderId &&
                         a.tabs == b.tabs && a.companion == b.companion && a.companionMode == b.companionMode &&
-                        a.splitFraction == b.splitFraction && a.companionLinked == b.companionLinked &&
+                        a.splitFraction == b.splitFraction && a.companionLinked == b.companionLinked && a.companionHostId == b.companionHostId &&
                         a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
                 }
                 .collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId
@@ -352,7 +355,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 .putString("workspaceCompanion", companionSession)
                 .putString("workspaceMode", it.companionMode.name)
                 .putBoolean("companionLinked", it.companionLinked)
+                .putString("companionHostId", it.companionHostId)
                 .apply()
+            savedState["companionHostId"] = it.companionHostId
             savedState["workspaceMode"] = it.companionMode.name
             savedState["splitFraction"] = it.splitFraction
             savedState["companionLinked"] = it.companionLinked
@@ -723,6 +728,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             ?: EditorTab(id, id, target.pages.first().id, target.title)
         selectNotebookTimer(id)
         _state.update { it.copy(activeId = id,
+            // A reference stays with the notebook it was opened beside (an unknown host, from an
+            // older session, is the notebook that was showing).
+            companion = it.companion?.takeUnless { _ ->
+                it.companionMode == CompanionMode.REFERENCE && (it.companionHostId ?: it.activeId ?: id) != id
+            },
             tabs = it.tabs.withTab(tab),
             pageIndex = target.pages.indexOfFirst { p -> p.id == tab.currentPageId }.coerceAtLeast(0),
             pdfSearch = tab.search) }
@@ -801,6 +811,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         // The side the editor sits on is the user's, not the pane's: opening a companion leaves
         // it wherever they last put it.
         _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, companionPdfSearch = PdfSearchState(),
+            companionHostId = it.activeId,
             tabs = if (mode == CompanionMode.SPLIT) it.tabs.withTab(source) else it.tabs) }
         loadPage(source.currentPageId)
     }
@@ -876,7 +887,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val pane = _state.value.companion ?: return
         val active = _state.value.tabs.find { it.notebookId == _state.value.activeId } ?: return
         _state.update { it.copy(companion = active.copy(id = "companion"),
-            editorOnRight = !it.editorOnRight,
+            editorOnRight = !it.editorOnRight, companionHostId = pane.notebookId,
             tabs = it.tabs.withTab(pane.copy(id = pane.notebookId))) }
         // Avoid capturing the old active page over the destination (same-notebook split).
         selectNotebookTimer(null)

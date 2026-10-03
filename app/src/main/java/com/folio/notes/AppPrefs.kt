@@ -45,6 +45,8 @@ object AppPrefs {
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
     /** Writing follow's single timing control, 0 (relaxed) to 1 (responsive); see [FollowPrefsStore]. */
     const val FOLLOW_FEEL = "follow.feel"
+    /** Peek shows the whole current page instead of a pinned view. */
+    const val AUTO_PEEK = "peek.auto"
 
     const val DEFAULT_FULLSCREEN = true
     const val DEFAULT_KEEP_SCREEN_ON = false

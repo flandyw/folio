@@ -252,6 +252,9 @@ class InkView(context: Context) : View(context) {
     var writingGuides: List<WritingGuide>
         get() = follow.guides
         set(value) { follow.guides = value }
+    var writingAreas: List<AnswerArea>
+        get() = follow.areas
+        set(value) { follow.areas = value }
     /** Moves a document page by screen pixels; returns the travel the document actually allowed. */
     var onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }
     fun nextWritingLine() {

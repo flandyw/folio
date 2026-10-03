@@ -44,9 +44,16 @@ Rules a writer can rely on:
 - Handwriting smaller than 8 px on screen is readable as it is, so the view does not follow it.
   Next line still works.
 
-**Line ends and Next line.** A line ends at its printed rule's end. On a blank page it ends at the
-36-unit margin. On an infinite canvas it ends where the visible edge was when the line started. Next
-line goes to the next printed rule in the same answer block and stops at the block's last rule.
+**Line ends and Next line.** A line ends at its printed response line's end. On a PDF, the background
+scan groups aligned solid, dashed or dotted response lines into answer areas. The area runs from
+one line spacing above its first rule down to its last rule, with the rules' horizontal extent.
+No enclosing rectangle is needed. A larger gap relative to the local line spacing, intervening
+question text, or a different column starts a separate block. A long isolated response line also
+forms an area; short isolated underlines, text, thick bars and table/box borders are rejected.
+These boundaries are inferred from the unannotated background, so handwriting cannot change them.
+On a blank page a line ends at the 36-unit margin. On an infinite canvas it ends where the visible
+edge was when the line started. Next line goes to the next printed rule in the same answer block
+and stops at the block's last rule, including when the next question has aligned response lines.
 Without rules it goes one measured line spacing down, back to where the paragraph's lines start,
 and stops at the bottom of a page. A short marker shows where the next line begins. Automatic line
 return does the same after a pause, but only once a full line (at least 40 % of its width) has
@@ -72,6 +79,11 @@ Press and hold the eye to look, and release to come back. A quick tap keeps the 
 can be panned and zoomed, until you tap the eye, press Close or press Back. TalkBack's double-tap
 toggles it. A held peek closes if the window loses focus. Peeking cannot start mid-stroke.
 
+**Auto peek** (options menu → *Auto peek: whole page*) needs no pin: the eye always shows the whole
+of the page you are writing on, fitted to the screen, and works the same way (hold or tap). It is
+a device preference, and a pinned view is kept for when it is off. An infinite canvas has no page
+edge, so there the eye still uses the pinned view. The view is fixed when the peek opens.
+
 ## Checks
 
 ```sh
@@ -81,7 +93,9 @@ node tools/writing-follow-smoke.cjs
 
 The smoke check compiles the pure engine (`WritingFollow.kt`, `WritingLine.kt`, `WritingGuides.kt`,
 `FollowMotion.kt`) with Gradle's cached compiler. It drives the engine through a fake view with
-deterministic handwriting traces, needs Node and JDK 17, and downloads nothing.
+deterministic handwriting traces and synthetic exam rasters (solid/dashed/dotted rules, separate
+questions, columns, single-line answers and rejected borders/text), needs Node and JDK 17, and
+downloads nothing.
 
 ## Device check
 
@@ -96,6 +110,9 @@ and an infinite canvas.
    ink used to end.
 4. Use Next line repeatedly on ruled paper and on a PDF block. It should stop at the block's last
    rule. Turn on automatic return and finish a full line. A short note near the edge must not return.
+   On an exam PDF, repeat with solid and dotted response lines, a single-line answer and adjacent
+   questions/columns. The return should use the response line's edge and never cross to another
+   answer block. Check that a standalone printed rectangle is not treated as an answer area.
 5. On the canvas, write a long line through several glides. The end must stay reachable, and the
    return must go back to the line start. Pinch or rotate mid-line: the next stroke holds.
 6. Repeat right-to-left and with the left hand selected. Use Maths with a fraction: down only.

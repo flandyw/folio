@@ -188,7 +188,7 @@ object LineReader {
         return guides.asSequence()
             .filter { b.centerX in (it.left - 6f)..(it.right + 6f) && it.y >= p - 1f }
             .minByOrNull { it.y }
-            ?.takeIf { it.y - p <= (WritingGuides.spacing(it, guides) ?: 64f) }
+            ?.takeIf { it.y - p <= (WritingGuides.spacing(it, guides) ?: if (it.block != null) 28f else 64f) }
     }
 
     /** Keeps only strokes joined to the seed by word-sized gaps, so a second column stays separate. */
