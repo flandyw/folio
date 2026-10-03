@@ -108,6 +108,7 @@ import java.io.ByteArrayOutputStream
 private fun paperLabel(p: Paper): String = when (p) {
     Paper.PLAIN -> "Plain"
     Paper.RULED -> "Ruled"
+    Paper.SPLIT_RULED -> "Split ruled"
     Paper.DOTS -> "Dots"
     Paper.GRID -> "Grid"
     Paper.MATH_GRID -> "Maths grid"
@@ -344,6 +345,16 @@ private fun paperLabel(p: Paper): String = when (p) {
     var scrubbing by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
+    var nextPaperMenu by remember { mutableStateOf(false) }
+    var nextPagePaper by remember(note.id) { mutableStateOf<Paper?>(null) }
+    var chosenPaper by remember { mutableStateOf(Paper.MATH_GRID) }
+    var savePaperDefault by remember { mutableStateOf(false) }
+    fun openPaperMenu(next: Boolean) {
+        nextPaperMenu = next
+        chosenPaper = if (next) nextPagePaper ?: note.defaultPaper ?: page.paper else page.paper
+        savePaperDefault = false
+        paperMenu = true
+    }
     var timerPanel by remember { mutableStateOf(false) }
     var studyPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
@@ -428,7 +439,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun addPage() {
         motion.reset()
         val index = note.pages.size
-        model.addPage()
+        model.addPage(nextPagePaper)
+        nextPagePaper = null
         if (page.infinite) return
         scope.launch {
             snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it > index + 1 }
@@ -776,8 +788,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                     item {
                         val footerHold = rememberLongPressGuard()
-                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = FolioSpacing.dp4).longPressAction(footerHold) { paperMenu = true }, shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page · ${paperLabel(page.paper)}")
+                        FilledTonalButton(footerHold.click { addPage() }, modifier = Modifier.guardUiTouches().padding(top = FolioSpacing.dp4).longPressAction(footerHold) { openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}")
                         }
                     }
                 }
@@ -1001,7 +1013,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onPageOptions = { more = true },
                             additionalMenus = {
                                     PageOptionsMenu(more, { more = false }, page, state.saveFailed, state.clipboard.isNotEmpty(),
-                                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { paperMenu = true },
+                                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { openPaperMenu(false) },
                                         onPaste = { model.pasteClipboard() },
                                         onClear = { clear = true }, onRetry = model::retrySave,
                                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
@@ -1096,7 +1108,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a blank page · ${paperLabel(page.paper)}") } }
+            item { FilledTonalButton({ addPage(); pageBrowser = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a blank page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}") } }
         }
     }
     namedPage?.let { target ->
@@ -1155,22 +1167,30 @@ private fun paperLabel(p: Paper): String = when (p) {
         Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
     })
     if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false },
-        icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text("Change paper") }, text = {
+        icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text(if (nextPaperMenu) "Next page paper" else "Change paper") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text("Applies to the current page only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = FolioSpacing.dp8))
-            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
-                val selectedPaper = page.paper == p
+            Text(if (nextPaperMenu) "Choose the style for the next blank page." else "Choose the style for this page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = FolioSpacing.dp8))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Use as notebook default", style = MaterialTheme.typography.bodyMedium)
+                    Text("For new blank pages", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(savePaperDefault, { savePaperDefault = it })
+            }
+            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.SPLIT_RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
+                val selectedPaper = chosenPaper == p
                 Surface(
-                    onClick = { model.setPaper(p); paperMenu = false },
+                    onClick = { chosenPaper = p },
                     shape = FolioShapes.large,
                     color = if (selectedPaper) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
                     modifier = Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp2)
                 ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selectedPaper, { model.setPaper(p); paperMenu = false })
+                        RadioButton(selectedPaper, { chosenPaper = p })
                         Column(Modifier.padding(start = FolioSpacing.dp8).weight(1f)) {
                             Text(paperLabel(p), style = MaterialTheme.typography.bodyMedium)
                             val hint = when (p) {
+                                Paper.SPLIT_RULED -> "Ruled lines with a centre divider"
                                 Paper.MATH_GRID -> "Fine 20 px grid, bold every 5"
                                 Paper.GRAPH -> "Same grid + centred axes"
                                 Paper.MC_SHEET -> "Exam Section A answer sheet, 25 questions A–E"
@@ -1185,7 +1205,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
         }
-    }, confirmButton = { TextButton({ paperMenu = false }, shapes = ButtonDefaults.shapes()) { Text("Done") } })
+    }, dismissButton = { TextButton({ paperMenu = false }) { Text("Cancel") } }, confirmButton = { TextButton({
+        if (nextPaperMenu) nextPagePaper = chosenPaper else model.setPaper(chosenPaper)
+        if (savePaperDefault) model.setDefaultPaper(chosenPaper)
+        paperMenu = false
+    }, shapes = ButtonDefaults.shapes()) { Text("Apply") } })
     if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false },
         icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }, shapes = ButtonDefaults.shapes()) { Text("Clear page") } })
     if (timerPanel) TimingPanel(
@@ -1692,7 +1716,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                     WritingGuides.detect(pixels, bitmap.width, bitmap.height, page.width, page.height)
                 }
-                page.pdfIndex == null && page.paper == Paper.RULED -> WritingGuides.ruled(page.width, page.height)
+                page.pdfIndex == null && (page.paper == Paper.RULED || page.paper == Paper.SPLIT_RULED) -> WritingGuides.ruled(page.width, page.height)
                 else -> emptyList()
             }
         }

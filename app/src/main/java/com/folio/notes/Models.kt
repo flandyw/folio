@@ -41,7 +41,7 @@ enum class TextAlignMode {
         fun safeValueOf(name: String): TextAlignMode = try { valueOf(name) } catch (_: Exception) { LEFT }
     }
 }
-enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET, TIAN_GRID, MI_GRID;
+enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET, TIAN_GRID, MI_GRID, SPLIT_RULED;
     /** Spacing used for paper rendering and for snap-to-grid when that paper is active. */
     val gridSpacing: Float get() = when (this) {
         MATH_GRID, GRAPH -> 20f
@@ -318,7 +318,9 @@ data class Notebook(
     val mistakePractice: Boolean = false,
     val mistakeReviews: List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> = emptyList(),
     /** The view kept for peeking; stored with the notebook, it can frame any of its pages. */
-    val peekAnchor: PeekAnchor? = null
+    val peekAnchor: PeekAnchor? = null,
+    /** Null preserves older notebooks’ current-page inheritance. */
+    val defaultPaper: Paper? = null
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -429,6 +431,7 @@ object NoteCodec {
         put("exam", ExamTagsCodec.encode(note.exam))
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         if (!note.pageCover) put("pageCover", false)
+        note.defaultPaper?.let { put("defaultPaper", it.name) }
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
@@ -463,7 +466,8 @@ object NoteCodec {
             // Older backups have no cover choice and default to the first-page cover.
             pageCover = o.optBoolean("pageCover", true),
             mistakePractice = o.optBoolean("mistakePractice", false),
-            mistakeReviews = decodeMistakeReviews(o)).let { note ->
+            mistakeReviews = decodeMistakeReviews(o),
+            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf)).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

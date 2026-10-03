@@ -590,7 +590,7 @@ object InkRenderer {
         else if (page.infinite) infinitePaper(canvas, page)
         else if (page.pdfIndex == null) {
             when (page.paper) {
-                Paper.RULED -> drawRuled(canvas, page)
+                Paper.RULED, Paper.SPLIT_RULED -> drawRuled(canvas, page)
                 Paper.GRID -> drawGrid(canvas, page, spacing = 28f, minorAlpha = 0xFFE0E0DA.toInt(), majorEvery = -1)
                 Paper.MATH_GRID -> drawMathGrid(canvas, page)
                 Paper.GRAPH -> drawGraph(canvas, page)
@@ -712,6 +712,9 @@ object InkRenderer {
             val x = column * spacing
             canvas.drawLine(x, bounds.top.toFloat(), x, bounds.bottom.toFloat(), paint)
         }
+        if (page.paper == Paper.SPLIT_RULED) {
+            canvas.drawLine(page.width / 2f, bounds.top.toFloat(), page.width / 2f, bounds.bottom.toFloat(), paperMinorPaint)
+        }
         if (page.paper == Paper.GRAPH) {
             // Dedicated axis paint: never mutate the shared minor paint (races + leaks state).
             canvas.drawLine(0f, bounds.top.toFloat(), 0f, bounds.bottom.toFloat(), graphAxisPaint)
@@ -794,6 +797,7 @@ object InkRenderer {
         y -= ((y - 70f) % spacing + spacing) % spacing
         val endY = min(page.height, clip.bottom.toFloat())
         while (y < endY) { canvas.drawLine(36f, y, page.width - 36f, y, paint); y += spacing }
+        if (page.paper == Paper.SPLIT_RULED) canvas.drawLine(page.width / 2f, 70f, page.width / 2f, page.height, paint)
     }
 
     /**

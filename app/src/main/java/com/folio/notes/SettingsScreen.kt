@@ -678,6 +678,7 @@ private enum class SettingsCategory(
 }
 
 private fun paperLabel(paper: Paper): String = when (paper) {
+    Paper.SPLIT_RULED -> "Split ruled"
     Paper.MATH_GRID -> "Maths grid"
     Paper.GRAPH -> "Graph"
     Paper.MC_SHEET -> "MC sheet"

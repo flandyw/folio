@@ -135,6 +135,7 @@ object NoteMetaCodec {
         put("exam", ExamTagsCodec.encode(note.exam))
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pageCover", note.pageCover)
+        note.defaultPaper?.let { put("defaultPaper", it.name) }
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
@@ -177,7 +178,8 @@ object NoteMetaCodec {
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
-            mistakeReviews = decodeMistakeReviews(o)).let { note ->
+            mistakeReviews = decodeMistakeReviews(o),
+            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf)).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

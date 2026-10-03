@@ -58,3 +58,19 @@ network. Every parameter map in `sync/SyncRemote.kt` is therefore typed
 
 A live sync check requires the shared Focal URL/key and a test account. The dedicated
 [study timer](study-timer.md) documents the device/account/offline release checklist.
+
+## Notebook paper defaults: manual release check
+
+`defaultPaper` is an optional notebook field in both the index and portable `.folio`
+JSON. Missing fields preserve current-page inheritance; codec versions and page
+journals are unchanged. `SPLIT_RULED` adds ruled paper with a centre divider.
+
+Before release, open an older notebook on a device, long-press the final Add page
+button, select Split ruled without the default switch, and confirm only the next
+blank page uses it. Choose a different style with “Use as notebook default” enabled;
+add pages from different existing pages and confirm they use that default. Repeat
+through Page options → Page & view → Paper style, checking the current page changes
+and other existing pages retain their styles. Restart the app and export/import a
+`.folio` archive, then confirm the default and split paper survive both round trips.
+Check the divider in the editor, thumbnail and PDF export, including an infinite
+canvas.

@@ -1124,8 +1124,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun addPage(paper: Paper? = null) {
         val note = _state.value.active ?: return
-        // Inherit the current page's paper — keeps practice flowing.
-        val chosen = paper ?: _state.value.page?.paper ?: Paper.MATH_GRID
+        // Older notebooks inherit the current page until a default is chosen.
+        val chosen = paper ?: note.defaultPaper ?: _state.value.page?.paper ?: Paper.MATH_GRID
         updateNote(note.copy(pages = note.pages + NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))); selectPage(note.pages.size)
     }
     /**
@@ -1165,7 +1165,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun insertPage(index: Int, paper: Paper? = null): Int {
         val state = _state.value
         val note = state.active ?: return state.pageIndex
-        val chosen = paper ?: state.page?.paper ?: Paper.MATH_GRID
+        val chosen = paper ?: note.defaultPaper ?: state.page?.paper ?: Paper.MATH_GRID
         val at = index.coerceIn(0, note.pages.size)
         val updated = note.withInsertedPage(at, NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))
         updateNote(updated)
@@ -1237,6 +1237,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(note.withPage(page.copy(redoFlag = flagged)))
     }
 
+    fun setDefaultPaper(paper: Paper) {
+        val note = _state.value.active ?: return
+        updateNote(note.copy(defaultPaper = paper))
+    }
     fun setPaper(paper: Paper) { val p = _state.value.page ?: return; replacePage(p.copy(paper = paper)) }
     /** Stores a page's new content, journaling the smallest edit and remembering how to undo it. */
     private fun replacePage(page: NotePage) {
