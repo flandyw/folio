@@ -39,11 +39,18 @@ object WritingGuides {
 
     /** Only move within the same answer column, never across a question-sized gap. */
     fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides.asSequence()
-        .filter {
-            val overlap = min(line.right, it.right) - max(line.left, it.left)
-            it.y - line.y in 12f..64f && overlap >= min(line.right - line.left, it.right - it.left) * .8f &&
-                abs(it.left - line.left) <= 32f && abs(it.right - line.right) <= 32f
-        }.minByOrNull { it.y }
+        .filter { follows(line, it) }.minByOrNull { it.y }
+
+    private fun follows(line: WritingGuide, next: WritingGuide): Boolean {
+        val overlap = min(line.right, next.right) - max(line.left, next.left)
+        return next.y - line.y in 12f..64f &&
+            overlap >= min(line.right - line.left, next.right - next.left) * .8f &&
+            abs(next.left - line.left) <= 32f && abs(next.right - line.right) <= 32f
+    }
+
+    fun spacing(line: WritingGuide, guides: List<WritingGuide>): Float? =
+        next(line, guides)?.let { it.y - line.y }
+            ?: guides.asSequence().filter { follows(it, line) }.minOfOrNull { line.y - it.y }
 
     fun ruled(width: Float, height: Float): List<WritingGuide> =
         generateSequence(70f) { it + 28f }.takeWhile { it < height }

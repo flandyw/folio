@@ -199,7 +199,11 @@ class InkView(context: Context) : View(context) {
     private val selectionPreviewMatrix = Matrix()
     private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE }
     val writingFollow = WritingFollow()
+    private var guideRegions: List<WritingLane> = emptyList()
     var writingGuides: List<WritingGuide> = emptyList()
+        set(value) {
+            if (field != value) { field = value; guideRegions = WritingGuides.regions(value) }
+        }
     private var lineAdvance: WritingAdvance? = null
     var followPreferences = FollowPreferences()
     var writingRegion: WritingLane? = null
@@ -226,6 +230,7 @@ class InkView(context: Context) : View(context) {
     val isWritingFollowManuallyPaused get() = followManuallyPaused
     private var returnStartAt = 0L
     private var pendingReturn: WritingAdvance? = null
+    private var resumeFollowAfterMark = false
     private val followBack = FollowBackHistory()
     fun selectWritingRegion() {
         suspendWritingFollow(); selectingWritingRegion = true
@@ -250,19 +255,18 @@ class InkView(context: Context) : View(context) {
         onWritingRegion(writingRegion)
         reportFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
     }
-    private fun followRegion(strokeY: Float? = null): WritingLane {
+    private fun followRegion(points: List<InkPoint>? = null): WritingLane {
         writingRegion?.let { return it }
         val point = followLastPoint
-        val guide = point?.let { p ->
-            // A descender can finish nearer the rule below. Keep the established line as
-            // the anchor; before it exists, use the stroke's body rather than its endpoint.
-            val y = writingFollow.state.baselineY?.takeIf {
-                kotlin.math.abs(it - (strokeY ?: p.y)) <= maxOf(followPreferences.spacing, writingFollow.laneHeight() * 1.5f)
-            } ?: strokeY ?: p.y
-            writingGuides.filter { p.x in it.left..it.right && kotlin.math.abs(it.y - y) <= 16f }
-                .minByOrNull { kotlin.math.abs(it.y - y) }
-        }
+        val box = points?.let(FollowNavigation::bounds)
+        val guide = if (box != null) writingFollow.guideFor(box, writingGuides, followPreferences)
+            else point?.let { p ->
+                val y = writingFollow.state.baselineY ?: p.y
+                writingGuides.filter { p.x in it.left..it.right && kotlin.math.abs(it.y - y) <= 16f }
+                    .minByOrNull { kotlin.math.abs(it.y - y) }
+            }
         if (guide != null) {
+            WritingGuides.regionAt(guideRegions, (guide.left + guide.right) * .5f, guide.y)?.let { return it }
             var end: WritingGuide = guide
             while (true) { end = WritingGuides.next(end, writingGuides) ?: break }
             return WritingLane(guide.left, guide.y - 32f, guide.right, end.y)
@@ -273,10 +277,13 @@ class InkView(context: Context) : View(context) {
             // they started from. Manual returns still use the actual writing start, including
             // handwriting to the left or above the origin.
             val anchor = currentPeekAnchor()
+            val startX = writingFollow.state.lineStartX ?: box?.let {
+                if (followPreferences.direction == WritingDirection.LTR) it.left else it.right
+            } ?: point?.x
             if (anchor != null) return FollowNavigation.infiniteRegion(
                 WritingLane(anchor.left, anchor.top, anchor.right, anchor.bottom),
-                followPreferences.direction, writingFollow.state.lineStartX ?: point?.x, followPreferences.endMargin)
-            val start = writingFollow.state.lineStartX ?: point?.x ?: 0f
+                followPreferences.direction, startX, followPreferences.endMargin)
+            val start = startX ?: 0f
             val left = if (followPreferences.direction == WritingDirection.LTR) start else start - page.width
             return WritingLane(left, minOf(0f, point?.y ?: 0f), left + page.width, Float.MAX_VALUE)
         }
@@ -320,19 +327,12 @@ class InkView(context: Context) : View(context) {
     var peekRegion: PeekAnchor? = null
         set(value) { field = value; value?.let(::fitPeekAnchor) }
     private val followVisible = android.graphics.Rect()
-    /** One-shot carriage return: remaining screen-pixel pan, eased out in [followFrame]. */
-    private var advanceTotalX = 0f
-    private var advanceTotalY = 0f
-    private var advanceDoneX = 0f
-    private var advanceDoneY = 0f
-    private var advanceStartAt = 0L
-    private var sameLineWaiting = false
+    private val followGlide = FollowGlide()
     private var captureFollowBack = false
-    private var followMotionMoved = false
     private fun cancelFollowMotion() {
         pendingReturn = null; followBack.cancelPending()
-        advanceTotalX = 0f; advanceTotalY = 0f; advanceDoneX = 0f; advanceDoneY = 0f
-        lineAdvance = null; sameLineWaiting = false; captureFollowBack = false; followMotionMoved = false
+        followGlide.cancel()
+        lineAdvance = null; captureFollowBack = false; resumeFollowAfterMark = false
         removeCallbacks(followFrame)
     }
     fun pauseWritingFollow() {
@@ -383,90 +383,82 @@ class InkView(context: Context) : View(context) {
                 cancelFollowMotion()
                 return
             }
-            val down = isWritingGesture || selectingWritingRegion
-            if (down || followPaused || (followManuallyPaused && lineAdvance == null)) return
-            val pending = pendingReturn
-            if (pending != null) {
+            if (isWritingGesture || selectingWritingRegion || followPaused || (followManuallyPaused && lineAdvance == null)) return
+            pendingReturn?.let { pending ->
                 val remaining = returnStartAt - now
                 if (remaining > 0) { postDelayed(this, remaining); return }
                 pendingReturn = null
                 startLineAdvance(pending)
+                return
             }
-            // Wait for a deliberate pause, not the tiny lifts between letters and words.
-            if (lineAdvance == null && sameLineWaiting) {
-                if (now < advanceStartAt) { postDelayed(this, advanceStartAt - now); return }
-                sameLineWaiting = false
-                // Start from the actual frame, so a busy UI cannot jump halfway into a glide.
-                advanceStartAt = now
-            }
-            var ax = 0f; var ay = 0f
-            var finished = false
-            val advancing = !down && (advanceTotalX != 0f || advanceTotalY != 0f)
-            if (advancing) {
-                val t = writingFollow.lineAdvanceProgress(advanceStartAt, now, followPreferences.glideDurationMs)
-                val eased = 1f - (1f - t) * (1f - t) * (1f - t)
-                val targetX = advanceTotalX * eased
-                val targetY = advanceTotalY * eased
-                ax = targetX - advanceDoneX
-                ay = targetY - advanceDoneY
-                advanceDoneX = targetX; advanceDoneY = targetY
-                finished = t >= 1f
-            }
-            val dx = ax
-            val dy = ay
-            if (dx == 0f && dy == 0f) {
-                if (finished || lineAdvance != null && !advancing) finishFollowMotion()
-                else if (advancing) postOnAnimation(this)
+            if (!followGlide.active) return
+            val step = followGlide.step(now)
+            if (step.waitMs > 0) { postDelayed(this, step.waitMs); return }
+            if (step.dx == 0f && step.dy == 0f) {
+                if (step.finished) finishFollowMotion() else postOnAnimation(this)
                 return
             }
             if (captureFollowBack) {
                 followBack.begin(writingFollow.state)
                 captureFollowBack = false
             }
+            val wasMoving = followGlide.moved
             val applied = if (page.infinite) {
-                camera.pan(dx, dy); reportCanvasViewport(); invalidate(); dx to dy
-            } else onFollowPan(dx, dy)
+                camera.pan(step.dx, step.dy); reportCanvasViewport(); invalidate(); step.dx to step.dy
+            } else onFollowPan(step.dx, step.dy)
+            followGlide.applied(applied.first, applied.second)
             followBack.moved(applied.first, applied.second)
-            if (applied.first != 0f || applied.second != 0f) {
-                if (!followMotionMoved) {
-                    followMotionMoved = true
-                    reportFollowStatus(if (lineAdvance != null) "Moving to next line · touch down to stop" else "Following · touch down to stop")
-                }
-            }
-            if (finished) finishFollowMotion() else postOnAnimation(this)
+            if (!wasMoving && followGlide.moved)
+                reportFollowStatus(if (lineAdvance != null) "Moving to next line · touch down to stop" else "Following · touch down to stop")
+            // A viewport clamp must not count as completing the vertical line return.
+            val blocked = (kotlin.math.abs(step.dx) >= .5f || kotlin.math.abs(step.dy) >= .5f) &&
+                applied.first == 0f && applied.second == 0f
+            if (step.finished || blocked) finishFollowMotion() else postOnAnimation(this)
         }
     }
     private fun finishFollowMotion() {
-        val returned = lineAdvance != null
-        if (followMotionMoved) lineAdvance?.let(writingFollow::arrived)
-        val moved = followMotionMoved
+        val advance = lineAdvance
+        val placing = advance == null && writingFollow.state.needsPlacement
+        val arrived = advance != null && followGlide.reachedLine
+        if (arrived) writingFollow.arrived(advance!!)
+        if (advance == null) writingFollow.placed()
+        val moved = followGlide.moved
         cancelFollowMotion()
         reportFollowStatus(when {
             followManuallyPaused -> "Paused · tap Resume when ready"
-            !moved -> "View edge · pan or zoom to continue"
-            returned -> "Next line · Back restores the view"
+            arrived -> "Next line · Back restores the view"
+            !moved || advance != null -> "View edge · pan or zoom to continue"
             else -> "Following · Back restores the view"
         })
+        // A whole cursive line may already have reached its end while its placement was
+        // interrupted. Once placed, it can return after a fresh pause without another mark.
+        if (placing && moved && !followManuallyPaused && followPreferences.automaticReturn) {
+            writingFollow.returnFor(followRegion(), writingGuides, followPreferences)?.let(::queueFollowReturn)
+        }
+    }
+    private fun queueFollowReturn(advance: WritingAdvance) {
+        val delay = writingFollow.returnDelayMs(followPreferences)
+        pendingReturn = advance; returnStartAt = SystemClock.uptimeMillis() + delay
+        reportFollowStatus("Next line in ${FollowPreferences.returnDelayLabel(delay)} · touch down to cancel")
+        scheduleFollow()
     }
     private fun scheduleFollow() {
         removeCallbacks(followFrame)
         postOnAnimation(followFrame)
     }
-    /** Place the next printed rule's start where the current rule was being written. */
+    /** Aim at an absolute writing position, so an interrupted return cannot double its step. */
     private fun startLineAdvance(advance: WritingAdvance) {
         if (!getLocalVisibleRect(followVisible)) return
         followBack.begin(writingFollow.state)
-        val margin = followVisible.width() * (if (writingHand == WritingHand.RIGHT) .18f else .28f)
-        val desiredX = if (followPreferences.direction == WritingDirection.LTR) followVisible.left + margin
-            else followVisible.right - margin
-        val dx = if (followPreferences.mode == FollowMode.MATH) 0f else desiredX - (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale)
-        val dy = -(advance.to.y - advance.from.y) * scale
-        advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
+        val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
+        val desiredX = followVisible.left + followVisible.width() * target
+        val desiredY = followVisible.top + followVisible.height() * followPreferences.position
+        val dx = if (followPreferences.mode == FollowMode.MATH) 0f else desiredX -
+            (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale)
+        val dy = desiredY - (originY + advance.to.y * scale)
+        followGlide.start(dx, dy, SystemClock.uptimeMillis(), 0, followPreferences.glideDurationMs)
         lineAdvance = advance
-        sameLineWaiting = false
         captureFollowBack = false
-        followMotionMoved = false
-        advanceStartAt = SystemClock.uptimeMillis()
         scheduleFollow()
     }
     var readOnly = false
@@ -497,6 +489,7 @@ class InkView(context: Context) : View(context) {
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) suspendWritingFollow(clearBack = false)
         peekRegion?.let(::fitPeekAnchor)
         reportCanvasViewport()
     }
@@ -906,10 +899,13 @@ class InkView(context: Context) : View(context) {
             }
             invalidate(); return true
         }
-        if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+        if ((event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) &&
+            !isPalm(event, event.actionIndex)) {
             if (pendingReturn != null) reportFollowStatus("Return cancelled · keep writing")
-            else if (lineAdvance != null || followMotionMoved) reportFollowStatus("Movement stopped · keep writing")
+            else if (lineAdvance != null || followGlide.moved) reportFollowStatus("Movement stopped · keep writing")
+            val resume = pendingReturn != null || followGlide.active
             cancelFollowMotion()
+            resumeFollowAfterMark = resume
         }
         var dirtyInvalidated = false
         val hasStylus = (0 until event.pointerCount).any { isStylus(event, it) }
@@ -1238,7 +1234,10 @@ class InkView(context: Context) : View(context) {
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })?.let { page.strokes + it } ?: erasing
-        if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
+        // Shape tidy can straighten an "l" or a crossbar. Short pen lines still carry
+        // writing progress; larger underlines are rejected by the follow geometry rules.
+        val followableTidy = tidied == null || tidied.singleOrNull()?.tool == Tool.LINE
+        if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && followableTidy) {
             followCompletedStroke(drawn)
         }
         val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
@@ -1267,38 +1266,40 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun followCompletedStroke(drawn: Stroke) {
-        val point = drawn.points.lastOrNull() ?: return
+        val box = FollowNavigation.bounds(drawn.points) ?: return
         val now = SystemClock.uptimeMillis()
-        val previousArea = if (writingRegion == null && writingGuides.isNotEmpty()) followRegion() else null
+        val previousArea = if (writingRegion == null && writingFollow.state.baselineY != null && writingGuides.isNotEmpty())
+            followRegion() else null
+        val guide = writingFollow.guideFor(box, writingGuides, followPreferences)
+        val point = InkPoint(box.centerX, guide?.y ?: writingFollow.anchorY(box))
         if (followPreferences.autoSwitchAreas) {
             WritingGuides.regionAt(writingRegions, point.x, point.y)?.let { area ->
-                if (area != writingRegion) { writingRegion = area; onWritingRegion(area) }
+                if (area != writingRegion) {
+                    suspendWritingFollow()
+                    writingRegion = area; onWritingRegion(area)
+                }
             }
         }
         followLastPoint = point
-        val region = followRegion((drawn.points.minOf { it.y } + drawn.points.maxOf { it.y }) * .5f)
-        if (writingRegion == null && previousArea != null &&
-            (point.x !in previousArea.left..previousArea.right || point.y !in previousArea.top..previousArea.bottom)) {
-            suspendWritingFollow()
-        }
-        if ((!page.infinite || writingRegion != null) && drawn.points.any {
-                it.x !in region.left..region.right || it.y !in region.top..region.bottom
-            }) {
+        val region = followRegion(drawn.points)
+        if (writingRegion == null && previousArea != null && previousArea != region) suspendWritingFollow()
+        if ((!page.infinite || writingRegion != null) && !FollowNavigation.contains(box, region, followPreferences.spacing)) {
+            resumeFollowAfterMark = false
             reportFollowStatus("Outside answer area · select an area to follow here")
             return
         }
         followPaused = false
         writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
-        val progress = writingFollow.completed(drawn.points, now, followPreferences)
+        val progress = writingFollow.completed(drawn.points, now, followPreferences, writingGuides)
+        val resumeMark = resumeFollowAfterMark && writingFollow.finishingMark(box, followPreferences)
+        resumeFollowAfterMark = false
         if (followManuallyPaused) { reportFollowStatus("Paused · tap Resume when ready"); return }
-        if (progress == WritingProgress.NONE) {
+        if (progress == WritingProgress.NONE && !resumeMark) {
             reportFollowStatus(if (writingFollow.state.candidateLane != null) "New line · keep writing" else "View held · keep writing")
             return
         }
         val baseline = writingFollow.state.baselineY ?: return
         val next = nextFollowLine(baseline, region)
-        // A page has one absolute scale, so its zoom factor is the honest test. A canvas zooms
-        // relative to the view it fits, so there ask whether the writing is big enough to read.
         if (page.infinite) {
             if (!FollowLegibility.isReadable(writingFollow.laneHeight(), camera.zoom)) {
                 reportFollowStatus("Zoom in a little for writing follow · Next line moves manually")
@@ -1308,53 +1309,51 @@ class InkView(context: Context) : View(context) {
             reportFollowStatus("Zoom to ${"%.1f".format(followPreferences.minimumZoom)}× to follow · Next line moves manually")
             return
         }
-        val delay = writingFollow.sameLineDelayMs(followPreferences.returnDelayMs, followPreferences.adaptiveTiming)
-        // The viewport lane on a canvas already describes the writing area, so a return is
-        // always in scope there; a page still needs an answer area when it has printed rules.
-        val atEnd = followPreferences.mode == FollowMode.TEXT &&
-            writingFollow.readyForReturn() && FollowNavigation.nearEnd(drawn.points, region,
-                followPreferences.direction, followPreferences.endMargin) &&
-            next != null && writingFollow.isTextStroke(drawn.points, next.to.y - next.from.y)
+        val frontier = if (followPreferences.direction == WritingDirection.LTR)
+            writingFollow.state.frontierRight ?: point.x else writingFollow.state.frontierLeft ?: point.x
+        // Finishing a word can end with a dot/crossbar behind its furthest letter. The
+        // accepted line frontier, rather than that last pen sample, determines the return.
+        val returnAdvance = writingFollow.returnFor(region, writingGuides, followPreferences)
+        val atEnd = returnAdvance != null
+        val returnDelay = writingFollow.returnDelayMs(followPreferences)
         reportFollowStatus(when {
-            atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(delay)} · touch down to cancel"
+            atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(returnDelay)} · touch down to cancel"
             atEnd -> "Next line ready · tap Next line"
             next == null -> "End of answer area"
             else -> "Following"
         })
         if (atEnd && followPreferences.automaticReturn) {
-            pendingReturn = next; returnStartAt = now + delay
-            scheduleFollow()
+            queueFollowReturn(returnAdvance!!)
             return
         }
         if (!getLocalVisibleRect(followVisible)) return
-        val isNewLine = progress == WritingProgress.NEW_LINE
-        val frontier = if (followPreferences.direction == WritingDirection.LTR)
-            writingFollow.state.frontierRight ?: point.x else writingFollow.state.frontierLeft ?: point.x
+        val placing = writingFollow.state.needsPlacement
         val sx = originX + frontier * scale
         val sy = originY + baseline * scale
+        val fraction = (sx - followVisible.left) / followVisible.width().coerceAtLeast(1)
         val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
-        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT || followVisible.width() <= 0) 0f
-        else if (isNewLine) {
-            // A fresh line starts at the remembered column, which is off-screen left after
-            // the previous line was followed rightwards. Edge-triggered shifts never fire
-            // there (the frontier is left, not past the edge), so return to the preferred
-            // column directly, like a carriage return.
+        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT) 0f
+        else if (placing) {
             val startX = writingFollow.state.lineStartX ?: frontier
             (followVisible.left + followVisible.width() * target) - (originX + startX * scale)
-        } else writingFollow.horizontalShift((sx - followVisible.left) / followVisible.width(), target,
-                followPreferences.direction, followPreferences.edgeThreshold) * followVisible.width()
+        } else writingFollow.horizontalShift(fraction, target, followPreferences.direction,
+            followPreferences.edgeThreshold) * followVisible.width()
         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
         val dy = if (!followPreferences.verticalFollow) 0f
-        else if (isNewLine) desiredY - sy
-        else if (sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)
+        else if (placing || sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)
             desiredY - sy else 0f
-        // A new line pins itself to the preferred height even for small steps; rounding
-        // noise below half a pixel is still not worth scheduling a glide for.
-        if (dx == 0f && dy == 0f) return
-        if (isNewLine && kotlin.math.abs(dx) < .5f && kotlin.math.abs(dy) < .5f) return
-        advanceTotalX = dx; advanceTotalY = dy; advanceDoneX = 0f; advanceDoneY = 0f
-        advanceStartAt = now + delay
-        sameLineWaiting = true; captureFollowBack = true; followMotionMoved = false
+        if (kotlin.math.abs(dx) < .5f && kotlin.math.abs(dy) < .5f) {
+            if (placing) {
+                writingFollow.placed()
+                if (followPreferences.automaticReturn)
+                    writingFollow.returnFor(region, writingGuides, followPreferences)?.let(::queueFollowReturn)
+            }
+            return
+        }
+        val atEdge = if (followPreferences.direction == WritingDirection.LTR) fraction > .9f else fraction < .1f
+        val delay = writingFollow.glideDelayMs(followPreferences, atEdge || placing)
+        followGlide.start(dx, dy, now, delay, writingFollow.glideDurationMs(followPreferences, atEdge || placing))
+        captureFollowBack = true
         scheduleFollow()
     }
     /** A tidied single line follows the grid and 15° snapping the user already has switched on. */

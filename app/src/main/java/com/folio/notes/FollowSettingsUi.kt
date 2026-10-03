@@ -82,7 +82,7 @@ fun FollowSettingsDialog(
                     onPreferences(preferences.copy(automaticReturn = it))
                 }
                 Text(if (preferences.mode == FollowMode.TEXT)
-                    "Returns after writing across a line and pausing near the area's edge. Touch down to cancel. On an infinite canvas, select an answer area first."
+                    "Returns after writing across a line and pausing near its edge. Touch down to stop. On an infinite canvas, the visible writing lane sets the line length; you can also select an answer area."
                     else "Maths moves down as your working grows. Tap Next line when you want a new row.",
                     style = MaterialTheme.typography.bodySmall)
 
@@ -106,7 +106,7 @@ fun FollowSettingsDialog(
                 Text(
                     if (preferences.mode == FollowMode.TEXT)
                         "Follow across a line, then use Next line or enable automatic return. " +
-                            "Tall fractions and long underlines never trigger a return."
+                            "Descenders and joined-up words stay on the same line; tall working and long underlines hold the view."
                     else
                         "Fractions, radicals and long equations reveal room below your working after a pause. The horizontal position stays fixed.",
                     style = MaterialTheme.typography.bodySmall,
@@ -260,9 +260,9 @@ fun FollowSettingsDialog(
                     FollowSectionTitle("Timing details")
                     run {
                         FollowSliderRow(
-                            label = "Pause before following",
+                            label = "Pause before line return",
                             valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                            hint = "With rhythm learning, following and automatic return both wait at least 0.3 s and allow for your usual word gaps.",
+                            hint = "Automatic return waits this long, allowing for your usual word gaps. Sideways glides use a shorter pause and respond sooner near the visible edge.",
                             value = preferences.returnDelayMs / 1000f,
                             onValueChange = {
                                 onPreferences(
@@ -275,7 +275,7 @@ fun FollowSettingsDialog(
                     FollowSliderRow(
                         label = "Glide smoothness",
                         valueText = "${FollowPreferences.glideLabel(preferences.glideDurationMs)} · ${preferences.glideDurationMs} ms",
-                        hint = "Snappy jumps at once, Smooth eases over, Gentle floats. Try Smooth first.",
+                        hint = "Each glide accelerates and settles smoothly. Snappy finishes sooner; Gentle takes longer. Touch down to stop.",
                         value = preferences.glideDurationMs.toFloat(),
                         onValueChange = {
                             onPreferences(preferences.copy(glideDurationMs = it.roundToInt().coerceIn(120, 800)))
@@ -448,7 +448,7 @@ private fun FollowTimingPreview(preferences: FollowPreferences) {
     val glideColor = MaterialTheme.colorScheme.primary
     val track = MaterialTheme.colorScheme.surfaceContainerHighest
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        Text("Pen lifts → pause → glide", style = MaterialTheme.typography.labelMedium)
+        Text("Line return: pen lifts → pause → glide", style = MaterialTheme.typography.labelMedium)
         Canvas(Modifier.fillMaxWidth().height(12.dp)) {
             drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
             val pause = size.width * preferences.returnDelayMs / 2800f
@@ -457,7 +457,7 @@ private fun FollowTimingPreview(preferences: FollowPreferences) {
             drawRect(glideColor, topLeft = Offset(pause, 0f), size = androidx.compose.ui.geometry.Size(glide, size.height))
         }
         Text("Pause ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms" +
-            if (preferences.adaptiveTiming) ". Your writing rhythm may extend the pause before following or returning." else ". Fixed pause.",
+            if (preferences.adaptiveTiming) ". Learns your rhythm; sideways following starts sooner." else ". Sideways following uses half the pause.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -40,3 +40,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: Android lint
         run: ./gradlew :app:lintDebug
+      - name: Writing follow regression traces
+        run: node tools/writing-follow-smoke.cjs

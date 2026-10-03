@@ -1,10 +1,15 @@
 package com.folio.notes
 
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /** Transient handwriting geometry; printed guide detection runs separately from input. */
-data class WritingLane(val left: Float, val top: Float, val right: Float, val bottom: Float)
+data class WritingLane(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    val width get() = right - left
+    val height get() = bottom - top
+    val centerX get() = (left + right) * .5f
+}
 data class WritingFollowState(
     val baselineY: Float? = null,
     val recent: List<WritingLane> = emptyList(),
@@ -18,7 +23,10 @@ data class WritingFollowState(
     val lineSpacings: List<Float> = emptyList(),
     val liftedAt: Long? = null,
     val pendingGap: Long? = null,
-    val writingGaps: List<Long> = emptyList()
+    val writingGaps: List<Long> = emptyList(),
+    val lineStrokeCount: Int = 0,
+    /** Survives pen-down interruptions until the new line has actually been placed. */
+    val needsPlacement: Boolean = false,
 )
 enum class WritingHand(val direction: Float) { RIGHT(1f), LEFT(-1f) }
 enum class WritingProgress { NONE, SAME_LINE, NEW_LINE }
@@ -65,15 +73,36 @@ class WritingFollow {
     }
 
     fun sameLineDelayMs(returnDelayMs: Int, adaptive: Boolean = true): Int {
-        if (!adaptive) return returnDelayMs.coerceIn(300, 2000)
+        val base = (returnDelayMs * .5f).roundToInt().coerceIn(120, 1000)
+        if (!adaptive) return base
         val gaps = state.writingGaps.sorted()
         // Learn normal pen-up gaps, not stroke duration or long thinking breaks. A high
         // percentile protects word spaces; a small buffer leaves time to touch down again.
         // The floor stays near letter gaps (not word gaps) so fast writers still get a
         // glide between words instead of outrunning the view.
-        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 200).toInt() else 350
-        return maxOf(returnDelayMs.coerceIn(300, 2000), learned.coerceIn(300, 1400))
+        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 80).toInt() else 0
+        return maxOf(base, learned.coerceIn(0, 1000))
     }
+
+    fun returnDelayMs(preferences: FollowPreferences): Int {
+        val gaps = state.writingGaps.sorted()
+        val learned = if (preferences.adaptiveTiming && gaps.size >= 4)
+            (gaps[(gaps.size - 1) * 3 / 4] + 220).toInt().coerceAtMost(1600) else 0
+        return maxOf(preferences.returnDelayMs.coerceIn(300, 2000), learned)
+    }
+
+    /** At the visible edge, use letter gaps instead of waiting for a whole word pause. */
+    fun glideDelayMs(preferences: FollowPreferences, atEdge: Boolean): Int {
+        val normal = sameLineDelayMs(preferences.returnDelayMs, preferences.adaptiveTiming)
+        if (!atEdge || !preferences.adaptiveTiming) return normal
+        val gaps = state.writingGaps.sorted()
+        val quick = if (gaps.size >= 4) (gaps[(gaps.size - 1) / 2] * .6f).roundToInt() else 80
+        return minOf(normal, quick.coerceIn(60, 300))
+    }
+
+    fun glideDurationMs(preferences: FollowPreferences, urgent: Boolean): Int =
+        if (urgent && preferences.adaptiveTiming) minOf(preferences.glideDurationMs, 180)
+        else preferences.glideDurationMs
 
     /** Keep a real dead band even when the preferred writing column is near an edge. */
     fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection, edgeThreshold: Float = .72f): Float {
@@ -105,7 +134,18 @@ class WritingFollow {
     fun readyForReturn(): Boolean {
         val left = state.frontierLeft ?: return false
         val right = state.frontierRight ?: return false
-        return state.recent.size >= 2 && right - left >= maxOf(32f, laneHeight() * 2f)
+        val span = right - left
+        return (state.lineStrokeCount >= 2 && span >= maxOf(16f, laneHeight() * 1.5f)) ||
+            span >= maxOf(48f, laneHeight() * 4f)
+    }
+
+    fun returnFor(region: WritingLane, guides: List<WritingGuide>, preferences: FollowPreferences): WritingAdvance? {
+        val baseline = state.baselineY ?: return null
+        if (preferences.mode != FollowMode.TEXT || state.needsPlacement || state.candidateLane != null || !readyForReturn()) return null
+        val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
+        if (frontier == null || !FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin)) return null
+        return FollowNavigation.next(baseline, region, guides, lineSpacing(preferences.spacing, preferences.adaptiveSpacing),
+            state.lineStartX, preferences.direction)
     }
 
     private fun overlapsBody(box: WritingLane): Boolean {
@@ -116,98 +156,144 @@ class WritingFollow {
         return box.top <= top + height * .35f && box.bottom >= baseline - height * .25f
     }
 
-    /** A letter spanning the current body may also have an ascender and a descender. */
-    fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean {
-        if (points.isEmpty()) return false
-        val box = WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
-        val allowance = if (overlapsBody(box)) minOf(laneHeight(), spacing * .5f) else 0f
-        return FollowNavigation.isTextStroke(points, spacing, allowance)
+    /** Estimate the body, rather than a descender's lowest point, before a line is known. */
+    fun anchorY(box: WritingLane): Float = if (overlapsBody(box)) state.baselineY!!
+        else minOf(box.bottom, box.top + laneHeight() * 1.25f)
+
+    private fun extendsFrontier(box: WritingLane, direction: WritingDirection): Boolean {
+        val slack = (laneHeight() * .1f).coerceIn(.5f, 2f)
+        return if (direction == WritingDirection.LTR)
+            state.frontierRight?.let { box.right > it + slack } ?: true
+        else state.frontierLeft?.let { box.left < it - slack } ?: true
     }
 
-    fun completed(points: List<InkPoint>, now: Long, preferences: FollowPreferences = FollowPreferences()): WritingProgress {
-        if (now < state.suspendedUntil || points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return WritingProgress.NONE
-        val box = WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
-        val strokeHeight = box.bottom - box.top
-        val strokeWidth = box.right - box.left
-        // Detached dots must not establish a lane, trigger movement or teach word gaps.
-        if (strokeHeight < 3f && strokeWidth < 3f) return WritingProgress.NONE
+    private fun returned(box: WritingLane, direction: WritingDirection): Boolean {
+        val distance = maxOf(16f, laneHeight() * 1.5f)
+        return if (direction == WritingDirection.LTR)
+            state.frontierRight?.let { box.left < it - distance } == true
+        else state.frontierLeft?.let { box.right > it + distance } == true
+    }
+
+    /** Printed rules disambiguate tall capitals, first-letter descenders and mixed letter sizes. */
+    fun guideFor(box: WritingLane, guides: List<WritingGuide>, preferences: FollowPreferences): WritingGuide? {
+        val column = guides.filter { box.centerX in (it.left - 6f)..(it.right + 6f) }
+        val baseline = state.baselineY
+        val current = baseline?.let { y -> column.minByOrNull { abs(it.y - y) }
+            ?.takeIf { abs(it.y - y) <= 12f } }
+        val returning = returned(box, preferences.direction)
+        if (current != null && overlapsBody(box) && !returning) return current
+        // A tall capital can overlap the previous body's height, but returning to the
+        // start and reaching the next rule is stronger evidence than its top alone.
+        if (current != null && returning) {
+            val next = WritingGuides.next(current, column)
+            if (next != null && abs(box.bottom - next.y) <= maxOf(3f, (next.y - current.y) * .15f) &&
+                box.top < next.y) return next
+        }
+        val y = if (baseline == null) anchorY(box)
+            else minOf(box.bottom, box.top + laneHeight() * 1.25f)
+        return column.minByOrNull { abs(it.y - y) }?.takeIf {
+            val spacing = WritingGuides.spacing(it, column) ?: preferences.spacing
+            abs(it.y - y) <= minOf(16f, spacing * .5f)
+        }
+    }
+
+    /** Dots and crossbars near the last word can resume an interrupted glide after pen-up. */
+    fun finishingMark(box: WritingLane, preferences: FollowPreferences): Boolean {
+        val baseline = state.baselineY ?: return false
+        if (state.candidateLane != null || box.height > laneHeight() * .8f ||
+            box.width > maxOf(24f, laneHeight() * 2f)) return false
+        val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
+        frontier ?: return false
+        val x = if (preferences.direction == WritingDirection.LTR) box.right else box.left
+        return abs(x - frontier) <= maxOf(12f, laneHeight() * 2f) &&
+            box.bottom in (baseline - laneHeight() * 1.5f)..(baseline + preferences.spacing * .35f)
+    }
+
+    /** A full-height letter may span both an ascender and a descender, including the first letter. */
+    fun isTextStroke(points: List<InkPoint>, spacing: Float): Boolean =
+        FollowNavigation.isTextStroke(points, spacing, spacing * .6f)
+
+    fun completed(points: List<InkPoint>, now: Long, preferences: FollowPreferences = FollowPreferences(),
+                  guides: List<WritingGuide> = emptyList()): WritingProgress {
+        if (now < state.suspendedUntil) return WritingProgress.NONE
+        val box = FollowNavigation.bounds(points) ?: return WritingProgress.NONE
+        val gap = state.pendingGap
+        // All lifts reset the quiet period, including dots/corrections. Only actual writing
+        // below contributes to learned rhythm; a correction must not erase the previous gap.
+        state = state.copy(liftedAt = now, pendingGap = null)
+        val noise = minOf(2f, preferences.spacing * .06f)
+        if (box.height < noise && box.width < noise) return WritingProgress.NONE
         val baseline = state.baselineY
         if (preferences.mode == FollowMode.MATH) {
-            // Fractions, radicals and long equations reveal room below the working without
-            // guessing text lines or changing the horizontal position.
             if (baseline != null && box.bottom <= baseline + 2f) return WritingProgress.NONE
-            accept(box, listOf(box), now, changedLane = false, preferences.direction)
+            accept(box, listOf(box), now, false, preferences.direction, gap)
             return WritingProgress.SAME_LINE
         }
-        // Diagrams and tall flourishes must not pull a handwriting lane down the page.
         val height = laneHeight()
-        if (!isTextStroke(points, maxOf(preferences.spacing, height * 1.5f))) return WritingProgress.NONE
-        val spacing = lineSpacing(preferences.spacing, preferences.adaptiveSpacing)
-        val threshold = minOf(spacing * .55f, height).coerceAtLeast(10f)
-        if (baseline != null && strokeHeight < height * .55f && box.top > baseline - height * .25f)
-            return WritingProgress.NONE
-        // A descender still spans the old body: keep following its horizontal progress,
-        // without teaching its bottom as a new baseline. A tall capital on the next line
-        // can span that body too, but returning behind the frontier permits confirmation.
-        val returned = if (preferences.direction == WritingDirection.LTR)
-            state.frontierRight?.let { box.right < it - maxOf(32f, height * 2f) } == true
-        else state.frontierLeft?.let { box.left > it + maxOf(32f, height * 2f) } == true
-        val changedLane = baseline != null && box.bottom - baseline > threshold && box.top >= baseline - height &&
-            (!overlapsBody(box) || returned)
-        val recent = if (changedLane) {
+        val guide = guideFor(box, guides, preferences)
+        val spacing = guide?.let { WritingGuides.spacing(it, guides) }
+            ?: lineSpacing(preferences.spacing, preferences.adaptiveSpacing)
+        if (!isTextStroke(points, maxOf(spacing, height))) return WritingProgress.NONE
+        val threshold = maxOf(spacing * .32f, height * .65f).coerceIn(3f, spacing * .6f)
+        val guideChanged = baseline != null && guide != null && guide.y - baseline > threshold
+        val changedLane = baseline != null && (guideChanged ||
+            (guide == null && box.bottom - baseline > threshold && (!overlapsBody(box) ||
+                (returned(box, preferences.direction) && box.bottom - baseline >= spacing * .65f))))
+        if (changedLane) {
             val last = state.candidateLane
-            // A thinking pause between the first and second stroke of a new line must not
-            // force a third stroke to confirm it.
             val fresh = state.candidateAt?.let { now - it in 0..15000 } == true
-            // Any second stroke on the same new level confirms the line. Requiring it to
-            // extend further right than the first fails for short second words ("a" after
-            // "Hello") and makes single-word lines need three strokes.
-            if (last != null && fresh && abs(last.bottom - box.bottom) <= maxOf(6f, threshold * .6f))
-                listOf(last, box)
-            else { state = state.copy(candidateLane = box, candidateAt = now, pendingGap = null); return WritingProgress.NONE }
-        } else {
-            // Corrections must hold the view but must not kill a new line in progress.
-            // Only continuing the old line (extending its frontier at the old level)
-            // proves the staged drop was a descender and discards it.
-            val progresses = if (preferences.direction == WritingDirection.LTR)
-                state.frontierRight?.let { box.right > it + 2f } ?: true
-            else state.frontierLeft?.let { box.left < it - 2f } ?: true
-            val continuedOldLine = baseline != null && progresses &&
-                abs(box.bottom - baseline) <= threshold
-            if (continuedOldLine) {
-                state = state.copy(candidateLane = null, candidateAt = null, pendingGap = null)
-            } else if (baseline != null && (baseline - box.bottom > height * .8f || !progresses)) {
-                // Dotting an "i" or touching up the previous line holds the view but keeps
-                // the staged new-line candidate so the next stroke below still confirms.
-                state = state.copy(pendingGap = null)
+            val sameBody = last != null &&
+                abs(last.bottom - box.bottom) <= maxOf(height, spacing * .55f) &&
+                maxOf(last.top, box.top) <= minOf(last.bottom, box.bottom) + 3f
+            // Clear body separation at a printed rule needs no extra confirmation stroke.
+            val definite = (guideChanged && box.top > baseline!! + height * .2f) ||
+                (returned(box, preferences.direction) && box.top > baseline!! + height * .2f &&
+                    box.width >= maxOf(32f, height * 2f))
+            if (!definite && !(fresh && sameBody)) {
+                state = state.copy(candidateLane = box, candidateAt = now)
                 return WritingProgress.NONE
             }
-            if (baseline != null && box.bottom - baseline > threshold) state.recent
-                else (state.recent + box).takeLast(12)
+            val recent = if (fresh && sameBody) listOf(last!!, box) else listOf(box)
+            accept(box, recent, now, true, preferences.direction, null, guide?.y)
+            return WritingProgress.NEW_LINE
         }
-        accept(box, recent, now, changedLane, preferences.direction)
-        return if (changedLane) WritingProgress.NEW_LINE else WritingProgress.SAME_LINE
+        val progressing = extendsFrontier(box, preferences.direction)
+        if (baseline != null && (!progressing || baseline - box.bottom > height * .9f))
+            return WritingProgress.NONE
+        // Keep tiny finishing marks and deep descenders out of the body statistics, while
+        // still accepting their forward progress. A one-stroke cursive word counts too.
+        val bodySample = box.height >= maxOf(2f, height * .3f) &&
+            (baseline == null || abs(box.bottom - baseline) <= threshold)
+        val recent = if (bodySample || state.recent.isEmpty()) (state.recent + box).takeLast(16) else state.recent
+        accept(box, recent, now, false, preferences.direction, gap, guide?.y)
+        return WritingProgress.SAME_LINE
     }
 
-    private fun accept(box: WritingLane, recent: List<WritingLane>, now: Long, changedLane: Boolean, direction: WritingDirection) {
+    private fun accept(box: WritingLane, recent: List<WritingLane>, now: Long, changedLane: Boolean,
+                       direction: WritingDirection, gap: Long?, guideY: Float? = null) {
         val ys = recent.map { it.bottom }.sorted()
-        val baseline = ys.getOrNull(ys.size / 2) ?: state.baselineY ?: box.bottom
+        // The lower median recovers immediately when the first letter was a descender,
+        // and mixed ascenders/descenders cannot drag the lane steadily downward.
+        val baseline = guideY ?: ys.getOrNull((ys.size - 1) / 2) ?: state.baselineY ?: box.bottom
         val gapY = state.baselineY?.let { baseline - it }?.takeIf {
             changedLane && it in FollowPreferences.MIN_SPACING..FollowPreferences.MAX_SPACING
         }
-        val gap = state.pendingGap
+        val start = if (direction == WritingDirection.LTR) recent.firstOrNull()?.left ?: box.left
+            else recent.firstOrNull()?.right ?: box.right
         state = state.copy(
             baselineY = baseline, recent = recent, candidateLane = null, candidateAt = null,
-            lineStartX = if (changedLane || state.lineStartX == null)
-                if (direction == WritingDirection.LTR) (recent.firstOrNull() ?: box).left else (recent.firstOrNull() ?: box).right
-                else state.lineStartX,
+            lineStartX = if (changedLane || state.lineStartX == null) start else state.lineStartX,
             lineSpacings = if (gapY != null) (state.lineSpacings + gapY).takeLast(6) else state.lineSpacings,
             frontierLeft = if (changedLane) recent.minOf { it.left } else minOf(state.frontierLeft ?: box.left, box.left),
             frontierRight = if (changedLane) recent.maxOf { it.right } else maxOf(state.frontierRight ?: box.right, box.right),
             liftedAt = now, pendingGap = null,
-            writingGaps = if (gap != null && !changedLane) (state.writingGaps + gap).takeLast(12) else state.writingGaps
+            writingGaps = if (gap != null && !changedLane) (state.writingGaps + gap).takeLast(16) else state.writingGaps,
+            lineStrokeCount = if (changedLane) recent.size else state.lineStrokeCount + 1,
+            needsPlacement = state.needsPlacement || changedLane,
         )
     }
+
+    fun placed() { state = state.copy(needsPlacement = false) }
     fun horizontalVelocity(xFraction: Float, zoom: Float, hand: WritingHand, progressing: Boolean, now: Long): Float {
         if (zoom < 1.4f || !progressing || now < state.suspendedUntil || state.baselineY == null) return 0f
         val edge = if (hand == WritingHand.RIGHT) xFraction else 1f - xFraction
@@ -221,7 +307,7 @@ class WritingFollow {
     /** Median stroke height of the current lane, in page units; drives line spacing. */
     fun laneHeight(): Float {
         val heights = state.recent.map { it.bottom - it.top }.sorted()
-        return heights.getOrNull(heights.size / 2)?.coerceAtLeast(12f) ?: 24f
+        return heights.getOrNull((heights.size - 1) / 2)?.coerceAtLeast(4f) ?: 24f
     }
     /** A return is possible only at a detected rule's endpoint with a real rule below it. */
     fun advanceFor(points: List<InkPoint>, guides: List<WritingGuide>, zoom: Float,
@@ -243,7 +329,8 @@ class WritingFollow {
 
     fun arrived(advance: WritingAdvance) {
         state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from,
-            frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null, liftedAt = null, pendingGap = null)
+            frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null, liftedAt = null, pendingGap = null,
+            lineStrokeCount = 0, needsPlacement = false)
     }
 
     fun lineAdvanceProgress(liftedAt: Long, now: Long, durationMs: Int = DEFAULT_GLIDE_MS): Float =
@@ -267,7 +354,7 @@ data class FollowPreferences(
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
     val spacing: Float = 32f,
-    /** Pause after pen lift before an automatic return fires. Same-line follow uses at least 300 ms. */
+    /** Pause before automatic return; sideways follow uses a shorter, rhythm-aware wait. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** Carriage-return glide length. 120..800 ms. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
@@ -343,12 +430,31 @@ object FollowNavigation {
     /** A lane narrower than this is a mistake, not a column; returns never aim that far in. */
     const val MIN_LANE_UNITS = 48f
 
-    fun isTextStroke(points: List<InkPoint>, spacing: Float, descenderAllowance: Float = 0f): Boolean = points.isNotEmpty() &&
-        points.all { it.x.isFinite() && it.y.isFinite() } && spacing.isFinite() && spacing > 0f &&
-        points.maxOf { it.y } - points.minOf { it.y } < spacing * .9f + descenderAllowance.coerceIn(0f, spacing * .5f) &&
-        // A cursive word in one stroke is easily 30-50 mm wide; only very long
-        // underlines/diagrams (55+ mm) are rejected here.
-        points.maxOf { it.x } - points.minOf { it.x } < 220f
+    fun bounds(points: List<InkPoint>): WritingLane? {
+        if (points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
+        return WritingLane(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
+    }
+
+    /** Margins contain the letter body; a tail or crossbar may protrude a little. */
+    fun contains(box: WritingLane, region: WritingLane, spacing: Float): Boolean {
+        val xSlack = minOf(8f, spacing * .2f)
+        val ySlack = spacing * .6f
+        return box.left >= region.left - xSlack && box.right <= region.right + xSlack &&
+            box.top >= region.top - ySlack && box.bottom <= region.bottom + ySlack
+    }
+
+    fun isTextStroke(points: List<InkPoint>, spacing: Float, descenderAllowance: Float = 0f): Boolean {
+        val box = bounds(points) ?: return false
+        if (!spacing.isFinite() || spacing <= 0f ||
+            box.height >= spacing * .9f + descenderAllowance.coerceIn(0f, spacing * .6f)) return false
+        // Long cursive words may cover the whole lane. Their repeated up/down travel
+        // distinguishes them from a long underline without an arbitrary word-width cap.
+        val direct = hypot(box.width, box.height)
+        var travel = 0f
+        for (i in 1..points.lastIndex) travel += hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+        return if (box.width > 220f) travel > direct * 1.35f
+        else box.width <= maxOf(64f, spacing * 2f) || travel > direct * 1.15f
+    }
 
     /**
      * The writing lane on an unbounded canvas: the visible viewport inset by the end margin,
@@ -372,10 +478,9 @@ object FollowNavigation {
         // A full viewport lane inset on both sides; the trailing edge below derives from
         // this width so pans never move it.
         val laneWidth = maxOf(width - 2f * margin, MIN_LANE_UNITS)
-        // A column started long ago may be far off screen; fall back to the viewport edge then.
-        val remembered = startX?.takeIf {
-            it.isFinite() && it in (viewport.left - width * .25f)..(viewport.right + width * .25f)
-        }
+        // Following can move the start column off screen. Only deliberate navigation
+        // resets it (WritingFollow.suspend); falling back here would chase the line end away.
+        val remembered = startX?.takeIf { it.isFinite() }
         val (left, right) = if (direction == WritingDirection.LTR) {
             if (remembered != null) remembered to remembered + laneWidth
             else {
@@ -412,9 +517,15 @@ object FollowNavigation {
     }
     fun nearEnd(points: List<InkPoint>, region: WritingLane, direction: WritingDirection, endMargin: Float = .08f): Boolean {
         if (points.isEmpty()) return false
-        val margin = ((region.right - region.left) * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
-        return if (direction == WritingDirection.LTR) points.maxOf { it.x } >= region.right - margin
-        else points.minOf { it.x } <= region.left + margin
+        val frontier = if (direction == WritingDirection.LTR) points.maxOf { it.x } else points.minOf { it.x }
+        return nearEnd(frontier, region, direction, endMargin)
+    }
+
+    fun nearEnd(frontier: Float, region: WritingLane, direction: WritingDirection, endMargin: Float = .08f): Boolean {
+        if (!frontier.isFinite()) return false
+        val margin = (region.width * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
+        return if (direction == WritingDirection.LTR) frontier >= region.right - margin
+        else frontier <= region.left + margin
     }
 }
 
