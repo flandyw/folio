@@ -19,6 +19,8 @@ data class FollowPreferences(
      * vertically until the line nears the bottom edge; Next line always moves regardless.
      */
     val keepHeight: Boolean = false,
+    /** Canvas auto-return length, measured in viewport widths when a paragraph starts. */
+    val canvasLineScreens: Int = DEFAULT_CANVAS_SCREENS,
 ) {
     private fun blend(relaxed: Float, responsive: Float) = relaxed + (responsive - relaxed) * feel.coerceIn(0f, 1f)
     /** How far across the view the end of the writing may go before the view glides sideways. */
@@ -34,6 +36,8 @@ data class FollowPreferences(
         const val DEFAULT_HEIGHT = .55f
         const val MIN_HEIGHT = .35f
         const val MAX_HEIGHT = .7f
+        const val DEFAULT_CANVAS_SCREENS = 2
+        fun clampCanvasScreens(value: Int) = value.coerceIn(1, 4)
         fun clampFeel(value: Float) = if (value.isFinite()) value.coerceIn(0f, 1f) else DEFAULT_FEEL
         fun clampHeight(value: Float) = if (value.isFinite()) value.coerceIn(MIN_HEIGHT, MAX_HEIGHT) else DEFAULT_HEIGHT
         fun feelLabel(value: Float) = when {
@@ -89,7 +93,7 @@ internal class WritingRhythm {
 
     /** A word gap must not trigger a move; at the visible edge a letter gap is enough. */
     fun pauseMs(base: Int, urgent: Boolean): Int =
-        if (urgent) min(base, (percentile(.5f)?.let { (it * .6f).roundToInt() } ?: 120).coerceIn(80, 300))
+        if (urgent) min(base, (percentile(.5f)?.let { (it * .4f).roundToInt() } ?: 80).coerceIn(40, 180))
         else max(base, ((percentile(.75f) ?: 0L) + 80).toInt().coerceAtMost(1000))
 
     fun returnPauseMs(base: Int): Int = max(base, ((percentile(.75f) ?: 0L) + 250).toInt().coerceAtMost(1800))
@@ -113,7 +117,7 @@ class WritingFollow(private val host: FollowHost) {
         set(value) {
             if (field == value) return
             field = value
-            stop(); history.clear(); armed = false; cursor = null
+            navigated()
             report(if (value) readyMessage() else "Writing follow is off")
         }
     var paused = false
@@ -134,7 +138,8 @@ class WritingFollow(private val host: FollowHost) {
         private set
 
     private enum class Relation { FIRST, PROGRESS, CORRECTION, NEXT, JUMP }
-    private data class Plan(val vx: Float, val vy: Float, val dueAt: Long, val durationMs: Int, val toLine: WritingLine?)
+    private data class Plan(val left: Float, val top: Float, val dueAt: Long, val durationMs: Int,
+                            val toLine: WritingLine?, val source: WritingLine?)
     private data class BackEntry(val dx: Float, val dy: Float, val cursor: WritingLine?, val columnStart: Float?, val columnEnd: Float?)
 
     /** The line last written, as read from the ink. */
@@ -176,7 +181,9 @@ class WritingFollow(private val host: FollowHost) {
     fun navigated() {
         val had = isMoving || history.isNotEmpty() || cursor != null
         stop()
-        history.clear(); armed = false; cursor = null
+        history.clear(); armed = false; cursor = null; line = null
+        columnStart = null; columnEnd = null; marker = null; lastUp = null; penDownAt = null
+        host.redraw()
         if (had || message != readyMessage()) report(readyMessage())
     }
 
@@ -198,15 +205,18 @@ class WritingFollow(private val host: FollowHost) {
         penDownAt = null
         lastUp = now
         if (!enabled) return
-        if (paused) { report(readyMessage()); return }
+        if (paused) {
+            line = null; cursor = null; columnStart = null; columnEnd = null; marker = null
+            report(readyMessage()); return
+        }
         val seed = InkMark.of(points) ?: return
         val floor = line?.body ?: 0f
-        val read = LineReader.read(seed, host.marks(LineReader.window(seed.box, max(floor, seed.box.height))),
+        val read = LineReader.read(seed, host.marks(readWindow(seed.box, max(floor, seed.box.height))),
             guides, preferences.mode, floor, line?.takeIf { it.measuredPitch }?.pitch)
         val current = (read as? LineRead.Line)?.line
         if (current == null) {
             // A dot or crossbar at the end of the line restarts whatever its touch-down interrupted.
-            val last = line
+            val last = line?.let(::refreshLine).also { line = it }
             if (read == LineRead.Minor && last != null && armed && finishing(seed.box, last)) plan(last, Relation.PROGRESS, now)
             else report("Holding still · keep writing")
             return
@@ -215,7 +225,7 @@ class WritingFollow(private val host: FollowHost) {
         line = current
         cursor = null
         when (relation) {
-            Relation.PROGRESS -> gap?.let(rhythm::add)
+            Relation.PROGRESS -> { gap?.let(rhythm::add); extendCanvas(current) }
             Relation.NEXT -> joinColumn(current)
             Relation.FIRST, Relation.JUMP -> startColumn(current)
             Relation.CORRECTION -> Unit
@@ -231,18 +241,18 @@ class WritingFollow(private val host: FollowHost) {
 
     /** Moves to the start of the next line now. Works while paused: it is an explicit request. */
     fun nextLine(now: Long) {
-        if (host.busy) return
+        if (!enabled || host.busy) return
+        // Restore the source cursor before deciding where to go if a return was interrupted.
+        stop()
         val view = host.viewport() ?: return
         // Right after turning follow on, or on a fresh page, the latest visible ink is the line.
-        val from = cursor ?: line ?: host.marks(view).lastOrNull()?.let { latest ->
-            (LineReader.read(latest, host.marks(LineReader.window(latest.box, latest.box.height)), guides,
-                preferences.mode) as? LineRead.Line)?.line?.also { line = it; startColumn(it) }
+        val from = cursor ?: line?.let(::refreshLine)?.also { line = it } ?: visibleLine(view)?.also {
+            line = it; startColumn(it)
         }
         val next = if (from != null) nextAfter(from) ?: return report(endMessage(from))
             else firstGuideIn(view) ?: return report("Write a line first, then Next line")
-        stop()
         val (vx, vy) = lineTarget(next, view)
-        plan = Plan(vx, vy, now, preferences.glideMs, next)
+        plan = Plan(view.left + vx, view.top + vy, now, returnDuration(vx, view), next, from?.takeIf { it.strokes > 0 })
         tick(now)
     }
 
@@ -253,6 +263,7 @@ class WritingFollow(private val host: FollowHost) {
         val entry = history.removeLastOrNull() ?: return report("No earlier view")
         host.panBy(-entry.dx, -entry.dy)
         cursor = entry.cursor; columnStart = entry.columnStart; columnEnd = entry.columnEnd
+        line = null
         armed = false; marker = null
         host.redraw()
         report(if (paused) "View restored · paused" else "View restored · write to continue")
@@ -262,6 +273,12 @@ class WritingFollow(private val host: FollowHost) {
         if (host.busy) { stop(); return }
         plan?.let { pending ->
             if (now < pending.dueAt) { host.schedule(pending.dueAt - now); return }
+            // Undo, erase or moved ink during the pause invalidates the move, including a return.
+            if (pending.source != null && refreshLine(pending.source) != pending.source) {
+                stop(); line = null; armed = false
+                report("Writing changed · write to continue")
+                return
+            }
             plan = null
             if (!begin(pending, now)) return
         }
@@ -289,7 +306,7 @@ class WritingFollow(private val host: FollowHost) {
                 now + MARKER_MS)
             host.redraw(); host.redraw(MARKER_MS + 16)
         }
-        motion.start(-pending.vx * scale, -pending.vy * scale, pending.durationMs)
+        motion.start((view.left - pending.left) * scale, (view.top - pending.top) * scale, pending.durationMs)
         if (!motion.active) { finish(); return false }
         report(if (movingToLine) "Moving to the next line · touch down to stop" else "Following · touch down to stop")
         return true
@@ -310,6 +327,11 @@ class WritingFollow(private val host: FollowHost) {
     /** Stops planned and running movement, keeping whatever already moved undoable. */
     private fun stop() {
         plan = null
+        if (motion.active && movingToLine) {
+            cursor = moving?.cursor
+            marker = null
+            host.redraw()
+        }
         if (motion.active) record()
         host.cancelSchedule()
     }
@@ -330,23 +352,28 @@ class WritingFollow(private val host: FollowHost) {
         if (l.body * scale < MIN_BODY_PX) { report("Zoom in to follow · Next line still works"); return }
         val text = preferences.mode == FollowMode.TEXT
         val atEnd = text && atLineEnd(l)
+        var settled = if (atEnd) "Line end · tap Next line" else "Following"
         if (atEnd && relation == Relation.PROGRESS && preferences.automaticReturn) {
-            val next = nextAfter(l) ?: return report(endMessage(l))
-            val delay = rhythm.returnPauseMs(preferences.returnPauseMs)
-            val (vx, vy) = lineTarget(next, view)
-            plan = Plan(vx, vy, now + delay, preferences.glideMs, next)
-            report("Next line in ${FollowPreferences.seconds(delay)} · touch down to cancel")
-            host.schedule(delay.toLong())
-            return
+            val next = nextAfter(l)
+            if (next != null && !occupied(next)) {
+                val delay = rhythm.returnPauseMs(preferences.returnPauseMs)
+                val (vx, vy) = lineTarget(next, view)
+                plan = Plan(view.left + vx, view.top + vy, now + delay, returnDuration(vx, view), next, l)
+                report("Next line in ${FollowPreferences.seconds(delay)} · touch down to cancel")
+                host.schedule(delay.toLong())
+                return
+            }
+            // Finishing the last answer line still needs sideways/vertical room at high zoom.
+            settled = if (next == null) endMessage(l) else "Next line already has ink · tap Next line to move there"
         }
         val (vx, reach) = sideways(l, view)
         val vy = vertical(l.baseline, view)
-        val settled = if (atEnd) "Line end · tap Next line" else "Following"
         if (abs(vx) * scale < .5f && abs(vy) * scale < .5f) { report(settled); return }
         // Near the visible edge the pen is about to run out of room: a letter gap is enough.
-        val urgent = reach > .92f
+        val urgent = reach > .92f || (1f - reach) * view.width < l.body * 1.5f
         val delay = rhythm.pauseMs(preferences.pauseMs, urgent)
-        plan = Plan(vx, vy, now + delay, if (urgent) min(preferences.glideMs, 200) else preferences.glideMs, null)
+        plan = Plan(view.left + vx, view.top + vy, now + delay,
+            if (urgent) min(preferences.glideMs, 120) else preferences.glideMs, null, l)
         report(settled)
         host.schedule(delay.toLong())
     }
@@ -357,7 +384,8 @@ class WritingFollow(private val host: FollowHost) {
         val w = view.width
         if (w <= 0f) return 0f to 0f
         val reach = if (ltr) (l.right - view.left) / w else (view.right - l.left) / w
-        if (preferences.mode != FollowMode.TEXT || reach <= preferences.sidewaysTrigger) return 0f to reach
+        val trigger = min(preferences.sidewaysTrigger, 1f - (l.body * 2f / w).coerceIn(.12f, .4f))
+        if (preferences.mode != FollowMode.TEXT || reach <= trigger) return 0f to reach
         // A hand on the written side of the pen hides what was just written: leave more of it showing.
         val handOnWriting = (hand == WritingHand.LEFT) == ltr
         var shift = (reach - if (handOnWriting) .47f else .42f) * w
@@ -392,6 +420,7 @@ class WritingFollow(private val host: FollowHost) {
 
     private fun relate(previous: WritingLine?, current: WritingLine, seed: InkBox): Relation {
         previous ?: return Relation.FIRST
+        if (previous.guide?.block != current.guide?.block) return Relation.JUMP
         val body = current.body
         val near = current.left <= previous.right + body * 4f && current.right >= previous.left - body * 4f
         if (preferences.mode == FollowMode.MATH) {
@@ -409,6 +438,9 @@ class WritingFollow(private val host: FollowHost) {
                 else seed.left <= frontier + body * .5f
             return if (ahead || previous.strokes == 0) Relation.PROGRESS else Relation.CORRECTION
         }
+        if (previous.guide != null && current.guide != null && WritingGuides.next(previous.guide, guides) != current.guide) {
+            return Relation.JUMP
+        }
         val start = columnStart ?: previous.start(direction)
         val aligned = abs(current.start(direction) - start) <= max(body * 6f, (previous.right - previous.left) * .25f) ||
             (current.left <= previous.right && current.right >= previous.left)
@@ -418,10 +450,10 @@ class WritingFollow(private val host: FollowHost) {
     private fun startColumn(l: WritingLine) {
         val ltr = preferences.direction == WritingDirection.LTR
         columnStart = l.start(preferences.direction)
-        // A canvas has no printed edge: the line ends where the writer could see it end.
+        // Fix a useful paragraph width at its first stroke, independent of subsequent glides.
         columnEnd = host.viewport()?.takeIf { page.infinite && l.guide == null }?.let { view ->
-            val margin = view.width * .06f
-            if (ltr) max(view.right - margin, l.right + l.body) else min(view.left + margin, l.left - l.body)
+            val length = max(view.width * FollowPreferences.clampCanvasScreens(preferences.canvasLineScreens), l.body * 8f)
+            l.start(preferences.direction) + if (ltr) length else -length
         }
     }
 
@@ -436,12 +468,71 @@ class WritingFollow(private val host: FollowHost) {
         columnStart = joined
     }
 
+    /** Continuing past a suggested canvas wrap is intentional; reveal another screen of room. */
+    private fun extendCanvas(l: WritingLine) {
+        if (!page.infinite || l.guide != null || !preferences.automaticReturn) return
+        val end = columnEnd ?: return
+        val sign = if (preferences.direction == WritingDirection.LTR) 1f else -1f
+        if ((l.frontier(preferences.direction) - end) * sign <= l.body) return
+        val length = max(host.viewport()?.width ?: 0f, l.body * 8f)
+        columnEnd = end + sign * max(length, (l.frontier(preferences.direction) - end) * sign + l.body * 2f)
+    }
+
+    /** Read the whole response/paragraph width, even when tiny handwriting extends far off screen. */
+    private fun readWindow(box: InkBox, body: Float): InkBox {
+        val local = LineReader.window(box, body)
+        val guide = LineReader.guideFor(box, guides)
+        val left = guide?.left ?: if (!page.infinite) PAGE_MARGIN else columnStart ?: local.left
+        val right = guide?.right ?: if (!page.infinite) page.width - PAGE_MARGIN else columnStart ?: local.right
+        return InkBox(min(local.left, left), local.top, max(local.right, right), local.bottom)
+    }
+
+    /** Stored geometry only locates ink to re-read; it can never stand in for deleted strokes. */
+    private fun refreshLine(previous: WritingLine): WritingLine? {
+        val marks = host.marks(readWindow(InkBox(previous.left, previous.top, previous.right, previous.bottom), previous.body))
+        val seed = marks.lastOrNull { belongsTo(it, previous) } ?: return null
+        return (LineReader.read(seed, marks, guides, preferences.mode, previous.body,
+            previous.pitch.takeIf { previous.measuredPitch }) as? LineRead.Line)?.line
+    }
+
+    private fun belongsTo(mark: InkMark, l: WritingLine): Boolean {
+        val box = mark.box
+        if (mark.straight || box.height < l.body * .4f || box.height > l.body * 3.2f) return false
+        if (l.guide != null) return LineReader.guideFor(box, guides) == l.guide
+        val probe = box.top + box.height * .3f
+        return if (preferences.mode == FollowMode.MATH) box.intersects(InkBox(l.left, l.top, l.right, l.bottom))
+            else abs(probe - (l.baseline - l.body * .7f)) < l.pitch * .45f
+    }
+
+    /** A trailing dot or underline must not hide the last visible line from explicit Next line. */
+    private fun visibleLine(view: InkBox): WritingLine? {
+        for (seed in host.marks(view).asReversed()) {
+            val read = LineReader.read(seed, host.marks(readWindow(seed.box, seed.box.height)), guides, preferences.mode)
+            if (read is LineRead.Line) return read.line
+        }
+        return null
+    }
+
+    private fun occupied(next: WritingLine): Boolean {
+        val start = next.start(preferences.direction)
+        val end = lineEnd(next) ?: start
+        val box = InkBox(min(start, next.guide?.left ?: end), next.baseline - next.pitch,
+            max(start, next.guide?.right ?: end), next.baseline + next.body)
+        return host.marks(box).any { belongsTo(it, next) }
+    }
+
+    /** A return across several zoomed-in screens gets more travel time than a small nudge. */
+    private fun returnDuration(vx: Float, view: InkBox): Int {
+        val screens = abs(vx) / view.width.coerceAtLeast(1f)
+        return (preferences.glideMs + (max(0f, screens - 1f) * 100f).roundToInt()).coerceAtMost(FollowMotion.MAX_MS)
+    }
+
     private fun lineEnd(l: WritingLine): Float? {
         val ltr = preferences.direction == WritingDirection.LTR
         l.guide?.let { return if (ltr) it.right else it.left }
         areaOf(l)?.let { return if (ltr) it.right else it.left }
         if (!page.infinite) return if (ltr) page.width - PAGE_MARGIN else PAGE_MARGIN
-        return columnEnd
+        return columnEnd.takeIf { preferences.automaticReturn }
     }
 
     private fun lineStart(l: WritingLine): Float? {
@@ -463,7 +554,8 @@ class WritingFollow(private val host: FollowHost) {
         val start = lineStart(l) ?: return false
         val width = abs(end - start)
         if (width < l.body * 4f) return false
-        val margin = max(l.body * 2.5f, width * .06f)
+        // At high zoom a page-sized end tolerance can skip several visible words.
+        val margin = min(max(l.body * 2f, width * .03f), (host.viewport()?.width ?: width) * .15f)
         val near = if (preferences.direction == WritingDirection.LTR) l.right >= end - margin else l.left <= end + margin
         return near && l.right - l.left >= width * .4f
     }

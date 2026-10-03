@@ -45,7 +45,7 @@ private class FakeHost(var pageWidth: Float = 840f, var pageHeight: Float = 1188
 }
 
 private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = FollowPreferences(),
-                    guides: List<WritingGuide> = emptyList()) {
+                    guides: List<WritingGuide> = emptyList(), private val interleaveFrames: Boolean = false) {
     val follow = WritingFollow(host)
     var now = 0L
     init {
@@ -55,11 +55,23 @@ private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = 
         follow.enabled = true
     }
     fun write(points: List<InkPoint>, gap: Long = 150) {
-        now += gap
+        if (interleaveFrames) pause(gap) else now += gap
         follow.penDown(now)
         now += 120
         InkMark.of(points)?.let { host.ink += it }
         follow.strokeFinished(points, now)
+    }
+    /** Run real scheduled frames between strokes, including glides interrupted by the next pen-down. */
+    fun pause(ms: Long) {
+        val end = now + ms
+        while (host.due != null) {
+            val due = now + maxOf(host.due!!, 16L)
+            if (due > end) { host.due = due - end; break }
+            host.due = null
+            now = due
+            follow.tick(now)
+        }
+        now = end
     }
     /** Lets every scheduled frame run, as the view's handler would. */
     fun settle(limitMs: Long = 4000) {
@@ -226,7 +238,7 @@ fun main() {
         for (i in 0..10) t.write(letter(30f + i * 18f))
         t.now += 2000
         t.follow.tick(t.now)          // the pause has passed: the glide starts
-        t.now += 60; t.follow.tick(t.now)
+        t.now += 30; t.follow.tick(t.now)
         t.follow.touched()            // stopped part way
         val partial = t.host.x
         t.write(dot(30f + 10 * 18f + 6f, 84f))  // dotting the last letter replans
@@ -341,14 +353,174 @@ fun main() {
         for (i in 0..12) { t.write(letter(180f - i * 18f)); t.settle() }
         check(t.host.x < 0f) { "RTL moved ${t.host.x}" }
     }
-    scenario("On a canvas the line end stays where the writer could see it; sideways moves never pass it") {
-        val host = FakeHost(infinite = true)
-        val t = Trace(host, FollowPreferences(automaticReturn = true))
-        var x = 20f
-        repeat(40) { t.write(letter(x)); x += 18f; t.settle() }
-        val view = t.host.viewport()
-        check(view.left < x) { "the end ran out of view" }
-        check(t.follow.marker(t.now) != null) { "never returned: ${t.host.last.message}" }
+    scenario("Small handwriting at high zoom glides through a full exam answer and returns exactly once") {
+        val guides = listOf(100f, 128f, 156f).map { WritingGuide(40f, 800f, it) }
+        val host = FakeHost(viewW = 480f, viewH = 600f, scale = 8f).apply { x = 30f; y = 50f }
+        val t = Trace(host, FollowPreferences(automaticReturn = true), guides)
+        for (baseline in listOf(100f, 128f)) {
+            var returned = false
+            for (x in 40..796 step 6) {
+                t.write(letter(x.toFloat(), baseline, baseline - 4f, baseline, 4f)); t.settle()
+                val marker = t.follow.marker(t.now)
+                if (marker != null && marker.y == baseline + 28f) {
+                    check(x >= 780) { "returned before the visible end: $x" }
+                    check(marker.x == 40f)
+                    check(marker.x in host.viewport().left..host.viewport().right)
+                    check(abs((marker.y - host.y) / host.viewport().height - .55f) < .01f)
+                    returned = true
+                    break
+                }
+                check(x + 4f in host.viewport().left..host.viewport().right) { "pen left the view at $x: ${host.viewport()}" }
+            }
+            check(returned) { "never returned at $baseline: ${host.last}" }
+        }
+    }
+    scenario("The last exam line still glides to reveal its ending at high zoom") {
+        val host = FakeHost(viewW = 480f, viewH = 600f, scale = 8f).apply { x = 30f; y = 50f }
+        val t = Trace(host, FollowPreferences(automaticReturn = true), listOf(WritingGuide(40f, 800f, 100f)))
+        for (x in 40..790 step 6) {
+            t.write(letter(x.toFloat(), 100f, 96f, 100f, 4f)); t.settle()
+        }
+        check(794f in host.viewport().left..host.viewport().right)
+        check(t.follow.marker(t.now) == null)
+        t.follow.nextLine(t.now)
+        check(host.last.message == "End of this answer area")
+    }
+    scenario("A fast writer gets edge room between strokes without waiting for a whole glide") {
+        val host = FakeHost(viewW = 480f, viewH = 600f, scale = 8f).apply { x = 30f; y = 50f }
+        val t = Trace(host, FollowPreferences(automaticReturn = true),
+            listOf(100f, 128f).map { WritingGuide(40f, 800f, it) }, interleaveFrames = true)
+        for (x in 40..790 step 6) {
+            t.write(letter(x.toFloat(), 100f, 96f, 100f, 4f), gap = 120)
+            check(x + 4f in host.viewport().left..host.viewport().right) { "ran out of space at $x: ${host.viewport()}" }
+        }
+        t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+    }
+    scenario("Without auto-return a canvas keeps gliding across many screens in either direction") {
+        for (direction in WritingDirection.entries) {
+            val t = Trace(FakeHost(infinite = true), FollowPreferences(direction = direction))
+            val sign = if (direction == WritingDirection.LTR) 1f else -1f
+            val start = if (sign > 0) 30f else 160f
+            for (i in 0..60) {
+                val x = start + i * 18f * sign
+                t.write(letter(x)); t.settle()
+                val end = if (sign > 0) x + 14f else x
+                check(end in t.host.viewport().left..t.host.viewport().right) { "$direction stopped at $i" }
+            }
+            check(abs(t.host.x) > 600f)
+            t.follow.nextLine(t.now); t.settle()
+            check(t.follow.marker(t.now)?.x == if (sign > 0) start else start + 14f)
+        }
+    }
+    scenario("Canvas auto-return keeps its chosen width across glides and several lines") {
+        for (screens in listOf(1, 2, 4)) for (direction in WritingDirection.entries) {
+            val t = Trace(FakeHost(infinite = true), FollowPreferences(automaticReturn = true,
+                canvasLineScreens = screens, direction = direction))
+            val sign = if (direction == WritingDirection.LTR) 1f else -1f
+            val start = if (sign > 0) 30f else 170f
+            val end = start + sign * 200f * screens
+            var baseline = 100f
+            repeat(3) {
+                var returned: FollowMarker? = null
+                for (i in 0..(screens * 34)) {
+                    val leading = start + sign * i * 6f
+                    val x = if (sign > 0) leading else leading - 4f
+                    t.write(letter(x, baseline, baseline - 4f, baseline, 4f)); t.settle()
+                    val marker = t.follow.marker(t.now)
+                    if (marker != null && marker.y > baseline + 1f) {
+                        check(abs(leading - end) < 32f) { "$screens screens wrapped at $leading, expected $end" }
+                        check(marker.x == start)
+                        returned = marker
+                        break
+                    }
+                }
+                baseline = (returned ?: error("$screens screens never returned ($direction): ${t.host.last}")).y
+            }
+        }
+    }
+    scenario("Writing past a cancelled canvas wrap reveals more space") {
+        val t = Trace(FakeHost(infinite = true), FollowPreferences(automaticReturn = true, canvasLineScreens = 1))
+        for (i in 0..25) t.write(letter(30f + i * 18f)) // Keep cancelling the pending wrap by continuing.
+        t.settle()
+        check(494f in t.host.viewport().left..t.host.viewport().right)
+        check(t.follow.marker(t.now) == null)
+    }
+    scenario("Interrupting or double-tapping Next line never skips an unwritten line") {
+        val t = Trace(guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 800f, it) })
+        for (i in 0..20) t.write(letter(40f + i * 18f))
+        t.settle()
+        t.follow.nextLine(t.now)
+        t.now += 100; t.follow.tick(t.now)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 156f)
+    }
+    scenario("Undo during a pending glide cancels movement without needing a touch") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        check(t.host.due != null)
+        repeat(4) { t.host.ink.removeAt(t.host.ink.lastIndex) }
+        val travel = t.moved { t.settle() }
+        check(travel == (0f to 0f))
+        check(t.host.last.message.startsWith("Writing changed"))
+    }
+    scenario("Next line and a stray dot cannot resurrect a completely erased line") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.follow.touched(); t.host.ink.clear()
+        val travel = t.moved { t.follow.nextLine(t.now); t.settle() }
+        check(travel == (0f to 0f) && t.follow.marker(t.now) == null)
+        check(t.host.last.message.startsWith("Write a line first"))
+        val afterDot = t.moved { t.write(dot(220f, 85f)); t.settle() }
+        check(afterDot == (0f to 0f))
+    }
+    scenario("Paused writing stays still and explicit Next line uses the newly written line") {
+        val t = Trace(FakeHost(infinite = true))
+        for (i in 0..4) t.write(letter(30f + i * 18f))
+        t.follow.paused = true
+        val travel = t.moved { for (i in 0..4) t.write(letter(30f + i * 18f, 200f)); t.settle() }
+        check(travel == (0f to 0f))
+        t.follow.nextLine(t.now); t.settle()
+        check((t.follow.marker(t.now)?.y ?: 0f) > 200f)
+        check(t.follow.paused)
+    }
+    scenario("After navigating, Next line reads the visible paragraph instead of the old one") {
+        val t = Trace(FakeHost(infinite = true))
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.host.x = 500f; t.host.y = 400f
+        t.follow.navigated()
+        for (i in 0..4) t.host.ink += InkMark.of(letter(530f + i * 18f, 500f))!!
+        t.follow.nextLine(t.now); t.settle()
+        val marker = t.follow.marker(t.now) ?: error(t.host.last.message)
+        check(marker.x == 530f && marker.y > 500f)
+    }
+    scenario("Automatic return holds before existing writing; explicit Next line can enter it") {
+        val guides = listOf(100f, 128f).map { WritingGuide(40f, 380f, it) }
+        val t = Trace(prefs = FollowPreferences(automaticReturn = true), guides = guides)
+        for (i in 0..4) t.host.ink += InkMark.of(letter(40f + i * 18f, 128f))!!
+        for (i in 0..18) t.write(letter(40f + i * 18f))
+        check(t.host.last.message.startsWith("Next line already has ink")) { t.host.last.message }
+        t.settle()
+        check(t.follow.marker(t.now) == null)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+    }
+    scenario("Starting an adjacent answer block holds still even at the usual line spacing") {
+        val guides = listOf(WritingGuide(40f, 380f, 180f, 0), WritingGuide(40f, 380f, 208f, 1))
+        val t = Trace(prefs = FollowPreferences(keepHeight = true), guides = guides)
+        for (i in 0..3) t.write(letter(40f + i * 18f, 180f))
+        val travel = t.moved { t.write(letter(40f, 208f)); t.settle() }
+        check(travel == (0f to 0f))
+    }
+    scenario("Pending movement targets an absolute viewport position") {
+        val t = Trace(FakeHost(infinite = true))
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.host.x = 10f // Camera shifted before the first animation frame.
+        t.settle()
+        val reach = (224f - t.host.x) / t.host.viewport().width
+        check(abs(reach - .42f) < .01f) { "relative target drifted: $reach" }
     }
     scenario("Tiny handwriting does not move the view") {
         val t = Trace(FakeHost(scale = .4f))

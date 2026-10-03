@@ -61,13 +61,15 @@ object FollowPrefsStore {
             feel = FollowPreferences.clampFeel(p.getFloat(FEEL, FollowPreferences.DEFAULT_FEEL)),
             height = FollowPreferences.clampHeight(p.getFloat(HEIGHT, FollowPreferences.DEFAULT_HEIGHT)),
             keepHeight = p.getBoolean(KEEP_HEIGHT, false),
+            canvasLineScreens = AppPrefs.followCanvasScreens(p.getInt(AppPrefs.FOLLOW_CANVAS_SCREENS, AppPrefs.DEFAULT_FOLLOW_CANVAS_SCREENS)),
         )
     }
 
     fun save(p: SharedPreferences, value: FollowPreferences) {
         p.edit().putString(DIRECTION, value.direction.name).putString(MODE, value.mode.name)
             .putBoolean(AUTO_RETURN, value.automaticReturn).putFloat(FEEL, value.feel).putFloat(HEIGHT, value.height)
-            .putBoolean(KEEP_HEIGHT, value.keepHeight).apply()
+            .putBoolean(KEEP_HEIGHT, value.keepHeight)
+            .putInt(AppPrefs.FOLLOW_CANVAS_SCREENS, AppPrefs.followCanvasScreens(value.canvasLineScreens)).apply()
     }
 
     fun hand(p: SharedPreferences): WritingHand =
@@ -134,7 +136,17 @@ fun FollowSettingsDialog(
                     onPreferences(preferences.copy(automaticReturn = it))
                 }
                 Hint("When a full line reaches its end and you pause, the page moves to the next line. Touch down to cancel. " +
-                    "Printed answer areas end at their last rule.")
+                    "Printed answer areas end at their last rule. If the next line already has writing, use Next line to move there yourself.")
+                if (preferences.mode == FollowMode.TEXT && preferences.automaticReturn) {
+                    SectionTitle("Canvas line length")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        for (screens in 1..4) FilterChip(preferences.canvasLineScreens == screens,
+                            { onPreferences(preferences.copy(canvasLineScreens = screens)) },
+                            { Text("$screens ${if (screens == 1) "screen" else "screens"}") })
+                    }
+                    Hint("On an infinite canvas, each paragraph wraps after this many screen widths at its starting zoom. " +
+                        "Without automatic return, sideways writing can continue as far as you like. Exam pages use their response lines.")
+                }
 
                 HorizontalDivider()
                 SectionTitle("Direction and hand")

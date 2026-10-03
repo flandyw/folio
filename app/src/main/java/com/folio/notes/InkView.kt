@@ -30,6 +30,7 @@ class InkView(context: Context) : View(context) {
         set(value) {
             if (field == value) return
             field = value
+            follow.navigated()
             // A selection only makes sense while the lasso is in hand.
             if (value != Tool.LASSO) clearSelection()
             // The outline belongs to the eraser, so it leaves with the tool.
@@ -390,6 +391,9 @@ class InkView(context: Context) : View(context) {
         return super.onGenericMotionEvent(event)
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
+        // Local pen commits already installed this exact stroke list before notifying Compose.
+        // A different list comes from undo, redo, sync or an external edit; stop even mid-glide.
+        if (page.id == value.id && page.strokes !== value.strokes) follow.navigated()
         if (page.id != value.id || page.infinite != value.infinite) {
             follow.reset(FollowPage(value.infinite, value.width, value.height)); markCache.clear()
             cancelGesture(); camera.reset(); resetToken = -1; workspaceCameraRestored = false
@@ -548,6 +552,11 @@ class InkView(context: Context) : View(context) {
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) follow.navigated()
     }
 
     override fun onDraw(canvas: Canvas) {
