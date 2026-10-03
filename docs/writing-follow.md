@@ -1,64 +1,104 @@
-# Writing follow
+# Writing follow and peek
 
-Writing follow uses transient handwriting geometry; it does not change saved ink or notebook storage.
-Printed rules anchor a page's baseline and spacing. Blank pages and infinite canvases infer the body
-from recent strokes, keep descenders out of the baseline estimate, and confirm ambiguous line changes.
-A clear cursive word on a new line can provide enough evidence in a single stroke.
+## Writing follow
 
-New-line placement stays pending across pen-down interruptions. Glides stop as soon as the pen
-touches down and replan from the actual view after the next accepted stroke. Returns aim at an
-absolute writing height, so stopping halfway and resuming cannot apply a second full vertical step.
-Actual consumed pan determines whether a return arrived; horizontal movement alone cannot advance
-the tracked baseline when vertical scrolling is clamped. Back records only movement actually applied.
+Writing follow moves the view so the line being written stays in a comfortable place. It never
+changes saved ink or the notebook format.
 
-Sideways glides use half the configured return pause, extended by learned pen-up gaps. Near the
-visible edge, adaptive following uses a shorter letter-gap wait and a glide of at most 180 ms.
-New-line placement uses the same urgency; automatic returns keep the longer pause and configured
-glide duration. Dots and crossbars near the final word can resume an interrupted request after pen-up;
-corrections farther back hold the view. Rejected palm contacts do not cancel a pending glide.
+**State comes from the ink.** On every pen-up, `LineReader` (`WritingLine.kt`) re-reads the current
+line from the strokes on the page around the stroke just written:
 
-On a canvas, the current viewport width defines a line's length. Its start stays fixed in canvas
-coordinates during follow pans, even when that start moves off screen. Deliberate navigation or a
-viewport resize resets it. An answer area is optional. Pages use the configured minimum zoom;
-canvases use the handwriting's actual height on screen.
+- Strokes belong to one line when their bodies sit at the same height. Each stroke's probe point is
+  a third of the way down, which is above any descender and below any ascender.
+- Strokes have to be joined by word-sized gaps (four line heights), so a second column stays separate.
+- The baseline is the tightest cluster of stroke bottoms, which keeps descenders and first-letter
+  descenders from dragging it down. Printed rules (ruled paper, detected PDF rules) take priority.
+- Line height, line spacing (the measured gap to the line above) and the line's extent all scale
+  with the handwriting. No threshold is a fixed page unit.
+- Dots and crossbars count as *minor*, long flat strokes as *rules*, and much taller strokes as
+  diagrams. None of them is treated as a line.
+
+Nothing is remembered between strokes except the writer's pen-up rhythm, a few canvas column edges
+and the line placed by Next line. Undo, erasing, moved ink and corrections therefore cannot leave a
+stale frontier behind.
+
+**Moves are planned towards absolute targets** (`WritingFollow.kt`, with `FollowMotion.kt` doing
+the easing). A move is planned after a pause and runs as one eased glide. Touching down cancels it,
+and the next pen-up replans from wherever the view actually is, so an interrupted move can never be
+applied twice. Back undoes the moves that actually happened, up to 12 of them; clamped travel is not
+counted.
+
+Rules a writer can rely on:
+
+- The first stroke after any navigation (pinch, pan, page jump, rotation, Back) never moves the view.
+- A stroke behind the line's end (a correction) or somewhere new (a jump) holds the view still.
+- Only progress moves it: the line growing towards its end, or the natural next line below.
+- Sideways: once the end of the writing passes the feel's trigger (68–86 % across), the view glides
+  so it sits at about 42 % (47 % when the hand covers the written side). It never glides past the
+  line end, so the end can always be reached.
+- Vertical: once the baseline sinks more than the band (10–22 %) below the writing height, the view
+  moves it back up. Writing near the top is left alone.
+- Near the visible edge, a letter gap is enough to start a move, and the glide is quicker.
+- Handwriting smaller than 8 px on screen is readable as it is, so the view does not follow it.
+  Next line still works.
+
+**Line ends and Next line.** A line ends at its printed rule's end. On a blank page it ends at the
+36-unit margin. On an infinite canvas it ends where the visible edge was when the line started. Next
+line goes to the next printed rule in the same answer block and stops at the block's last rule.
+Without rules it goes one measured line spacing down, back to where the paragraph's lines start,
+and stops at the bottom of a page. A short marker shows where the next line begins. Automatic line
+return does the same after a pause, but only once a full line (at least 40 % of its width) has
+reached its end.
+
+**Maths** reads the block of working touching the stroke (fractions included) and only moves down.
+
+**Settings:** Feel (one value controlling the pauses, trigger, band and glide), Text/Maths,
+automatic line return, direction, hand and writing height. Keys are listed in `FollowPrefsStore`.
+The earlier tuning keys and per-page `follow.region.*` answer areas are removed the first time the
+editor opens.
+
+## Peek
+
+A notebook keeps one peek view: a page and a rectangle on it, in page units (`PeekAnchor`), so it
+frames the same content on any screen. It is stored on the notebook in `note.json` (and in `.folio`
+archives) under `peekAnchor`. Earlier versions stored it on one of the pages, and that is still read
+when the notebook-level field is missing. Deleting the page clears it. Duplicating a notebook remaps
+it. A view saved partly off a fixed page is clamped to the paper.
+
+Pin it with the pin button, or with *Pin this view* or *Pin this whole page* in the options menu.
+Press and hold the eye to look, and release to come back. A quick tap keeps the peek open, where it
+can be panned and zoomed, until you tap the eye, press Close or press Back. TalkBack's double-tap
+toggles it. A held peek closes if the window loses focus. Peeking cannot start mid-stroke.
 
 ## Checks
-
-Run the usual Android build/lint checks, then the pure regression smoke check using the same JDK:
 
 ```sh
 ./gradlew :app:assembleDebug :app:lintDebug
 node tools/writing-follow-smoke.cjs
-node tools/katex-smoke.cjs
 ```
 
-The follow smoke check compiles the actual pure Kotlin helpers with Gradle's cached compiler and
-runs deterministic handwriting and animation traces. It needs Node, JDK 17, and the compiler cache
-populated by the Android build; it downloads nothing and leaves no generated files in the repo.
+The smoke check compiles the pure engine (`WritingFollow.kt`, `WritingLine.kt`, `WritingGuides.kt`,
+`FollowMotion.kt`) with Gradle's cached compiler. It drives the engine through a fake view with
+deterministic handwriting traces, needs Node and JDK 17, and downloads nothing.
 
 ## Device check
 
-Use a stylus on a ruled page, a blank page, an imported PDF with several separate answer blocks,
-and an infinite canvas. Repeat at a comfortable writing zoom and with automatic return enabled.
+Use a stylus at a comfortable zoom on a ruled page, a blank page, a PDF with several answer blocks,
+and an infinite canvas.
 
-1. Write words containing `f`, `g`, `j`, `p`, and `y`, including as the first and final letter.
-   Check sideways following and the next-line return. Repeat with small letters and joined-up words.
-2. Finish near the line's edge, then dot an `i` or cross a `t`. The return should restart its pause.
-   Correct an earlier word instead: the view should hold. Rest a palm during the pause: rejected
-   palm contacts should leave the request intact.
-3. Start a natural next line with a tall capital, then a short letter or a descender. Continue
-   writing during the placement pause and touch down midway through a glide. The next pen-up
-   should replan placement without losing the line or moving an extra line down.
-4. Use Next line, stop its glide halfway, then either continue the old line or write the new one.
-   Check that the resumed movement targets the actual position. At a scroll limit, sideways
-   movement must not falsely report a successful vertical return. Check Back after each case.
-5. On the canvas, write long enough for several sideways pans. Its end should remain reachable
-   and return to the original start. Then pinch/pan, rotate or resize the window, and write again:
-   following should use a fresh lane. Repeat in RTL and with the other pen hand selected.
-6. Write on the final printed rule with descenders below it. Sideways following should continue;
-   automatic return must not spill into the next question or an adjacent answer column.
-7. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should
-   remain off. Check Pause/Resume, both follow-axis toggles, fixed/adaptive timing, and shape tidy.
-
-These traces exercise geometry and state transitions, but they do not substitute for real stylus,
-palm rejection, frame timing, and page-scroll checks on a device.
+1. Write words with `f g j p y`, including as the first letter, plus capitals and joined-up words.
+   The view should glide sideways only after pauses and never while the pen is down.
+2. Correct an earlier word: the view holds. Dot an `i` at the end of the line: an interrupted move
+   resumes. Rest a palm during a pause: nothing is cancelled.
+3. Undo the last few letters, then continue writing. The view should not jump to where the undone
+   ink used to end.
+4. Use Next line repeatedly on ruled paper and on a PDF block. It should stop at the block's last
+   rule. Turn on automatic return and finish a full line. A short note near the edge must not return.
+5. On the canvas, write a long line through several glides. The end must stay reachable, and the
+   return must go back to the line start. Pinch or rotate mid-line: the next stroke holds.
+6. Repeat right-to-left and with the left hand selected. Use Maths with a fraction: down only.
+7. Peek: pin a view, hold the eye, then release. Tap to keep it open, pan inside, then close it
+   with Back. Delete the pinned page: the eye turns back into a pin. Duplicate the notebook and
+   peek in the copy.
+8. Storage round trip: on a build from before this change, pin a peek view and export a `.folio`.
+   Install this build, then confirm the peek still opens, re-pin it, restart, export and re-import.

@@ -137,13 +137,13 @@ object NoteMetaCodec {
         put("pageCover", note.pageCover)
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
+        note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height)
             put("paper", p.paper.name); put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
             put("title", p.title); put("bookmarked", p.bookmarked)
-            p.peekAnchor?.let { put("peekAnchor", it.encode()) }
         }) } })
     }.toString()
 
@@ -165,18 +165,21 @@ object NoteMetaCodec {
     private fun decodeIndex(value: String, version: Int): Notebook {
         val o = JSONObject(value)
         require(o.getInt("version") == version) { "Unsupported notebook index version" }
+        val pageObjects = o.getJSONArray("pages").objects()
         return Notebook(o.getString("id"), o.getString("title"),
             if (o.isNull("folder")) null else o.getString("folder"), o.getInt("cover"),
-            o.getBoolean("starred"), o.getLong("updated"), o.getJSONArray("pages").objects().map { p ->
+            o.getBoolean("starred"), o.getLong("updated"), pageObjects.map { p ->
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     revision = p.optInt("revision", 0), loaded = false, redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
-                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
-            mistakeReviews = decodeMistakeReviews(o))
+            mistakeReviews = decodeMistakeReviews(o)).let { note ->
+                note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
+            }
     }
 
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }

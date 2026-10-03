@@ -7,6 +7,11 @@ with notes/confidence, or discard after confirmation. Manual entries accept 1–
 Today's total includes active and completed regular study, clips intervals at local midnight,
 and excludes pauses, exams and imported calendar placeholders.
 
+Layout is adaptive (content width ≥ 840dp splits, e.g. landscape tablet or the landscape
+panel): a timer column (clock, Pause/Resume, wrap-up form) and an independently scrolling
+context column (today + sync, other apps' sessions, history). Narrower widths, such as portrait
+tablets, stack the same blocks timer-first in a centred column.
+
 The page and the editor's study panel share controls and the application-scoped
 `FocalStudyManager`; leaving the page or rotating does not stop a timer. Display ticks are
 foreground-lifecycle-bound, but elapsed time comes from the manager's monotonic clock.

@@ -7,36 +7,7 @@ import kotlin.math.min
 
 /** Printed answer rules in page coordinates, independent of zoom and handwriting. */
 data class WritingGuide(val left: Float, val right: Float, val y: Float)
-data class WritingAdvance(val from: WritingGuide, val to: WritingGuide) {
-    fun startX(hand: WritingHand) = if (hand == WritingHand.RIGHT) to.left else to.right
-}
-
 object WritingGuides {
-    /** Partition all printed rules into separate answer areas, including adjacent columns. */
-    fun regions(guides: List<WritingGuide>): List<WritingLane> {
-        // Each nearest-neighbour scan is O(N); resolve it once, not for every edge candidate.
-        val following = guides.associateWith { next(it, guides) }
-        val remaining = guides.sortedWith(compareBy({ it.y }, { it.left })).toMutableSet()
-        val result = mutableListOf<WritingLane>()
-        while (remaining.isNotEmpty()) {
-            val group = mutableSetOf(remaining.first())
-            val queue = java.util.ArrayDeque<WritingGuide>().apply { add(remaining.first()) }
-            while (queue.isNotEmpty()) {
-                val line = queue.removeFirst()
-                remaining.remove(line)
-                val neighbours = remaining.filter { following[line] == it || following[it] == line }
-                for (neighbour in neighbours) if (group.add(neighbour)) queue.add(neighbour)
-            }
-            if (group.size >= 2) result += WritingLane(group.minOf { it.left },
-                (group.minOf { it.y } - 28f).coerceAtLeast(0f), group.maxOf { it.right }, group.maxOf { it.y })
-        }
-        return result.sortedWith(compareBy({ it.top }, { it.left }))
-    }
-
-    fun regionAt(regions: List<WritingLane>, x: Float, y: Float): WritingLane? = regions
-        .filter { x in it.left..it.right && y in it.top..it.bottom }
-        .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
-
     /** Only move within the same answer column, never across a question-sized gap. */
     fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides.asSequence()
         .filter { follows(line, it) }.minByOrNull { it.y }

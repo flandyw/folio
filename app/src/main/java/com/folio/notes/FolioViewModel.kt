@@ -1199,9 +1199,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(note.withPage(page.copy(title = title.trim().take(120))))
     }
 
+    /** Pins (or with null, removes) the notebook's peek view; a view of a page it lacks is ignored. */
     fun setPeekAnchor(anchor: PeekAnchor?) {
         val note = _state.value.active ?: return
-        updateNote(note.withSharedPeekAnchor(anchor))
+        val page = anchor?.let { it.page(note.pages) ?: return }
+        val next = page?.let(anchor::fittedTo)
+        if (next == note.peekAnchor) return
+        updateNote(note.copy(peekAnchor = next))
     }
 
     fun togglePageBookmark(pageId: String) {

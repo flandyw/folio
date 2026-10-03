@@ -779,8 +779,8 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     SectionTitle("Writing follow")
-    SectionHint("Defaults for new sessions. Height, column, line spacing and glide timing stay in the editor's Writing follow dialog.")
-    PreferenceSwitch("Writing follow on by default", "The page stays still while the pen is down and reveals space after a lift.", followEnabled, {
+    SectionHint("Defaults for new sessions. Feel and writing height are in the editor's Writing follow settings; line height, spacing and line length are measured from your writing.")
+    PreferenceSwitch("Writing follow on by default", "The page never moves while the pen is down. After a short pause it keeps your line in view.", followEnabled, {
         followEnabled = it
         p.edit().putBoolean("writingFollow", it).apply()
     })
@@ -818,7 +818,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         })
     }
     PreferenceSwitch("Automatic line return", if (mode == FollowMode.TEXT)
-        "After writing across a line, pause near the answer area's edge to return. Touch down to cancel."
+        "After a full line reaches its end, a pause moves to the next line. Touch down to cancel."
         else "Available in Text mode. In Maths, tap Next line when you want a new row.", autoReturn, {
         autoReturn = it
         p.edit().putBoolean("follow.autoReturn", it).apply()

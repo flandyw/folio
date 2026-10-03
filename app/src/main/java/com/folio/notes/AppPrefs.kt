@@ -43,6 +43,8 @@ object AppPrefs {
     const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
     const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
+    /** Writing follow's single timing control, 0 (relaxed) to 1 (responsive); see [FollowPrefsStore]. */
+    const val FOLLOW_FEEL = "follow.feel"
 
     const val DEFAULT_FULLSCREEN = true
     const val DEFAULT_KEEP_SCREEN_ON = false

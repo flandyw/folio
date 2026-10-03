@@ -2,19 +2,80 @@ package com.folio.notes
 
 import kotlin.math.abs
 
-private fun letter(x: Float, top: Float = 88f, bottom: Float = 100f, width: Float = 16f) = listOf(
+// Deterministic handwriting traces for the writing-follow engine. Page units; letters sit on a
+// baseline with a 12-unit body, the shape of ordinary handwriting at a comfortable zoom.
+
+private fun letter(x: Float, baseline: Float = 100f, top: Float = baseline - 12f, bottom: Float = baseline, width: Float = 14f) = listOf(
     InkPoint(x, top), InkPoint(x + width, top + (bottom - top) * .25f),
     InkPoint(x + width - 2f, bottom), InkPoint(x + width, bottom - 2f))
 
-private fun cursive(x: Float, width: Float, top: Float = 88f, bottom: Float = 100f): List<InkPoint> =
-    (0..(width / 4f).toInt()).map { i -> InkPoint(x + i * 4f, if (i % 2 == 0) top else bottom) }
+private fun descender(x: Float, baseline: Float = 100f) = letter(x, baseline, baseline - 12f, baseline + 14f)
+private fun capital(x: Float, baseline: Float = 100f) = letter(x, baseline, baseline - 22f, baseline)
+private fun dot(x: Float, y: Float) = listOf(InkPoint(x, y), InkPoint(x + 1f, y + 1f))
+private fun rule(x: Float, y: Float, width: Float) = listOf(InkPoint(x, y), InkPoint(x + width / 2, y + .5f), InkPoint(x + width, y))
 
-private fun seeded(direction: WritingDirection = WritingDirection.LTR, guides: List<WritingGuide> = emptyList()): WritingFollow {
-    val follow = WritingFollow()
-    val prefs = FollowPreferences(direction = direction)
-    val xs = if (direction == WritingDirection.LTR) listOf(40f, 80f, 120f) else listOf(160f, 120f, 80f)
-    xs.forEachIndexed { i, x -> check(follow.completed(letter(x), i * 200L, prefs, guides) == WritingProgress.SAME_LINE) }
-    return follow
+/** A screen over a page: content pans by screen pixels, ink lives in page units. */
+private class FakeHost(var pageWidth: Float = 840f, var pageHeight: Float = 1188f, var infinite: Boolean = false,
+                       var viewW: Float = 400f, var viewH: Float = 500f, override var scale: Float = 2f) : FollowHost {
+    var x = 0f       // viewport left, page units
+    var y = 0f       // viewport top, page units
+    val ink = mutableListOf<InkMark>()
+    var due: Long? = null
+    var last = FollowStatus()
+    override var busy = false
+    var clampX = true
+    override fun viewport() = InkBox(x, y, x + viewW / scale, y + viewH / scale)
+    override fun panBy(dx: Float, dy: Float): Pair<Float, Float> {
+        // Content moving left by dx pixels moves the viewport right by dx / scale.
+        var nx = x - dx / scale
+        var ny = y - dy / scale
+        if (!infinite) {
+            if (clampX) nx = nx.coerceIn(0f, maxOf(0f, pageWidth - viewW / scale))
+            ny = ny.coerceIn(0f, maxOf(0f, pageHeight - viewH / scale))
+        }
+        val applied = -(nx - x) * scale to -(ny - y) * scale
+        x = nx; y = ny
+        return applied
+    }
+    override fun marks(area: InkBox) = ink.filter { it.box.intersects(area) }
+    override fun schedule(delayMs: Long) { due = delayMs }
+    override fun cancelSchedule() { due = null }
+    override fun status(status: FollowStatus) { last = status }
+    override fun redraw(delayMs: Long) = Unit
+}
+
+private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = FollowPreferences(),
+                    guides: List<WritingGuide> = emptyList()) {
+    val follow = WritingFollow(host)
+    var now = 0L
+    init {
+        follow.reset(FollowPage(host.infinite, host.pageWidth, host.pageHeight))
+        follow.preferences = prefs
+        follow.guides = guides
+        follow.enabled = true
+    }
+    fun write(points: List<InkPoint>, gap: Long = 150) {
+        now += gap
+        follow.penDown(now)
+        now += 120
+        InkMark.of(points)?.let { host.ink += it }
+        follow.strokeFinished(points, now)
+    }
+    /** Lets every scheduled frame run, as the view's handler would. */
+    fun settle(limitMs: Long = 4000) {
+        val end = now + limitMs
+        while (now < end) {
+            val wait = host.due ?: return
+            host.due = null
+            now += maxOf(wait, 16L)
+            follow.tick(now)
+        }
+    }
+    fun moved(block: () -> Unit): Pair<Float, Float> {
+        val x = host.x; val y = host.y
+        block()
+        return host.x - x to host.y - y
+    }
 }
 
 private var checks = 0
@@ -23,272 +84,199 @@ private fun scenario(name: String, block: () -> Unit) {
     catch (e: Throwable) { throw AssertionError(name, e) }
 }
 
+private fun line(read: LineRead) = (read as? LineRead.Line)?.line ?: error("expected a line, got $read")
+
 fun main() {
-    val prefs = FollowPreferences(automaticReturn = true)
-    val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 300f, it) }
-    scenario("Descenders and full-height f keep the old baseline and advance the frontier") {
-        val follow = seeded()
-        for (i in 0..7) {
-            check(follow.completed(letter(160f + i * 20, 80f, 114f), 600L + i * 200, prefs) == WritingProgress.SAME_LINE)
-            check(follow.state.baselineY == 100f && follow.state.candidateLane == null)
+    scenario("Descenders, capitals and first-letter descenders share the letters' baseline") {
+        val marks = listOf(descender(40f), letter(60f), capital(80f), descender(100f), letter(120f), letter(140f))
+            .map { InkMark.of(it)!! }
+        val read = line(LineReader.read(marks.last(), marks, emptyList(), FollowMode.TEXT))
+        check(read.baseline == 100f) { "baseline ${read.baseline}" }
+        check(read.left == 40f && read.right == 154f)
+        val first = line(LineReader.read(marks.first(), marks, emptyList(), FollowMode.TEXT))
+        check(first.baseline == 100f) { "first-letter descender gave ${first.baseline}" }
+    }
+    scenario("Dots, underlines and diagrams are not letters") {
+        val marks = (0..5).map { InkMark.of(letter(40f + it * 20f))!! }
+        check(LineReader.read(InkMark.of(dot(66f, 84f))!!, marks, emptyList(), FollowMode.TEXT) == LineRead.Minor)
+        check(LineReader.read(InkMark.of(rule(40f, 104f, 120f))!!, marks, emptyList(), FollowMode.TEXT) == LineRead.Rule)
+        val tall = InkMark.of(listOf(InkPoint(200f, 20f), InkPoint(230f, 140f), InkPoint(210f, 60f)))!!
+        check(LineReader.read(tall, marks, emptyList(), FollowMode.TEXT) == LineRead.Tall)
+    }
+    scenario("A second column on the same height is a different line") {
+        val left = (0..4).map { InkMark.of(letter(40f + it * 18f))!! }
+        val right = (0..4).map { InkMark.of(letter(400f + it * 18f))!! }
+        val read = line(LineReader.read(right.last(), left + right, emptyList(), FollowMode.TEXT))
+        check(read.left == 400f) { "column leaked: ${read.left}" }
+    }
+    scenario("Line spacing is measured from the line above on blank paper") {
+        val above = (0..4).map { InkMark.of(letter(40f + it * 18f, 100f))!! }
+        val below = (0..4).map { InkMark.of(letter(40f + it * 18f, 132f))!! }
+        val read = line(LineReader.read(below.last(), above + below, emptyList(), FollowMode.TEXT))
+        check(read.measuredPitch && abs(read.pitch - 32f) < .01f) { "pitch ${read.pitch}" }
+    }
+    scenario("Printed rules decide the line even for a descender crossing the rule below") {
+        val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 400f, it) }
+        val marks = listOf(letter(40f, 100f), descender(60f, 100f)).map { InkMark.of(it)!! }
+        val read = line(LineReader.read(marks.last(), marks, guides, FollowMode.TEXT))
+        check(read.guide == guides[0] && read.pitch == 28f)
+    }
+    scenario("Writing across moves the view sideways after a pause, never during the stroke") {
+        val t = Trace()
+        for (i in 0..7) t.write(letter(30f + i * 18f))
+        check(t.host.x == 0f)
+        val (dx, _) = t.moved { for (i in 8..10) { t.write(letter(30f + i * 18f)); t.settle() } }
+        check(dx > 0f) { "did not follow sideways" }
+    }
+    scenario("The first stroke after navigating never moves the view") {
+        val t = Trace()
+        for (i in 0..9) t.write(letter(30f + i * 18f))
+        t.settle()
+        t.follow.navigated()
+        val (dx, dy) = t.moved { t.write(letter(30f + 10 * 18f)); t.settle() }
+        check(dx == 0f && dy == 0f)
+    }
+    scenario("Touching down cancels a pending move; a correction behind the frontier holds still") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        check(t.host.due != null)
+        t.follow.touched()
+        check(t.host.due == null && !t.follow.isMoving)
+        val (dx, _) = t.moved { t.write(letter(50f)); t.settle() }
+        check(dx == 0f) { "correction moved the view" }
+    }
+    scenario("An interrupted move resumes from where the view is, without doubling") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.now += 2000
+        t.follow.tick(t.now)          // the pause has passed: the glide starts
+        t.now += 60; t.follow.tick(t.now)
+        t.follow.touched()            // stopped part way
+        val partial = t.host.x
+        t.write(dot(30f + 10 * 18f + 6f, 84f))  // dotting the last letter replans
+        t.settle()
+        val view = t.host.viewport()
+        val reach = (30f + 10 * 18f + 14f - view.left) / view.width
+        check(t.host.x > partial && reach in .38f..0.5f) { "frontier landed at $reach" }
+    }
+    scenario("Writing sinking below the band moves the line back to the writing height") {
+        val t = Trace()
+        for (i in 0..3) t.write(letter(30f + i * 18f, 180f))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 212f))
+        t.settle()
+        val view = t.host.viewport()
+        check(abs((212f - view.top) / view.height - .55f) < .01f) { "line at ${(212f - view.top) / view.height}" }
+    }
+    scenario("Next line on ruled paper steps rule by rule and stops at the end of the block") {
+        val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 400f, it) }
+        val t = Trace(guides = guides)
+        for (i in 0..3) t.write(letter(40f + i * 18f))
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 156f)
+        t.follow.nextLine(t.now); t.settle()
+        check(t.host.last.message.startsWith("End of this answer area"))
+    }
+    scenario("Automatic return waits for a pause at the end of a full line and returns to its start") {
+        val host = FakeHost(pageWidth = 400f, viewW = 400f, scale = 2f)
+        val t = Trace(host, FollowPreferences(automaticReturn = true))
+        var x = 40f
+        while (x < 340f) { t.write(letter(x)); x += 18f }
+        check(t.host.last.message.startsWith("Next line in")) { t.host.last.message }
+        t.settle()
+        val marker = t.follow.marker(t.now) ?: error("no return")
+        check(marker.x == 40f && marker.y > 100f)
+    }
+    scenario("A short note at the right edge does not trigger a return") {
+        val host = FakeHost(pageWidth = 400f, viewW = 400f, scale = 2f)
+        val t = Trace(host, FollowPreferences(automaticReturn = true))
+        for (i in 0..4) t.write(letter(300f + i * 14f))
+        check(!t.host.last.message.startsWith("Next line in"))
+    }
+    scenario("Back undoes follow moves one at a time and only what actually moved") {
+        val t = Trace()
+        for (i in 0..12) { t.write(letter(30f + i * 18f)); t.settle() }
+        check(t.host.last.canGoBack)
+        val moved = t.host.x
+        while (t.host.last.canGoBack) t.follow.back(t.now)
+        check(t.host.x == 0f && moved > 0f)
+    }
+    scenario("Right-to-left writing mirrors the sideways move") {
+        val host = FakeHost(infinite = true)
+        host.x = 0f
+        val t = Trace(host, FollowPreferences(direction = WritingDirection.RTL))
+        for (i in 0..12) { t.write(letter(180f - i * 18f)); t.settle() }
+        check(t.host.x < 0f) { "RTL moved ${t.host.x}" }
+    }
+    scenario("On a canvas the line end stays where the writer could see it; sideways moves never pass it") {
+        val host = FakeHost(infinite = true)
+        val t = Trace(host, FollowPreferences(automaticReturn = true))
+        var x = 20f
+        repeat(40) { t.write(letter(x)); x += 18f; t.settle() }
+        val view = t.host.viewport()
+        check(view.left < x) { "the end ran out of view" }
+        check(t.follow.marker(t.now) != null) { "never returned: ${t.host.last.message}" }
+    }
+    scenario("Tiny handwriting does not move the view") {
+        val t = Trace(FakeHost(scale = .4f))
+        val (dx, dy) = t.moved { for (i in 0..30) { t.write(letter(30f + i * 18f)); t.settle() } }
+        check(dx == 0f && dy == 0f && t.host.last.message.startsWith("Zoom in"))
+    }
+    scenario("Maths moves only down, with the bottom of the working") {
+        val t = Trace(prefs = FollowPreferences(mode = FollowMode.MATH))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 150f))
+        t.write(rule(30f, 156f, 70f))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 175f))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 215f))
+        t.settle()
+        check(t.host.x == 0f && t.host.y > 0f) { "maths moved ${t.host.x}, ${t.host.y}" }
+    }
+    scenario("Undoing ink changes what the line is, with no stale frontier") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.follow.touched()
+        repeat(6) { t.host.ink.removeAt(t.host.ink.lastIndex) }
+        val (dx, _) = t.moved { t.write(letter(30f + 5 * 18f)); t.settle() }
+        check(dx == 0f) { "a stale frontier moved the view" }
+    }
+    scenario("Writing somewhere new holds once, then follows from there") {
+        val t = Trace()
+        for (i in 0..10) t.write(letter(30f + i * 18f))
+        t.follow.touched()
+        val (dx, dy) = t.moved { t.write(letter(30f, 230f)); t.settle() }
+        check(dx == 0f && dy == 0f) { "a jump moved the view" }
+        val (later, _) = t.moved { for (i in 1..10) t.write(letter(30f + i * 18f, 230f)); t.settle() }
+        check(later > 0f) { "did not follow the new line" }
+    }
+    scenario("After Next line, writing on the placed line is progress, not a jump") {
+        val guides = (0..8).map { WritingGuide(20f, 800f, 100f + it * 28f) }
+        val t = Trace(guides = guides)
+        for (i in 0..12) t.write(letter(30f + i * 18f))
+        t.settle()
+        t.follow.nextLine(t.now); t.settle()
+        val (dx, _) = t.moved { for (i in 0..12) t.write(letter(30f + i * 18f, 128f)); t.settle() }
+        check(dx > 0f) { "the new line did not follow: ${t.host.last.message}" }
+    }
+    scenario("Next line works from ink written before follow was turned on") {
+        val t = Trace()
+        t.follow.enabled = false
+        for (i in 0..5) t.write(letter(30f + i * 18f))
+        t.follow.enabled = true
+        t.follow.nextLine(t.now); t.settle()
+        val marker = t.follow.marker(t.now) ?: error(t.host.last.message)
+        check(marker.x == 30f && marker.y > 100f)
+    }
+    scenario("Glide easing reaches its target exactly and reports clamped travel") {
+        val motion = FollowMotion()
+        motion.start(-100f, 0f, 200)
+        var sum = 0f
+        var t = 0L
+        while (motion.active) {
+            val step = motion.step(t); sum += step.dx; motion.applied(step.dx, 0f); t += 16
+            if (step.finished) break
         }
-        check(follow.state.frontierRight == 316f && follow.readyForReturn())
+        check(abs(sum + 100f) < .01f && abs(motion.appliedX + 100f) < .01f)
     }
-    scenario("First-letter descender recovers on a blank page and snaps correctly on ruled paper") {
-        for (rules in listOf(emptyList(), guides)) {
-            val follow = WritingFollow()
-            check(follow.completed(letter(40f, 80f, 114f), 0, prefs, rules) == WritingProgress.SAME_LINE)
-            if (rules.isNotEmpty()) check(follow.state.baselineY == 100f)
-            check(follow.completed(letter(65f), 200, prefs, rules) == WritingProgress.SAME_LINE)
-            check(follow.state.baselineY == 100f)
-        }
-    }
-    scenario("Mixed descender and short letters confirm a natural blank-page line change") {
-        val follow = seeded()
-        check(follow.completed(letter(40f, 108f, 142f), 800, prefs) == WritingProgress.NONE)
-        check(follow.completed(letter(65f, 116f, 128f), 1000, prefs) == WritingProgress.NEW_LINE)
-        check(follow.state.baselineY == 128f && follow.state.lineStartX == 40f)
-        for (i in 0..3) {
-            follow.penDown(1100L + i * 200)
-            check(follow.completed(letter(90f + i * 20, 116f, 128f), 1200L + i * 200, prefs) == WritingProgress.SAME_LINE)
-            check(follow.state.needsPlacement) { "A later letter lost the new-line glide" }
-        }
-        follow.placed()
-        check(!follow.state.needsPlacement)
-    }
-    scenario("Tall capitals at the next line's start remain confirmable") {
-        val follow = seeded()
-        check(follow.completed(letter(40f, 86f, 128f), 800, prefs) == WritingProgress.NONE)
-        check(follow.completed(letter(65f, 116f, 128f), 1000, prefs) == WritingProgress.NEW_LINE)
-    }
-    scenario("A clear one-stroke cursive line places itself without another confirmation mark") {
-        val follow = seeded()
-        check(follow.completed(cursive(40f, 260f, 116f, 128f), 800, prefs) == WritingProgress.NEW_LINE)
-        val region = WritingLane(36f, 72f, 310f, 180f)
-        check(follow.returnFor(region, emptyList(), prefs) == null)
-        follow.placed()
-        val next = follow.returnFor(region, emptyList(), prefs)!!
-        check(next.from.y == 128f && next.to.y == 160f)
-        follow.arrived(next)
-        check(follow.returnFor(region, emptyList(), prefs) == null) { "A return must not chain into empty lines" }
-    }
-    scenario("Printed rules detect a clear next line immediately, including small letters") {
-        val follow = seeded(guides = guides)
-        check(follow.completed(letter(40f, 124f, 128f, 4f), 800, prefs, guides) == WritingProgress.NEW_LINE)
-        check(follow.state.needsPlacement && follow.state.baselineY == 128f)
-        check(follow.completed(letter(48f, 124f, 128f, 4f), 1000, prefs, guides) == WritingProgress.SAME_LINE)
-    }
-    scenario("Printed spacing takes priority over a mismatched blank-page preference") {
-        val follow = WritingFollow()
-        check(follow.completed(letter(40f, 80f, 114f), 0, prefs.copy(spacing = 16f), guides) == WritingProgress.SAME_LINE)
-        check(follow.state.baselineY == 100f)
-    }
-    scenario("One-stroke cursive words can finish a line; long straight underlines cannot") {
-        val follow = WritingFollow()
-        check(follow.completed(cursive(40f, 260f), 0, prefs) == WritingProgress.SAME_LINE)
-        check(follow.readyForReturn())
-        val region = WritingLane(36f, 72f, 310f, 156f)
-        check(FollowNavigation.nearEnd(follow.state.frontierRight!!, region, prefs.direction))
-        check(follow.completed(listOf(InkPoint(40f, 100f), InkPoint(300f, 100f)), 200, prefs) == WritingProgress.NONE)
-        check(!follow.isTextStroke(listOf(InkPoint(40f, 100f), InkPoint(150f, 102f)), 32f))
-    }
-    scenario("Finishing dots and crossbars retain the accepted line end and reset the quiet period") {
-        val follow = seeded()
-        val dot = listOf(InkPoint(133f, 82f), InkPoint(134f, 83f))
-        follow.penDown(550)
-        check(follow.completed(dot, 600, prefs) == WritingProgress.NONE)
-        check(follow.finishingMark(FollowNavigation.bounds(dot)!!, prefs))
-        check(follow.state.frontierRight == 136f && follow.state.baselineY == 100f && follow.state.liftedAt == 600L)
-        check(follow.finishingMark(FollowNavigation.bounds(letter(130f, 90f, 92f, 12f))!!, prefs))
-        check(!follow.finishingMark(FollowNavigation.bounds(letter(40f, 90f, 92f, 12f))!!, prefs))
-    }
-    scenario("Corrections and dots do not destroy a staged line change or learn writing gaps") {
-        val follow = seeded()
-        check(follow.completed(letter(40f, 116f, 128f), 800, prefs) == WritingProgress.NONE)
-        val candidate = follow.state.candidateLane
-        follow.penDown(900)
-        check(follow.completed(letter(80f), 1000, prefs) == WritingProgress.NONE)
-        check(follow.state.candidateLane == candidate && follow.state.writingGaps.isEmpty())
-        check(follow.completed(letter(65f, 116f, 128f), 10000, prefs) == WritingProgress.NEW_LINE)
-    }
-    scenario("Deep descender corrections on ruled paper hold the old line instead of snapping down") {
-        val follow = seeded(guides = guides)
-        for (x in listOf(40f, 65f)) {
-            check(follow.completed(letter(x, 80f, 120f), 800, prefs, guides) == WritingProgress.NONE)
-            check(follow.state.baselineY == 100f && follow.state.candidateLane == null)
-        }
-        check(follow.completed(letter(40f, 86f, 128f), 1000, prefs, guides) == WritingProgress.NONE)
-        check(follow.completed(letter(65f, 116f, 128f), 1200, prefs, guides) == WritingProgress.NEW_LINE)
-    }
-    scenario("Normal writing learns pen-up gaps, excluding stroke duration and corrections") {
-        val follow = seeded()
-        var lifted = 400L
-        val expected = mutableListOf<Long>()
-        for (i in 0..5) {
-            val gap = 110L + i * 10
-            follow.penDown(lifted + gap)
-            lifted += gap + 300 // deliberately much longer than the gap
-            check(follow.completed(letter(160f + i * 24), lifted, prefs) == WritingProgress.SAME_LINE)
-            expected += gap
-        }
-        check(follow.state.writingGaps == expected)
-        check(follow.sameLineDelayMs(650) < follow.returnDelayMs(prefs))
-        check(follow.glideDelayMs(prefs, true) <= follow.glideDelayMs(prefs, false))
-        check(follow.glideDelayMs(prefs, true) < expected.sorted()[expected.size / 2])
-        check(follow.glideDurationMs(prefs, true) <= 180)
-        follow.penDown(lifted + 1000)
-        check(follow.completed(letter(40f), lifted + 1200, prefs) == WritingProgress.NONE)
-        check(follow.state.writingGaps == expected)
-        val fixed = prefs.copy(adaptiveTiming = false)
-        check(follow.glideDelayMs(fixed, true) == follow.glideDelayMs(fixed, false))
-        check(follow.glideDurationMs(fixed, true) == fixed.glideDurationMs)
-        check(follow.returnDelayMs(fixed) == 650)
-    }
-    scenario("RTL uses the same descender, frontier, return and natural line mechanics") {
-        val follow = seeded(WritingDirection.RTL)
-        val rtl = prefs.copy(direction = WritingDirection.RTL)
-        check(follow.completed(letter(40f, 80f, 114f), 800, rtl) == WritingProgress.SAME_LINE)
-        check(follow.state.frontierLeft == 40f && follow.state.baselineY == 100f)
-        check(follow.completed(letter(160f, 116f, 128f), 1000, rtl) == WritingProgress.NONE)
-        check(follow.completed(letter(136f, 116f, 128f), 1200, rtl) == WritingProgress.NEW_LINE)
-        check(follow.state.lineStartX == 176f)
-    }
-    scenario("Navigation resets placement/frontiers and preserves the learned rhythm") {
-        val follow = seeded()
-        follow.penDown(500)
-        follow.completed(letter(160f), 600, prefs)
-        follow.suspend(700)
-        check(follow.state.baselineY == null && !follow.state.needsPlacement)
-        check(follow.state.writingGaps == listOf(100L))
-        check(follow.completed(letter(40f), 1000, prefs) == WritingProgress.NONE)
-        check(follow.completed(letter(40f), 2300, prefs) == WritingProgress.SAME_LINE)
-    }
-    scenario("Infinite-canvas endpoints survive multiple following pans in both directions") {
-        for (direction in WritingDirection.entries) {
-            val start = if (direction == WritingDirection.LTR) 40f else 260f
-            val original = FollowNavigation.infiniteRegion(WritingLane(0f, 0f, 300f, 500f), direction, start)
-            for (offset in listOf(100f, 250f, 500f, 800f)) {
-                val x = if (direction == WritingDirection.LTR) offset else -offset
-                val lane = FollowNavigation.infiniteRegion(WritingLane(x, 20f, x + 300f, 520f), direction, start)
-                check(lane.left == original.left && lane.right == original.right)
-            }
-        }
-    }
-    scenario("Answer-area margins allow tails but reject writing in another area") {
-        val area = WritingLane(36f, 72f, 300f, 128f)
-        check(FollowNavigation.contains(WritingLane(280f, 112f, 302f, 140f), area, 28f))
-        check(!FollowNavigation.contains(WritingLane(280f, 150f, 300f, 168f), area, 28f))
-        check(!FollowNavigation.contains(WritingLane(320f, 110f, 340f, 120f), area, 28f))
-        check(FollowNavigation.next(128f, area, guides, 32f) == null)
-    }
-    scenario("Printed answer blocks keep their full extent and remain separate across questions/columns") {
-        val otherColumn = guides.map { it.copy(left = 350f, right = 614f) }
-        val nextQuestion = guides.map { it.copy(y = it.y + 180f) }
-        val areas = WritingGuides.regions(guides + otherColumn + nextQuestion)
-        check(areas.size == 3)
-        val first = WritingGuides.regionAt(areas, 60f, 100f)!!
-        check(WritingGuides.regionAt(areas, 60f, 156f) == first)
-        check(FollowNavigation.contains(WritingLane(280f, 140f, 300f, 172f), first, 28f))
-        check(FollowNavigation.next(156f, first, guides + otherColumn + nextQuestion, 32f) == null)
-        check(FollowNavigation.next(128f, first, guides + otherColumn + nextQuestion, 32f)?.to == guides[2])
-    }
-    scenario("Manual arrival clears the old frontier and accepts small first letters") {
-        val follow = seeded()
-        follow.arrived(WritingAdvance(guides[0], guides[1]))
-        check(follow.state.frontierRight == null && !follow.readyForReturn())
-        check(follow.completed(letter(40f, 124f, 128f, 4f), 800, prefs, guides) == WritingProgress.SAME_LINE)
-        check(follow.state.baselineY == 128f)
-    }
-    scenario("Maths grows downward without text classification or sideways returns") {
-        val follow = WritingFollow()
-        val math = prefs.copy(mode = FollowMode.MATH)
-        check(follow.completed(letter(40f, 60f, 140f), 0, math) == WritingProgress.SAME_LINE)
-        check(follow.completed(letter(60f, 80f, 138f), 200, math) == WritingProgress.NONE)
-        check(follow.completed(letter(80f, 100f, 164f), 400, math) == WritingProgress.SAME_LINE)
-        check(follow.state.baselineY == 164f && !follow.state.needsPlacement)
-    }
-    scenario("Invalid geometry and tall diagrams cannot establish or change a text lane") {
-        val follow = seeded()
-        check(follow.completed(listOf(InkPoint(Float.NaN, 100f)), 800, prefs) == WritingProgress.NONE)
-        check(follow.completed(letter(160f, 40f, 150f), 1000, prefs) == WritingProgress.NONE)
-        check(follow.state.baselineY == 100f)
-        check(!FollowLegibility.isReadable(4f, 1f) && FollowLegibility.isReadable(4f, 2f))
-    }
-    scenario("Delayed frames start at zero; glides have smooth endpoints and exact total travel") {
-        val glide = FollowGlide()
-        glide.start(-200f, -56f, 0, 300, 280)
-        check(glide.step(100).waitMs == 200L)
-        val first = glide.step(900)
-        check(first.dx == 0f && first.dy == 0f && !first.finished)
-        var sumX = 0f; var sumY = 0f
-        for (now in 916L..1180L step 16) {
-            val step = glide.step(now)
-            check(step.dx <= 0f && step.dy <= 0f)
-            glide.applied(step.dx, step.dy)
-            sumX += step.dx; sumY += step.dy
-        }
-        val last = glide.step(1200)
-        glide.applied(last.dx, last.dy)
-        sumX += last.dx; sumY += last.dy
-        check(last.finished && abs(sumX + 200f) < .001f && abs(sumY + 56f) < .001f && glide.reachedLine)
-    }
-    scenario("Horizontal-only clamped movement cannot pretend to complete a vertical return") {
-        val glide = FollowGlide()
-        glide.start(-200f, -56f, 0, 0, 280)
-        glide.step(0)
-        val step = glide.step(280)
-        glide.applied(step.dx, 0f)
-        check(glide.moved && !glide.reachedLine)
-    }
-    scenario("Interrupt/replan uses remaining absolute travel and Back records only actual movement") {
-        val history = FollowBackHistory()
-        val state = seeded().state
-        val glide = FollowGlide()
-        var y = 300f
-        val desiredY = 220f
-        history.begin(state)
-        glide.start(-100f, desiredY - y, 0, 0, 280)
-        glide.step(0)
-        val halfway = glide.step(140)
-        y += halfway.dy
-        glide.applied(halfway.dx, halfway.dy)
-        history.moved(halfway.dx, halfway.dy)
-        check(!glide.reachedLine)
-        val previous = history.entry
-        glide.cancel()
-        history.cancelPending()
-        history.begin(state)
-        glide.start(0f, desiredY - y, 200, 0, 280)
-        glide.step(200)
-        val remainder = glide.step(480)
-        y += remainder.dy
-        glide.applied(0f, remainder.dy)
-        history.moved(0f, remainder.dy)
-        check(abs(y - desiredY) < .001f && glide.reachedLine)
-        check(previous != null && history.entry!!.y == remainder.dy)
-        val entry = history.entry
-        history.begin(state)
-        history.moved(0f, 0f)
-        history.cancelPending()
-        check(history.entry == entry)
-    }
-    scenario("Scaled handwriting traces stay stable across glyph sizes, spacing and direction") {
-        for (direction in WritingDirection.entries) for (height in listOf(4f, 8f, 12f, 20f)) {
-            val spacing = maxOf(16f, height * 2.5f)
-            val follow = WritingFollow()
-            val custom = prefs.copy(direction = direction, spacing = spacing)
-            val baseline = 100f
-            for (i in 0..12) {
-                val x = if (direction == WritingDirection.LTR) 40f + i * height * 2 else 600f - i * height * 2
-                val tail = if (i > 1 && i % 3 == 0) height * .7f else 0f
-                check(follow.completed(letter(x, baseline - height, baseline + tail, height), i * 200L, custom) == WritingProgress.SAME_LINE)
-                check(abs(follow.state.baselineY!! - baseline) < .01f)
-            }
-            val x = if (direction == WritingDirection.LTR) 40f else 600f
-            check(follow.completed(letter(x, baseline + spacing - height, baseline + spacing, height), 3000, custom) == WritingProgress.NONE)
-            val second = if (direction == WritingDirection.LTR) x + height * 2 else x - height * 2
-            check(follow.completed(letter(second, baseline + spacing - height, baseline + spacing, height), 3200, custom) == WritingProgress.NEW_LINE)
-        }
-    }
-    println("Writing follow: $checks scenarios passed.")
+    println("$checks writing follow traces passed")
 }

@@ -26,7 +26,7 @@ fun StudyTimerScreen(notebooks: List<Notebook>, examTimer: ExamTimerState, onAcc
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-            Box(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
+            Box(Modifier.widthIn(max = 1280.dp).fillMaxSize()) {
                 FocalStudyContent(null, examTimer, dedicated = true,
                     notebooks = notebooks, onAccount = onAccount)
             }

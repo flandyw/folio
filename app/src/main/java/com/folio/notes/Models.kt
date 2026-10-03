@@ -299,8 +299,7 @@ data class NotePage(
     val redoFlag: Boolean = false,
     val infinite: Boolean = false,
     val title: String = "",
-    val bookmarked: Boolean = false,
-    val peekAnchor: PeekAnchor? = null
+    val bookmarked: Boolean = false
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
@@ -317,7 +316,9 @@ data class Notebook(
      */
     val pageCover: Boolean = true,
     val mistakePractice: Boolean = false,
-    val mistakeReviews: List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> = emptyList()
+    val mistakeReviews: List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> = emptyList(),
+    /** The view kept for peeking; stored with the notebook, it can frame any of its pages. */
+    val peekAnchor: PeekAnchor? = null
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -354,8 +355,8 @@ fun duplicateNotebookTitle(base: String, existingTitles: Set<String>): String {
 /**
  * A copy of this notebook with a fresh notebook id and fresh page ids, ready to save
  * beside the original. Exam tags, cover, folder and page content travel along; marked
- * attempts and mistake-review links do not, so the copy starts unmarked. Peek anchors
- * are remapped onto the copied pages.
+ * attempts and mistake-review links do not, so the copy starts unmarked. The peek view
+ * is remapped onto the copied page it framed.
  */
 fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMillis()): Notebook {
     val pageIds = pages.associate { it.id to UUID.randomUUID().toString() }
@@ -366,12 +367,8 @@ fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMi
         starred = false,
         attempts = emptyList(),
         mistakeReviews = emptyList(),
-        pages = pages.map { page ->
-            val anchor = page.peekAnchor?.let { anchor ->
-                anchor.copy(pageId = pageIds[anchor.pageId] ?: anchor.pageId)
-            }
-            page.copy(id = pageIds[page.id] ?: UUID.randomUUID().toString(), peekAnchor = anchor)
-        }
+        pages = pages.map { page -> page.copy(id = pageIds[page.id] ?: UUID.randomUUID().toString()) },
+        peekAnchor = peekAnchor?.let { anchor -> pageIds[anchor.pageId]?.let { anchor.copy(pageId = it) } }
     )
 }
 
@@ -387,10 +384,9 @@ fun Notebook.withMovedPage(from: Int, to: Int): Notebook {
 fun Notebook.withDeletedPage(index: Int): Notebook {
     if (index !in pages.indices) return this
     val removedId = pages[index].id
-    val remaining = pages.toMutableList().apply { removeAt(index) }.map {
-        if (it.peekAnchor?.pageId == removedId) it.copy(peekAnchor = null) else it
-    }
-    return copy(pages = remaining.ifEmpty { listOf(NotePage()) })
+    val remaining = pages.toMutableList().apply { removeAt(index) }
+    return copy(pages = remaining.ifEmpty { listOf(NotePage()) },
+        peekAnchor = peekAnchor?.takeIf { it.pageId != removedId })
 }
 
 /** Inserts a page at [index], clamped to the notebook's bounds. */
@@ -435,13 +431,13 @@ object NoteCodec {
         if (!note.pageCover) put("pageCover", false)
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
+        note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height); put("paper", p.paper.name)
             put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
             put("title", p.title); put("bookmarked", p.bookmarked)
-            p.peekAnchor?.let { put("peekAnchor", it.encode()) }
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
             put("images", InkCodec.encodeImages(p.images))
@@ -451,22 +447,25 @@ object NoteCodec {
     fun decode(value: String): Notebook {
         val o = JSONObject(value)
         require(o.getInt("version") == 1) { "Unsupported notebook version" }
+        val pageObjects = o.getJSONArray("pages").objects()
         return Notebook(o.getString("id"), o.getString("title"),
             if (o.isNull("folder")) null else o.getString("folder"), o.getInt("cover"),
-            o.getBoolean("starred"), o.getLong("updated"), o.getJSONArray("pages").objects().map { p ->
+            o.getBoolean("starred"), o.getLong("updated"), pageObjects.map { p ->
                 NotePage(p.getString("id"), p.getDouble("width").toFloat(), p.getDouble("height").toFloat(),
                     Paper.safeValueOf(p.getString("paper")), if (p.isNull("pdf")) null else p.getInt("pdf"),
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
                     InkCodec.decodeImages(p.optJSONArray("images")),
                     p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
-                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false), peekAnchor = PeekAnchor.decode(p.optJSONObject("peekAnchor")))
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             // Older backups have no cover choice and default to the first-page cover.
             pageCover = o.optBoolean("pageCover", true),
             mistakePractice = o.optBoolean("mistakePractice", false),
-            mistakeReviews = decodeMistakeReviews(o))
+            mistakeReviews = decodeMistakeReviews(o)).let { note ->
+                note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
+            }
     }
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }
