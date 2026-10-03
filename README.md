@@ -23,6 +23,7 @@ Folio is a native Android notebook built with Kotlin and Jetpack Compose. Write 
 - Ruled, dotted, grid, maths, and infinite-canvas pages
 - Graph tool: centred or corner axes, optional grid, ticks, unit numbers and x/y labels
 - Page bookmarks, search, and notebook organization
+- Dedicated [study timer](docs/study-timer.md): standalone or notebook-linked sessions, reflections, history, and Focal sync
 - Reference view: a read-only PDF pane with contents, text search, page jump, zoom/fit and link following
 - Export pages as PDF or PNG; back up notebooks as `.folio`
 - Make it yours: your own accent colour, app text size, toolbar layout, quick ink colours, saved tool presets and notebook covers

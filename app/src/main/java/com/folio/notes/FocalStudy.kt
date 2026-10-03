@@ -365,7 +365,7 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
 }
 
 data class FocalFocus(
-    val notebookId: String,
+    val notebookId: String?,
     val title: String,
     val subjectId: String?,
     val startedAt: Long,
@@ -470,6 +470,10 @@ data class FocalStudyState(
         !BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
 ) {
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
+    val visibleFocus get() = focus?.takeIf { current ->
+        val owner = entries.firstOrNull { it.id == current.sessionId }?.userId
+        owner == null || owner == userId
+    }
     val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) }
     val hasActiveSession get() = focus != null || entries.any { it.active && (it.userId == null || it.userId == userId) }
     val canStartFocus get() = focus == null
@@ -545,6 +549,14 @@ internal fun focalCommandsFor(
     if (entry.synced) return emptyList()
     val desired = focalDesiredState(entry)
     val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+    // Past study is evidence, not a synthetic start/complete timer replay.
+    if (canonical == null && entry.kind == "study" && entry.completed && !entry.deleted &&
+        entry.intervals.isEmpty() && entry.activeMillis > 0L) {
+        val start = maxOf(entry.startedAt, entry.endedAt - entry.activeMillis)
+        return listOf(focalStudyCommand(entry, "log", entry.revision, deviceId).put("blocks",
+            JSONArray().put(JSONObject().put("start", Instant.ofEpochMilli(start).toString())
+                .put("end", Instant.ofEpochMilli(entry.endedAt).toString()))))
+    }
     var currentState = focalCanonicalState(entry.remotePayload)
     var currentPhase = canonical?.optString("phase")?.takeIf { it in setOf("focus", "reading", "writing") }
     val commands = mutableListOf<JSONObject>()
@@ -569,7 +581,7 @@ internal fun focalCommandsFor(
     // A server row without segments may be a legacy/imported row: use the normal diff there.
     val segments = canonical?.optJSONArray("segments")
     val intervals = entry.intervals
-    if (entry.notebookId != null && entry.kind == "study" && intervals.isNotEmpty() &&
+    if (entry.kind == "study" && intervals.isNotEmpty() &&
         (canonical == null || segments != null) && currentState !in setOf("completed", "cancelled")) {
         val count = segments?.length() ?: 0
         // Another client may have added segments that Folio has never observed locally.
@@ -702,15 +714,30 @@ class FocalStudyManager(context: Context) {
 
     fun setForeground(value: Boolean) { foreground.value = value }
 
+    /** Never carry one account's local timer into another account's controls. */
+    private fun detachFocusForAccount(userId: String?) {
+        val focus = _state.value.focus ?: return
+        val owner = _state.value.entries.firstOrNull { it.id == focus.sessionId }?.userId ?: return
+        if (owner == userId) return
+        val now = now()
+        saveFocusEntry(focus.pause(now), now, forceUpload = true)
+        _state.update { it.copy(focus = null) }
+        persist()
+    }
+
     init {
         scope.launch {
             lifecycle.awaitRestoration()
-            lifecycle.restoredUser?.let { user -> _state.update { it.copy(userId = user.id, email = user.email) } }
+            lifecycle.restoredUser?.let { user ->
+                detachFocusForAccount(user.id)
+                _state.update { it.copy(userId = user.id, email = user.email) }
+            }
             combine(client.auth.sessionStatus, foreground) { status, visible -> status to visible }
                 .collectLatest { (status, visible) ->
                     when (status) {
                         is SessionStatus.Authenticated -> {
                             status.session.user?.let { user ->
+                                detachFocusForAccount(user.id)
                                 if (_state.value.userId != user.id) { remoteNoticeReadyUser = null; clearSyncMemory() }
                                 _state.update { it.copy(userId = user.id, email = user.email, error = null,
                                     subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
@@ -719,6 +746,7 @@ class FocalStudyManager(context: Context) {
                             }
                         }
                         is SessionStatus.NotAuthenticated -> {
+                            detachFocusForAccount(null)
                             remoteNoticeReadyUser = null
                             clearSyncMemory()
                             _state.update { it.copy(userId = null, email = null) }
@@ -805,7 +833,7 @@ class FocalStudyManager(context: Context) {
         }.getOrNull() }
         val focus = data.optJSONObject("focus")?.let { row -> runCatching {
             FocalFocus(sessionId = row.optString("sessionId").ifBlank { UUID.randomUUID().toString() },
-                notebookId = row.getString("notebookId"), title = row.getString("title"),
+                notebookId = row.optString("notebookId").takeIf { it.isNotBlank() && it != "null" }, title = row.getString("title"),
                 subjectId = row.optString("subjectId").ifBlank { null }, startedAt = row.getLong("startedAt"),
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 resumedAt = row.optLong("resumedAt").takeIf { it > 0 }, accumulatedMillis = row.optLong("accumulatedMillis"),
@@ -884,16 +912,19 @@ class FocalStudyManager(context: Context) {
         }
     }
 
-    fun startFocus(note: Notebook, subjectId: String?, now: Long = this.now()) {
-        if (!_state.value.canStartFocus) return
-        val focus = FocalFocus(notebookId = note.id,
+    fun startFocus(note: Notebook?, subjectId: String?, now: Long = this.now()) {
+        if (!_state.value.canStartFocus || _state.value.visibleEntries.any { it.active && !it.paused }) return
+        val focus = FocalFocus(notebookId = note?.id,
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
-            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note.title)
+            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title)
         _state.update { it.copy(focus = focus, error = null) }
         saveFocusEntry(focus, now)
     }
     fun toggleFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
+        if (focus.resumedAt == null && _state.value.visibleEntries.any {
+            it.active && !it.paused && it.id != focus.sessionId
+        }) return
         val next = if (focus.resumedAt == null) focus.resume(now) else focus.pause(now)
         _state.update { it.copy(focus = next, error = null) }
         // Publish pause/resume boundaries. While running, the macOS client can derive elapsed
@@ -921,7 +952,8 @@ class FocalStudyManager(context: Context) {
             revision = previous?.revision ?: 0L, remotePayload = previous?.remotePayload,
             subjectId = focus.subjectId, kind = "study", startedAt = focus.startedAt,
             endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
-            notes = notes, confidence = confidence, userId = _state.value.userId,
+            notes = notes.take(500), confidence = confidence?.takeIf { it in 1..5 },
+            userId = previous?.userId ?: _state.value.userId,
             completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
             intervals = focus.intervals, changeId = UUID.randomUUID().toString(), notebookTitle = focus.notebookTitle,
             synced = if (!completed && !deleted && !forceUpload) _state.value.entries.firstOrNull { it.id == focus.sessionId }?.synced ?: false else false)
@@ -1012,7 +1044,7 @@ class FocalStudyManager(context: Context) {
      */
     private fun commitTimingAnchor(entry: FocalStudyEntry, commands: List<JSONObject>) {
         if (commands.isEmpty()) return
-        val terminal = commands.last().optString("action") in setOf("complete", "cancel")
+        val terminal = commands.last().optString("action") in setOf("complete", "cancel", "log")
         if (terminal) {
             timingPreferences.edit().remove("elapsed:${entry.id}").remove("boot:${entry.id}")
                 .remove("process:${entry.id}").commit()
@@ -1028,11 +1060,15 @@ class FocalStudyManager(context: Context) {
         val focus = _state.value.focus
         if (focus?.sessionId == id) {
             when (action) {
-                "pause", "resume" -> { toggleFocus(now); return }
+                "pause", "resume" -> {
+                    if ((action == "pause") == (focus.resumedAt != null)) toggleFocus(now)
+                    return
+                }
                 "finish" -> { finishFocus(current.notes, current.confidence, now); return }
                 "discard" -> { discardFocus(now); return }
             }
         }
+        if (action == "resume" && _state.value.visibleEntries.any { it.active && !it.paused && it.id != id }) return
         val updated = focalControlledEntry(current, action, now) ?: return
         saveEntry(updated)
     }
@@ -1080,13 +1116,13 @@ class FocalStudyManager(context: Context) {
         }
         if (persist()) scope.launch { publishEntry(entry) }
     }
-    fun logManual(note: Notebook, subjectId: String?, minutes: Int, notes: String,
-                  confidence: Int?, now: Long = System.currentTimeMillis()) {
+    fun logManual(note: Notebook?, subjectId: String?, minutes: Int, notes: String,
+                  confidence: Int?, now: Long = this.now()) {
         if (minutes !in 1..1_440) return
-        add(FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subjectId, _state.value.subjects),
+        add(FocalStudyEntry(notebookId = note?.id, title = focalSessionTitle(subjectId, _state.value.subjects),
             subjectId = subjectId, kind = "study", startedAt = now - minutes * 60_000L,
-            endedAt = now, activeMillis = minutes * 60_000L, notebookTitle = note.title,
-            notes = notes.trim(), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
+            endedAt = now, activeMillis = minutes * 60_000L, notebookTitle = note?.title,
+            notes = notes.trim().take(500), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
     }
     private fun add(entry: FocalStudyEntry) {
         _state.update { state -> state.copy(entries = listOf(entry) + state.entries, error = null) }
@@ -1154,6 +1190,7 @@ class FocalStudyManager(context: Context) {
     fun signOut() {
         scope.launch {
             gate.withLock {
+                detachFocusForAccount(null)
                 client.auth.clearSession()
                 sessions.deleteSession()
                 remoteNoticeReadyUser = null
@@ -1589,7 +1626,7 @@ internal fun focalMutationSatisfied(action: String, state: String?, phase: Strin
     "create" -> state != null
     "start", "resume" -> state == "running"
     "pause" -> state == "paused"
-    "complete" -> state == "completed"
+    "complete", "log" -> state == "completed"
     "cancel" -> state == "cancelled"
     "phase_change" -> phase == requestedPhase
     else -> false
@@ -1651,8 +1688,8 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
     val ended = epoch("completed_at") ?: epoch("cancelled_at") ?: epoch("paused_at") ?: epoch("updated_at") ?: started
     val examtrack = legacy?.optJSONObject("integrations")?.optJSONObject("examtrack")
     FocalStudyEntry(
-        id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() },
-        title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() },
+        id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() && it != "null" },
+        title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() && it != "null" },
         kind = if (kind in setOf("exam", "sac")) "exam" else "study", startedAt = started, endedAt = ended,
         activeMillis = payload.optLong("accumulated_active_ms",
             folio?.optLong("reported_active_ms", 0L) ?: 0L).coerceAtLeast(0L),
@@ -1664,6 +1701,6 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
             ?: metadata.optJSONObject("examtrack")?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
             ?: examtrack?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") },
         intervals = intervals, remotePayload = payload.toString(),
-        notebookTitle = folio?.optString("notebook_title")?.takeIf { it.isNotBlank() }
+        notebookTitle = folio?.optString("notebook_title")?.takeIf { it.isNotBlank() && it != "null" }
     )
 }.getOrNull()

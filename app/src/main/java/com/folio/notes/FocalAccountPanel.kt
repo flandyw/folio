@@ -9,18 +9,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 
 @Composable
-fun FocalAccountPanel(onDismiss: () -> Unit, onMistakes: () -> Unit) {
-    var showSessions by remember { mutableStateOf(false) }
-    if (showSessions) {
-        FocalStudyPanel(null, onDismiss = { showSessions = false })
-    } else FolioPanel("Focal account", onDismiss) {
+fun FocalAccountPanel(onDismiss: () -> Unit, onMistakes: () -> Unit, onStudy: () -> Unit) {
+    FolioPanel("Focal account", onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16),
         ) {
             com.folio.notes.mistakes.FocalAccountContent()
             HorizontalDivider()
-            OutlinedButton({ showSessions = true }, shapes = ButtonDefaults.shapes()) { Text("Open study sessions") }
+            OutlinedButton(onStudy, shapes = ButtonDefaults.shapes()) { Text("Open study timer") }
             OutlinedButton(onMistakes, shapes = ButtonDefaults.shapes()) { Text("Open mistake review") }
         }
     }

@@ -51,6 +51,7 @@ import java.io.File
     val state by model.state.collectAsStateWithLifecycle()
     val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var showMistakes by rememberSaveable { mutableStateOf(false) }
+    var showStudy by rememberSaveable { mutableStateOf(false) }
     // Keep the editor open while the Library temporarily chooses another workspace document.
     var workspaceLibraryPurpose by rememberSaveable { mutableStateOf<PickerPurpose?>(null) }
     var workspaceLibraryMode by rememberSaveable { mutableStateOf(CompanionMode.SPLIT) }
@@ -427,7 +428,8 @@ import java.io.File
     LaunchedEffect(state.loading, state.activeId) {
         if (!state.loading && state.activeId == null) workspaceLibraryPurpose = null
     }
-    BackHandler(state.active != null && !exportBusy && !showMistakes && workspaceLibraryPurpose == null) { model.close() }
+    BackHandler(state.active != null && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
+    BackHandler(showStudy && !exportBusy) { showStudy = false }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale) {
         // The shared library/mistakes shell owns safe edges; nested app bars consume them.
@@ -436,11 +438,12 @@ import java.io.File
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).then(
-                if (showMistakes || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
+                if (showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
                 val screen = when {
                     state.loading -> "loading"
                     state.loadFailed -> "failed"
+                    showStudy -> "study"
                     showMistakes -> "mistakes"
                     workspaceLibraryPurpose != null -> "workspace-library"
                     state.active != null -> "editor"
@@ -455,7 +458,7 @@ import java.io.File
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        state.active != null && !showMistakes && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                        state.active != null && !showMistakes && !showStudy && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { exportMenu = true },
                             onBrowseLibrary = { purpose, mode ->
@@ -466,13 +469,17 @@ import java.io.File
                         )
                         else -> LibraryScreen(
                             state.copy(notes = remember(state.notes) { state.notes.filterNot { it.mistakePractice } }), model,
-                            onMistakes = { workspaceLibraryPurpose = null; showMistakes = true },
-                            onNew = { workspaceLibraryPurpose = null; showMistakes = false; newNote = true },
-                            onImport = { workspaceLibraryPurpose = null; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
-                            onImportArchive = { workspaceLibraryPurpose = null; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
+                            onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = true },
+                            showStudy = showStudy,
+                            onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = true },
+                            studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
+                                onAccount = { focalAccountOpen = true }) },
+                            onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; newNote = true },
+                            onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
+                            onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                             onFolder = { folderDialog = true }, onSettings = { settings = true },
                             showMistakes = showMistakes,
-                            onLibrary = { showMistakes = false; if (workspaceLibraryPurpose == null) model.close() },
+                            onLibrary = { showStudy = false; showMistakes = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
                                 if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)
                                 else model.open(id)
@@ -530,7 +537,8 @@ import java.io.File
         }
         if (focalAccountOpen) FocalAccountPanel(
             onDismiss = { focalAccountOpen = false },
-            onMistakes = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = true },
+            onMistakes = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMistakes = true },
+            onStudy = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showStudy = true },
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

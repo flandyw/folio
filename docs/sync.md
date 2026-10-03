@@ -7,8 +7,8 @@ durable source of updates.
 
 ## Study sessions
 
-Canonical sessions live in `study_sessions`, with active intervals in
-`study_session_segments`. Folio queues lifecycle mutations locally and publishes them through
+Canonical sessions live in `study_sessions`, with active intervals in the row's
+`segments` JSON array (the shared single-table protocol). Folio queues lifecycle mutations locally and publishes them through
 `study_session_mutate`; it never writes session records through `sync_apply_changes`, direct
 table CAS, or the compatibility view. Commands retain stable mutation IDs and order until a
 receipt or a safe stale-state reconciliation is received. Terminal sessions cannot be reopened.
@@ -56,4 +56,5 @@ network. Every parameter map in `sync/SyncRemote.kt` is therefore typed
 ./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-A live sync check requires the shared Focal URL/key and a test account.
+A live sync check requires the shared Focal URL/key and a test account. The dedicated
+[study timer](study-timer.md) documents the device/account/offline release checklist.
