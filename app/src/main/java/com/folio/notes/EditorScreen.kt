@@ -142,6 +142,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
     var writingHand by remember { mutableStateOf(FollowPrefsStore.hand(appPrefs)) }
     var followSettingsOpen by remember { mutableStateOf(false) }
+    var showAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.FOLLOW_SHOW_AREAS, false)) }
     var followPreferences by remember { mutableStateOf(FollowPrefsStore.load(appPrefs)) }
     LaunchedEffect(followPreferences) { FollowPrefsStore.save(appPrefs, followPreferences) }
     fun setWritingHand(value: WritingHand) {
@@ -154,6 +155,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         writingHand = writingHand,
         onPreferences = { followPreferences = it },
         onHand = ::setWritingHand,
+        showAreas = showAnswerAreas,
+        onShowAreas = { showAnswerAreas = it; appPrefs.edit().putBoolean(AppPrefs.FOLLOW_SHOW_AREAS, it).apply() },
         onDismiss = { followSettingsOpen = false },
     )
     var followMenu by remember { mutableStateOf(false) }
@@ -621,7 +624,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     palmRejectMs = palmRejectMs,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled, writingHand = writingHand, inputBlocked = peekOpen,
+                    followEnabled = writingFollowEnabled, writingHand = writingHand, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
@@ -756,7 +759,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 palmRejectMs = palmRejectMs,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand,
+                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, showAnswerAreas = showAnswerAreas,
                                 inputBlocked = peekOpen, onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
                                     documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
@@ -1693,6 +1696,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT,
+    showAnswerAreas: Boolean = false,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
@@ -1791,7 +1795,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
-                view.writingGuides = writingGuides.guides; view.writingAreas = writingGuides.areas; view.followEnabled = followEnabled; view.writingHand = writingHand
+                view.writingGuides = writingGuides.guides; view.writingAreas = writingGuides.areas; view.followEnabled = followEnabled; view.writingHand = writingHand; view.showAnswerAreas = showAnswerAreas
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger

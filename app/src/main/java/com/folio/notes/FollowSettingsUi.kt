@@ -98,6 +98,8 @@ fun FollowSettingsDialog(
     writingHand: WritingHand,
     onPreferences: (FollowPreferences) -> Unit,
     onHand: (WritingHand) -> Unit,
+    showAreas: Boolean,
+    onShowAreas: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
@@ -137,6 +139,8 @@ fun FollowSettingsDialog(
                 }
                 Hint("When a full line reaches its end and you pause, the page moves to the next line. Touch down to cancel. " +
                     "Printed answer areas end at their last rule. If the next line already has writing, use Next line to move there yourself.")
+                Toggle("Outline detected answer areas", showAreas, onChange = onShowAreas)
+                Hint("Draws a dashed outline around each answer area found on an exam page, so you can see where lines end and Next line stops.")
                 if (preferences.mode == FollowMode.TEXT && preferences.automaticReturn) {
                     SectionTitle("Canvas line length")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

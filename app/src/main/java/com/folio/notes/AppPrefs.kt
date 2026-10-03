@@ -49,6 +49,8 @@ object AppPrefs {
     const val FOLLOW_CANVAS_SCREENS = "follow.canvasLineScreens"
     const val DEFAULT_FOLLOW_CANVAS_SCREENS = FollowPreferences.DEFAULT_CANVAS_SCREENS
     fun followCanvasScreens(value: Int) = FollowPreferences.clampCanvasScreens(value)
+    /** Draw the answer areas writing follow detected on the page as dashed outlines. */
+    const val FOLLOW_SHOW_AREAS = "follow.showAreas"
     /** Peek shows the whole current page instead of a pinned view. */
     const val AUTO_PEEK = "peek.auto"
 

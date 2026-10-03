@@ -103,7 +103,8 @@ still needs a pen-up pause to reveal more room.
 **Maths** reads the block of working touching the stroke (fractions included) and only moves down.
 
 **Settings:** Feel (one value controlling the pauses, trigger, band and glide), Text/Maths,
-automatic line return, canvas line length, direction, hand, writing height and *Keep my line at this height*.
+automatic line return, *Outline detected answer areas* (dashed frame in the selection blue, `follow.showAreas`, display only),
+canvas line length, direction, hand, writing height and *Keep my line at this height*.
 Keys are listed in `FollowPrefsStore` / `AppPrefs`.
 The earlier tuning keys and per-page `follow.region.*` answer areas are removed the first time the
 editor opens.

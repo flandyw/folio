@@ -201,6 +201,7 @@ class InkView(context: Context) : View(context) {
     private val followMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xCC387C83.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
     }
+    private val answerAreaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE }
     private val followVisible = android.graphics.Rect()
     private val predictionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
@@ -255,7 +256,10 @@ class InkView(context: Context) : View(context) {
         set(value) { follow.guides = value }
     var writingAreas: List<AnswerArea>
         get() = follow.areas
-        set(value) { follow.areas = value }
+        set(value) { if (follow.areas != value) { follow.areas = value; invalidate() } }
+    /** Dashed outlines of the detected answer areas, drawn like the other selection chrome. */
+    var showAnswerAreas = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     /** Moves a document page by screen pixels; returns the travel the document actually allowed. */
     var onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }
     fun nextWritingLine() {
@@ -684,6 +688,12 @@ class InkView(context: Context) : View(context) {
                 ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         }
         outlined?.let { drawImageSelection(canvas, it) }
+        if (showAnswerAreas && followEnabled) {
+            val unit = selectionUiUnit()
+            answerAreaPaint.strokeWidth = unit
+            answerAreaPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
+            for (a in follow.areas) canvas.drawRect(a.left, a.top, a.right, a.bottom, answerAreaPaint)
+        }
         follow.marker(SystemClock.uptimeMillis())?.let { m ->
             followMarkerPaint.strokeWidth = 3f / scale
             canvas.drawLine(m.x, m.y, m.x + m.length, m.y, followMarkerPaint)
