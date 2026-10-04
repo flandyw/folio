@@ -21,6 +21,7 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.P
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -113,6 +114,7 @@ class NoteRepository(private val context: Context) {
     private val pdfTextCache = mutableMapOf<String, List<PdfPageText>>()
     /** Tappable PDF links and bookmarks by notebook, so navigation never reparses either. */
     private val pdfLinkCache = mutableMapOf<String, List<PdfLink>>()
+    private val pdfMarkZoneCache = mutableMapOf<String, List<MarkZone>>()
     private val pdfOutlineCache = mutableMapOf<String, List<PdfOutlineEntry>>()
     private var pdfBoxReady = false
 
@@ -393,7 +395,7 @@ class NoteRepository(private val context: Context) {
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)
-        pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfOutlineCache.remove(id) }
+        pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfMarkZoneCache.remove(id); pdfOutlineCache.remove(id) }
         lock.withLock {
             val dir = storedDirectory(id)
             if (!dir.exists()) return@withLock
@@ -1044,6 +1046,72 @@ class NoteRepository(private val context: Context) {
             pdfLinkCache[noteId] = links
             links
         }
+    }
+
+    /**
+     * Every printed mark allocation ("[4 marks]") of the notebook in Folio page coordinates, read once and
+     * remembered. Needs the PDF's own text layer, so a scanned paper yields none; rotated pages are skipped
+     * like links, since their text space no longer lines up with the rendered background.
+     */
+    suspend fun pdfMarkZones(noteId: String, pages: List<NotePage>): List<MarkZone> = withContext(Dispatchers.IO) {
+        pdfLock.withLock {
+            pdfMarkZoneCache[noteId]?.let { return@withLock it }
+            val file = File(storedDirectory(noteId), "source.pdf")
+            if (!file.exists()) return@withLock emptyList()
+            val dims = pages.filter { it.pdfIndex != null }.associate { it.pdfIndex!! to (it.width to it.height) }
+            val zones = try {
+                ensurePdfBox()
+                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                    .setTempDir(context.cacheDir)).use { doc -> extractMarkZones(doc, dims) }
+            } catch (_: Exception) { emptyList() }
+            evictPdfCache(pdfMarkZoneCache, noteId)
+            pdfMarkZoneCache[noteId] = zones
+            zones
+        }
+    }
+
+    private fun extractMarkZones(doc: PDDocument, dims: Map<Int, Pair<Float, Float>>): List<MarkZone> {
+        val zones = mutableListOf<MarkZone>()
+        val line = StringBuilder()
+        val glyphs = ArrayList<TextPosition?>()
+        var pageIndex = 0
+        fun flush() {
+            if (line.isNotEmpty()) {
+                val (pageW, pageH) = dims[pageIndex] ?: (0f to 0f)
+                val page = doc.getPage(pageIndex)
+                val crop = page.cropBox
+                if (pageW > 0f && pageH > 0f && page.rotation == 0 && crop.width > 0f && crop.height > 0f) {
+                    for (match in MarkZones.find(line.toString())) {
+                        val hit = (match.start until match.end).mapNotNull { glyphs.getOrNull(it) }
+                        if (hit.isEmpty()) continue
+                        val left = hit.minOf { it.xDirAdj }
+                        val right = hit.maxOf { it.xDirAdj + it.widthDirAdj }
+                        val top = hit.minOf { it.yDirAdj - it.heightDir }
+                        val bottom = hit.maxOf { it.yDirAdj }
+                        if (right <= left || bottom <= top) continue
+                        zones += MarkZone(pageIndex, left / crop.width * pageW, top / crop.height * pageH,
+                            (right - left) / crop.width * pageW, (bottom - top) / crop.height * pageH, match.marks)
+                    }
+                }
+            }
+            line.setLength(0); glyphs.clear()
+        }
+        val stripper = object : PDFTextStripper() {
+            override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
+                for (p in textPositions) { val u = p.unicode ?: continue; line.append(u); repeat(u.length) { glyphs.add(p) } }
+            }
+            override fun writeWordSeparator() { line.append(' '); glyphs.add(null) }
+            override fun writeLineSeparator() { flush() }
+            override fun writeParagraphEnd() { flush() }
+        }
+        for (index in 0 until doc.numberOfPages) {
+            pageIndex = index
+            stripper.startPage = index + 1
+            stripper.endPage = index + 1
+            stripper.getText(doc)
+            flush()
+        }
+        return zones
     }
 
     /** The links of one PDF page mapped onto its Folio page, or nothing when it is rotated. */

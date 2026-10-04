@@ -57,6 +57,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -371,6 +372,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by remember { mutableStateOf("") }
     var stampPicker by remember { mutableStateOf(false) }
+    // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
+    var markingPanel by remember { mutableStateOf(false) }
+    var armedMarking by remember { mutableStateOf<MarkingAction?>(null) }
+    var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
+    var markingBank by remember { mutableStateOf(Marking.loadBank(appPrefs.getString(Marking.PREF_COMMENTS, null))) }
+    var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
+    var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
+    var markingAutoPlace by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_AUTO_PLACE, false)) }
+    LaunchedEffect(tool) { if (tool != Tool.TEXT) armedMarking = null }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
@@ -395,6 +405,21 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
     fun placeTextBox(at: InkPoint) {
+        armedMarking?.let { action ->
+            if (action is MarkingAction.Note) {
+                armedMarking = null
+                model.placeFeedbackNote(at, action.handwritten, markingColor)?.let { plan ->
+                    val typed = plan.box
+                    if (typed != null) { textEditor = typed; textEditorNew = true }
+                    else { selectTool(Tool.PEN); changeOptions(options.copy(color = markingColor)) }
+                }
+                return
+            }
+            model.applyMarking(action, at, markingColor)
+            // Comments and marks keep stamping; a flag or a gap is a single deliberate act.
+            if (action is MarkingAction.Flag || action is MarkingAction.MakeRoom) armedMarking = null
+            return
+        }
         val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
         textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline, opacity = textOpacity)
         textEditorNew = true
@@ -594,6 +619,12 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(note.id) {
         pdfLinks = if (note.pages.any { it.pdfIndex != null }) {
             try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() }
+        } else emptyList()
+    }
+    // Printed "[4 marks]" labels are read once per notebook, and only while the assist is on.
+    LaunchedEffect(note.id, markAssist) {
+        markZones = if (markAssist && note.pages.any { it.pdfIndex != null }) {
+            try { model.repository.pdfMarkZones(note.id, note.pages) } catch (_: Exception) { emptyList() }
         } else emptyList()
     }
     LaunchedEffect(note.id, page.infinite, note.pages.size) {
@@ -821,6 +852,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     selectedImage = image?.let { item.id to it }
                                 },
                                 pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
+                                markZones = markZones, markAssist = markAssist, markColor = markingColor,
                                 eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                                 eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                                 palmRejectMs = palmRejectMs,
@@ -1055,6 +1087,27 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
+            armedMarking?.let { action ->
+                Surface(
+                    Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = FolioSpacing.dp24),
+                    shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shadowElevation = 6.dp
+                ) {
+                    Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Text(when (action) {
+                            is MarkingAction.Comment -> "Tap to place “${action.text.take(28)}”"
+                            is MarkingAction.Mark -> "Tap to stamp ${action.label}"
+                            is MarkingAction.Note -> "Tap the spot this feedback is about"
+                            MarkingAction.Flag -> "Tap to drop a numbered flag"
+                            is MarkingAction.MakeRoom -> "Tap the line to open space below it"
+                        }, style = MaterialTheme.typography.labelLarge)
+                        TextButton({ armedMarking = null }, shapes = ButtonDefaults.shapes()) {
+                            Text("Done", color = MaterialTheme.colorScheme.inversePrimary)
+                        }
+                    }
+                }
+            }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
@@ -1142,6 +1195,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         onContents = { pdfContentsOpen = true; loadOutline() },
                                         onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
                                         onInsertElement = { stampPicker = true },
+                                        onMarking = { markingPanel = true },
                                         onOrganize = { pageBrowser = true },
                                         onBookmark = { model.togglePageBookmark(page.id) },
                                         onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
@@ -1517,6 +1571,20 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         }
     }
+    if (markingPanel) MarkingPanel(
+        note = note, page = page,
+        color = markingColor, onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
+        bank = markingBank, onBank = { markingBank = it; appPrefs.edit().putString(Marking.PREF_COMMENTS, Marking.encodeBank(it)).apply() },
+        markAssist = markAssist, onMarkAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
+        zoneCount = markZones.size, zoneTotal = MarkZones.total(markZones),
+        autoPlace = markingAutoPlace, onAutoPlace = { markingAutoPlace = it; appPrefs.edit().putBoolean(Marking.PREF_AUTO_PLACE, it).apply() },
+        onArm = { action -> armedMarking = action; tool = Tool.TEXT; markingPanel = false },
+        onPlaceNow = { action -> model.placeInFreeSpace(action, markingColor) },
+        loadPages = { model.pagesForMarking() },
+        onOpenSheet = { index -> markingPanel = false; if (index >= 0) jumpTo(index) },
+        onRecord = { attempt -> model.recordAttempt(note.id, attempt) },
+        onDismiss = { markingPanel = false }
+    )
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
@@ -1807,7 +1875,15 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     /** Context menu content, given the available pane width; null on pages without a selection. */
     selectionMenu: (@Composable (Dp) -> Unit)? = null,
     selectionMenuViewport: Rect? = null,
-    onSelectionAnchor: (Rect?) -> Unit = {}) {
+    onSelectionAnchor: (Rect?) -> Unit = {},
+    markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR) {
+    // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
+    var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
+    var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
+    val pageZones = remember(markZones, page.pdfIndex, markAssist) {
+        val target = page.pdfIndex
+        if (!markAssist || target == null) emptyList() else markZones.filter { it.pageIndex == target }
+    }
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
     val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val areaColor = MaterialTheme.colorScheme.primary.toArgb()
@@ -1935,6 +2011,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.onImageSelected = onImageSelected
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink
+                view.markZones = pageZones
+                view.onMarkZone = { zone, rect ->
+                    offeredZone = if (zone != null && rect != null) zone to rect else null
+                    offerStamp++
+                }
                 if (!active) view.clearSelection()
             }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {
@@ -1949,6 +2030,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
         }
         if (page.loaded && ready && !readOnly && shapeMeasurements) ShapeMeasurementTooltip(shapeMeasurement)
+        offeredZone?.takeIf { page.loaded && !readOnly }?.let { (zone, rect) ->
+            MarkChip(zone, rect, page, offerStamp, markColor,
+                onAward = { value -> model.awardMark(page.id, zone, value, markColor); offeredZone = null },
+                onDismiss = { offeredZone = null })
+        }
         if (selectionMenu != null && page.loaded && ready) {
             SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, selectionMenu)
         }
@@ -2451,7 +2537,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
     onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
-    onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {},
+    onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {}, onMarking: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
     /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
     onFitAll: (() -> Unit)? = null
@@ -2461,6 +2547,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
         MenuSectionHeader("Page")
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
+        DropdownMenuItem({ Text("Marking & feedback") }, { onDismiss(); onMarking() }, leadingIcon = { Icon(Icons.Rounded.RateReview, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
         SubmenuItem("Study tools", Icons.Rounded.School, submenu == Submenu.STUDY, { open(Submenu.STUDY) }) {
@@ -2867,3 +2954,54 @@ private fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () ->
 }
 
 private enum class FollowSub { AREAS }
+
+/**
+ * A small chip beside a printed "[4 marks]" label: tick awards every mark at once, cross opens a − / +
+ * stepper for part marks. It floats over the page without taking focus, never blocks writing, and goes
+ * away by itself — a pen touching the page dismisses it, and so does a few seconds of nothing.
+ */
+@Composable private fun MarkChip(
+    zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long, color: Int,
+    onAward: (Int) -> Unit, onDismiss: () -> Unit
+) {
+    val existing = remember(zone, page.texts) { MarkZones.awarded(zone, page)?.roundToInt() }
+    var adjusting by remember(zone) { mutableStateOf(false) }
+    var value by remember(zone) { mutableIntStateOf(existing ?: 0) }
+    // Every hover or tap restarts the clock; a chip being adjusted is given longer.
+    LaunchedEffect(stamp, adjusting, value) { delay(if (adjusting) 10_000L else 3_000L); onDismiss() }
+    val haptics = LocalHapticFeedback.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val maxWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        var size by remember { mutableStateOf(IntSize.Zero) }
+        val gap = with(LocalDensity.current) { 8.dp.toPx() }
+        Surface(
+            Modifier.onSizeChanged { size = it }.offset {
+                val x = (rect.centerX() - size.width / 2f).coerceIn(0f, (maxWidthPx - size.width).coerceAtLeast(0f))
+                val above = rect.top - size.height - gap
+                IntOffset(x.roundToInt(), (if (above >= 0f) above else rect.bottom + gap).roundToInt())
+            },
+            shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp,
+            border = BorderStroke(1.dp, Color(color).copy(alpha = .6f))
+        ) {
+            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!adjusting) {
+                    Text(if (existing != null) "+$existing / ${zone.marks}" else "${zone.marks} ${if (zone.marks == 1) "mark" else "marks"}",
+                        Modifier.padding(start = 10.dp, end = 4.dp), style = MaterialTheme.typography.labelLarge)
+                    IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(zone.marks) }, Modifier.size(44.dp)) {
+                        Icon(Icons.Rounded.Check, "Award all ${zone.marks}", tint = Color(0xFF2E7D32))
+                    }
+                    IconButton({ adjusting = true }, Modifier.size(44.dp)) {
+                        Icon(Icons.Rounded.Close, "Award fewer marks", tint = Color(0xFFC62828))
+                    }
+                } else {
+                    IconButton({ value = (value - 1).coerceAtLeast(0) }, Modifier.size(44.dp), enabled = value > 0) { Icon(Icons.Rounded.Remove, "One fewer mark") }
+                    Text("$value / ${zone.marks}", style = MaterialTheme.typography.titleSmall)
+                    IconButton({ value = (value + 1).coerceAtMost(zone.marks) }, Modifier.size(44.dp), enabled = value < zone.marks) { Icon(Icons.Rounded.Add, "One more mark") }
+                    IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(value) }, Modifier.size(44.dp)) {
+                        Icon(Icons.Rounded.Check, "Confirm $value marks", tint = Color(0xFF2E7D32))
+                    }
+                }
+            }
+        }
+    }
+}

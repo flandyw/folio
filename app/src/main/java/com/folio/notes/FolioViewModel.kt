@@ -1583,6 +1583,133 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val placed = if (offset == 0f) stamp else stamp.map { InkGeometry.translate(it, offset, offset) }
         strokes(page.id, page.strokes + placed)
     }
+    // ---- Marking & feedback ---------------------------------------------------------------------
+
+    /** Carries out an armed marking tool at [at] on the open page; each result is one undoable step. */
+    fun applyMarking(action: MarkingAction, at: InkPoint, color: Int) {
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
+        when (action) {
+            is MarkingAction.Comment -> texts(page.id, page.texts + Marking.commentBox(action.text, at.x, at.y, page, color))
+            is MarkingAction.Mark -> texts(page.id, page.texts + Marking.markBox(action.label, at.x - 14f, at.y - 20f, color))
+            is MarkingAction.Note -> placeFeedbackNote(at, action.handwritten, color)
+            MarkingAction.Flag -> dropFlag(page, at, color)
+            is MarkingAction.MakeRoom -> makeRoom(page, at.y, action.amount)
+        }
+    }
+
+    /**
+     * Puts a comment or mark in the clearest spot on the open page instead of where the pen is, for a
+     * page that is too full to tap into. Returns false when no spot that size is clear.
+     */
+    fun placeInFreeSpace(action: MarkingAction, color: Int): Boolean {
+        val page = _state.value.page ?: return false
+        if (!page.loaded) return false
+        val box = when (action) {
+            is MarkingAction.Comment -> Marking.commentBox(action.text, 0f, 0f, page, color)
+            is MarkingAction.Mark -> Marking.markBox(action.label, 0f, 0f, color)
+            else -> return false
+        }
+        val slot = Marking.freeSlot(page, box.width, Marking.estimateHeight(box), InkRenderer::textHeight) ?: return false
+        applyMarking(action, slot, color)
+        return true
+    }
+
+    /**
+     * Adds the dot, leader and (for a handwritten note) writing panel for a note at [at] as one undoable
+     * step. Returns the plan so the editor can open a text box or switch to the pen; null means there was
+     * no clear space near the tap and the reason has been reported.
+     */
+    fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? {
+        val page = _state.value.page ?: return null
+        if (!page.loaded) return null
+        val plan = Marking.feedbackNote(page, at, handwritten, color, InkRenderer::textHeight)
+        if (plan == null) { reportError("No clear space near there. Try a spot nearer a margin, or use the Feedback page."); return null }
+        strokes(page.id, page.strokes + plan.strokes)
+        return plan
+    }
+
+    /** Awards [value] marks for a printed allocation: stamps "+N" beside it, or changes the stamp already there. */
+    fun awardMark(pageId: String, zone: MarkZone, value: Int, color: Int) {
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded) return
+        texts(pageId, MarkZones.withAward(zone, page, value, color))
+    }
+
+    /** Opens space below [y]; imported PDF pages cannot grow, so they say why instead. */
+    private fun makeRoom(page: NotePage, y: Float, amount: Float) {
+        val shift = Marking.makeRoom(page, y, amount, InkRenderer::textHeight)
+        if (shift == null) {
+            reportError(if (!page.infinite && page.pdfIndex != null)
+                "An imported PDF page can't grow. Use margin comments or the Feedback sheet instead."
+            else "This page can't grow any further.")
+            return
+        }
+        if (shift.moved == 0 && page.infinite) return
+        val note = _state.value.active ?: return
+        // The taller page is written to the index first: a crash between the two writes leaves spare
+        // paper rather than ink hanging off the bottom.
+        if (shift.height != page.height) updateNote(note.withPage(page.copy(height = shift.height)))
+        val grown = findPageContent(page.id) ?: return
+        replacePage(grown.copy(strokes = shift.strokes, texts = shift.texts, images = shift.images))
+    }
+
+    /**
+     * Drops the next numbered ring on the open page and a matching line on the notebook's feedback
+     * sheet, creating the sheet the first time. The sheet is where the long-form feedback goes, so the
+     * page itself only ever carries a small number.
+     */
+    private fun dropFlag(page: NotePage, at: InkPoint, color: Int) {
+        val note = _state.value.active ?: return
+        if (Marking.findSheet(note.pages)?.id == page.id) {
+            reportError("Flags go on the pages being marked. Open one of those pages first.")
+            return
+        }
+        viewModelScope.launch {
+            var sheetId = Marking.findSheet(note.pages)?.id
+            if (sheetId == null) {
+                val current = _state.value.active?.takeIf { it.id == note.id } ?: return@launch
+                val sheet = NotePage(paper = Paper.RULED, title = Marking.FEEDBACK_TITLE)
+                updateNote(current.withInsertedPage(current.pages.size, sheet))
+                texts(sheet.id, Marking.sheetHeader())
+                sheetId = sheet.id
+            }
+            val sheet = awaitLoaded(sheetId) ?: run { reportError("Couldn't open the feedback sheet."); return@launch }
+            val number = Marking.nextFlagNumber(sheet)
+            val latest = _state.value.active?.takeIf { it.id == note.id } ?: return@launch
+            val pageNumber = latest.pages.indexOfFirst { it.id == page.id } + 1
+            val (entry, height) = Marking.sheetEntry(number, pageNumber, sheet, color)
+            val fresh = findPageContent(sheet.id) ?: sheet
+            if (height != fresh.height) updateNote(latest.withPage(fresh.copy(height = height)))
+            texts(sheet.id, fresh.texts + entry)
+            val (ring, label) = Marking.flag(number, at.x, at.y, color)
+            val target = findPageContent(page.id) ?: return@launch
+            updateContent(target.id, target.strokes + ring, target.texts + label, target.images)
+        }
+    }
+
+    /** Reads a page's content in from disk if only its summary is in memory, waiting briefly for it. */
+    private suspend fun awaitLoaded(pageId: String): NotePage? {
+        loadPage(pageId)
+        return withTimeoutOrNull(5_000) {
+            var found = findPageContent(pageId)?.takeIf { it.loaded }
+            while (found == null) { delay(40); found = findPageContent(pageId)?.takeIf { it.loaded } }
+            found
+        }
+    }
+
+    /**
+     * Every page of the open notebook with its text read in, for totalling marks. A page that cannot be
+     * read stays unloaded so the caller can say the total is incomplete rather than quietly undercount.
+     */
+    suspend fun pagesForMarking(): List<NotePage> {
+        val note = _state.value.active ?: return emptyList()
+        return note.pages.map { summary ->
+            if (summary.loaded) summary
+            else runCatching { summary.withLoadedContent(repository.loadPage(note.id, summary)) }.getOrDefault(summary)
+        }
+    }
+
     fun undo() = history(undo, redo)
     fun redo() = history(redo, undo)
 

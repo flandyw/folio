@@ -107,6 +107,18 @@ class InkView(context: Context) : View(context) {
     var pdfLinks: List<PdfLink> = emptyList()
     /** A tap on a PDF link with the hand tool, so the editor can open or follow it. */
     var onPdfLink: (PdfLink) -> Unit = {}
+    /**
+     * Printed "[4 marks]" labels of the shown PDF page. A stylus hovering over one, or a finger tapping it,
+     * offers the editor a tick/cross chip; nothing is drawn here and a stylus touch still writes normally.
+     */
+    var markZones: List<MarkZone> = emptyList()
+    /** The zone being offered (null when none) with its rectangle in this view's pixels. */
+    var onMarkZone: (MarkZone?, android.graphics.RectF?) -> Unit = { _, _ -> }
+    private var pendingZone: MarkZone? = null
+    private var zoneFromX = 0f
+    private var zoneFromY = 0f
+    private var zoneOffered = false
+    private var lastZoneOfferAt = 0L
     private var draft: Stroke? = null
     private var erasing: List<Stroke>? = null
     private var lasso: List<InkPoint>? = null
@@ -562,6 +574,13 @@ class InkView(context: Context) : View(context) {
             val leaving = event.actionMasked == MotionEvent.ACTION_HOVER_EXIT
             lastStylusAt = if (leaving) -palmRejectMs else SystemClock.uptimeMillis()
             // Hovering with the eraser previews the same outline it will cut with, before the tip lands.
+            if (!leaving && !readOnly && markZones.isNotEmpty()) {
+                val at = point(event, 0)
+                val zone = markZones.lastOrNull { it.contains(at.x, at.y) }
+                val now = SystemClock.uptimeMillis()
+                // Re-offered while hovering so the chip's timeout restarts, but never faster than a glance.
+                if (zone != null && now - lastZoneOfferAt > 150L) offerZone(zone)
+            }
             if (leaving) { if (eraserMark != null) { eraserMark = null; invalidate() } }
             else if (tool == Tool.ERASER) {
                 val next = clampToPage(point(event, 0))
@@ -570,6 +589,28 @@ class InkView(context: Context) : View(context) {
             }
         }
         return super.onGenericMotionEvent(event)
+    }
+    private fun offerZone(zone: MarkZone) {
+        lastZoneOfferAt = SystemClock.uptimeMillis()
+        zoneOffered = true
+        val s = scale
+        onMarkZone(zone, android.graphics.RectF(originX + zone.x * s, originY + zone.y * s,
+            originX + (zone.x + zone.width) * s, originY + (zone.y + zone.height) * s))
+    }
+    private fun dismissZone() {
+        pendingZone = null
+        if (zoneOffered) { zoneOffered = false; onMarkZone(null, null) }
+    }
+    /** A finger pressing a printed allocation arms it as a tap, like a PDF link; dragging pans as usual. */
+    private fun beginZone(event: MotionEvent, index: Int): Boolean {
+        if (markZones.isEmpty() || tool == Tool.TEXT || tool == Tool.LASSO || tool == Tool.ERASER) return false
+        val raw = point(event, index)
+        if (!onPage(raw.x, raw.y)) return false
+        val at = clampToPage(raw)
+        val hit = markZones.lastOrNull { it.contains(at.x, at.y) } ?: return false
+        pendingZone = hit
+        zoneFromX = at.x; zoneFromY = at.y
+        return true
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) {
@@ -976,6 +1017,7 @@ class InkView(context: Context) : View(context) {
         if ((0 until event.pointerCount).any { isStylus(event, it) }) lastStylusAt = SystemClock.uptimeMillis()
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                dismissZone()
                 requestFocus()
                 // Ask the system to hand each stylus sample over as it arrives rather than batching
                 // samples into the next frame, so the ink keeps up with the tip instead of trailing.
@@ -996,6 +1038,8 @@ class InkView(context: Context) : View(context) {
                 if (!readOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
                     navigating = false
                 } else if (tool == Tool.HAND && !ignored && beginLink(event, 0)) {
+                    navigating = false
+                } else if (!stylus && !ignored && !readOnly && beginZone(event, 0)) {
                     navigating = false
                 } else if (lassoActive()) beginLasso(event, 0)
                 else if (tool == Tool.TEXT && !ignored) beginText(event, 0)
@@ -1042,6 +1086,18 @@ class InkView(context: Context) : View(context) {
                         lastX = centroidX(event); lastY = centroidY(event)
                         panVelocity.resetTracking()
                         panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
+                    }
+                }
+                if (pendingZone != null) {
+                    val at = point(event, index)
+                    if (hypot(at.x - zoneFromX, at.y - zoneFromY) > LINK_SLOP) {
+                        pendingZone = null
+                        navigating = !fingerDrawing
+                        if (navigating) {
+                            lastX = centroidX(event); lastY = centroidY(event)
+                            panVelocity.resetTracking()
+                            panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
+                        } else beginStroke(event, index)
                     }
                 }
                 if (movingImage != null) {
@@ -1225,6 +1281,9 @@ class InkView(context: Context) : View(context) {
                 }
                 val hadImage = movingImage != null
                 val hadLink = pendingLink != null
+                val tappedZone = pendingZone
+                pendingZone = null
+                if (tappedZone != null) offerZone(tappedZone)
                 if (hadImage) {
                     finishImage()
                 } else if (hadLink) {
@@ -1236,7 +1295,7 @@ class InkView(context: Context) : View(context) {
                     // A hand that never panned must not fling the document when it lifts either.
                     onDocumentPanEnd(if (panGate.waitingForSlop) 0f else panVelocity.calculateVelocity().y)
                 }
-                if (!hadImage && !hadLink) {
+                if (!hadImage && !hadLink && tappedZone == null) {
                 if (tool == Tool.TEXT) finishText()
                 else if (lassoActive()) finishLasso()
                 else {
@@ -1539,7 +1598,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
