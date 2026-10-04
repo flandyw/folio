@@ -491,13 +491,14 @@ import java.io.File
                             },
                             selectionCaption = workspaceLibraryPurpose?.let { WorkspacePicker.libraryCaption(it, workspaceLibraryMode) },
                             onCancelSelection = { workspaceLibraryPurpose = null },
-                        ) { onReviewMode ->
-                            com.folio.notes.mistakes.MistakesScreen(
-                                mistakes, model, state, finger, haptics, shapeRecognition,
-                                onBack = { showMistakes = false }, onSettings = { settings = true },
-                                onExport = { exportMenu = true }, onReviewMode = onReviewMode,
-                            )
-                        }
+                            mistakesContent = { onReviewMode ->
+                                com.folio.notes.mistakes.MistakesScreen(
+                                    mistakes, model, state, finger, haptics, shapeRecognition,
+                                    onBack = { showMistakes = false }, onSettings = { settings = true },
+                                    onExport = { exportMenu = true }, onReviewMode = onReviewMode,
+                                )
+                            },
+                        )
                     }
                 }
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {

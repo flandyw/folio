@@ -290,8 +290,8 @@ object WritingGuides {
             // places to write, and fewer than three inner rules looks like a table, not an answer.
             val block = if (found.none { it in bordered }) found else {
                 val inner = found.toMutableList()
-                if (inner.first() in bordered) inner.removeFirst()
-                if (inner.isNotEmpty() && inner.last() in bordered) inner.removeLast()
+                if (inner.first() in bordered) inner.removeAt(0)
+                if (inner.isNotEmpty() && inner.last() in bordered) inner.removeAt(inner.lastIndex)
                 if (inner.size < 3) continue
                 inner
             }
