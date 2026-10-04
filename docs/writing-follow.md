@@ -15,6 +15,10 @@ line from the strokes on the page around the stroke just written:
   tiny handwriting on a long line keeps its earlier words in the measurement at high zoom.
 - The baseline is the tightest cluster of stroke bottoms, which keeps descenders and first-letter
   descenders from dragging it down. Printed rules (ruled paper, detected PDF rules) take priority.
+- Unruled writing is rarely level, so a straight line is fitted through the strokes (`WritingLine.slope`)
+  and the line is followed along it, up to about 19 degrees. A tilt under half a letter height across the
+  whole line is treated as level. The next line begins one line spacing below where this one *began*, and
+  the line just written never counts as ink on the next one, so a climbing or sinking line still returns.
 - Line height, line spacing (the measured gap to the line above) and the line's extent all scale
   with the handwriting. No threshold is a fixed page unit.
 - Dots and crossbars count as *minor*, long flat strokes as *rules*, and much taller strokes as
@@ -33,8 +37,13 @@ and the next pen-up replans from wherever the view actually is, so an interrupte
 applied twice. Back undoes the moves that actually happened, up to 12 of them; clamped travel is not
 counted.
 Interrupting a return restores its source cursor, so pressing Next line again resumes that same
-destination rather than skipping an unwritten line. Long returns across several zoomed-in screens
-get up to 800 ms of travel time.
+destination rather than skipping an unwritten line.
+
+**Pace.** A following glide never averages faster than 1 px/ms, however far it goes, and is never
+shorter than the feel's glide (300-480 ms), so a long sideways move reads as a glide, not a snap. Moves
+made with the pen at the visible edge are shorter (260-450 ms) but ease *out*, covering most of the
+distance at once so a stroke that cuts them short still finds room. A carriage return is brisker
+(2.5 px/ms, at most 650 ms): what a writer notices is the wait before it, not its speed.
 
 Rules a writer can rely on:
 
@@ -51,8 +60,8 @@ Rules a writer can rely on:
   the line back up to the writing height if it nears the bottom 12 % of the view. With *Keep my line
   at this height* on (Text mode), a baseline sinking more than the band (10-22 %) below the writing
   height is also nudged back up. Maths always does this. Next line always uses the writing height.
-- Near the visible edge, the learned letter gap allows an earlier move (40–180 ms), with a 120 ms
-  glide. Frames can run between strokes; touching down always cancels the remaining travel.
+- Near the visible edge, the learned letter gap allows an earlier move (40–180 ms) with a short
+  ease-out glide. Frames can run between strokes; touching down always cancels the remaining travel.
 - Handwriting smaller than 8 px on screen is readable as it is, so the view does not follow it.
   Next line still works.
 
@@ -82,8 +91,9 @@ otherwise the start lands at the leading edge (8 % across), so every return ends
 Rules inside a ruled answer box count as response lines too; the box's own edges do not, and fewer
 than three inner rules reads as a table instead.
 
-**Automatic line return** does the same after a pause, and the writer does not have to reach the
-edge. A line is full when another word would not fit (the last ~4.5 letter heights before the
+**Automatic line return** does the same after a pause (0.3-0.7 s by feel, never shorter than a little
+over this writer's word gap; about half that once the writing has reached the line's end, and 150 ms
+after a glide that only made room), and the writer does not have to reach the edge. A line is full when another word would not fit (the last ~4.5 letter heights before the
 response line's end, at least half the line written) or when it reaches where this writer has been
 wrapping: Next line and wrapping to a new line teach the engine the fraction of the line (from
 70 %) the writer usually fills, and a line within 6 % of that, and past 60 %, also counts as full.

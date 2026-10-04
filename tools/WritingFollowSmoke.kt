@@ -48,6 +48,12 @@ private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = 
                     guides: List<WritingGuide> = emptyList(), private val interleaveFrames: Boolean = false) {
     val follow = WritingFollow(host)
     var now = 0L
+    val moves = mutableListOf<Triple<Long, Float, Float>>()
+    private fun tickAt(t: Long) {
+        val x = host.x; val y = host.y
+        follow.tick(t)
+        if (host.x != x || host.y != y) moves += Triple(t, host.x, host.y)
+    }
     init {
         follow.reset(FollowPage(host.infinite, host.pageWidth, host.pageHeight))
         follow.preferences = prefs
@@ -69,7 +75,7 @@ private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = 
             if (due > end) { host.due = due - end; break }
             host.due = null
             now = due
-            follow.tick(now)
+            tickAt(now)
         }
         now = end
     }
@@ -80,7 +86,7 @@ private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = 
             val wait = host.due ?: return
             host.due = null
             now += maxOf(wait, 16L)
-            follow.tick(now)
+            tickAt(now)
         }
     }
     fun moved(block: () -> Unit): Pair<Float, Float> {
@@ -118,6 +124,59 @@ private class PrintedPage(private val scale: Int = 1) {
 }
 
 fun main() {
+    scenario("A sideways glide travels at a readable pace instead of snapping") {
+        val t = Trace(FakeHost(viewW = 400f, scale = 2f), FollowPreferences())
+        var x = 30f
+        // Stop short of the edge, so the move is a considered glide rather than an urgent one.
+        while (x < 160f) { t.write(letter(x)); x += 18f }
+        t.settle()
+        check(t.moves.size > 3 && t.host.x > 40f) { "no glide: ${t.host.x}" }
+        val took = t.moves.last().first - t.moves.first().first
+        check(took >= 250) { "glide took only $took ms" }
+        var worst = 0f
+        for (i in 1 until t.moves.size) {
+            val frame = t.moves[i].first - t.moves[i - 1].first
+            if (frame in 1..40) worst = maxOf(worst, abs(t.moves[i].second - t.moves[i - 1].second) * 2f / frame)
+        }
+        check(worst < 3.2f) { "peak $worst px/ms" }
+    }
+    scenario("Blank paper: a line that climbs still returns, to where the next line begins") {
+        for (slope in listOf(0f, .03f, -.03f)) {
+            val t = Trace(FakeHost(viewW = 400f, scale = 2f), FollowPreferences(automaticReturn = true), emptyList(), interleaveFrames = true)
+            var x = 40f
+            var i = 0
+            val baseline = 300f
+            while (x < 750f) {
+                t.write(letter(x, baseline - slope * (x - 40f)), gap = if (i % 5 == 0) 450 else 150)
+                x += 18f; i++
+            }
+            check(t.host.last.message.startsWith("Next line in") || t.follow.isMoving) { "slope $slope: ${t.host.last.message}" }
+            val penUp = t.now
+            t.settle()
+            val marker = t.follow.marker(t.now) ?: error("slope $slope: no line placed (${t.host.last.message})")
+            // The next line begins one line spacing under where this one began.
+            check(abs(marker.x - 40f) < 1f && abs(marker.y - (baseline + 26.4f)) < 6f) { "slope $slope: marker $marker" }
+            val start = t.moves.firstOrNull { it.first > penUp }?.first ?: error("slope $slope: no return")
+            val end = t.moves.last().first
+            check(end - penUp < 1300) { "slope $slope: return took ${end - penUp} ms after the pen came up" }
+            check(t.host.x < 60f) { "slope $slope: view left at ${t.host.x}" }
+            check(start >= penUp)
+        }
+    }
+    scenario("A full line starts its return soon after the pen stops") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(viewW = 400f, scale = 2f), FollowPreferences(automaticReturn = true), detected.guides, interleaveFrames = true)
+        t.follow.areas = detected.areas
+        var x = 40f
+        while (x < 340f) { t.write(letter(x)); x += 18f }
+        val penUp = t.now
+        t.settle()
+        val started = t.moves.firstOrNull { it.first > penUp }?.first ?: error("never returned")
+        check(started - penUp <= 700) { "return waited ${started - penUp} ms" }
+        check(t.moves.last().first - penUp <= 1300) { "back at the start only ${t.moves.last().first - penUp} ms after the pen stopped" }
+    }
     scenario("Solid, dashed and dotted response lines define areas at either raster scale") {
         for (scale in listOf(1, 2)) for ((dash, gap) in listOf(340 to 0, 5 to 4, 1 to 5)) {
             val page = PrintedPage(scale)

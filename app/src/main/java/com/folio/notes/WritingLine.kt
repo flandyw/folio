@@ -71,7 +71,11 @@ data class WritingLine(
     val strokes: Int = 0,
     /** True when [pitch] was measured rather than guessed. */
     val measuredPitch: Boolean = false,
+    /** Rise of unruled handwriting: baseline change per page unit across, positive when it sinks. */
+    val slope: Float = 0f,
 ) {
+    /** Where the baseline sits at [x]; [baseline] itself is read at the middle of the line. */
+    fun baselineAt(x: Float) = baseline + slope * (x - (left + right) * .5f)
     fun start(direction: WritingDirection) = if (direction == WritingDirection.LTR) left else right
     fun frontier(direction: WritingDirection) = if (direction == WritingDirection.LTR) right else left
 }
@@ -90,6 +94,8 @@ sealed interface LineRead {
 object LineReader {
     /** How far apart two words on one line may be; wider gaps separate columns. */
     private const val WORD_GAP = 4f
+    /** The steepest tilt of a line of writing (about 19 degrees); anything steeper is a diagram. */
+    private const val MAX_SLOPE = .35f
 
     /** The window of ink worth looking at around a stroke. */
     fun window(seed: InkBox, scale: Float): InkBox {
@@ -127,28 +133,54 @@ object LineReader {
         val guide = guideFor(seed.box, guides)
         var body = body0
         var lineProbe = probe(seed.box)
+        var slope = 0f
+        var anchor = seed.box.centerX
         var members = listOf(seed.box)
         fun usable(m: InkMark, b: Float) = !m.straight && m.box.height <= b * 3.2f &&
             !(m.box.height < b * .4f && m.box.width < b * 1.5f)
-        // Two passes: the first estimate settles the line height, the second re-collects with it.
-        repeat(if (guide != null) 1 else 3) {
+        // A few passes: the first estimate settles the line height and tilt, the next re-collects with them,
+        // and each one can reach further along a line that climbs or sinks.
+        repeat(if (guide != null) 1 else 5) {
             val pitch = pitchHint ?: (body * 2.2f)
             val onLine = all.filter { m ->
                 usable(m, body) && if (guide != null) guideFor(m.box, guides) == guide
-                    else abs(probe(m.box) - lineProbe) <= pitch * .45f
+                    else abs(probe(m.box) - (lineProbe + slope * (m.box.centerX - anchor))) <= pitch * .45f
             }.map { it.box }
             members = chain(seed.box, onLine, body)
             body = upperMedian(members.map { it.height })?.coerceAtLeast(2f) ?: body
-            lineProbe = median(members.map(::probe)) ?: lineProbe
+            if (guide == null) {
+                val trend = trend(members, body)
+                slope = trend.first; anchor = trend.second; lineProbe = trend.third
+            }
         }
         val left = members.minOf { it.left }
         val right = members.maxOf { it.right }
-        val baseline = guide?.y ?: densestBottom(members, body)
+        val middle = (left + right) * .5f
+        val baseline = guide?.y ?: densestBottom(members, body, slope, middle)
         val spacing = guide?.let { WritingGuides.spacing(it, guides) }
-        val above = if (guide == null) lineAbove(all, left, right, lineProbe, body, pitchHint ?: body * 2.2f) else null
+        val above = if (guide == null) lineAbove(all, left, right, lineProbe, anchor, slope, body, pitchHint ?: body * 2.2f) else null
         val pitch = spacing ?: above?.let { lineProbe - it } ?: pitchHint ?: (body * 2.2f)
         return WritingLine(baseline, body, left, right, members.minOf { it.top }, members.maxOf { it.bottom },
-            pitch, guide, members.size, measuredPitch = spacing != null || above != null)
+            pitch, guide, members.size, measuredPitch = spacing != null || above != null, slope = slope)
+    }
+
+    /**
+     * Handwriting on blank paper is rarely level. Fits a straight line through where the strokes sit
+     * (slope, the x it is read at, and its probe height there). A tilt under half a letter height across
+     * the whole line is noise, so level writing stays exactly level.
+     */
+    private fun trend(members: List<InkBox>, body: Float): Triple<Float, Float, Float> {
+        val xs = members.map { it.centerX }
+        val ys = members.map(::probe)
+        val meanX = xs.average().toFloat()
+        val meanY = ys.average().toFloat()
+        val span = (xs.maxOrNull() ?: 0f) - (xs.minOrNull() ?: 0f)
+        var cov = 0f
+        var variance = 0f
+        for (i in xs.indices) { cov += (xs[i] - meanX) * (ys[i] - meanY); variance += (xs[i] - meanX) * (xs[i] - meanX) }
+        val fitted = if (members.size >= 4 && variance > 0f) (cov / variance).coerceIn(-MAX_SLOPE, MAX_SLOPE) else 0f
+        if (abs(fitted) * span < body * .5f) return Triple(0f, meanX, median(ys) ?: meanY)
+        return Triple(fitted, meanX, meanY)
     }
 
     /**
@@ -215,8 +247,9 @@ object LineReader {
      * Letter bodies share a bottom; descenders each end somewhere different. The tightest cluster of
      * bottoms is therefore the baseline, even when the first letter or most letters descend.
      */
-    private fun densestBottom(members: List<InkBox>, body: Float): Float {
-        val bottoms = members.map { it.bottom }
+    private fun densestBottom(members: List<InkBox>, body: Float, slope: Float = 0f, at: Float = 0f): Float {
+        // Bottoms are compared as if the line were level, then read back at [at] along its tilt.
+        val bottoms = members.map { it.bottom - slope * (it.centerX - at) }
         val tolerance = max(body * .2f, 1f)
         var best = bottoms.first()
         var bestCount = 0
@@ -228,14 +261,17 @@ object LineReader {
     }
 
     /** The probe of the nearest line of writing above, overlapping this one, if it is a plausible line gap. */
-    private fun lineAbove(all: List<InkMark>, left: Float, right: Float, lineProbe: Float, body: Float, pitch: Float): Float? {
+    private fun lineAbove(all: List<InkMark>, left: Float, right: Float, lineProbe: Float, anchor: Float, slope: Float,
+                          body: Float, pitch: Float): Float? {
+        // Compared along this line's own tilt, so the far end of a sinking line is not "the line above".
+        fun level(b: InkBox) = probe(b) - slope * (b.centerX - anchor)
         val candidates = all.filter { m ->
             val b = m.box
             !m.straight && b.height <= body * 3.2f && b.right >= left && b.left <= right &&
-                probe(b) < lineProbe - pitch * .45f && probe(b) > lineProbe - body * 6f
+                level(b) < lineProbe - pitch * .45f && level(b) > lineProbe - body * 6f
         }
-        val nearest = candidates.maxOfOrNull { probe(it.box) } ?: return null
-        val line = median(candidates.map { probe(it.box) }.filter { it >= nearest - pitch * .45f }) ?: return null
+        val nearest = candidates.maxOfOrNull { level(it.box) } ?: return null
+        val line = median(candidates.map { level(it.box) }.filter { it >= nearest - pitch * .45f }) ?: return null
         return line.takeIf { lineProbe - it in (body * 1.2f)..(body * 6f) }
     }
 

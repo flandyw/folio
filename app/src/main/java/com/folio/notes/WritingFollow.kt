@@ -1,6 +1,7 @@
 package com.folio.notes
 
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -28,8 +29,10 @@ data class FollowPreferences(
     /** How far below [height] the line may sink, as a fraction of the view, before the view moves up. */
     val verticalBand get() = blend(.22f, .1f)
     val pauseMs get() = blend(600f, 200f).roundToInt()
-    val returnPauseMs get() = blend(1100f, 450f).roundToInt()
-    val glideMs get() = blend(420f, 200f).roundToInt()
+    /** How long a full line waits for more writing before it returns; the writer's own word gap can raise it. */
+    val returnPauseMs get() = blend(700f, 300f).roundToInt()
+    /** The shortest sideways glide; longer travel takes longer so the page never snaps. */
+    val glideMs get() = blend(480f, 300f).roundToInt()
 
     companion object {
         const val DEFAULT_FEEL = .5f
@@ -96,7 +99,14 @@ internal class WritingRhythm {
         if (urgent) min(base, (percentile(.5f)?.let { (it * .4f).roundToInt() } ?: 80).coerceIn(40, 180))
         else max(base, ((percentile(.75f) ?: 0L) + 80).toInt().coerceAtMost(1000))
 
-    fun returnPauseMs(base: Int): Int = max(base, ((percentile(.75f) ?: 0L) + 250).toInt().coerceAtMost(1800))
+    /**
+     * A full line returns once the pen has rested a little longer than one of this writer's word gaps.
+     * With no room left for another word the pen is almost certainly done, so a little more than a
+     * typical letter gap is enough.
+     */
+    fun returnPauseMs(base: Int, noRoom: Boolean): Int =
+        if (noRoom) max(base / 2, ((percentile(.5f) ?: 0L) + 150).toInt()).coerceAtMost(700)
+        else max(base, ((percentile(.75f) ?: 0L) + 150).toInt()).coerceAtMost(1200)
 }
 
 /**
@@ -139,7 +149,7 @@ class WritingFollow(private val host: FollowHost) {
 
     private enum class Relation { FIRST, PROGRESS, CORRECTION, NEXT, JUMP }
     private data class Plan(val left: Float, val top: Float, val dueAt: Long, val durationMs: Int,
-                            val toLine: WritingLine?, val source: WritingLine?)
+                            val toLine: WritingLine?, val source: WritingLine?, val settling: Boolean = false)
     private data class BackEntry(val dx: Float, val dy: Float, val cursor: WritingLine?, val columnStart: Float?, val columnEnd: Float?)
 
     /** The line last written, as read from the ink. */
@@ -259,7 +269,7 @@ class WritingFollow(private val host: FollowHost) {
         val next = if (from != null) nextAfter(from) ?: return report(endMessage(from))
             else firstGuideIn(view) ?: return report("Write a line first, then Next line")
         val (vx, vy) = lineTarget(next, view)
-        plan = Plan(view.left + vx, view.top + vy, now, returnDuration(vx, view), next, from?.takeIf { it.strokes > 0 })
+        plan = Plan(view.left + vx, view.top + vy, now, returnDuration(vx, vy), next, from?.takeIf { it.strokes > 0 })
         tick(now)
     }
 
@@ -313,7 +323,7 @@ class WritingFollow(private val host: FollowHost) {
                 now + MARKER_MS)
             host.redraw(); host.redraw(MARKER_MS + 16)
         }
-        motion.start((view.left - pending.left) * scale, (view.top - pending.top) * scale, pending.durationMs)
+        motion.start((view.left - pending.left) * scale, (view.top - pending.top) * scale, pending.durationMs, pending.settling)
         if (!motion.active) { finish(now); return false }
         report(if (movingToLine) "Moving to the next line · touch down to stop" else "Following · touch down to stop")
         return true
@@ -364,7 +374,7 @@ class WritingFollow(private val host: FollowHost) {
         val text = preferences.mode == FollowMode.TEXT
         val atEnd = text && atLineEnd(l)
         val (vx, reach) = sideways(l, view)
-        val vy = vertical(l.baseline, view)
+        val vy = vertical(l.baselineAt(l.frontier(preferences.direction)), view)
         // Near the visible edge the pen is about to run out of room: a letter gap is enough.
         val urgent = reach > .92f || (1f - reach) * view.width < l.body * 1.5f
         var settled = if (atEnd) "Line end · tap Next line" else "Following"
@@ -374,10 +384,12 @@ class WritingFollow(private val host: FollowHost) {
             // room comes first; the return follows once the writer settles.
             val roomFirst = roomFirstAllowed && urgent && !pastEnd(l)
             resume = if (roomFirst) l else null
-            if (next != null && !occupied(next) && !roomFirst) {
-                val delay = rhythm.returnPauseMs(preferences.returnPauseMs)
+            if (next != null && !occupied(next, l) && !roomFirst) {
+                // After a room-making glide the writer has already been still for a while.
+                val delay = if (roomFirstAllowed) rhythm.returnPauseMs(preferences.returnPauseMs, pastEnd(l))
+                    else min(rhythm.returnPauseMs(preferences.returnPauseMs, true), AFTER_ROOM_MS)
                 val (rx, ry) = lineTarget(next, view)
-                plan = Plan(view.left + rx, view.top + ry, now + delay, returnDuration(rx, view), next, l)
+                plan = Plan(view.left + rx, view.top + ry, now + delay, returnDuration(rx, ry), next, l)
                 report("Next line in ${FollowPreferences.seconds(delay)} · touch down to cancel")
                 host.schedule(delay.toLong())
                 return
@@ -388,8 +400,7 @@ class WritingFollow(private val host: FollowHost) {
         }
         if (abs(vx) * scale < .5f && abs(vy) * scale < .5f) { report(settled); return }
         val delay = rhythm.pauseMs(preferences.pauseMs, urgent)
-        plan = Plan(view.left + vx, view.top + vy, now + delay,
-            if (urgent) min(preferences.glideMs, 120) else preferences.glideMs, null, l)
+        plan = Plan(view.left + vx, view.top + vy, now + delay, glideDuration(vx, vy, urgent), null, l, settling = urgent)
         report(settled)
         host.schedule(delay.toLong())
     }
@@ -457,7 +468,7 @@ class WritingFollow(private val host: FollowHost) {
             return if (seed.bottom >= previous.bottom - body || previous.strokes == 0) Relation.PROGRESS else Relation.CORRECTION
         }
         val pitch = max(previous.pitch, body * 1.2f)
-        val dy = current.baseline - previous.baseline
+        val dy = current.baseline - previous.baselineAt((current.left + current.right) * .5f)
         val same = near && if (previous.guide != null && current.guide != null) previous.guide == current.guide
             else abs(dy) < pitch * .5f
         val direction = preferences.direction
@@ -530,7 +541,7 @@ class WritingFollow(private val host: FollowHost) {
         if (l.guide != null) return LineReader.guideFor(box, guides) == l.guide
         val probe = box.top + box.height * .3f
         return if (preferences.mode == FollowMode.MATH) box.intersects(InkBox(l.left, l.top, l.right, l.bottom))
-            else abs(probe - (l.baseline - l.body * .7f)) < l.pitch * .45f
+            else abs(probe - (l.baselineAt(box.centerX) - l.body * .7f)) < l.pitch * .45f
     }
 
     /** A trailing dot or underline must not hide the last visible line from explicit Next line. */
@@ -542,18 +553,34 @@ class WritingFollow(private val host: FollowHost) {
         return null
     }
 
-    private fun occupied(next: WritingLine): Boolean {
+    /** Whether the next line already has handwriting. The line just written never counts: a tilted one passes through it. */
+    private fun occupied(next: WritingLine, from: WritingLine): Boolean {
         val start = next.start(preferences.direction)
         val end = lineEnd(next) ?: start
         val box = InkBox(min(start, next.guide?.left ?: end), next.baseline - next.pitch,
             max(start, next.guide?.right ?: end), next.baseline + next.body)
-        return host.marks(box).any { belongsTo(it, next) }
+        return host.marks(box).any { belongsTo(it, next) && !belongsTo(it, from) }
     }
 
-    /** A return across several zoomed-in screens gets more travel time than a small nudge. */
-    private fun returnDuration(vx: Float, view: InkBox): Int {
-        val screens = abs(vx) / view.width.coerceAtLeast(1f)
-        return (preferences.glideMs + (max(0f, screens - 1f) * 100f).roundToInt()).coerceAtMost(FollowMotion.MAX_MS)
+    /**
+     * The view travels at a readable pace: never faster than [GLIDE_PX_PER_MS] on average however far
+     * it has to go, and never quicker than the writer's feel setting. An urgent move, made with the
+     * pen about to run out of room, may be briefer but is still a glide, not a snap.
+     */
+    private fun glideDuration(vx: Float, vy: Float, urgent: Boolean): Int {
+        val paced = (hypot(vx, vy) * host.scale / GLIDE_PX_PER_MS).roundToInt()
+        val floor = if (urgent) URGENT_GLIDE_MS else preferences.glideMs
+        val ceiling = if (urgent) URGENT_GLIDE_MAX_MS else FollowMotion.MAX_MS
+        return paced.coerceIn(floor, max(floor, ceiling))
+    }
+
+    /**
+     * A carriage return crosses the whole line, so it is brisker than following: waiting for it is
+     * what the writer notices, not the pace of the glide itself.
+     */
+    private fun returnDuration(vx: Float, vy: Float): Int {
+        val paced = (hypot(vx, vy) * host.scale / RETURN_PX_PER_MS).roundToInt()
+        return paced.coerceIn(preferences.glideMs, max(preferences.glideMs, RETURN_MAX_MS))
     }
 
     private fun lineEnd(l: WritingLine): Float? {
@@ -637,7 +664,8 @@ class WritingFollow(private val host: FollowHost) {
             val next = WritingGuides.next(guide, guides) ?: return null
             return placed(next.y, start.coerceIn(next.left, next.right), l, next)
         }
-        val y = l.baseline + l.pitch
+        // Unruled writing tilts, so the next line begins one pitch below where this one *began*.
+        val y = l.baselineAt(start) + l.pitch
         if (!page.infinite && y > page.height - PAGE_MARGIN) return null
         // The last response line ends the answer area, even if the writing did not snap to it.
         areaOf(l)?.let { if (y > it.bottom) return null }
@@ -654,7 +682,8 @@ class WritingFollow(private val host: FollowHost) {
 
     private fun placed(y: Float, start: Float, from: WritingLine, guide: WritingGuide?) =
         WritingLine(y, from.body, start, start, y - from.body, y, guide?.let { WritingGuides.spacing(it, guides) } ?: from.pitch,
-            guide, strokes = 0, measuredPitch = from.measuredPitch || guide != null)
+            guide, strokes = 0, measuredPitch = from.measuredPitch || guide != null,
+            slope = if (guide == null) from.slope else 0f)
 
     private fun finishing(box: InkBox, l: WritingLine): Boolean {
         val ltr = preferences.direction == WritingDirection.LTR
@@ -688,6 +717,14 @@ class WritingFollow(private val host: FollowHost) {
         /** Fraction of the view's bottom that counts as running out of room. */
         const val EDGE_BAND = .12f
         const val MAX_BACK = 12
+        /** Average speed cap for a glide, in screen pixels per millisecond. */
+        const val GLIDE_PX_PER_MS = 1.0f
+        const val RETURN_PX_PER_MS = 2.5f
+        const val RETURN_MAX_MS = 650
+        const val URGENT_GLIDE_MS = 260
+        const val URGENT_GLIDE_MAX_MS = 450
+        /** The pause before a return that follows a glide made to reveal the line's last words. */
+        const val AFTER_ROOM_MS = 150
         /** Where a line's start sits across the view after a return. */
         const val LEAD = .08f
         /** Room, in letter heights, a further word needs before the end of a line. */
