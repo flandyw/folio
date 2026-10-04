@@ -275,9 +275,21 @@ object PageJournal {
      */
     fun replay(base: PageContent, baseSeq: Int, transactions: List<PageTransaction>): PageContent {
         var content = base
+        // A run of plain pen-ups only appends, so it grows one list in place; copying the page for
+        // every record made opening a long journal quadratic in the number of strokes.
+        var appending: ArrayList<Stroke>? = null
         for (transaction in transactions) {
-            if (transaction.seq > baseSeq) content = apply(content, transaction.forward)
+            if (transaction.seq <= baseSeq) continue
+            val edit = transaction.forward
+            val add = edit.strokes as? StrokesEdit.Add
+            if (add != null && edit.texts == null && edit.images == null) {
+                (appending ?: ArrayList(content.strokes).also { appending = it }).addAll(add.strokes)
+            } else {
+                appending?.let { content = content.copy(strokes = it); appending = null }
+                content = apply(content, edit)
+            }
         }
+        appending?.let { content = content.copy(strokes = it) }
         return content
     }
 

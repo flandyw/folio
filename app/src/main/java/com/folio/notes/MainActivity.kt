@@ -17,6 +17,17 @@ class MainActivity : ComponentActivity() {
     private val stylusActivity = StylusActivity()
     private val model: FolioViewModel by viewModels()
     private var shortcutRequest by mutableIntStateOf(0)
+    /** Page rasters kept for pages scrolled away and cached text layouts are the first thing to give back. */
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            InkRasterStore.clear()
+            InkRenderer.trimMemory()
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

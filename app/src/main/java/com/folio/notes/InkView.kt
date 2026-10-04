@@ -496,6 +496,7 @@ class InkView(context: Context) : View(context) {
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        prewarmInk()
         if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) suspendWritingFollow(clearBack = false)
         peekRegion?.let(::fitPeekAnchor)
         reportCanvasViewport()
@@ -616,9 +617,11 @@ class InkView(context: Context) : View(context) {
             movingImage = null; resizingImage = false; imageMoved = false
         }
         if (selectedImageId != null && value.images.none { it.id == selectedImageId }) selectedImageId = null
+        prewarmInk()
         invalidate()
     }
-    private val committedInk = CommittedInkCache()
+    // A dense page's raster is built on a worker; its arrival just needs the view drawn again.
+    private val committedInk = CommittedInkCache(onRasterReady = { invalidate() })
     private val navigationInk = CommittedInkCache(maxPixels = 1_100_000L)
     private val zoomRenderState = ZoomRenderState()
     private val navigationBounds = android.graphics.Rect()
@@ -629,7 +632,8 @@ class InkView(context: Context) : View(context) {
     private fun clearInkLayers() {
         removeCallbacks(refreshInkDetail)
         zoomRenderState.reset()
-        committedInk.clear()
+        // Kept for the next visit rather than dropped: the page may be scrolled straight back to.
+        committedInk.release()
         navigationInk.clear()
     }
     private fun selectionIdentities(): MutableSet<Stroke> {
@@ -690,18 +694,30 @@ class InkView(context: Context) : View(context) {
                     // Invalidating just the moving tip changes Canvas's damage clip each frame.
                     // Rasterize the stable visible viewport instead, so committed ink remains a
                     // single bitmap draw throughout the gesture even on a dense page.
-                    val left = floor(-originX / scale).toInt()
-                    val top = floor(-originY / scale).toInt()
-                    val right = ceil((width - originX) / scale).toInt()
-                    val bottom = ceil((height - originY) / scale).toInt()
-                    if (content.infinite) stableInkBounds.set(left, top, right, bottom)
-                    else stableInkBounds.set(left.coerceAtLeast(0), top.coerceAtLeast(0),
-                        right.coerceAtMost(ceil(content.width).toInt()),
-                        bottom.coerceAtMost(ceil(content.height).toInt()))
+                    updateStableInkBounds(content)
                     committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf,
-                        rasterViewport = stableInkBounds)
+                        rasterViewport = stableInkBounds, deferred = !content.infinite)
                 }
             })
+    }
+
+    private fun updateStableInkBounds(content: NotePage) {
+        val left = floor(-originX / scale).toInt()
+        val top = floor(-originY / scale).toInt()
+        val right = ceil((width - originX) / scale).toInt()
+        val bottom = ceil((height - originY) / scale).toInt()
+        if (content.infinite) stableInkBounds.set(left, top, right, bottom)
+        else stableInkBounds.set(left.coerceAtLeast(0), top.coerceAtLeast(0),
+            right.coerceAtMost(ceil(content.width).toInt()),
+            bottom.coerceAtMost(ceil(content.height).toInt()))
+    }
+
+    /** Starts a finite page's ink raster as soon as the view has a size, ahead of the first frame that needs it. */
+    private fun prewarmInk() {
+        val content = page
+        if (content.infinite || width <= 0 || height <= 0) return
+        updateStableInkBounds(content)
+        committedInk.prewarm(content.strokes, stableInkBounds, scale)
     }
 
     private fun drawNavigationInk(canvas: Canvas, content: NotePage) {

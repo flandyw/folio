@@ -603,8 +603,12 @@ private fun paperLabel(p: Paper): String = when (p) {
     // the fast-scroll thumb land on ink instead of a spinner. Loading is deduplicated in the
     // ViewModel, so asking twice costs nothing.
     LaunchedEffect(note.id, state.pageIndex) {
-        note.pages.getOrNull(state.pageIndex - 1)?.let { model.loadPage(it.id) }
-        note.pages.getOrNull(state.pageIndex + 1)?.let { model.loadPage(it.id) }
+        // Two pages each way: the binary snapshots are cheap to read, and a page that is already in
+        // memory when it scrolls in never shows a loading spinner.
+        for (offset in 1..2) {
+            note.pages.getOrNull(state.pageIndex - offset)?.let { model.loadPage(it.id) }
+            note.pages.getOrNull(state.pageIndex + offset)?.let { model.loadPage(it.id) }
+        }
     }
     BackHandler(enabled = selected.isNotEmpty() && restyleSelection == null) {
         activeInkView?.clearSelection()
