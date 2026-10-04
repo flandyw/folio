@@ -51,6 +51,7 @@ object Marking {
     val DEFAULT_COLOR: Int = 0xFFC62828.toInt()
     /** Pen colours that read as "not the student's writing": red, blue, green, purple. */
     val COLORS: List<Int> = listOf(0xFFC62828.toInt(), 0xFF1565C0.toInt(), 0xFF2E7D32.toInt(), 0xFF6A1B9A.toInt())
+    fun colorName(color: Int): String = when (color) { COLORS[0] -> "red"; COLORS[1] -> "blue"; COLORS[2] -> "green"; COLORS[3] -> "purple"; else -> "custom" }
     val MARK_LABELS: List<String> = listOf("✓", "½", "✗", "+1", "+2", "+3", "+4")
     val DEFAULT_COMMENTS: List<String> = listOf(
         "Link back to the question", "Needs evidence", "Define the key term", "Explain, don't just describe",

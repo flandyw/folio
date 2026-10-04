@@ -380,6 +380,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     var stampPicker by remember { mutableStateOf(false) }
     // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
     var markingPanel by remember { mutableStateOf(false) }
+    var markingDock by rememberSaveable { mutableStateOf(false) }
+    var markingTotal by remember(note.id) { mutableStateOf<Float?>(null) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
     var feedbackActions by rememberSaveable { mutableStateOf(false) }
     var armedMarking by remember { mutableStateOf<MarkingAction?>(null) }
@@ -390,7 +392,19 @@ private fun paperLabel(p: Paper): String = when (p) {
     var markScanBusy by remember(note.id) { mutableStateOf(false) }
     var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
     var markingAutoPlace by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_AUTO_PLACE, false)) }
-    LaunchedEffect(tool) { if (tool != Tool.TEXT) armedMarking = null }
+    // A handwritten note switches to the pen to be written, so it stays armed through that switch.
+    LaunchedEffect(tool) { if (tool != Tool.TEXT && !(tool == Tool.PEN && armedMarking == MarkingAction.Note(true))) armedMarking = null }
+    // Live total for the dock: re-added whenever the marks on this page or the page count change.
+    val pageMarkSum = page.texts.mapNotNull { Marking.markValue(it.text) }.sum()
+    // Same scope as the sheet's tally: a long response counts only its own attempt's pages and marks.
+    val dockAttempt = note.longResponse?.attemptFor(page.id)
+    val markingAvailable = if (dockAttempt != null) note.longResponse?.marks ?: note.exam.marksTotal else note.exam.marksTotal
+    LaunchedEffect(markingDock, note.id, note.pages.size, pageMarkSum, dockAttempt?.pageIds) {
+        if (markingDock) markingTotal = model.pagesForMarking().let { all ->
+            val scoped = if (dockAttempt == null) all else all.filter { it.id in dockAttempt.pageIds }
+            if (scoped.any { p -> !p.loaded }) null else Marking.tally(scoped).sumOf { it.marks.toDouble() }.toFloat()
+        }
+    }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
@@ -417,7 +431,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun placeTextBox(at: InkPoint) {
         armedMarking?.let { action ->
             if (action is MarkingAction.Note) {
-                armedMarking = null
                 model.placeFeedbackNote(at, action.handwritten, markingColor)?.let { plan ->
                     val typed = plan.box
                     if (typed != null) { textEditor = typed; textEditorNew = true }
@@ -426,8 +439,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 return
             }
             model.applyMarking(action, at, markingColor)
-            // Comments and marks keep stamping; a flag or a gap is a single deliberate act.
-            if (action is MarkingAction.Flag || action is MarkingAction.MakeRoom || action is MarkingAction.RemoveRoom) armedMarking = null
+            // Comments, marks and flags keep stamping; a gap is a single deliberate act.
+            if (action is MarkingAction.MakeRoom || action is MarkingAction.RemoveRoom) armedMarking = null
             return
         }
         val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
@@ -1134,7 +1147,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
-            armedMarking?.let { action ->
+            if (markingDock) MarkingDock(
+                armed = armedMarking, color = markingColor,
+                onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
+                bank = markingBank, total = markingTotal, available = markingAvailable,
+                onArm = { action -> armedMarking = action; if (action != null) tool = Tool.TEXT },
+                onMore = { markingPanel = true },
+                onClose = { markingDock = false; armedMarking = null },
+                modifier = Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = FolioSpacing.dp16)
+            ) else armedMarking?.let { action ->
                 Surface(
                     Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = FolioSpacing.dp24),
                     shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface,
@@ -1243,7 +1264,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         onContents = { pdfContentsOpen = true; loadOutline() },
                                         onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
                                         onInsertElement = { stampPicker = true },
-                                        onMarking = { markingPanel = true },
+                                        onMarking = { markingDock = !markingDock; if (!markingDock) armedMarking = null },
                                         onOrganize = { pageBrowser = true },
                                         onBookmark = { model.togglePageBookmark(page.id) },
                                         onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
@@ -1651,7 +1672,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         zoneCount = markZones.size, zoneTotal = MarkZones.total(markZones),
         scanStatus = markScanStatus, scanComplete = !markScanBusy && markScanStatus == null,
         autoPlace = markingAutoPlace, onAutoPlace = { markingAutoPlace = it; appPrefs.edit().putBoolean(Marking.PREF_AUTO_PLACE, it).apply() },
-        onArm = { action -> armedMarking = action; tool = Tool.TEXT; markingPanel = false },
+        onArm = { action -> armedMarking = action; tool = Tool.TEXT; markingPanel = false; markingDock = true },
         onPlaceNow = { action -> model.placeInFreeSpace(action, markingColor) },
         loadPages = { model.pagesForMarking() },
         onOpenSheet = { index -> markingPanel = false; if (index >= 0) jumpTo(index) },
@@ -2628,7 +2649,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         MenuSectionHeader("Page")
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
-        DropdownMenuItem({ Text("Marking & feedback") }, { onDismiss(); onMarking() }, leadingIcon = { Icon(Icons.Rounded.RateReview, null) })
+        DropdownMenuItem({ Text("Marking bar") }, { onDismiss(); onMarking() }, leadingIcon = { Icon(Icons.Rounded.RateReview, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
         SubmenuItem("Study tools", Icons.Rounded.School, submenu == Submenu.STUDY, { open(Submenu.STUDY) }) {
