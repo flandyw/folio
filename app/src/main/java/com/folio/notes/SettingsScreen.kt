@@ -766,6 +766,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     var direction by remember { mutableStateOf(runCatching { WritingDirection.valueOf(p.getString("follow.direction", "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)) }
     var hand by remember { mutableStateOf(runCatching { WritingHand.valueOf(p.getString("writingHand", "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)) }
     var autoReturn by remember { mutableStateOf(p.getBoolean("follow.autoReturn", false)) }
+    var adaptive by remember { mutableStateOf(p.getBoolean(FollowPrefsStore.ADAPTIVE, true)) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
             when (k) {
@@ -774,6 +775,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
                 "follow.direction" -> direction = runCatching { WritingDirection.valueOf(p.getString(k, "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)
                 "writingHand" -> hand = runCatching { WritingHand.valueOf(p.getString(k, "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)
                 "follow.autoReturn" -> autoReturn = p.getBoolean(k, false)
+                FollowPrefsStore.ADAPTIVE -> adaptive = p.getBoolean(k, true)
             }
         }
         p.registerOnSharedPreferenceChangeListener(listener)
@@ -824,6 +826,10 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         autoReturn = it
         p.edit().putBoolean("follow.autoReturn", it).apply()
     }, enabled = mode == FollowMode.TEXT)
+    PreferenceSwitch("Learn from how I write", "Follow adjusts a little to your pauses, line wraps, word width, speed and where you like your line, and offers a setting when your writing points to one. It forgets when the app closes.", adaptive, {
+        adaptive = it
+        p.edit().putBoolean(FollowPrefsStore.ADAPTIVE, it).apply()
+    })
 }
 
 // ---- Mistake practice ------------------------------------------------------------------------

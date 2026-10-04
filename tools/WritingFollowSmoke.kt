@@ -24,6 +24,10 @@ private class FakeHost(var pageWidth: Float = 840f, var pageHeight: Float = 1188
     var last = FollowStatus()
     override var busy = false
     var clampX = true
+    /** Whether Next line may turn the page, and how many times it did. */
+    var pageAvailable = false
+    var pageFlips = 0
+    override fun nextPage(): Boolean { if (pageAvailable) pageFlips++; return pageAvailable }
     override fun viewport() = InkBox(x, y, x + viewW / scale, y + viewH / scale)
     override fun panBy(dx: Float, dy: Float): Pair<Float, Float> {
         // Content moving left by dx pixels moves the viewport right by dx / scale.
@@ -45,8 +49,9 @@ private class FakeHost(var pageWidth: Float = 840f, var pageHeight: Float = 1188
 }
 
 private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = FollowPreferences(),
-                    guides: List<WritingGuide> = emptyList(), private val interleaveFrames: Boolean = false) {
-    val follow = WritingFollow(host)
+                    guides: List<WritingGuide> = emptyList(), private val interleaveFrames: Boolean = false,
+                    val learner: FollowLearner = FollowLearner(), record: FollowTrace? = null) {
+    val follow = WritingFollow(host, learner)
     var now = 0L
     val moves = mutableListOf<Triple<Long, Float, Float>>()
     private fun tickAt(t: Long) {
@@ -58,6 +63,7 @@ private class Trace(val host: FakeHost = FakeHost(), prefs: FollowPreferences = 
         follow.reset(FollowPage(host.infinite, host.pageWidth, host.pageHeight))
         follow.preferences = prefs
         follow.guides = guides
+        follow.trace = record
         follow.enabled = true
     }
     fun write(points: List<InkPoint>, gap: Long = 150) {
@@ -120,10 +126,78 @@ private class PrintedPage(private val scale: Int = 1) {
     fun prompt(left: Int, y: Int) {
         for (x in left until left + 160 step 9) rect(x, y, x + 4, y + 8)
     }
-    fun analyze() = WritingGuides.analyze(pixels, width, height, 840f, 1188f)
+    /** A row of printed text, as it looks in the raster. */
+    fun text(left: Int, y: Int, width: Int = 340) {
+        for (x in left until left + width step 9) rect(x, y, x + 4, y + 8)
+    }
+    fun analyze(text: List<PdfTextLine> = emptyList()) = WritingGuides.analyze(pixels, width, height, 840f, 1188f, text)
 }
 
-fun main() {
+private fun textLine(top: Float, text: String, left: Float = 40f, right: Float = 380f) =
+    PdfTextLine(0, left, top, right, top + 10f, text)
+
+/** Replays recorded events against a fresh engine on a fake screen, the way a trace file is replayed. */
+private class Replay(events: List<TraceEvent>, learner: FollowLearner = FollowLearner()) {
+    val host = FakeHost()
+    val follow = WritingFollow(host, learner)
+    val moves = mutableListOf<Triple<Long, Float, Float>>()
+    var now = 0L
+    private fun frames(until: Long) {
+        while (host.due != null) {
+            val due = now + maxOf(host.due!!, 16L)
+            if (due > until) { host.due = due - until; break }
+            host.due = null
+            now = due
+            val x = host.x; val y = host.y
+            follow.tick(now)
+            if (host.x != x || host.y != y) moves += Triple(now, host.x, host.y)
+        }
+        now = maxOf(now, until)
+    }
+    init {
+        for (event in events) {
+            if (event is TraceEvent.Moved) continue
+            frames(event.t)
+            when (event) {
+                is TraceEvent.Context -> {
+                    host.pageWidth = event.page.width; host.pageHeight = event.page.height; host.infinite = event.page.infinite
+                    follow.reset(event.page); follow.preferences = event.preferences
+                    follow.guides = event.guides; follow.areas = event.areas; follow.enabled = true
+                }
+                is TraceEvent.Down -> follow.penDown(event.t)
+                is TraceEvent.Up -> {
+                    event.view?.let {
+                        host.scale = event.scale; host.x = it.left; host.y = it.top
+                        host.viewW = it.width * event.scale; host.viewH = it.height * event.scale
+                    }
+                    host.ink += event.mark
+                    follow.strokeFinished(event.mark, event.t)
+                }
+                is TraceEvent.Touch -> follow.touched()
+                is TraceEvent.Next -> follow.nextLine(event.t)
+                is TraceEvent.Back -> follow.back(event.t)
+                is TraceEvent.Navigated -> follow.navigated()
+                is TraceEvent.Hover -> follow.hover(event.x, event.y, event.t)
+                is TraceEvent.HoverEnd -> follow.hoverEnded(event.t)
+                is TraceEvent.Moved -> Unit
+            }
+        }
+        frames(now + 4000)
+    }
+}
+
+fun main(args: Array<String>) {
+    if (args.isNotEmpty()) {
+        // `node tools/writing-follow-smoke.cjs trace.txt` replays a recorded session against the current engine.
+        val events = FollowTrace.parse(java.io.File(args[0]).readText())
+        val learner = FollowLearner()
+        val replay = Replay(events, learner)
+        val recorded = events.count { it is TraceEvent.Moved }
+        println("${events.size} events, ${events.count { it is TraceEvent.Up }} strokes, $recorded recorded view moves, ${replay.moves.size} replayed")
+        println("automatic moves ${learner.moves}, interrupted or undone ${learner.cancelled}, taken back ${learner.undone}")
+        learner.describe(FollowPreferences()).forEach { println("  $it") }
+        return
+    }
     scenario("A sideways glide travels at a readable pace instead of snapping") {
         val t = Trace(FakeHost(viewW = 400f, scale = 2f), FollowPreferences())
         var x = 30f
@@ -360,12 +434,14 @@ fun main() {
         check(marker.x == 40f && marker.y == 128f)
         t.follow.nextLine(t.now); t.settle()
         check(t.follow.marker(t.now)?.y == 156f)
-        t.follow.nextLine(t.now); t.settle()
-        check(t.host.last.message == "End of this answer area")
+        // Filling the last line never returns by itself into the next question.
         x = 40f
         while (x < 370f) { t.write(letter(x, 156f)); x += 18f }
         check(t.host.last.message == "End of this answer area")
         check(t.host.due == null)
+        // Asking for Next line there goes on to the next question, which has no writing yet.
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 212f) { "no jump: ${t.host.last.message}" }
     }
     scenario("Right-to-left return uses the same detected response block") {
         val page = PrintedPage()
@@ -388,6 +464,10 @@ fun main() {
         for (i in 0..3) t.write(letter(40f + i * 18f))
         t.follow.nextLine(t.now); t.settle()
         check(t.follow.marker(t.now)?.y == 128f)
+        // The last response line of the first answer area leads on to the next one.
+        t.follow.nextLine(t.now); t.settle()
+        check(t.follow.marker(t.now)?.y == 184f)
+        t.follow.nextLine(t.now); t.settle()
         t.follow.nextLine(t.now); t.settle()
         check(t.host.last.message == "End of this answer area")
     }
@@ -745,6 +825,462 @@ fun main() {
             if (step.finished) break
         }
         check(abs(sum + 100f) < .01f && abs(motion.appliedX + 100f) < .01f)
+    }
+    // ---- Learning from the writer, hover, prediction ----
+    scenario("The learner is shared: rhythm, wrap and word room carry over, and forgetting clears them") {
+        val learner = FollowLearner()
+        repeat(6) { learner.rhythm.add(200L) }
+        learner.learnWrap(.8f); learner.learnWordRoom(6f)
+        check(learner.rhythm.wordGapMs() == 200L && learner.wrapReach == .8f && learner.wordRoom == 6f)
+        check(learner.describe(FollowPreferences()).isNotEmpty())
+        learner.forget()
+        check(learner.rhythm.wordGapMs() == null && learner.wrapReach == null && learner.wordRoom == null)
+        check(learner.describe(FollowPreferences()).isEmpty())
+    }
+    scenario("Interrupting automatic returns makes the next ones wait longer, then puts them on hold until asked again") {
+        val page = PrintedPage()
+        for (y in listOf(500, 528)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        // Scrolled down the page, so the return has somewhere to travel.
+        val t = Trace(FakeHost(viewW = 840f, viewH = 500f, scale = 1f).apply { y = 400f }, FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        var x = 40f
+        while (x < 340f) { t.write(letter(x, 500f)); x += 18f }
+        check(t.host.last.message.startsWith("Next line in")) { t.host.last.message }
+        val first = t.host.due!!
+        // Writing the last word of a line cancels a pending return at every stroke: that is not a verdict.
+        repeat(6) { t.follow.touched(); t.write(letter(358f, 500f)) }
+        check(t.learner.cancelled == 0 && !t.learner.returnHeld)
+        /** Lets the pause pass so the return starts moving, then writes again part-way through it. */
+        fun interrupt() {
+            t.now += 3000; t.follow.tick(t.now)
+            t.now += 30; t.follow.tick(t.now)
+            check(t.follow.isGliding) { "return never started: ${t.host.last.message}" }
+            t.follow.touched()
+            t.write(letter(358f, 500f))
+        }
+        interrupt(); interrupt()
+        check(t.learner.cancelled == 2 && t.learner.returnFactor() == 1f) // too few outcomes to judge yet
+        interrupt()
+        val later = t.host.due!!
+        check(t.learner.returnFactor() > 1.9f && later > first) { "factor ${t.learner.returnFactor()}, $first -> $later" }
+        interrupt(); interrupt()
+        t.write(letter(358f, 500f))
+        check(t.learner.returnHeld && t.host.last.message.contains("on hold") && t.host.due == null) { t.host.last.message }
+        // Turning automatic return on again is asking for another chance.
+        t.follow.preferences = FollowPreferences(automaticReturn = false)
+        t.follow.preferences = FollowPreferences(automaticReturn = true)
+        check(!t.learner.returnHeld)
+    }
+    scenario("Writing on the line an automatic return placed counts as accepting it") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128, 156)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        var x = 40f
+        while (x < 340f) { t.write(letter(x)); x += 18f }
+        t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+        val before = t.learner.moves
+        t.write(letter(40f, 128f))
+        check(t.learner.moves == before + 1 && t.learner.cancelled == 0)
+    }
+    scenario("Taking back an automatic move soon after counts against it; a plain Next line never does") {
+        val t = Trace()
+        for (i in 0..12) { t.write(letter(30f + i * 18f)); t.settle() }
+        check(t.host.last.canGoBack && t.learner.moves > 0)
+        val before = t.learner.cancelled
+        t.follow.back(t.now)
+        check(t.learner.cancelled == before + 1 && t.learner.undone == 1)
+        val guides = listOf(100f, 128f).map { WritingGuide(36f, 400f, it) }
+        val explicit = Trace(guides = guides)
+        for (i in 0..3) explicit.write(letter(40f + i * 18f))
+        explicit.follow.nextLine(explicit.now); explicit.settle(); explicit.follow.back(explicit.now)
+        check(explicit.learner.cancelled == 0 && explicit.learner.undone == 0)
+    }
+    scenario("Pressing Next line at the end of full lines three times offers automatic return, once") {
+        val guides = listOf(100f, 128f, 156f, 184f).map { WritingGuide(40f, 380f, it) }
+        val t = Trace(FakeHost(viewW = 840f, scale = 1f), guides = guides)
+        for (baseline in listOf(100f, 128f, 156f)) {
+            var x = 40f
+            while (x < 360f) { t.write(letter(x, baseline)); x += 18f }
+            t.follow.nextLine(t.now); t.settle()
+        }
+        check(t.host.last.suggestion == FollowSuggestion.AUTOMATIC_RETURN) { "no offer: ${t.host.last}" }
+        t.follow.resolveSuggestion(FollowSuggestion.AUTOMATIC_RETURN)
+        check(t.host.last.suggestion == null)
+        var x = 40f
+        while (x < 360f) { t.write(letter(x, 184f)); x += 18f }
+        t.follow.nextLine(t.now)
+        check(t.host.last.suggestion == null) { "offered again after being declined" }
+        val off = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(adaptive = false), guides)
+        repeat(3) { i -> var y = 40f; while (y < 360f) { off.write(letter(y, 100f + i * 28f)); y += 18f }; off.follow.nextLine(off.now); off.settle() }
+        check(off.host.last.suggestion == null)
+    }
+    scenario("Where the writer puts a line they start themselves nudges the writing height, within bounds") {
+        val t = Trace(FakeHost(infinite = true), FollowPreferences(keepHeight = true))
+        repeat(3) { i ->
+            t.follow.navigated()
+            val baseline = 600f + i * 300f
+            t.host.x = 0f; t.host.y = baseline - .4f * 250f      // the writer panned so the line sits 40% down
+            t.write(letter(30f, baseline)); t.settle()
+        }
+        check(abs(t.learner.heightShift(.55f) + .1f) < .001f) { "shift ${t.learner.heightShift(.55f)}" }
+        t.follow.navigated()
+        t.host.y = 0f
+        for (i in 0..3) t.write(letter(30f + i * 18f, 180f))
+        for (i in 0..3) t.write(letter(30f + i * 18f, 212f))
+        t.settle()
+        val view = t.host.viewport()
+        check(abs((212f - view.top) / view.height - .45f) < .01f) { "line at ${(212f - view.top) / view.height}" }
+        val fixed = Trace(FakeHost(infinite = true), FollowPreferences(keepHeight = true, adaptive = false))
+        repeat(3) { i -> fixed.follow.navigated(); fixed.host.y = 600f + i * 300f - 100f; fixed.write(letter(30f, 600f + i * 300f)); fixed.settle() }
+        check(fixed.learner.heightShift(.55f) == 0f) { "a non-adaptive engine learned a height" }
+        fixed.follow.navigated(); fixed.host.y = 0f
+        for (i in 0..3) fixed.write(letter(30f + i * 18f, 180f))
+        for (i in 0..3) fixed.write(letter(30f + i * 18f, 212f))
+        fixed.settle()
+        check(abs((212f - fixed.host.y) / 250f - .55f) < .01f)
+    }
+    scenario("A fast writer's move is judged a little ahead of the pen; a slow or non-adaptive one is not") {
+        fun run(prefs: FollowPreferences): Trace {
+            val t = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f), prefs)
+            for (i in 0..11) t.write(letter(30f + i * 18f))     // the line's end is about 60% across
+            return t
+        }
+        val adaptive = run(FollowPreferences())
+        check(adaptive.host.due != null && adaptive.learner.bodiesPerSecond!! > 3f) { "no early plan: ${adaptive.host.last.message}" }
+        adaptive.settle()
+        check(adaptive.host.x > 40f) { "moved only ${adaptive.host.x}" }
+        check(run(FollowPreferences(adaptive = false)).host.due == null)
+        // Slow writing (one stroke every 2.5 s) has no lead to look ahead with.
+        val slow = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+        for (i in 0..11) slow.write(letter(30f + i * 18f), gap = 1400)
+        check(slow.host.due == null) { "slow writer was moved early" }
+    }
+    scenario("A line's own words say how much room one more needs, so a wide-spaced writer returns earlier") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128)) page.rule(40, 780, y)
+        val detected = page.analyze()
+        fun run(adaptive: Boolean): String {
+            val t = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(automaticReturn = true, adaptive = adaptive), detected.guides)
+            t.follow.areas = detected.areas
+            var x = 40f
+            // Four-letter words with a wide gap: a word and its gap take about 8 letter heights.
+            while (x < 700f) { for (i in 0..3) { t.write(letter(x, 100f)); x += 18f }; x += 26f }
+            return t.host.last.message
+        }
+        check(run(true).startsWith("Next line in")) { run(true) }
+        check(!run(false).startsWith("Next line in")) { run(false) }
+        val boxes = (0..11).map { i -> val x = 40f + (i / 4) * 96f + (i % 4) * 18f; InkBox(x, 88f, x + 14f, 100f) }
+        val span = LineReader.wordSpan(boxes, 12f)!!
+        check(abs(span - 96f) < 1f) { "word span $span" }
+        check(LineReader.wordSpan((0..11).map { InkBox(40f + it * 18f, 88f, 54f + it * 18f, 100f) }, 12f) == null)
+    }
+    scenario("A pen leaving hover range starts a pending move sooner; hovering at the frontier holds it back") {
+        val t = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+        for (i in 0..15) t.write(letter(30f + i * 18f))
+        val pause = t.host.due!!
+        check(pause >= 200)
+        t.follow.hoverEnded(t.now)
+        check(t.host.due == 150L) { "due ${t.host.due}" }
+        // A pen still hovering at the end of the writing: the move waits a moment, not forever.
+        val held = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+        for (i in 0..15) held.write(letter(30f + i * 18f))
+        var steps = 0
+        held.now += 2000
+        while (held.host.x == 0f && steps < 12) {
+            held.follow.hover(310f, 92f, held.now)
+            held.follow.tick(held.now)
+            if (steps == 0) check(held.host.x == 0f && held.host.due != null) { "was not held" }
+            held.now += 260; steps++
+        }
+        check(steps in 3..8 && held.host.x > 0f) { "held for $steps steps, x=${held.host.x}" }
+    }
+    scenario("A move that would leave a hovering pen over writing it hides is dropped") {
+        val t = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+        for (i in 0..15) t.write(letter(30f + i * 18f))
+        check(t.host.due != null)
+        t.follow.hover(40f, 92f, t.now)       // the pen points at the start of the line: a correction
+        check(t.host.due == null && t.host.last.message.startsWith("Holding still")) { t.host.last.message }
+        val travel = t.moved { t.settle() }
+        check(travel == (0f to 0f))
+        // Hovering where the writing is going is fine.
+        val ok = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+        for (i in 0..15) ok.write(letter(30f + i * 18f))
+        ok.follow.hover(300f, 92f, ok.now)
+        check(ok.host.due != null)
+    }
+    scenario("Hover never moves anything on its own, and a return still returns while the pen hovers over the line") {
+        val page = PrintedPage()
+        for (y in listOf(100, 128)) page.rule(40, 380, y)
+        val detected = page.analyze()
+        val t = Trace(FakeHost(viewW = 840f, scale = 1f), FollowPreferences(automaticReturn = true), detected.guides)
+        t.follow.areas = detected.areas
+        t.follow.hover(100f, 90f, 10L); t.follow.hoverEnded(20L)
+        check(t.host.due == null && t.host.x == 0f)
+        var x = 40f
+        while (x < 340f) { t.write(letter(x)); x += 18f }
+        check(t.host.last.message.startsWith("Next line in"))
+        t.follow.hover(330f, 92f, t.now)
+        check(t.host.due != null)
+        t.settle()
+        check(t.follow.marker(t.now)?.y == 128f)
+    }
+
+    // ---- Headlines, direction, maths ----
+    scenario("A headline drawn over a word finishes it, as a dot does; an underline does not") {
+        fun run(y: Float): Trace {
+            val t = Trace(FakeHost(viewW = 400f, viewH = 500f, scale = 1f))
+            for (i in 0..15) t.write(letter(30f + i * 18f))
+            t.follow.touched()
+            t.write(rule(240f, y, 74f))
+            return t
+        }
+        check(run(88f).host.due != null) { "headline did not restart the move" }
+        check(run(106f).host.due == null) { "an underline restarted the move" }
+    }
+    scenario("Strokes that run against the setting offer the other direction, once, and ordinary writing never does") {
+        val rtl = Trace(FakeHost(infinite = true))
+        for (i in 0..20) rtl.write(letter(400f - i * 18f))
+        check(rtl.host.last.suggestion == FollowSuggestion.RIGHT_TO_LEFT) { "${rtl.host.last}" }
+        rtl.follow.resolveSuggestion(FollowSuggestion.RIGHT_TO_LEFT)
+        for (i in 0..20) rtl.write(letter(400f - i * 18f, 140f))
+        check(rtl.host.last.suggestion == null)
+        val ltr = Trace(FakeHost(infinite = true), FollowPreferences(direction = WritingDirection.RTL))
+        for (i in 0..20) ltr.write(letter(30f + i * 18f))
+        check(ltr.host.last.suggestion == FollowSuggestion.LEFT_TO_RIGHT)
+        val plain = Trace(FakeHost(infinite = true))
+        for (i in 0..20) plain.write(letter(30f + i * 18f))
+        check(plain.host.last.suggestion == null)
+    }
+    fun equalsSign(x: Float, baseline: Float = 100f) = listOf(rule(x, baseline - 6f, 16f), rule(x, baseline, 16f))
+    fun maths(t: Trace, baseline: Float, equalsAt: Float? = 100f, startAt: Float = 40f) {
+        var x = startAt
+        while (x < (equalsAt ?: 140f) - 20f) { t.write(letter(x, baseline)); x += 18f }
+        equalsAt?.let { e -> equalsSign(e, baseline).forEach { t.write(it) }; t.write(letter(e + 24f, baseline)); t.write(letter(e + 42f, baseline)) }
+    }
+    scenario("Maths returns to the start of the whole row, and under the = once the writer lines working up on it") {
+        val plain = Trace(prefs = FollowPreferences(mode = FollowMode.MATH))
+        maths(plain, 100f)
+        plain.follow.nextLine(plain.now); plain.settle()
+        check(plain.follow.marker(plain.now)?.x == 40f) { "marker ${plain.follow.marker(plain.now)}" }
+        val trained = Trace(prefs = FollowPreferences(mode = FollowMode.MATH), learner = FollowLearner().apply { learnRow(true) })
+        maths(trained, 100f)
+        trained.follow.nextLine(trained.now); trained.settle()
+        check(trained.follow.marker(trained.now)?.x == 100f) { "marker ${trained.follow.marker(trained.now)}" }
+    }
+    scenario("A row of working that starts under the = above teaches Maths to line up on it") {
+        val t = Trace(prefs = FollowPreferences(mode = FollowMode.MATH))
+        maths(t, 100f)
+        check(!t.learner.mathAligned)
+        t.write(letter(100f, 132f)); t.write(letter(118f, 132f))
+        check(t.learner.mathAligned)
+        val left = Trace(prefs = FollowPreferences(mode = FollowMode.MATH))
+        maths(left, 100f)
+        left.write(letter(40f, 132f)); left.write(letter(58f, 132f))
+        check(!left.learner.mathAligned)
+    }
+    scenario("Working full of = signs offers Maths mode in Text, once") {
+        val t = Trace(FakeHost(infinite = true))
+        for (row in 0..3) maths(t, 100f + row * 34f)
+        check(t.host.last.suggestion == FollowSuggestion.MATHS_MODE) { "${t.host.last}" }
+        t.follow.resolveSuggestion(FollowSuggestion.MATHS_MODE)
+        for (row in 4..8) maths(t, 100f + row * 34f)
+        check(t.host.last.suggestion == null)
+        val text = Trace(FakeHost(infinite = true))
+        for (row in 0..5) for (i in 0..8) text.write(letter(40f + i * 18f, 100f + row * 34f))
+        check(text.host.last.suggestion == null)
+        val math = Trace(FakeHost(infinite = true), FollowPreferences(mode = FollowMode.MATH))
+        for (row in 0..5) maths(math, 100f + row * 34f)
+        check(math.host.last.suggestion == null)
+    }
+    scenario("= signs and fraction bars are recognised, and plain writing has neither") {
+        val body = 12f
+        val equals = equalsSign(100f).map { InkMark.of(it)!! }
+        check(LineReader.equalsAt(equals.map { it.box }, body) == 100f)
+        check(LineReader.mathEvidence(equals, body))
+        val fraction = listOf(letter(100f, 90f), rule(92f, 94f, 40f), letter(100f, 112f)).map { InkMark.of(it)!! }
+        check(LineReader.mathEvidence(fraction, body))
+        check(!LineReader.mathEvidence((0..8).map { InkMark.of(letter(40f + it * 18f))!! }, body))
+        check(!LineReader.mathEvidence(listOf(InkMark.of(rule(40f, 110f, 80f))!!), body)) // a lone underline
+    }
+
+    // ---- Answer areas from the text layer, and moving between them ----
+    scenario("White space under a question becomes an answer area when the paper says so and the page is blank there") {
+        val lines = listOf(textLine(100f, "Question 1 (3 marks)"), textLine(118f, "Find the derivative of f(x)."),
+            textLine(136f, "Hence solve the equation."), textLine(330f, "Question 2 (2 marks)"),
+            textLine(348f, "State the range."), textLine(366f, "Explain your reasoning."))
+        fun page(figure: Boolean): PrintedPage {
+            val page = PrintedPage()
+            lines.forEach { page.text(40, it.top.toInt()) }
+            if (figure) page.rect(60, 200, 340, 300)
+            return page
+        }
+        val found = page(false).analyze(lines)
+        check(found.guides.isEmpty() && found.areas.size == 2) { "$found" }
+        check(found.areas[0].top in 150f..157f && found.areas[0].bottom in 318f..326f && found.areas[0].left == 40f && found.areas[0].right == 380f) { "${found.areas[0]}" }
+        check(found.areas[1].top > 370f && found.areas[1].bottom > 1000f)
+        // A figure is a gap in the text but not in the ink.
+        check(page(true).analyze(lines).areas.size == 1)
+        // No text layer (a scan): nothing is guessed.
+        check(page(false).analyze().areas.isEmpty())
+    }
+    scenario("Without marks or a question marker only a wide gap counts, and never the rest of the page") {
+        fun areas(secondTop: Float): List<AnswerArea> {
+            val lines = listOf(100f, 118f, 136f, 154f, secondTop, secondTop + 18f).map { textLine(it, "Some printed sentence of text here.") }
+            val page = PrintedPage()
+            lines.forEach { page.text(40, it.top.toInt()) }
+            return page.analyze(lines).areas
+        }
+        check(areas(250f).size == 1)        // 86 units clear: about five lines of room
+        check(areas(235f).isEmpty())        // 71 units: a paragraph break
+    }
+    scenario("Printed response lines win: no inferred area overlaps them") {
+        val lines = listOf(textLine(100f, "Question 1 (3 marks)"), textLine(118f, "Find the derivative of f(x)."),
+            textLine(136f, "Hence solve the equation."), textLine(330f, "Question 2 (2 marks)"),
+            textLine(348f, "State the range."), textLine(366f, "Explain your reasoning."))
+        val page = PrintedPage()
+        lines.forEach { page.text(40, it.top.toInt()) }
+        for (y in listOf(200, 228, 256)) page.rule(40, 380, y)
+        val found = page.analyze(lines)
+        check(found.guides.size == 3 && found.areas.size == 2) { "$found" }
+        check(found.guides.all { it.block == 0 } && found.areas[0].bottom == 256f)
+        check(found.areas.count { it.top < 320f } == 1)
+    }
+    scenario("Each column of a two-column page has its own answer spaces") {
+        val lines = (listOf(40f to 380f, 440f to 780f)).flatMap { (l, r) ->
+            listOf(textLine(100f, "Question 1 (3 marks)", l, r), textLine(118f, "Find the derivative.", l, r), textLine(136f, "Hence solve it.", l, r),
+                textLine(330f, "Question 2 (2 marks)", l, r), textLine(348f, "State the range.", l, r), textLine(366f, "Explain your reasoning.", l, r))
+        }
+        val page = PrintedPage()
+        lines.forEach { page.text(it.left.toInt(), it.top.toInt()) }
+        val found = page.analyze(lines).areas
+        check(found.size == 4 && found.count { it.right <= 380f } == 2 && found.count { it.left >= 440f } == 2) { "$found" }
+    }
+    scenario("A text box is mapped from the crop box onto the page, and degenerate ones are dropped") {
+        val line = PdfTextLayout.mapLine(3, 59.5f, 100f, 297.5f, 112f, 595f, 842f, 840f, 1188f, " Question 1 ")!!
+        check(line.pageIndex == 3 && abs(line.left - 84f) < .2f && abs(line.right - 420f) < .2f && abs(line.top - 141f) < .2f && line.text == "Question 1")
+        check(PdfTextLayout.mapLine(0, 10f, 10f, 10.2f, 20f, 595f, 842f, 840f, 1188f, "x") == null)
+        check(PdfTextLayout.mapLine(0, 10f, 10f, 50f, 20f, 595f, 842f, 840f, 1188f, "  ") == null)
+    }
+    fun twoAnswers(): Pair<List<AnswerArea>, Trace> {
+        val areas = listOf(AnswerArea(40f, 150f, 380f, 320f), AnswerArea(40f, 360f, 380f, 700f), AnswerArea(40f, 740f, 380f, 900f))
+        val t = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f))
+        t.follow.areas = areas
+        return areas to t
+    }
+    scenario("Next line walks down a blank answer space, then on to the next question without writing") {
+        val (_, t) = twoAnswers()
+        for (i in 0..3) t.write(letter(40f + i * 18f, 180f))
+        var y = 0f
+        repeat(5) { t.follow.nextLine(t.now); t.settle(); y = t.follow.marker(t.now)!!.y; check(y in 190f..320f) { "line $y" } }
+        // The space is used up: the next request goes to the second answer area.
+        t.follow.nextLine(t.now); t.settle()
+        val jump = t.follow.marker(t.now) ?: error(t.host.last.message)
+        check(jump.x == 40f && jump.y in 380f..400f) { "jumped to $jump" }
+        // Writing there is progress, and Back returns to where the view was.
+        for (i in 0..3) t.write(letter(40f + i * 18f, jump.y))
+        check(t.host.last.message != "Holding for your correction")
+        t.follow.back(t.now)
+    }
+    scenario("The jump skips questions that already have writing and stops when none are left") {
+        val (areas, t) = twoAnswers()
+        for (i in 0..3) t.host.ink += InkMark.of(letter(40f + i * 18f, 400f))!!
+        for (i in 0..3) t.write(letter(40f + i * 18f, 180f))
+        repeat(6) { t.follow.nextLine(t.now); t.settle() }
+        val marker = t.follow.marker(t.now) ?: error(t.host.last.message)
+        check(marker.y in 760f..780f) { "went to $marker, not the third area ${areas[2]}" }
+        for (i in 0..3) t.write(letter(40f + i * 18f, marker.y))
+        repeat(8) { t.follow.nextLine(t.now); t.settle() }
+        check(t.host.last.message == "End of this answer area") { t.host.last.message }
+    }
+    scenario("A neighbouring column's question comes after the one above it, in reading order") {
+        val areas = listOf(AnswerArea(40f, 150f, 380f, 320f), AnswerArea(40f, 360f, 380f, 700f),
+            AnswerArea(440f, 150f, 780f, 320f), AnswerArea(440f, 360f, 780f, 700f))
+        val t = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f))
+        t.follow.areas = areas
+        for (area in areas.take(2)) for (i in 0..3) t.host.ink += InkMark.of(letter(area.left + i * 18f, area.top + 30f))!!
+        for (i in 0..3) t.write(letter(40f + i * 18f, 400f))
+        repeat(12) { t.follow.nextLine(t.now); t.settle(); val m = t.follow.marker(t.now); if (m != null && m.x >= 440f) return@repeat }
+        val m = t.follow.marker(t.now)!!
+        check(m.x == 440f && m.y in 170f..200f) { "went to $m" }
+    }
+    scenario("At the end of the page Next line turns the page, and the new page carries on to its first rule") {
+        val guides = listOf(100f, 128f).map { WritingGuide(36f, 400f, it) }
+        val learner = FollowLearner()
+        val first = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f).apply { pageAvailable = true }, guides = guides, learner = learner)
+        for (i in 0..3) first.write(letter(40f + i * 18f, 128f))
+        first.follow.nextLine(first.now)
+        check(first.host.pageFlips == 1 && first.host.last.message == "Next page") { first.host.last.message }
+        val second = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f), guides = guides, learner = learner)
+        second.now = first.now + 300
+        second.follow.continueFromPreviousPage(second.now); second.settle()
+        check(second.follow.marker(second.now)?.y == 100f) { "no carry: ${second.host.last.message}" }
+        // The carry is spent; it never fires twice, and never long afterwards.
+        val third = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f), guides = guides, learner = learner)
+        third.follow.continueFromPreviousPage(third.now + 10_000)
+        check(third.follow.marker(third.now) == null)
+        // With no next page the end is reported as before.
+        val last = Trace(FakeHost(viewW = 840f, viewH = 1188f, scale = 1f), guides = guides)
+        for (i in 0..3) last.write(letter(40f + i * 18f, 128f))
+        last.follow.nextLine(last.now)
+        check(last.host.pageFlips == 0 && last.host.last.message == "End of this answer area")
+    }
+
+    scenario("Glyph runs group into pieces: a wide gap (a column, right-aligned marks) starts a new piece") {
+        fun run(x: Float, baseline: Float, text: String, width: Float = text.length * 5f) = PdfGlyph(x, baseline, width, 10f, text)
+        val glyphs = listOf(run(70f, 110f, "the"), run(40f, 110f, "Find"), run(500f, 110f, "(3 marks)"),
+            run(40f, 128.5f, "State"), run(330f, 128f, "range"))
+        val lines = PdfTextLayout.group(2, glyphs, 595f, 842f, 595f, 842f)
+        check(lines.map { it.text } == listOf("Find the", "(3 marks)", "State", "range")) { lines.map { it.text }.toString() }
+        check(lines.all { it.pageIndex == 2 } && abs(lines[0].left - 40f) < .01f && abs(lines[0].top - 100f) < .01f && lines[0].bottom > 110f)
+        check(PdfTextLayout.group(0, emptyList(), 595f, 842f, 595f, 842f).isEmpty())
+        check(PdfTextLayout.group(0, glyphs.map { it.copy(height = 0f) }, 595f, 842f, 595f, 842f).isEmpty())
+    }
+    scenario("Right-aligned marks beside every question do not turn one column into two") {
+        val lines = ArrayList<PdfTextLine>()
+        for ((i, top) in listOf(100f, 330f, 560f, 790f).withIndex()) {
+            lines += PdfTextLine(0, 40f, top, 700f, top + 10f, "Question ${i + 1}")
+            lines += PdfTextLine(0, 40f, top + 18f, 690f, top + 28f, "Find the value of x in the equation.")
+            lines += PdfTextLine(0, 720f, top + 18f, 790f, top + 28f, "(${i + 2} marks)")
+        }
+        val page = PrintedPage()
+        for (l in lines) page.text(l.left.toInt(), l.top.toInt(), (l.right - l.left).toInt())
+        val found = page.analyze(lines).areas
+        check(found.size >= 3 && found.all { it.left == 40f && it.right == 790f }) { "$found" }
+    }
+    // ---- Trace and replay ----
+    scenario("A recorded session replays to the same moves, and a damaged line does not spoil the rest") {
+        val record = FollowTrace()
+        val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 800f, it) }
+        val host = FakeHost(viewW = 400f, viewH = 500f, scale = 2f)
+        val t = Trace(host, FollowPreferences(automaticReturn = true), guides, interleaveFrames = true, record = record)
+        for (i in 0..24) t.write(letter(40f + i * 18f), gap = if (i % 6 == 0) 420 else 150)
+        t.follow.hover(300f, 90f, t.now); t.pause(200); t.follow.hoverEnded(t.now)
+        t.follow.nextLine(t.now); t.settle()
+        t.follow.back(t.now)
+        check(t.moves.size > 3)
+        val text = record.text()
+        check(text.startsWith(FollowTrace.HEADER))
+        val events = FollowTrace.parse(text + "garbage line\nU not numbers\n")
+        check(events.first() is TraceEvent.Context && events.count { it is TraceEvent.Up } == 25)
+        val again = Replay(events)
+        check(again.moves.size == t.moves.size) { "replayed ${again.moves.size} moves, recorded ${t.moves.size}" }
+        check(abs(again.host.x - t.host.x) < .5f && abs(again.host.y - t.host.y) < .5f) { "ends at ${again.host.x},${again.host.y} not ${t.host.x},${t.host.y}" }
+        check(events.count { it is TraceEvent.Moved } == t.moves.size) { "recorded ${events.count { it is TraceEvent.Moved }} moves, saw ${t.moves.size}" }
+    }
+    scenario("A trace that dropped its start still carries the page and guides, and recording is bounded") {
+        val record = FollowTrace(capacity = 40)
+        val t = Trace(FakeHost(viewW = 400f, scale = 2f), guides = listOf(WritingGuide(36f, 400f, 100f)), record = record)
+        for (i in 0..30) t.write(letter(30f + i * 18f))
+        check(record.size <= 40)
+        val events = FollowTrace.parse(record.text())
+        val context = events.first() as TraceEvent.Context
+        check(context.guides.size == 1 && context.page.width == 840f)
+        record.clear()
+        check(record.size == 0)
     }
     println("$checks writing follow traces passed")
 }

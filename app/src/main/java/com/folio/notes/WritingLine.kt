@@ -10,6 +10,7 @@ data class InkBox(val left: Float, val top: Float, val right: Float, val bottom:
     val width get() = right - left
     val height get() = bottom - top
     val centerX get() = (left + right) * .5f
+    val centerY get() = (top + bottom) * .5f
     fun intersects(o: InkBox) = left <= o.right && right >= o.left && top <= o.bottom && bottom >= o.top
 
     companion object {
@@ -73,6 +74,12 @@ data class WritingLine(
     val measuredPitch: Boolean = false,
     /** Rise of unruled handwriting: baseline change per page unit across, positive when it sinks. */
     val slope: Float = 0f,
+    /** Text only: the room one more word needs, from this line's own words (a typical word plus its gap). */
+    val wordWidth: Float? = null,
+    /** Maths only: where the whole row of working starts, which a block touching the stroke may not reach. */
+    val rowLeft: Float? = null,
+    /** Maths only: the left edge of the first `=` in the row, which the next row may line up under. */
+    val equalsAt: Float? = null,
 ) {
     /** Where the baseline sits at [x]; [baseline] itself is read at the middle of the line. */
     fun baselineAt(x: Float) = baseline + slope * (x - (left + right) * .5f)
@@ -161,7 +168,75 @@ object LineReader {
         val above = if (guide == null) lineAbove(all, left, right, lineProbe, anchor, slope, body, pitchHint ?: body * 2.2f) else null
         val pitch = spacing ?: above?.let { lineProbe - it } ?: pitchHint ?: (body * 2.2f)
         return WritingLine(baseline, body, left, right, members.minOf { it.top }, members.maxOf { it.bottom },
-            pitch, guide, members.size, measuredPitch = spacing != null || above != null, slope = slope)
+            pitch, guide, members.size, measuredPitch = spacing != null || above != null, slope = slope,
+            wordWidth = wordSpan(members, body))
+    }
+
+    /**
+     * The room one more word needs on this line, measured from its own words: a typical (three
+     * quarters) word width plus the gap writers leave between words. Letter gaps are far smaller than
+     * word gaps, so anything wider than about half a letter height (or well above the usual gap) is
+     * a word break. Null while the line has too few words, or none can be told apart, to say.
+     */
+    internal fun wordSpan(members: List<InkBox>, body: Float): Float? {
+        if (members.size < 6) return null
+        val sorted = members.sortedBy { it.left }
+        val gaps = ArrayList<Float>(sorted.size)
+        var right = sorted.first().right
+        for (b in sorted.drop(1)) { gaps += max(0f, b.left - right); right = max(right, b.right) }
+        val threshold = max(body * .5f, (median(gaps) ?: 0f) * 2.5f)
+        val widths = ArrayList<Float>()
+        val breaks = ArrayList<Float>()
+        var start = sorted.first().left
+        right = sorted.first().right
+        for ((i, b) in sorted.drop(1).withIndex()) {
+            if (gaps[i] > threshold) { widths += right - start; breaks += gaps[i]; start = b.left }
+            right = max(right, b.right)
+        }
+        widths += right - start
+        // The ends are a word still being written and whatever started the line: judge the words between.
+        val whole = if (widths.size >= 5) widths.subList(1, widths.size - 1) else widths
+        if (breaks.size < 2) return null
+        val typical = whole.sorted()[((whole.size - 1) * .75f).toInt()]
+        return typical + (median(breaks) ?: threshold)
+    }
+
+    /**
+     * The left edge of the first `=` among [boxes]: two short flat bars lying one above the other,
+     * about as wide as each other and about half a letter height apart.
+     */
+    internal fun equalsAt(boxes: List<InkBox>, body: Float): Float? {
+        val bars = boxes.filter { it.width in body * .45f..body * 2.6f && it.height <= it.width * .45f }
+        var found: Float? = null
+        for (a in bars) for (b in bars) {
+            if (a === b || a.top >= b.top) continue
+            val overlap = min(a.right, b.right) - max(a.left, b.left)
+            val centres = (b.top + b.bottom - a.top - a.bottom) * .5f
+            if (overlap < min(a.width, b.width) * .6f || centres !in body * .18f..body * .95f) continue
+            if (max(a.width, b.width) > min(a.width, b.width) * 1.8f) continue
+            val left = min(a.left, b.left)
+            if (found == null || left < found) found = left
+        }
+        return found
+    }
+
+    /**
+     * Whether [marks] hold the shape of written maths: an `=`, or a fraction bar with writing above
+     * and below it. Text has neither, which is what makes this a useful hint that the writer is in
+     * the wrong mode.
+     */
+    internal fun mathEvidence(marks: List<InkMark>, body: Float): Boolean {
+        val boxes = marks.map { it.box }.take(120)
+        if (equalsAt(boxes, body) != null) return true
+        for (bar in boxes) {
+            if (bar.width < body * 1.2f || bar.height > bar.width * .3f) continue
+            val above = boxes.any { it !== bar && it.height > bar.height * 1.5f && it.centerX in bar.left..bar.right &&
+                it.bottom in (bar.top - body * 2.2f)..(bar.bottom + body * .3f) }
+            val below = boxes.any { it !== bar && it.height > bar.height * 1.5f && it.centerX in bar.left..bar.right &&
+                it.top in (bar.top - body * .3f)..(bar.bottom + body * 2.2f) }
+            if (above && below) return true
+        }
+        return false
     }
 
     /**
@@ -207,8 +282,33 @@ object LineReader {
         val guide = guides.filter { seed.box.centerX in (it.left - 6f)..(it.right + 6f) && abs(it.y - bottom) <= body * .6f }
             .minByOrNull { abs(it.y - bottom) }
         val pitch = guide?.let { WritingGuides.spacing(it, guides) } ?: pitchHint ?: (body * 2.2f)
+        // The whole row of working may be wider than the block touching this stroke: terms are spaced out.
+        val row = row(block, rest, body)
         return WritingLine(guide?.y ?: bottom, body, block.minOf { it.left }, block.maxOf { it.right },
-            block.minOf { it.top }, bottom, pitch, guide, block.size, measuredPitch = guide != null)
+            block.minOf { it.top }, bottom, pitch, guide, block.size, measuredPitch = guide != null,
+            rowLeft = row.minOf { it.left }, equalsAt = equalsAt(row, body))
+    }
+
+    /** Everything level with [block] and joined to it by word-sized gaps: the row of working it belongs to. */
+    private fun row(block: List<InkBox>, others: List<InkBox>, body: Float): List<InkBox> {
+        val top = block.minOf { it.top } - body * .3f
+        val bottom = block.maxOf { it.bottom } + body * .3f
+        var left = block.minOf { it.left }
+        var right = block.maxOf { it.right }
+        val gap = max(body * WORD_GAP, 8f)
+        val level = others.filter { it.height <= body * 3.2f && it.bottom >= top && it.top <= bottom }
+        val kept = block.toMutableList()
+        var grown = true
+        while (grown) {
+            grown = false
+            for (b in level) {
+                if (b in kept) continue
+                if (b.right >= left - gap && b.left <= right + gap) {
+                    kept += b; left = min(left, b.left); right = max(right, b.right); grown = true
+                }
+            }
+        }
+        return kept
     }
 
     /**

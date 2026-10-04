@@ -45,6 +45,9 @@ object FollowPrefsStore {
     const val FEEL = AppPrefs.FOLLOW_FEEL
     const val HEIGHT = "follow.position"
     const val KEEP_HEIGHT = "follow.keepHeight"
+    const val ADAPTIVE = "follow.adaptive"
+    /** Whether a local session trace is being recorded; see [FollowTrace]. Off unless the writer turns it on. */
+    const val TRACE = "follow.trace"
 
     /** The earlier tuning sliders and per-page answer areas; everything they set is now measured. */
     private val RETIRED = setOf("follow.horizontal", "follow.spacing", "follow.returnDelayMs", "follow.glideMs",
@@ -62,13 +65,14 @@ object FollowPrefsStore {
             height = FollowPreferences.clampHeight(p.getFloat(HEIGHT, FollowPreferences.DEFAULT_HEIGHT)),
             keepHeight = p.getBoolean(KEEP_HEIGHT, false),
             canvasLineScreens = AppPrefs.followCanvasScreens(p.getInt(AppPrefs.FOLLOW_CANVAS_SCREENS, AppPrefs.DEFAULT_FOLLOW_CANVAS_SCREENS)),
+            adaptive = p.getBoolean(ADAPTIVE, true),
         )
     }
 
     fun save(p: SharedPreferences, value: FollowPreferences) {
         p.edit().putString(DIRECTION, value.direction.name).putString(MODE, value.mode.name)
             .putBoolean(AUTO_RETURN, value.automaticReturn).putFloat(FEEL, value.feel).putFloat(HEIGHT, value.height)
-            .putBoolean(KEEP_HEIGHT, value.keepHeight)
+            .putBoolean(KEEP_HEIGHT, value.keepHeight).putBoolean(ADAPTIVE, value.adaptive)
             .putInt(AppPrefs.FOLLOW_CANVAS_SCREENS, AppPrefs.followCanvasScreens(value.canvasLineScreens)).apply()
     }
 
@@ -100,6 +104,14 @@ fun FollowSettingsDialog(
     onHand: (WritingHand) -> Unit,
     showAreas: Boolean,
     onShowAreas: (Boolean) -> Unit,
+    /** Plain-language notes on what follow has learned about this writer so far. */
+    learned: List<String>,
+    onForget: () -> Unit,
+    recording: Boolean,
+    onRecording: (Boolean) -> Unit,
+    recordedEvents: Int,
+    onShareTrace: () -> Unit,
+    onClearTrace: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
@@ -179,6 +191,26 @@ fun FollowSettingsDialog(
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
                 HeightPreview(preferences)
+
+                HorizontalDivider()
+                SectionTitle("Learning")
+                Toggle("Learn from how I write", preferences.adaptive) { onPreferences(preferences.copy(adaptive = it)) }
+                Hint("Follow notices how long you pause between words, where your lines wrap, how wide your words are, how fast you write, " +
+                    "where on the screen you like your line and which moves you cancel or undo, and adjusts a little to match. " +
+                    "The settings above stay the starting point, and nothing is kept once the app closes.")
+                if (preferences.adaptive) {
+                    if (learned.isEmpty()) Hint("Nothing learned yet. Keep writing.")
+                    else learned.forEach { Hint("• $it") }
+                    if (learned.isNotEmpty()) TextButton(onForget, shapes = ButtonDefaults.shapes()) { Text("Forget what it learned") }
+                }
+                Toggle("Record a session for tuning", recording, onChange = onRecording)
+                Hint("Keeps, on this device only, the box of each stroke (never the ink), your taps and what the page did, so a move that felt wrong can be " +
+                    "replayed against the code. Nothing leaves the device unless you share it.")
+                if (recording) Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onShareTrace, enabled = recordedEvents > 0, shapes = ButtonDefaults.shapes()) { Text("Share trace") }
+                    TextButton(onClearTrace, enabled = recordedEvents > 0, shapes = ButtonDefaults.shapes()) { Text("Clear") }
+                    Text("$recordedEvents events", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             HorizontalDivider()
             Row(
@@ -232,6 +264,28 @@ private fun HeightPreview(preferences: FollowPreferences) {
             }
             Hint(if (preferences.mode == FollowMode.TEXT) "Shaded areas start a move after a pause; the dashed line is where your line lands."
                 else "Writing that reaches the shaded band moves up to the dashed line after a pause.")
+        }
+    }
+}
+
+/** What a writer is offered when their habits point to a setting; the engine never switches one on its own. */
+@Composable
+fun FollowSuggestionCard(suggestion: FollowSuggestion, modifier: Modifier, onAccept: () -> Unit, onDismiss: () -> Unit) {
+    val (text, action) = when (suggestion) {
+        FollowSuggestion.AUTOMATIC_RETURN -> "You often tap Next line at the end of a line." to "Return automatically"
+        FollowSuggestion.MATHS_MODE -> "This looks like maths working." to "Switch to Maths"
+        FollowSuggestion.RIGHT_TO_LEFT -> "You seem to write right to left." to "Switch direction"
+        FollowSuggestion.LEFT_TO_RIGHT -> "You seem to write left to right." to "Switch direction"
+    }
+    Surface(modifier, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 4.dp, tonalElevation = 1.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+        Column(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp4)) {
+            Text(text, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Not now") }
+                TextButton(onAccept, shapes = ButtonDefaults.shapes()) { Text(action) }
+            }
         }
     }
 }

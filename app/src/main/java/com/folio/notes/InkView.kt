@@ -234,9 +234,13 @@ class InkView(context: Context) : View(context) {
         override fun cancelSchedule() { removeCallbacks(followTick) }
         override fun status(status: FollowStatus) = onFollowStatus(status)
         override fun redraw(delayMs: Long) { if (delayMs <= 0) invalidate() else postInvalidateDelayed(delayMs) }
+        override fun nextPage() = onFollowNextPage()
     }
-    /** Writing follow for this page. The editor configures it through the properties below. */
-    val follow: WritingFollow = WritingFollow(followHost)
+    /**
+     * Writing follow for this page. The editor configures it through the properties below. What it learns
+     * about the writer is shared by every page, so a notebook does not start over on each one.
+     */
+    val follow: WritingFollow = WritingFollow(followHost, FollowLearner.shared)
     var onFollowStatus: (FollowStatus) -> Unit = {}
         set(value) { field = value; value(follow.status) }
     var followEnabled: Boolean
@@ -260,6 +264,16 @@ class InkView(context: Context) : View(context) {
     /** Dashed outlines of the detected answer areas, drawn like the other selection chrome. */
     var showAnswerAreas = false
         set(value) { if (field != value) { field = value; invalidate() } }
+    /** Records this session for tuning, or null; see [FollowTrace]. */
+    var followTrace: FollowTrace?
+        get() = follow.trace
+        set(value) { if (follow.trace !== value) follow.trace = value }
+    /** Turns to the next page of the notebook when Next line runs out of page; true when there was one. */
+    var onFollowNextPage: () -> Boolean = { false }
+    /** A page the writer carried on to with Next line goes to its first line once its guides are known. */
+    fun followContinue() = follow.continueFromPreviousPage(SystemClock.uptimeMillis())
+    /** The writer accepted or declined something follow offered. */
+    fun resolveFollowSuggestion(suggestion: FollowSuggestion) = follow.resolveSuggestion(suggestion)
     /** Moves a document page by screen pixels; returns the travel the document actually allowed. */
     var onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }
     fun nextWritingLine() {
@@ -384,6 +398,14 @@ class InkView(context: Context) : View(context) {
         if ((0 until event.pointerCount).any { isStylus(event, it) }) {
             val leaving = event.actionMasked == MotionEvent.ACTION_HOVER_EXIT
             lastStylusAt = if (leaving) -palmRejectMs else SystemClock.uptimeMillis()
+            // Follow reads a hovering pen as intent: about to write here, or gone. It only watches the pen.
+            if (followEnabled && tool == Tool.PEN && !readOnly) {
+                val now = SystemClock.uptimeMillis()
+                if (leaving) follow.hoverEnded(now)
+                else if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE || event.actionMasked == MotionEvent.ACTION_HOVER_ENTER) {
+                    follow.hover((event.getX(0) - originX) / scale, (event.getY(0) - originY) / scale, now)
+                }
+            }
             // Hovering with the eraser previews the same outline it will cut with, before the tip lands.
             if (leaving) { if (eraserMark != null) { eraserMark = null; invalidate() } }
             else if (tool == Tool.ERASER) {

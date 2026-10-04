@@ -49,9 +49,10 @@ object WritingGuides {
     fun detect(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): List<WritingGuide> =
         analyze(pixels, width, height, pageWidth, pageHeight).guides
 
-    fun analyze(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): DetectedGuides {
+    fun analyze(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float,
+                text: List<PdfTextLine> = emptyList()): DetectedGuides {
         require(width > 0 && height > 0 && pixels.size.toLong() == width.toLong() * height)
-        return analyze(width, height, pageWidth, pageHeight) { y, row -> System.arraycopy(pixels, y * width, row, 0, width) }
+        return analyze(width, height, pageWidth, pageHeight, { y, row -> System.arraycopy(pixels, y * width, row, 0, width) }, text)
     }
 
     /** One byte per pixel: ink dark enough to be a printed rule. Computed once, then only looked up. */
@@ -86,8 +87,11 @@ object WritingGuides {
     /**
      * Group response lines into answer areas using alignment, spacing and clear space between them.
      * [readRow] fills one raster row (ARGB), so a caller never needs the whole page's pixels at once.
+     * With the page's embedded [text], white space under a question that has no response lines becomes an
+     * answer area too (after the ruled ones, so their indices stay put), when the raster confirms it is blank.
      */
-    fun analyze(width: Int, height: Int, pageWidth: Float, pageHeight: Float, readRow: (Int, IntArray) -> Unit): DetectedGuides {
+    fun analyze(width: Int, height: Int, pageWidth: Float, pageHeight: Float, readRow: (Int, IntArray) -> Unit,
+                text: List<PdfTextLine> = emptyList()): DetectedGuides {
         require(width > 0 && height > 0)
         require(pageWidth.isFinite() && pageHeight.isFinite() && pageWidth > 0 && pageHeight > 0)
         val sx = pageWidth / width
@@ -96,6 +100,24 @@ object WritingGuides {
         val minLength = max(60f, pageWidth * .12f) / sx
         val mask = darkMask(width, height, readRow)
         fun dark(x: Int, y: Int): Boolean = x in 0 until width && y in 0 until height && mask[y * width + x]
+        /** The share of an area's rows that carry printed ink, away from its edges. */
+        fun inkShare(area: AnswerArea): Float {
+            val x0 = ceil((area.left + 4f) / sx).toInt()
+            val x1 = ((area.right - 4f) / sx).toInt()
+            val y0 = ceil((area.top + 4f) / sy).toInt()
+            val y1 = ((area.bottom - 4f) / sy).toInt()
+            if (x1 <= x0 || y1 <= y0) return 1f
+            val minInk = ceil(3f / sx).toInt().coerceAtLeast(2)
+            var rows = 0
+            for (y in y0..y1) {
+                var ink = 0
+                for (x in x0..x1) if (dark(x, y) && ++ink >= minInk) break
+                if (ink >= minInk) rows++
+            }
+            return rows.toFloat() / (y1 - y0 + 1)
+        }
+        fun blank(ruled: List<AnswerArea>): List<AnswerArea> =
+            if (text.isEmpty()) emptyList() else AnswerSpaces.infer(text, pageWidth, pageHeight, ruled, ::inkShare)
         /** A dashed or dotted rule has evenly spaced gaps; a row of text does not. */
         fun regularDashes(y: Int, left: Int, right: Int): Boolean {
             val gaps = ArrayList<Int>()
@@ -134,7 +156,7 @@ object WritingGuides {
                 else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y; open += band }
             }
         }
-        if (bands.isEmpty()) return DetectedGuides(emptyList(), emptyList())
+        if (bands.isEmpty()) return DetectedGuides(emptyList(), blank(emptyList()))
         // A rule whose ends meet a printed border may be an answer-box line or a table row; blocks decide.
         val bordered = mutableSetOf<WritingGuide>()
         val candidates = bands.mapNotNull { band ->
@@ -306,6 +328,6 @@ object WritingGuides {
             areas += AnswerArea(block.minOf { it.left }, topOf(block.first(), block.minOf { it.left }, block.maxOf { it.right }, pitch),
                 block.maxOf { it.right }, block.last().y)
         }
-        return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas)
+        return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas + blank(areas))
     }
 }

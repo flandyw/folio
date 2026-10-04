@@ -2,7 +2,10 @@
 package com.folio.notes
 
 import android.graphics.Bitmap
+import android.content.ClipData
 import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -150,6 +153,10 @@ private fun paperLabel(p: Paper): String = when (p) {
         FollowPrefsStore.setHand(appPrefs, value)
     }
     var followStatus by remember(page.id) { mutableStateOf(FollowStatus()) }
+    var followRecording by remember { mutableStateOf(appPrefs.getBoolean(FollowPrefsStore.TRACE, false)) }
+    // The learner is shared by every page; this only makes the open panel read it again after a change.
+    var learnedVersion by remember { mutableIntStateOf(0) }
+    var traceEvents by remember { mutableIntStateOf(FollowTrace.shared.size) }
     if (followSettingsOpen) FollowSettingsDialog(
         preferences = followPreferences,
         writingHand = writingHand,
@@ -157,6 +164,32 @@ private fun paperLabel(p: Paper): String = when (p) {
         onHand = ::setWritingHand,
         showAreas = showAnswerAreas,
         onShowAreas = { showAnswerAreas = it; appPrefs.edit().putBoolean(AppPrefs.FOLLOW_SHOW_AREAS, it).apply() },
+        learned = remember(learnedVersion, followPreferences) { FollowLearner.shared.describe(followPreferences) },
+        onForget = { FollowLearner.shared.forget(); learnedVersion++ },
+        recording = followRecording,
+        onRecording = {
+            followRecording = it
+            appPrefs.edit().putBoolean(FollowPrefsStore.TRACE, it).apply()
+            if (!it) FollowTrace.shared.clear()
+            traceEvents = FollowTrace.shared.size
+        },
+        recordedEvents = traceEvents,
+        onShareTrace = {
+            traceEvents = FollowTrace.shared.size
+            runCatching {
+                val file = File(File(context.cacheDir, "exports").apply { mkdirs() }, "writing-follow-trace.txt")
+                file.writeText(FollowTrace.shared.text())
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newRawUri("Writing follow trace", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(send, "Share writing follow trace"))
+            }
+        },
+        onClearTrace = { FollowTrace.shared.clear(); traceEvents = 0 },
         onDismiss = { followSettingsOpen = false },
     )
     var followMenu by remember { mutableStateOf(false) }
@@ -289,11 +322,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
-    fun configureFollow(view: InkView) {
-        view.followPreferences = followPreferences
-        view.followPaused = writingFollowPaused
-        view.onFollowStatus = { followStatus = it }
-    }
     // Text defaults live with the app, not the notebook, so a new label keeps the last look.
     var textSize by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.size", 26f)) }
     var textColor by rememberSaveable { mutableIntStateOf(appPrefs.getInt("text.color", 0xFF303431.toInt())) }
@@ -427,6 +455,30 @@ private fun paperLabel(p: Paper): String = when (p) {
         )
     }
     fun jumpTo(index: Int) { activeInkView?.followNavigated(); motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
+    /** Next line ran out of page: turn to the next one, and the page that opens carries on to its first line. */
+    fun turnPage(): Boolean {
+        val index = note.pages.indexOfFirst { it.id == page.id }
+        if (index !in 0 until note.pages.lastIndex) return false
+        jumpTo(index + 1)
+        return true
+    }
+    fun configureFollow(view: InkView) {
+        view.followPreferences = followPreferences
+        view.followPaused = writingFollowPaused
+        view.onFollowStatus = { followStatus = it }
+        view.onFollowNextPage = ::turnPage
+        view.followTrace = if (followRecording) FollowTrace.shared else null
+        view.followContinue()
+    }
+    fun resolveFollowSuggestion(suggestion: FollowSuggestion, accepted: Boolean) {
+        if (accepted) followPreferences = when (suggestion) {
+            FollowSuggestion.AUTOMATIC_RETURN -> followPreferences.copy(automaticReturn = true)
+            FollowSuggestion.MATHS_MODE -> followPreferences.copy(mode = FollowMode.MATH)
+            FollowSuggestion.RIGHT_TO_LEFT -> followPreferences.copy(direction = WritingDirection.RTL)
+            FollowSuggestion.LEFT_TO_RIGHT -> followPreferences.copy(direction = WritingDirection.LTR)
+        }
+        followView?.resolveFollowSuggestion(suggestion)
+    }
     /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
     fun openPdfLink(link: PdfLink) {
         when (val target = link.target) {
@@ -950,6 +1002,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                     }
                 }
+            }
+            followStatus.suggestion?.takeIf { writingFollowEnabled && !peekOpen }?.let { suggestion ->
+                FollowSuggestionCard(
+                    suggestion,
+                    Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
+                        .padding(FloatingToolbarDefaults.ScreenOffset).padding(bottom = 60.dp).widthIn(max = 340.dp)
+                        .guardUiTouches().zIndex(11f),
+                    onAccept = { resolveFollowSuggestion(suggestion, true) },
+                    onDismiss = { resolveFollowSuggestion(suggestion, false) })
             }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
@@ -1735,13 +1796,16 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         writingGuides = if (!active || !followEnabled || page.infinite) DetectedGuides(emptyList(), emptyList()) else withContext(Dispatchers.Default) {
             val bitmap = background
             when {
-                page.pdfIndex != null && bitmap != null ->
-                    WritingGuides.cached("$noteId/${page.pdfIndex}/${page.width}x${page.height}/${bitmap.width}") {
+                page.pdfIndex != null && bitmap != null -> {
+                    // The page's own text says where white space was left for answers; a scan has none.
+                    val text = try { model.repository.pdfTextLines(noteId, page) } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+                    WritingGuides.cached("$noteId/${page.pdfIndex}/${page.width}x${page.height}/${bitmap.width}/${text.size}") {
                         // One row at a time: no copy of the whole page's pixels.
-                        WritingGuides.analyze(bitmap.width, bitmap.height, page.width, page.height) { y, row ->
+                        WritingGuides.analyze(bitmap.width, bitmap.height, page.width, page.height, { y, row ->
                             bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
-                        }
+                        }, text)
                     }
+                }
                 page.pdfIndex == null && (page.paper == Paper.RULED || page.paper == Paper.SPLIT_RULED) ->
                     DetectedGuides(WritingGuides.ruled(page.width, page.height), emptyList())
                 else -> DetectedGuides(emptyList(), emptyList())
