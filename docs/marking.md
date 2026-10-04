@@ -1,6 +1,12 @@
 # Marking and feedback
 
-Page menu → **Marking & feedback** (`MarkingPanel.kt`, logic in the pure `Marking.kt`).
+Page menu → **Marking bar** (`MarkingDock` in `MarkingPanel.kt`, logic in the pure `Marking.kt`).
+
+The **marking bar** floats over the bottom of the page and stays open while you mark: ink colour, mark stamps,
+handwritten/typed note, flag, and the comment bank (scrolls sideways). The armed tool stays lit and keeps
+stamping until you tap it again; the running total updates live. The tune button opens the full sheet
+(`MarkingPanel`: comment bank editing, printed-mark settings, page space, recording the result); arming
+anything from the sheet closes it and leaves the bar up.
 
 Everything is ordinary page content — typed text boxes and ink — so it moves, restyles, erases, exports and
 backs up like anything else. **No storage format change.** The one convention is the *feedback sheet*: a page
