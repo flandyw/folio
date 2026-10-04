@@ -392,12 +392,17 @@ private fun paperLabel(p: Paper): String = when (p) {
     var markScanBusy by remember(note.id) { mutableStateOf(false) }
     var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
     var markingAutoPlace by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_AUTO_PLACE, false)) }
-    LaunchedEffect(tool) { if (tool != Tool.TEXT) armedMarking = null }
+    // A handwritten note switches to the pen to be written, so it stays armed through that switch.
+    LaunchedEffect(tool) { if (tool != Tool.TEXT && !(tool == Tool.PEN && armedMarking == MarkingAction.Note(true))) armedMarking = null }
     // Live total for the dock: re-added whenever the marks on this page or the page count change.
     val pageMarkSum = page.texts.mapNotNull { Marking.markValue(it.text) }.sum()
-    LaunchedEffect(markingDock, note.id, note.pages.size, pageMarkSum) {
+    // Same scope as the sheet's tally: a long response counts only its own attempt's pages and marks.
+    val dockAttempt = note.longResponse?.attemptFor(page.id)
+    val markingAvailable = if (dockAttempt != null) note.longResponse?.marks ?: note.exam.marksTotal else note.exam.marksTotal
+    LaunchedEffect(markingDock, note.id, note.pages.size, pageMarkSum, dockAttempt?.pageIds) {
         if (markingDock) markingTotal = model.pagesForMarking().let { all ->
-            Marking.tally(all).sumOf { it.marks.toDouble() }.toFloat().takeIf { it > 0f || all.any { p -> !p.loaded } }
+            val scoped = if (dockAttempt == null) all else all.filter { it.id in dockAttempt.pageIds }
+            if (scoped.any { p -> !p.loaded }) null else Marking.tally(scoped).sumOf { it.marks.toDouble() }.toFloat()
         }
     }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
@@ -426,7 +431,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     fun placeTextBox(at: InkPoint) {
         armedMarking?.let { action ->
             if (action is MarkingAction.Note) {
-                armedMarking = null
                 model.placeFeedbackNote(at, action.handwritten, markingColor)?.let { plan ->
                     val typed = plan.box
                     if (typed != null) { textEditor = typed; textEditorNew = true }
@@ -1146,7 +1150,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (markingDock) MarkingDock(
                 armed = armedMarking, color = markingColor,
                 onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
-                bank = markingBank, total = markingTotal, available = note.exam.marksTotal,
+                bank = markingBank, total = markingTotal, available = markingAvailable,
                 onArm = { action -> armedMarking = action; if (action != null) tool = Tool.TEXT },
                 onMore = { markingPanel = true },
                 onClose = { markingDock = false; armedMarking = null },

@@ -297,7 +297,7 @@ import kotlin.math.roundToInt
                 Box(Modifier.size(30.dp).clip(CircleShape).background(tint).clickable {
                     val next = Marking.COLORS.indexOf(color).let { Marking.COLORS[(it + 1) % Marking.COLORS.size] }
                     onColor(next)
-                }.semantics { contentDescription = "Marking ink colour, tap to change" })
+                }.semantics { contentDescription = "Marking ink colour ${Marking.colorName(color)}, tap to change" })
                 Marking.MARK_LABELS.forEach { label ->
                     val action = MarkingAction.Mark(label)
                     Box(Modifier.height(36.dp).widthIn(min = 40.dp).clip(FolioShapes.medium).background(lit(armed == action))
