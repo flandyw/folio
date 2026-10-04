@@ -281,6 +281,16 @@ fun FollowSettingsDialog(
                         },
                         valueRange = 120f..800f,
                     )
+                    FollowSliderRow(
+                        label = "Next line speed",
+                        valueText = "${FollowPreferences.lineSpeedLabel(preferences.lineSpeedMs)} · ${preferences.lineSpeedMs} ms per screen",
+                        hint = "How long the move to the next line takes per screen width crossed. Lower is faster. Sideways following keeps its own pace.",
+                        value = preferences.lineSpeedMs.toFloat(),
+                        onValueChange = {
+                            onPreferences(preferences.copy(lineSpeedMs = it.roundToInt().coerceIn(250, 1500)))
+                        },
+                        valueRange = 250f..1500f,
+                    )
                 }
             }
             HorizontalDivider()

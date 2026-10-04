@@ -84,6 +84,36 @@ fun main() {
         follow.arrived(next)
         check(follow.returnFor(region, emptyList(), prefs) == null) { "A return must not chain into empty lines" }
     }
+    scenario("A wrapping list item returns to its text; plain lines and manual returns keep the line start") {
+        val region = WritingLane(36f, 72f, 310f, 180f)
+        fun write(follow: WritingFollow, xs: List<Float>, width: Float) =
+            xs.forEachIndexed { i, x -> check(follow.completed(letter(x, width = width), i * 200L, prefs) == WritingProgress.SAME_LINE) }
+        val item = WritingFollow()
+        write(item, listOf(40f), 8f)
+        check(item.completed(letter(52f, 96f, 100f, 4f), 200, prefs) == WritingProgress.SAME_LINE)
+        listOf(76f, 116f, 156f, 196f, 236f, 276f).forEachIndexed { i, x ->
+            check(item.completed(letter(x), 400L + i * 200, prefs) == WritingProgress.SAME_LINE)
+        }
+        check(item.state.lineStartX == 40f && item.state.textStartX == 76f)
+        check(item.returnFor(region, emptyList(), prefs)!!.to.left == 76f)
+        check(FollowNavigation.next(100f, region, emptyList(), 28f, item.state.lineStartX)!!.to.left == 40f)
+        val plain = WritingFollow()
+        listOf(40f, 60f, 80f, 100f, 120f, 140f, 160f, 180f, 200f, 220f, 240f, 260f, 280f).forEachIndexed { i, x ->
+            check(plain.completed(letter(x), i * 200L, prefs) == WritingProgress.SAME_LINE)
+        }
+        check(plain.state.textStartX == null && plain.returnFor(region, emptyList(), prefs)!!.to.left == 40f)
+    }
+    scenario("A cursive word's own dots and crossbars resume a glide; a smooth flat word is still text") {
+        val follow = WritingFollow()
+        check(follow.completed(cursive(40f, 200f, 88f, 100f), 0, prefs) == WritingProgress.SAME_LINE)
+        check(follow.finishingMark(FollowNavigation.bounds(letter(100f, 84f, 86f, 4f))!!, prefs))
+        check(follow.finishingMark(FollowNavigation.bounds(letter(60f, 90f, 92f, 14f))!!, prefs))
+        check(!follow.finishingMark(FollowNavigation.bounds(letter(10f, 84f, 86f, 4f))!!, prefs))
+        val flat = (0..18).map { i -> InkPoint(40f + i * 16f, if (i % 2 == 0) 90f else 100f) }
+        check(FollowNavigation.isTextStroke(flat, 32f, 19f))
+        val underline = listOf(InkPoint(40f, 100f), InkPoint(200f, 101f), InkPoint(340f, 100f))
+        check(!FollowNavigation.isTextStroke(underline, 32f, 19f))
+    }
     scenario("Printed rules detect a clear next line immediately, including small letters") {
         val follow = seeded(guides = guides)
         check(follow.completed(letter(40f, 124f, 128f, 4f), 800, prefs, guides) == WritingProgress.NEW_LINE)
@@ -270,11 +300,11 @@ fun main() {
             glide.start(sign * size * .6f, sign * size * .2f, 0, 0, 180, size, size)
             glide.step(0)
             var x = 0f; var y = 0f
-            val middle = advanceGlide(glide, 0, 300) {
+            val middle = advanceGlide(glide, 0, 211) {
                 x += it.dx; y += it.dy; glide.applied(it.dx, it.dy)
             }
-            check(!middle.finished && abs(x / size - sign * .3f) < .001f)
-            val end = advanceGlide(glide, 300, 600) {
+            check(!middle.finished && abs(x / size - sign * .3f) < .003f)
+            val end = advanceGlide(glide, 211, 421) {
                 x += it.dx; y += it.dy; glide.applied(it.dx, it.dy)
             }
             check(end.finished && abs(x / size - sign * .6f) < .001f && glide.reachedLine)

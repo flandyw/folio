@@ -160,7 +160,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         edgeThreshold = appPrefs.getFloat("follow.edgeThreshold", .72f).coerceIn(.55f, .95f),
         verticalDeadBand = appPrefs.getFloat("follow.verticalDeadBand", .15f).coerceIn(.05f, .3f),
         endMargin = appPrefs.getFloat("follow.endMargin", .08f).coerceIn(.02f, .2f),
-        glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800))) }
+        glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
+        lineSpeedMs = appPrefs.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500))) }
     LaunchedEffect(followPreferences) {
         appPrefs.edit()
             .putBoolean("follow.adaptiveSpacing", followPreferences.adaptiveSpacing)
@@ -174,7 +175,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             .putString("follow.direction", followPreferences.direction.name)
             .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
             .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing)
-            .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs).apply()
+            .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs)
+            .putInt("follow.lineSpeedMs", followPreferences.lineSpeedMs).apply()
     }
     fun setWritingHand(value: WritingHand) {
         writingHand = value

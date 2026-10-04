@@ -11,6 +11,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.SystemClock
+import android.view.animation.AnimationUtils
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -384,7 +385,8 @@ class InkView(context: Context) : View(context) {
     }
     private val followFrame = object : Runnable {
         override fun run() {
-            val now = SystemClock.uptimeMillis()
+            // Frame-aligned time, so jitter in when this callback runs does not show up as judder.
+            val now = AnimationUtils.currentAnimationTimeMillis()
             if (!followEnabled || inputBlocked || readOnly || !getLocalVisibleRect(followVisible)) {
                 cancelFollowMotion()
                 return
@@ -463,7 +465,7 @@ class InkView(context: Context) : View(context) {
             (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale)
         val dy = desiredY - (originY + advance.to.y * scale)
         followGlide.start(dx, dy, SystemClock.uptimeMillis(), 0, followPreferences.glideDurationMs,
-            followVisible.width().toFloat(), followVisible.height().toFloat())
+            followVisible.width().toFloat(), followVisible.height().toFloat(), followPreferences.lineSpeedMs.toFloat())
         lineAdvance = advance
         captureFollowBack = false
         scheduleFollow()

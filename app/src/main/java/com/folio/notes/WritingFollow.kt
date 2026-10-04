@@ -22,6 +22,10 @@ data class WritingFollowState(
     val lineStartX: Float? = null,
     val lineSpacings: List<Float> = emptyList(),
     val lineStrokeCount: Int = 0,
+    /** Forward edge of a possible list marker ("1.", a bullet, a dash) while the line is still being classified. */
+    val markerEdge: Float? = null,
+    /** Where the text after a leading marker began; automatic returns hang from it. */
+    val textStartX: Float? = null,
     /** Survives pen-down interruptions until the new line has actually been placed. */
     val needsPlacement: Boolean = false,
 )
@@ -103,7 +107,31 @@ class WritingFollow {
         val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
         if (frontier == null || !FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin)) return null
         return FollowNavigation.next(baseline, region, guides, lineSpacing(preferences.spacing, preferences.adaptiveSpacing),
-            state.lineStartX, preferences.direction)
+            state.textStartX ?: state.lineStartX, preferences.direction)
+    }
+
+    /**
+     * A small cluster at the start of a line followed by a clear gap is a list marker. Only automatic
+     * returns (the line ran to its end, so the item is wrapping) hang from the text; a manual Next
+     * line still goes back to the marker column for the next item. The cost of a false positive,
+     * such as a one-letter first word, is a return landing one word in.
+     */
+    private fun trackMarker(box: WritingLane, direction: WritingDirection) {
+        val edge = state.markerEdge ?: return
+        val start = state.lineStartX ?: return
+        val ltr = direction == WritingDirection.LTR
+        val near = if (ltr) box.left else box.right
+        val far = if (ltr) box.right else box.left
+        val gap = if (ltr) near - edge else edge - near
+        val height = laneHeight()
+        val limit = maxOf(height * 2.5f, 20f)
+        state = when {
+            gap >= maxOf(height * .6f, 8f) ->
+                if (abs(edge - start) <= limit) state.copy(markerEdge = null, textStartX = near)
+                else state.copy(markerEdge = null)
+            abs(far - start) > limit -> state.copy(markerEdge = null)
+            else -> state.copy(markerEdge = if (ltr) maxOf(edge, far) else minOf(edge, far))
+        }
     }
 
     private fun overlapsBody(box: WritingLane): Boolean {
@@ -155,7 +183,7 @@ class WritingFollow {
         }
     }
 
-    /** Dots and crossbars near the last word can resume an interrupted glide after pen-up. */
+    /** Dots and crossbars on or beside the last word can resume an interrupted glide after pen-up. */
     fun finishingMark(box: WritingLane, preferences: FollowPreferences): Boolean {
         val baseline = state.baselineY ?: return false
         if (state.candidateLane != null || box.height > laneHeight() * .8f ||
@@ -163,7 +191,12 @@ class WritingFollow {
         val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
         frontier ?: return false
         val x = if (preferences.direction == WritingDirection.LTR) box.right else box.left
-        return abs(x - frontier) <= maxOf(12f, laneHeight() * 2f) &&
+        // A cursive word is dotted and crossed after it is finished, so its marks sit anywhere along
+        // the stroke just written, not only beside its end.
+        val last = state.recent.lastOrNull()
+        val slack = maxOf(6f, laneHeight() * .5f)
+        val onLastStroke = last != null && box.left >= last.left - slack && box.right <= last.right + slack
+        return (abs(x - frontier) <= maxOf(12f, laneHeight() * 2f) || onLastStroke) &&
             box.bottom in (baseline - laneHeight() * 1.5f)..(baseline + preferences.spacing * .35f)
     }
 
@@ -232,26 +265,24 @@ class WritingFollow {
         val gapY = state.baselineY?.let { baseline - it }?.takeIf {
             changedLane && it in FollowPreferences.MIN_SPACING..FollowPreferences.MAX_SPACING
         }
-        val start = if (direction == WritingDirection.LTR) recent.firstOrNull()?.left ?: box.left
-            else recent.firstOrNull()?.right ?: box.right
+        val first = recent.firstOrNull() ?: box
+        val start = if (direction == WritingDirection.LTR) first.left else first.right
+        val newLine = changedLane || state.lineStartX == null
         state = state.copy(
             baselineY = baseline, recent = recent, candidateLane = null, candidateAt = null,
-            lineStartX = if (changedLane || state.lineStartX == null) start else state.lineStartX,
+            lineStartX = if (newLine) start else state.lineStartX,
+            markerEdge = if (newLine) (if (direction == WritingDirection.LTR) first.right else first.left) else state.markerEdge,
+            textStartX = if (newLine) null else state.textStartX,
             lineSpacings = if (gapY != null) (state.lineSpacings + gapY).takeLast(6) else state.lineSpacings,
             frontierLeft = if (changedLane) recent.minOf { it.left } else minOf(state.frontierLeft ?: box.left, box.left),
             frontierRight = if (changedLane) recent.maxOf { it.right } else maxOf(state.frontierRight ?: box.right, box.right),
             lineStrokeCount = if (changedLane) recent.size else state.lineStrokeCount + 1,
             needsPlacement = state.needsPlacement || changedLane,
         )
+        if (newLine) recent.drop(1).forEach { trackMarker(it, direction) } else trackMarker(box, direction)
     }
 
     fun placed() { state = state.copy(needsPlacement = false) }
-    fun horizontalVelocity(xFraction: Float, zoom: Float, hand: WritingHand, progressing: Boolean, now: Long): Float {
-        if (zoom < 1.4f || !progressing || now < state.suspendedUntil || state.baselineY == null) return 0f
-        val edge = if (hand == WritingHand.RIGHT) xFraction else 1f - xFraction
-        val strength = ((edge - .65f) / .35f).coerceIn(0f, 1f)
-        return -hand.direction * 180f * strength * strength
-    }
     fun verticalVelocity(baselineFraction: Float, zoom: Float, now: Long): Float {
         if (zoom < 1.4f || now < state.suspendedUntil) return 0f
         return when { baselineFraction > .75f -> -160f; baselineFraction < .35f -> 160f; else -> 0f }
@@ -282,7 +313,7 @@ class WritingFollow {
     fun arrived(advance: WritingAdvance) {
         state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from,
             frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null,
-            lineStrokeCount = 0, needsPlacement = false)
+            lineStrokeCount = 0, markerEdge = null, needsPlacement = false)
     }
 
     fun lineAdvanceProgress(liftedAt: Long, now: Long, durationMs: Int = DEFAULT_GLIDE_MS): Float =
@@ -310,6 +341,8 @@ data class FollowPreferences(
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** Minimum glide length. 120..800 ms; longer travel takes extra time. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
+    /** Next-line glide pace: ms to cross one screen width or height. 250..1500; sideways follow keeps the default. */
+    val lineSpeedMs: Int = FollowGlide.MS_PER_VIEWPORT.toInt(),
     val adaptiveSpacing: Boolean = true,
     val horizontalFollow: Boolean = true,
     val verticalFollow: Boolean = true,
@@ -373,6 +406,11 @@ data class FollowPreferences(
         }
 
         fun returnDelayLabel(ms: Int): String = "${"%.1f".format(ms / 1000f)} s"
+        fun lineSpeedLabel(ms: Int): String = when {
+            ms <= 450 -> "Fast"
+            ms <= 900 -> "Smooth"
+            else -> "Gentle"
+        }
         fun glideLabel(ms: Int): String = when {
             ms <= 170 -> "Snappy"
             ms <= 350 -> "Smooth"
@@ -407,7 +445,8 @@ object FollowNavigation {
         val direct = hypot(box.width, box.height)
         var travel = 0f
         for (i in 1..points.lastIndex) travel += hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
-        return if (box.width > 220f) travel > direct * 1.35f
+        // A flat, smooth cursive word has less travel than a looped one, but unlike an underline it has height.
+        return if (box.width > 220f) travel > direct * 1.35f || (box.height >= spacing * .25f && travel > direct * 1.15f)
         else box.width <= maxOf(64f, spacing * 2f) || travel > direct * 1.15f
     }
 

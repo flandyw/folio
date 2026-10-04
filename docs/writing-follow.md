@@ -14,16 +14,24 @@ the tracked baseline when vertical scrolling is clamped. Back records only movem
 Sideways glides and new-line placement use half the configured return pause. Automatic returns
 use the full configured pause. Timing is fixed: stroke history never changes it, and the visible
 edge does not shorten the pause or accelerate the glide. Every glide honours
-the configured duration as a minimum and takes at least one second per viewport of travel on
-either axis (a half-screen pan takes at least 500 ms). Missed frames advance the animation by at
+the configured duration as a minimum and takes at least 700 ms per viewport of travel on
+either axis (a half-screen pan takes at least 350 ms); *Next line speed* (`follow.lineSpeedMs`, 250–1500 ms,
+default 700) changes that pace for next-line moves only. Missed frames advance the animation by at
 most 32 ms, so a busy frame slows movement instead of catching up in a jump. Dots and crossbars
-near the final word can resume an interrupted request after a fresh pen-up pause; corrections
-farther back hold the view. Rejected palm contacts do not cancel a pending glide.
+near the final word, or anywhere along the stroke just written (a cursive word is dotted and crossed
+after it is finished), can resume an interrupted request after a fresh pen-up pause; corrections
+to earlier words hold the view. Rejected palm contacts do not cancel a pending glide.
 
 On a canvas, the current viewport width defines a line's length. Its start stays fixed in canvas
 coordinates during follow pans, even when that start moves off screen. Deliberate navigation or a
 viewport resize resets it. An answer area is optional. Pages use the configured minimum zoom;
 canvases use the handwriting's actual height on screen.
+
+A small cluster at the start of a line (`1.`, a bullet, a dash) followed by a clear gap is treated
+as a list marker. When such a line runs to its end and returns automatically, the wrapped text hangs
+from where the text began; a manual Next line still returns to the marker column for the next item.
+Nothing is stored. A one-letter first word can look like a marker, which only lands the return one
+word in.
 
 ## Peek
 
