@@ -47,6 +47,32 @@ fun main() = runBlocking {
         val manifest = NativeBackup.Manifest(listOf(folder), listOf(NativeBackup.Note(note.id, paths), NativeBackup.Note(note2.id, paths2)),
             sources.mapValues { it.value.info }, created = 200)
         val prepared = NativeBackup.Prepared(manifest, sources)
+        // The same selection rule runs before staging in both library backup paths.
+        val exclusions = AppPrefs.backupExcludedNotebookIds(setOf(note2.id, "../escape", "", "a".repeat(65)))
+        check(exclusions == setOf(note2.id))
+        check(AppPrefs.backupExcludedNotebookIds(null).isEmpty())
+        check(AppPrefs.notebooksForBackup(listOf(note, note2), emptySet()) == listOf(note, note2))
+        check(AppPrefs.notebooksForBackup(listOf(note, note2), exclusions) == listOf(note))
+        check(AppPrefs.notebooksForBackup(listOf(note2.copy(title = "Renamed textbook", folderId = null)), exclusions).isEmpty())
+        check(AppPrefs.notebooksForBackup(listOf(note2), exclusions, includeExcluded = true) == listOf(note2))
+        val selectedIds = AppPrefs.notebooksForBackup(listOf(note, note2), exclusions).map { it.id }.toSet()
+        val selectedNotes = manifest.notes.filter { it.id in selectedIds }
+        val selectedHashes = selectedNotes.flatMap { it.files.values }.toSet()
+        val selectedSources = sources.filterKeys { it in selectedHashes }
+        val selectedManifest = manifest.copy(notes = selectedNotes, objects = selectedSources.mapValues { it.value.info })
+        val selectedZip = ByteArrayOutputStream().also { NativeBackup.writePortable(it, NativeBackup.Prepared(selectedManifest, selectedSources)) }.toByteArray()
+        ZipInputStream(selectedZip.inputStream()).use { zip ->
+            zip.nextEntry
+            val info = NativeBackup.decode(zip.readBytes().toString(Charsets.UTF_8))
+            check(info.notes.map { it.id } == listOf(note.id))
+            check(paths2.getValue("note.json") !in info.objects) // No excluded notebook metadata/ink payload.
+            check(paths.getValue("source.pdf") in info.objects) // Shared assets required by included notes remain.
+            val selectedDirectory = File(root, "selected").apply { mkdirs() }
+            check(NativeBackup.readEntries(zip, info, selectedDirectory).keys == selectedHashes)
+        }
+        check(AppPrefs.notebooksForBackup(listOf(note, note2), setOf(note.id, note2.id)).isEmpty())
+        val emptyManifest = manifest.copy(notes = emptyList(), objects = emptyMap())
+        check(NativeBackup.decode(NativeBackup.encode(emptyManifest)).notes.isEmpty())
         check(sources.size == 5) // Three shared objects, including the source PDF, have one payload each.
         check(NativeBackup.decode(NativeBackup.encode(manifest)) == manifest)
         check(LibraryBackup.parseManifest(NativeBackup.encode(manifest)).version == 3)
@@ -153,7 +179,7 @@ fun main() = runBlocking {
             jsonFile.writeText(NoteCodec.encode(note))
             ByteArrayOutputStream().also { LibraryBackup.write(it, listOf(folder), listOf(v2Payload), emptyMap()) }
         } } / 3_000_000.0
-        println("Backup smoke: binary contents, journal replay, undo/redo, deduplication, external objects, bounds, corruption and v1/v2 compatibility passed.")
+        println("Backup smoke: exclusions and explicit-export override, binary contents, journal replay, undo/redo, deduplication, external objects, bounds, corruption and v1/v2 compatibility passed.")
         println("Synthetic 160,000-point handwriting: v2=${v2.size} bytes, v3=$nativeBytes bytes (includes undo/redo); encode/write v2=%.1f ms, v3=%.1f ms (JVM, not device).".format(oldMs, nativeMs))
         println("Two-notebook portable=${portable.size} bytes; incremental descriptor=${point.size} bytes; unique objects=${sources.size}.")
     } finally { root.deleteRecursively() }

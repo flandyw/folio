@@ -1,126 +1,129 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes
 
-import android.content.SharedPreferences
 import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.semantics.Role
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.CleaningServices
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material.icons.rounded.Gesture
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}) {
-    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
-    val close: () -> Unit = { if (category != null) category = null else onBack() }
-    BackHandler(onBack = close)
+/**
+ * Settings, as one stack of grouped pages. A phone shows a home list that drills into a category;
+ * a tablet keeps the category list beside the page. Search looks at individual settings, not just
+ * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
+ */
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}) {
     val context = LocalContext.current
-    val backupPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
-    var backupTree by remember { mutableStateOf(backupPrefs.getString(LibraryAutoBackup.TREE_URI, null)) }
-    var backupFolderName by remember { mutableStateOf<String?>(null) }
-    var backupLastSuccess by remember { mutableLongStateOf(backupPrefs.getLong(LibraryAutoBackup.LAST_SUCCESS, 0L)) }
-    var backupLastError by remember { mutableStateOf(backupPrefs.getString(LibraryAutoBackup.LAST_ERROR, null)) }
-    DisposableEffect(backupPrefs) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            when (key) {
-                LibraryAutoBackup.TREE_URI -> backupTree = backupPrefs.getString(key, null)
-                LibraryAutoBackup.LAST_SUCCESS -> backupLastSuccess = backupPrefs.getLong(key, 0L)
-                LibraryAutoBackup.LAST_ERROR -> backupLastError = backupPrefs.getString(key, null)
-            }
-        }
-        backupPrefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { backupPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    LaunchedEffect(context, backupTree) {
-        backupFolderName = backupTree?.let { raw ->
-            withContext(Dispatchers.IO) { LibraryAutoBackup.folderName(context, android.net.Uri.parse(raw)) }
-        }
-    }
-    val hapticsSupported = remember(context) { PenHapticsManager.isSupported(context) }
-    val dynamicAvailable = Build.VERSION.SDK_INT >= 31
-    val selected = category
-    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(close, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, if (selected == null) "Close settings" else "Back to settings") }
-            Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
-                Text(selected?.title ?: "Settings", style = MaterialTheme.typography.titleLarge)
-                selected?.let { SectionHint(it.description) }
-            }
-        }
-        HorizontalDivider()
+    val prefs = rememberPrefs()
+    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val searching = query.isNotBlank()
 
-        BoxWithConstraints(Modifier.weight(1f)) {
-            val twoPane = maxWidth >= 840.dp && selected != null
-            if (twoPane) {
-                Row(Modifier.fillMaxSize()) {
-                    SettingsNavigation(
-                        selected = selected,
-                        onSelect = { category = it },
-                        modifier = Modifier.width(280.dp).fillMaxHeight(),
-                    )
-                    VerticalDivider()
-                    SettingsPage(
-                        selected = selected,
-                        modifier = Modifier.weight(1f),
-                        animateEntrance = false,
-                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onFocal, onCheckForUpdates, updateChecking) }
+    val backupTree by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) }
+    val backupLastSuccess by rememberPref(prefs, LibraryAutoBackup.LAST_SUCCESS) { it.getLong(LibraryAutoBackup.LAST_SUCCESS, 0L) }
+    val backupLastError by rememberPref(prefs, LibraryAutoBackup.LAST_ERROR) { it.getString(LibraryAutoBackup.LAST_ERROR, null) }
+    var backupFolderName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(context, backupTree) {
+        backupFolderName = backupTree?.let { raw -> withContext(Dispatchers.IO) { LibraryAutoBackup.folderName(context, android.net.Uri.parse(raw)) } }
+    }
+
+    val app = AppSettings(
+        themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics,
+        shapeRecognition, onShapeRecognition, remember(context) { PenHapticsManager.isSupported(context) }, Build.VERSION.SDK_INT >= 31,
+    )
+    val backup = BackupSettings(
+        backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, backupExcludedCount,
+        onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions,
+    )
+    val account = AccountSettings(onFocal, onCheckForUpdates, updateChecking)
+
+    BackHandler(enabled = searching || category != null) {
+        if (searching) query = "" else category = null
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+        val wide = maxWidth >= 840.dp
+        val open: (SettingsCategory) -> Unit = { category = it; query = "" }
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                SettingsSidebar(category ?: SettingsCategory.APPEARANCE, searching, query, { query = it }, open, Modifier.width(320.dp).fillMaxHeight())
+                VerticalDivider()
+                SettingsPane(
+                    title = when { searching -> "Search"; else -> (category ?: SettingsCategory.APPEARANCE).title },
+                    onNavigate = onBack, navLabel = "Close settings", modifier = Modifier.weight(1f),
+                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open) }
+            }
+        } else {
+            SettingsPane(
+                title = when { searching -> "Search"; category != null -> category!!.title; else -> "Settings" },
+                onNavigate = { if (searching) query = "" else if (category != null) category = null else onBack() },
+                navLabel = if (category == null && !searching) "Close settings" else "Back to settings",
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (category == null || searching) {
+                    SettingsSearchField(query, { query = it })
                 }
-            } else {
-                SettingsPage(selected = selected, modifier = Modifier.fillMaxSize(), animateEntrance = maxWidth < 840.dp) {
-                    if (selected == null) SettingsHome(onSelect = { category = it })
-                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onFocal, onCheckForUpdates, updateChecking)
-                }
+                if (!searching && category == null) SettingsHome(app, backup, open)
+                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open)
             }
         }
     }
 }
 
-@Composable
-private fun SettingsPage(
-    selected: SettingsCategory?,
+// ---- Shell --------------------------------------------------------------------------------------
+
+/** A collapsing title bar over a centred, scrolling column of groups. */
+@Composable private fun SettingsPane(
+    title: String,
+    onNavigate: () -> Unit,
+    navLabel: String,
     modifier: Modifier = Modifier,
-    animateEntrance: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    key(selected) {
-        Box(modifier = modifier.fillMaxWidth().then(if (animateEntrance) Modifier.folioEntrance(selected ?: "home") else Modifier), contentAlignment = Alignment.TopCenter) {
+    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Scaffold(
+        modifier = modifier.nestedScroll(scroll.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
+            LargeTopAppBar(
+                title = { Text(title) },
+                navigationIcon = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
+                scrollBehavior = scroll,
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surface),
+            )
+        },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.widthIn(max = 760.dp).fillMaxWidth()
-                    .verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24),
+                Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(horizontal = FolioSpacing.dp16).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp32),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
                 content = content,
             )
@@ -128,805 +131,192 @@ private fun SettingsPage(
     }
 }
 
-@Composable
-private fun SettingsHome(onSelect: (SettingsCategory) -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val normalizedQuery = query.trim().lowercase()
-    val matches = SettingsCategory.entries.filter { it.matches(normalizedQuery) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
-        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            Text("Make Folio your own", style = MaterialTheme.typography.headlineMedium)
-            Text("Find a setting without searching through long menus.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = FolioShapes.large,
-            placeholder = { Text("Search settings") },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-            trailingIcon = if (query.isNotEmpty()) {
-                { IconButton({ query = "" }) { Icon(Icons.Rounded.Clear, "Clear search") } }
-            } else null,
-        )
-
-        if (normalizedQuery.isBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text("All settings", style = MaterialTheme.typography.titleMedium)
-                Text("${SettingsCategory.entries.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            }
-        } else {
-            SectionHint(if (matches.size == 1) "1 matching category" else "${matches.size} matching categories")
-        }
-
-        if (matches.isEmpty()) {
-            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("No settings found", style = MaterialTheme.typography.titleMedium)
-                    Text("Try a word such as theme, backup, pencil, or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ query = "" }) { Text("Show all settings") }
-                }
-            }
-        } else {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val columns = if (maxWidth >= 560.dp) 2 else 1
-                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    matches.chunked(columns).forEach { rowItems ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                            rowItems.forEach { item ->
-                                SettingsCategoryCard(item, Modifier.weight(1f), onSelect)
-                            }
-                            repeat(columns - rowItems.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
-                }
-            }
-        }
-
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-            SectionHint("Changes save automatically. Use the reset arrow on a setting to restore its default.")
-        }
+@Composable private fun SettingsContent(
+    searching: Boolean, query: String, category: SettingsCategory,
+    app: AppSettings, backup: BackupSettings, account: AccountSettings, open: (SettingsCategory) -> Unit,
+) {
+    if (searching) { SearchResults(query, open); return }
+    when (category) {
+        SettingsCategory.APPEARANCE -> AppearancePage(app)
+        SettingsCategory.WRITING -> WritingPage(app)
+        SettingsCategory.STYLUS -> StylusPage(app)
+        SettingsCategory.ERASING -> ErasingPage()
+        SettingsCategory.FOLLOW -> FollowPage()
+        SettingsCategory.LIBRARY -> LibraryPage()
+        SettingsCategory.BACKUP -> BackupPage(backup)
+        SettingsCategory.WORKFLOW -> WorkflowPage()
+        SettingsCategory.MISTAKES -> MistakesPage()
+        SettingsCategory.ACCOUNT -> AccountPage(account)
     }
 }
 
-@Composable
-private fun SettingsCategoryCard(item: SettingsCategory, modifier: Modifier, onSelect: (SettingsCategory) -> Unit) {
-    Surface(
-        onClick = { onSelect(item) },
-        modifier = modifier.heightIn(min = 112.dp),
-        shape = FolioShapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(item.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
-                }
+@Composable private fun SettingsSearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = query, onValueChange = onQuery, modifier = modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.extraLarge,
+        placeholder = { Text("Search settings") },
+        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
+    )
+}
+
+// ---- Home (phone) -------------------------------------------------------------------------------
+
+@Composable private fun SettingsHome(app: AppSettings, backup: BackupSettings, open: (SettingsCategory) -> Unit) {
+    SettingsSection.entries.forEach { section ->
+        SettingsGroup(section.title) {
+            val items = SettingsCategory.entries.filter { it.section == section }
+            items.forEachIndexed { index, item ->
+                if (index > 0) SettingsDivider()
+                CategoryRow(item, summaryFor(item, app, backup)) { open(item) }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Text(item.title, style = MaterialTheme.typography.titleMedium)
-                Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-            }
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+    Text(
+        "Changes save as you make them. A reset arrow appears beside any setting that differs from its default.",
+        Modifier.padding(horizontal = FolioSpacing.dp16), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupSettings): String = when (item) {
+    SettingsCategory.APPEARANCE -> "${app.themeMode.label} · ${app.themePalette.label}"
+    SettingsCategory.BACKUP -> if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
+    else -> item.summary
+}
+
+@Composable private fun CategoryRow(item: SettingsCategory, summary: String, onClick: () -> Unit) {
+    SettingsLinkRow(
+        item.title, summary, onClick = onClick,
+        leadingContent = { CategoryIcon(item.icon) },
+    )
+}
+
+@Composable private fun CategoryIcon(icon: ImageVector) {
+    Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
+        Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
     }
 }
 
-@Composable
-private fun SettingsNavigation(selected: SettingsCategory?, onSelect: (SettingsCategory?) -> Unit, modifier: Modifier = Modifier) {
+// ---- Sidebar (tablet) ---------------------------------------------------------------------------
+
+@Composable private fun SettingsSidebar(
+    selected: SettingsCategory, searching: Boolean, query: String, onQuery: (String) -> Unit,
+    onSelect: (SettingsCategory) -> Unit, modifier: Modifier = Modifier,
+) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            Text("Browse settings", modifier = Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.titleMedium)
-            NavigationDrawerItem(
-                label = { Text("All settings") },
-                selected = selected == null,
-                onClick = { onSelect(null) },
-                icon = { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = FolioShapes.large,
-            )
-            HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp6))
-            SettingsCategory.entries.forEach { item ->
-                NavigationDrawerItem(
-                    label = { Text(item.title) },
-                    selected = item == selected,
-                    onClick = { onSelect(item) },
-                    icon = { Icon(item.icon, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = FolioShapes.large,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsDetails(
-    selected: SettingsCategory,
-    themeMode: ThemeMode,
-    onThemeMode: (ThemeMode) -> Unit,
-    themePalette: ThemePalette,
-    onThemePalette: (ThemePalette) -> Unit,
-    amoled: Boolean,
-    onAmoled: (Boolean) -> Unit,
-    finger: Boolean,
-    onFinger: (Boolean) -> Unit,
-    stylus: StylusShortcut,
-    onStylus: (StylusShortcut) -> Unit,
-    haptics: Boolean,
-    onHaptics: (Boolean) -> Unit,
-    shapeRecognition: Boolean,
-    onShapeRecognition: (Boolean) -> Unit,
-    hapticsSupported: Boolean,
-    dynamicAvailable: Boolean,
-    backupTree: String?,
-    backupFolderName: String?,
-    backupLastSuccess: Long,
-    backupLastError: String?,
-    backupBusy: Boolean,
-    onChooseBackupFolder: () -> Unit,
-    onBackupNow: () -> Unit,
-    onDisableAutoBackup: () -> Unit,
-    onBackupLibrary: () -> Unit,
-    onRestoreLibrary: () -> Unit,
-    onRestoreAutomaticBackup: () -> Unit,
-    onFocal: () -> Unit,
-    onCheckForUpdates: () -> Unit,
-    updateChecking: Boolean,
-) {
-    when (selected) {
-                        SettingsCategory.APPEARANCE -> {
-                            SectionTitle("Theme mode")
-                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
-                                    ThemeMode.entries.forEach { option ->
-                                        Row(Modifier.fillMaxWidth().selectable(option == themeMode, role = Role.RadioButton, onClick = { onThemeMode(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                                            RadioButton(option == themeMode, onClick = null)
-                                            Spacer(Modifier.width(FolioSpacing.dp12))
-                                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                        }
-                                    }
-                                }
-                            }
-                            Text("Color theme", style = MaterialTheme.typography.titleSmall)
-                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
-                                    ThemePalette.entries.forEach { option ->
-                                        val enabled = option != ThemePalette.DYNAMIC || dynamicAvailable
-                                        Row(Modifier.fillMaxWidth().selectable(option == themePalette, enabled = enabled, role = Role.RadioButton, onClick = { onThemePalette(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                                            RadioButton(option == themePalette, onClick = null, enabled = enabled)
-                                            Spacer(Modifier.width(FolioSpacing.dp12))
-                                            Column {
-                                                Text(option.label, style = MaterialTheme.typography.titleSmall, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Text(
-                                                    if (!enabled) "Needs Android 12 or newer" else option.description,
-                                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            PreferenceSwitch("Pure black dark", "Use true black backgrounds whenever the dark theme is active. Accents and ink colors stay the same.", amoled, onAmoled)
-                            AccentSection()
-                            HorizontalDivider()
-                            AppTextScaleSection()
-                            PrefsSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
-                        }
-                        SettingsCategory.LIBRARY -> {
-                            LibraryDefaultsSection()
-                            HorizontalDivider()
-                            SectionTitle("Automatic library backup")
-                            SectionHint("After saved changes and once a day, Folio checks for changes and copies only new data. It keeps the latest two restore points, sharing unchanged pages, PDFs and images.")
-                            backupTree?.let {
-                                Text("Folder: ${backupFolderName ?: "Selected location"}", style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (backupLastSuccess > 0L) {
-                                Text("Last successful backup check: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(backupLastSuccess))}",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            } else if (backupTree != null) {
-                                Text("No automatic backup has completed yet.", style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            backupLastError?.let { Text("Backup issue: $it", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error) }
-                            OutlinedButton(onChooseBackupFolder, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) {
-                                Text(if (backupTree == null) "Choose backup folder" else "Change backup folder")
-                            }
-                            if (backupTree != null) {
-                                OutlinedButton(onBackupNow, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Back up now") }
-                                TextButton(onDisableAutoBackup, enabled = !backupBusy) { Text("Turn off automatic backup") }
-                            }
-                            OutlinedButton(onRestoreAutomaticBackup, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Restore from backup folder") }
-                            SectionHint("Choose the same folder on any device to restore its latest backup. Keep the restore points and Folio backup data folder together.")
-                            HorizontalDivider()
-                            SectionTitle("Portable library backup")
-                            SectionHint("Save a compact, self-contained file for sharing or moving devices. Backups include all pages and undo history. Restoring adds copies alongside your current notebooks; older backups still open.")
-                            OutlinedButton(onBackupLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Save library backup") }
-                            OutlinedButton(onRestoreLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Restore library backup") }
-                        }
-                        SettingsCategory.WRITING -> {
-                            PreferenceSwitch("Draw with a finger", "When off, use a finger to scroll and a stylus to write. When on, scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", finger, onFinger)
-                            PreferenceSwitch("Tidy up shapes", "Draw a rough line, square, circle or triangle with the pen and it becomes a clean shape when you lift the pen. Undo brings your own drawing back.", shapeRecognition, onShapeRecognition)
-                            HorizontalDivider()
-                            EditorDefaultsSection()
-                            HorizontalDivider()
-                            SectionTitle("Shapes")
-                            PrefsSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live shape measurements", "Shows length/angle or width×height while drawing a shape.")
-                            PrefsSwitch("mathSnap", true, "Snap shapes to grid & 15°", "Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle any time in the editor.")
-                        }
-                        SettingsCategory.STYLUS -> {
-                            SectionTitle("Double-tap shortcut")
-                            Text("On a OnePlus or OPPO device, double-tapping the Pencil starts the action you pick here. Other styli keep their own system shortcut. Palm touches are ignored while the stylus is writing.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Column(Modifier.selectableGroup().padding(FolioSpacing.dp8)) {
-                                    StylusShortcut.entries.forEach { option ->
-                                        Row(Modifier.fillMaxWidth().selectable(stylus == option, role = Role.RadioButton, onClick = { onStylus(option) }).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                                            RadioButton(stylus == option, onClick = null)
-                                            Spacer(Modifier.width(FolioSpacing.dp12))
-                                            Column { Text(option.label, style = MaterialTheme.typography.titleSmall); Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                        }
-                                    }
-                                }
-                            }
-                            PreferenceSwitch("Pen haptics", if (hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Changing tools by hand stays silent. The one-shot pulse is confirmed on the OnePlus Pencil Pro; it needs Bluetooth, and it is not the pen's soft writing feedback." else "Needs Android 12 or newer and a Bluetooth LE pencil.", haptics, onHaptics, hapticsSupported)
-                            HorizontalDivider()
-                            InputGesturesSection()
-                        }
-                        SettingsCategory.ERASING -> {
-                            PrefsSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive eraser", "Slightly grows with stronger pressure (about ±12%).")
-                            PrefsSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Single-stroke eraser", "Return to the previous tool after one eraser stroke.")
-                            PrefsSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Whole-stroke eraser", "Remove an entire stroke when touching any part of it.")
-                            HorizontalDivider()
-                            ScribbleSettingsSection(showPracticeInitially = false)
-                        }
-                        SettingsCategory.FOLLOW -> WritingFollowDefaultsSection()
-        SettingsCategory.MISTAKES -> MistakePracticeSection()
-                        SettingsCategory.WORKFLOW -> WorkflowSection()
-                        SettingsCategory.ACCOUNT -> {
-                            SectionTitle("Focal")
-                            SectionHint("One account for study sessions and mistake sync.")
-                            OutlinedButton(onFocal, shapes = ButtonDefaults.shapes()) { Text("Manage Focal account") }
-                            HorizontalDivider()
-                            SectionTitle("App updates")
-                            PrefsSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check for updates on launch", "Folio checks GitHub Releases for a newer signed build.")
-                            OutlinedButton(onCheckForUpdates, enabled = !updateChecking, shapes = ButtonDefaults.shapes()) {
-                                if (updateChecking) {
-                                    LoadingIndicator(Modifier.size(18.dp))
-                                    Spacer(Modifier.width(FolioSpacing.dp8))
-                                    Text("Checking…")
-                                } else Text("Check for updates")
-                            }
-                            SectionHint("Your notebooks stay on this device. Use Library & notebooks to save or restore the entire library.")
-                        }
-    }
-}
-
-private enum class SettingsCategory(
-    val title: String,
-    val description: String,
-    val icon: ImageVector,
-    val searchTerms: String,
-) {
-    APPEARANCE("Appearance", "Theme, accent colour, text size, pure black and fullscreen", Icons.Rounded.Palette, "theme dark light colour color accent tint custom highlight picker app text size font bigger smaller amoled black fullscreen display"),
-    WRITING("Writing & tools", "Finger drawing, shapes, default pen and text", Icons.Rounded.Edit, "finger palm drawing pen pencil shape tool text font size alignment"),
-    STYLUS("Stylus & touch", "Pencil shortcuts, haptics, palm rejection and gestures", Icons.Rounded.Gesture, "stylus pencil pen haptics vibration palm touch gestures undo redo shortcut"),
-    LIBRARY("Library & notebooks", "Shelf layout, sorting, paper, covers and backup", Icons.AutoMirrored.Rounded.MenuBook, "library notebook notebooks shelf sort filter cover paper colour colour custom new backup restore save"),
-    WORKFLOW("Timer & workspace", "Exam timer, screen, image export and split view", Icons.Rounded.Timer, "timer exam minutes idle screen export png image split view workspace"),
-    FOLLOW("Writing follow", "Page movement, writing direction and line return", Icons.Rounded.AutoStories, "follow page move direction hand left right line return glide"),
-    MISTAKES("Mistake practice", "Paper for handwritten practice pages", Icons.Rounded.EditNote, "mistake practice question wrong revision review handwriting paper grid dots line unlimited infinite canvas"),
-    ERASING("Erasing", "Pressure, whole strokes and scribble-to-erase", Icons.Rounded.CleaningServices, "erase eraser pressure stroke scribble clean"),
-    ACCOUNT("Account & updates", "Focal account, sync and app updates", Icons.Rounded.AccountCircle, "account focal mistake study sessions sync sign in update github version");
-
-    fun matches(query: String): Boolean = query.isBlank() || listOf(title, description, searchTerms).any { it.lowercase().contains(query) }
-}
-
-@Composable private fun PreferenceSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true, onReset: (() -> Unit)? = null) {
-    val hold = rememberLongPressGuard()
-    Row(Modifier.fillMaxWidth()
-        .then(if (onReset != null) Modifier.longPressAction(hold, onReset) else Modifier)
-        .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { value -> hold.click { onChange(value) }() }).padding(vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Switch(checked, onCheckedChange = null, enabled = enabled)
-        onReset?.let { reset ->
-            IconButton(onClick = { hold.click(reset)() }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Rounded.RestartAlt, "Reset $title to default")
-            }
-        }
-    }
-}
-
-// ---- Shared prefs helpers ----------------------------------------------------------------------
-
-@Composable private fun prefs(): SharedPreferences {
-    val context = LocalContext.current
-    return remember(context) { context.getSharedPreferences("preferences", 0) }
-}
-
-@Composable private fun PrefsSwitch(key: String, default: Boolean, title: String, subtitle: String) {
-    val p = prefs()
-    var checked by remember { mutableStateOf(p.getBoolean(key, default)) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            if (k == key) checked = p.getBoolean(k, default)
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    PreferenceSwitch(title, subtitle, checked, {
-        checked = it
-        p.edit().putBoolean(key, it).apply()
-    }, onReset = {
-        checked = default
-        p.edit().putBoolean(key, default).apply()
-    })
-}
-
-@Composable private fun SectionTitle(text: String) {
-    Text(text, modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-}
-
-// ---- Accent & app text ------------------------------------------------------------------------
-
-/** One colour of your own, applied to every Folio palette by re-tinting its accents. */
-@Composable private fun AccentSection() {
-    val accent = rememberAccentState()
-    var picking by remember { mutableStateOf(false) }
-    val chosen = accent.accent
-    SectionTitle("Accent colour")
-    SectionHint("Tint the buttons, selections and highlights with a colour of your own. Ink colours on the page are separate and never change, and your accent replaces the wallpaper colours when both are on.")
-    if (chosen == null) {
-        SectionHint("Using the palette's own colours.")
-    } else {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            AccentPresets.forEach { preset ->
-                ColorSwatch(preset, AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) })
-            }
-        }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        OutlinedButton({ picking = true }, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
-        if (accent.accent != null) {
-            TextButton(accent::clear, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
-        }
-    }
-    if (picking) {
-        // The live preview lives with the dialog, so dismissing it leaves the accent alone.
-        var preview by remember { mutableStateOf(accent.accent ?: AccentPresets.first()) }
-        Dialog(onDismissRequest = { picking = false }) {
-            Surface(shape = FolioShapes.panel, modifier = Modifier.fillMaxWidth().padding(FolioSpacing.dp24)) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    SectionTitle("Accent colour")
-                    ColorChooser(preview, "Accent", onPreview = { preview = it }, onConfirm = {
-                        accent.set(it)
-                        picking = false
-                    }, onClear = {
-                        accent.clear()
-                        picking = false
-                    })
-                    TextButton({ picking = false }, shapes = ButtonDefaults.shapes()) { Text("Close") }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Text("Settings", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp12), style = MaterialTheme.typography.headlineSmall)
+            SettingsSearchField(query, onQuery, Modifier.padding(bottom = FolioSpacing.dp8))
+            SettingsSection.entries.forEach { section ->
+                Text(section.title, Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                SettingsCategory.entries.filter { it.section == section }.forEach { item ->
+                    NavigationDrawerItem(
+                        label = { Text(item.title) }, selected = !searching && item == selected, onClick = { onSelect(item) },
+                        icon = { Icon(item.icon, null) }, modifier = Modifier.fillMaxWidth(), shape = FolioShapes.large,
+                    )
                 }
             }
         }
     }
 }
 
-/** Scales every sp-based label and heading, on top of the device's own font size. */
-@Composable private fun AppTextScaleSection() {
-    val p = prefs()
-    var scale by remember { mutableFloatStateOf(AppPrefs.uiTextScale(p.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { p.contains(AppPrefs.UI_TEXT_SCALE) })) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            if (k == AppPrefs.UI_TEXT_SCALE) scale = AppPrefs.uiTextScale(p.getFloat(k, AppPrefs.DEFAULT_UI_TEXT_SCALE))
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Text size")
-    SectionHint("Scales every label and heading in Folio. Handwriting width and typed text size are set separately and are unaffected.")
-    Text("App text: ${(scale * 100).roundToInt()}%", style = MaterialTheme.typography.titleSmall)
-    Slider(scale, {
-        scale = AppPrefs.uiTextScale(it)
-        p.edit().putFloat(AppPrefs.UI_TEXT_SCALE, scale).apply()
-    }, valueRange = AppPrefs.UI_TEXT_SCALE_MIN..AppPrefs.UI_TEXT_SCALE_MAX, steps = 10)
-    SectionHint("Multiplies your device's font size, so a larger system font still wins. 100% leaves things exactly as they are.")
-}
+// ---- Search -------------------------------------------------------------------------------------
 
-@Composable private fun SectionHint(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-// ---- Library & notebooks ----------------------------------------------------------------------
-
-@Composable private fun LibraryDefaultsSection() {
-    val p = prefs()
-    var sort by remember { mutableStateOf(AppPrefs.librarySort(p.getString(AppPrefs.LIB_SORT, null))) }
-    var kind by remember { mutableStateOf(AppPrefs.libraryKind(p.getString(AppPrefs.LIB_KIND, null))) }
-    var listView by remember { mutableStateOf(p.getBoolean(AppPrefs.LIB_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
-    var defaultPaper by remember { mutableStateOf(AppPrefs.defaultPaper(p.getString(AppPrefs.DEFAULT_PAPER, null))) }
-    var defaultCover by remember { mutableIntStateOf(AppPrefs.defaultCover(p.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { p.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
-    var pageCover by remember { mutableStateOf(p.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            when (k) {
-                AppPrefs.LIB_SORT -> sort = AppPrefs.librarySort(p.getString(k, null))
-                AppPrefs.LIB_KIND -> kind = AppPrefs.libraryKind(p.getString(k, null))
-                AppPrefs.LIB_LIST -> listView = p.getBoolean(k, AppPrefs.DEFAULT_LIST_VIEW)
-                AppPrefs.DEFAULT_PAPER -> defaultPaper = AppPrefs.defaultPaper(p.getString(k, null))
-                AppPrefs.DEFAULT_COVER -> defaultCover = AppPrefs.defaultCover(p.getInt(k, AppPrefs.DEFAULT_COVER_INDEX))
-                AppPrefs.DEFAULT_PAGE_COVER -> pageCover = p.getBoolean(k, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)
-            }
+@Composable private fun SearchResults(query: String, open: (SettingsCategory) -> Unit) {
+    val hits = remember(query) { SettingsIndex.search(query) }
+    if (hits.isEmpty()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Icon(Icons.Rounded.Search, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Nothing matches “${query.trim()}”", style = MaterialTheme.typography.titleMedium)
+            Text("Try a word such as theme, backup, pencil or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
+        return
     }
-    SectionTitle("Library")
-    SectionHint("How the shelf opens and what a fresh notebook looks like. Library sorting and view are also saved whenever you change them on the shelf itself.")
-    Text("Library sort", style = MaterialTheme.typography.titleSmall)
-    Column(Modifier.selectableGroup()) {
-        LibrarySort.entries.forEach { option ->
-            Row(Modifier.fillMaxWidth().selectable(sort == option, role = Role.RadioButton, onClick = {
-                sort = option
-                p.edit().putString(AppPrefs.LIB_SORT, option.name).apply()
-            }).padding(vertical = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(sort == option, onClick = null)
-                Spacer(Modifier.width(FolioSpacing.dp12))
-                Text(option.label, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-    }
-    Text("Library type filter", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        LibraryKind.entries.forEach { option ->
-            FilterChip(kind == option, {
-                kind = option
-                p.edit().putString(AppPrefs.LIB_KIND, option.name).apply()
-            }, { Text(option.label) })
-        }
-    }
-    Text("Library layout", style = MaterialTheme.typography.titleSmall)
-    FolioButtonGroup {
-        toggleableItem(!listView, "Covers", {
-            listView = false
-            p.edit().putBoolean(AppPrefs.LIB_LIST, false).apply()
-        })
-        toggleableItem(listView, "Compact list", {
-            listView = true
-            p.edit().putBoolean(AppPrefs.LIB_LIST, true).apply()
-        })
-    }
-    HorizontalDivider()
-    SectionTitle("New notebooks")
-    Text("Default paper for new notebooks", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Paper.entries.forEach { item ->
-            FilterChip(defaultPaper == item, {
-                defaultPaper = item
-                p.edit().putString(AppPrefs.DEFAULT_PAPER, item.name).apply()
-            }, { Text(paperLabel(item)) })
-        }
-    }
-    Text("Default cover color", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        BuiltInCoverColors.forEachIndexed { index, color ->
-            IconButton({
-                defaultCover = index
-                p.edit().putInt(AppPrefs.DEFAULT_COVER, index).apply()
-            },
-                shapes = IconButtonDefaults.shapes()) {
-                Surface(Modifier.size(34.dp), shape = FolioShapes.medium, color = color, border = if (index == defaultCover) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
-                    if (index == defaultCover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
-                    else Box(Modifier.semanticsLabel("Cover ${index + 1}"))
-                }
-            }
-        }
-    }
-    PreferenceSwitch("First page as cover", "New notebooks show their first page on the shelf. Turn off for the decorative default cover.", pageCover, {
-        pageCover = it
-        p.edit().putBoolean(AppPrefs.DEFAULT_PAGE_COVER, it).apply()
-    })
-    CustomCoverSection()
-}
-
-// ---- Custom cover colours -----------------------------------------------------------------------
-
-/** Add, remove and preview the cover colours that sit after the built-in covers. */
-@Composable private fun CustomCoverSection() {
-    val custom = rememberCustomCoverColors()
-    val palette = rememberCoverPalette()
-    var picking by remember { mutableStateOf(false) }
-    HorizontalDivider()
-    SectionTitle("Your cover colours")
-    SectionHint("Colours you add join every notebook picker and the shelf. Existing notebooks keep the cover they were given.")
-    if (custom.isEmpty()) SectionHint("None yet.")
-    else {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            // A notebook stores a cover *index*, so only the newest colour can be removed
-            // without moving the colours that follow it onto other notebooks.
-            custom.forEachIndexed { index, color ->
-                val newest = index == custom.lastIndex
-                ColorSwatch(color, false, if (newest) "Remove cover colour ${AccentTones.hex(color)}" else "Cover colour ${AccentTones.hex(color)}",
-                    if (newest) ({ palette.remove(color) }) else ({ }))
-            }
-        }
-        SectionHint("Tap the newest colour to remove it. Removing from further down would change the covers of notebooks already using those colours.")
-    }
-    OutlinedButton({ picking = true }, enabled = custom.size < CoverPalette.MAX, shapes = ButtonDefaults.shapes()) {
-        Text(if (custom.size < CoverPalette.MAX) "Add a cover colour" else "Maximum ${CoverPalette.MAX} colours reached")
-    }
-    if (picking) {
-        var preview by remember { mutableStateOf(AccentPresets.first()) }
-        Dialog(onDismissRequest = { picking = false }) {
-            Surface(shape = FolioShapes.panel, modifier = Modifier.fillMaxWidth().padding(FolioSpacing.dp24)) {
-                Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    SectionTitle("New cover colour")
-                    ColorChooser(AccentPresets.first(), "Cover colour", onPreview = { preview = it }, onConfirm = {
-                        palette.add(it)
-                        picking = false
-                    })
-                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        TextButton({ picking = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                        Button({ palette.add(preview); picking = false }, shapes = ButtonDefaults.shapes()) { Text("Save colour") }
-                    }
-                }
-            }
+    SettingsGroup(if (hits.size == 1) "1 result" else "${hits.size} results") {
+        hits.forEachIndexed { index, hit ->
+            if (index > 0) SettingsDivider()
+            SettingsLinkRow(hit.title, hit.category.title, onClick = { open(hit.category) }, leadingContent = { CategoryIcon(hit.category.icon) })
         }
     }
 }
 
-private fun paperLabel(paper: Paper): String = when (paper) {
-    Paper.SPLIT_RULED -> "Split ruled"
-    Paper.MATH_GRID -> "Maths grid"
-    Paper.GRAPH -> "Graph"
-    Paper.MC_SHEET -> "MC sheet"
-    Paper.TIAN_GRID -> "Tian (田字格)"
-    Paper.MI_GRID -> "Mi (米字格)"
-    else -> paper.name.lowercase().replaceFirstChar(Char::uppercase)
+// ---- Model --------------------------------------------------------------------------------------
+
+private enum class SettingsSection(val title: String) {
+    PERSONAL("Personalise"), WRITING("Writing"), NOTEBOOKS("Notebooks"), STUDY("Study"), APP("Folio"),
 }
 
-// ---- Editor defaults ---------------------------------------------------------------------------
-
-@Composable private fun EditorDefaultsSection() {
-    val p = prefs()
-    var defaultTool by remember { mutableStateOf(AppPrefs.defaultTool(p.getString(AppPrefs.DEFAULT_TOOL, null))) }
-    var textSize by remember { mutableFloatStateOf(AppPrefs.textSize(p.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { p.contains(AppPrefs.TEXT_SIZE_KEY) })) }
-    var textAlign by remember { mutableStateOf(runCatching { TextAlignMode.valueOf(p.getString("text.align", "LEFT") ?: "LEFT") }.getOrDefault(TextAlignMode.LEFT)) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            when (k) {
-                AppPrefs.DEFAULT_TOOL -> defaultTool = AppPrefs.defaultTool(p.getString(k, null))
-                AppPrefs.TEXT_SIZE_KEY -> textSize = AppPrefs.textSize(p.getFloat(k, AppPrefs.DEFAULT_TEXT_SIZE))
-                "text.align" -> textAlign = runCatching { TextAlignMode.valueOf(p.getString(k, "LEFT") ?: "LEFT") }.getOrDefault(TextAlignMode.LEFT)
-            }
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Editor defaults")
-    SectionHint("Which tool is in hand when a notebook opens, and how new typed text looks. Ink color, width and opacity stay per-tool in Tool settings.")
-    Text("Default tool", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Tool.entries.forEach { tool ->
-            FilterChip(defaultTool == tool, {
-                defaultTool = tool
-                p.edit().putString(AppPrefs.DEFAULT_TOOL, tool.name).apply()
-            }, { Text(tool.name.lowercase().replaceFirstChar(Char::uppercase)) })
-        }
-    }
-    Text("Default text size: ${textSize.roundToInt()} pt", style = MaterialTheme.typography.titleSmall)
-    Slider(textSize, {
-        textSize = AppPrefs.textSize(it)
-        p.edit().putFloat(AppPrefs.TEXT_SIZE_KEY, textSize).apply()
-    }, valueRange = AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX)
-    SectionHint("New text boxes start at this size. Existing boxes are unchanged.")
-    Text("Default text alignment", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        TextAlignMode.entries.forEach { align ->
-            FilterChip(textAlign == align, {
-                textAlign = align
-                p.edit().putString("text.align", align.name).apply()
-            }, { Text(align.name.lowercase().replaceFirstChar(Char::uppercase)) })
-        }
-    }
+private enum class SettingsCategory(val title: String, val summary: String, val icon: ImageVector, val section: SettingsSection) {
+    APPEARANCE("Appearance", "Theme, accent colour, text size and display", Icons.Rounded.Palette, SettingsSection.PERSONAL),
+    WRITING("Writing & tools", "Finger drawing, shapes, default tool and text", Icons.Rounded.Edit, SettingsSection.WRITING),
+    STYLUS("Stylus & touch", "Pencil shortcut, haptics, palm rejection, gestures", Icons.Rounded.Gesture, SettingsSection.WRITING),
+    ERASING("Erasing", "Pressure, whole strokes and scribble to erase", Icons.Rounded.CleaningServices, SettingsSection.WRITING),
+    FOLLOW("Writing follow", "Page movement, direction and line return", Icons.Rounded.AutoStories, SettingsSection.WRITING),
+    LIBRARY("Library & covers", "Shelf layout, sorting, paper and covers", Icons.AutoMirrored.Rounded.MenuBook, SettingsSection.NOTEBOOKS),
+    BACKUP("Backup & restore", "Automatic backup, library files, exclusions", Icons.Rounded.Backup, SettingsSection.NOTEBOOKS),
+    WORKFLOW("Timer & workspace", "Exam timer, image export and split view", Icons.Rounded.Timer, SettingsSection.STUDY),
+    MISTAKES("Mistake practice", "Paper for handwritten practice pages", Icons.Rounded.EditNote, SettingsSection.STUDY),
+    ACCOUNT("Account & updates", "Focal account and app updates", Icons.Rounded.AccountCircle, SettingsSection.APP),
 }
 
-// ---- Input & gestures --------------------------------------------------------------------------
+/** What search can find: each setting by name plus the words someone might use for it. */
+private object SettingsIndex {
+    class Hit(val category: SettingsCategory, val title: String, val keywords: String)
 
-@Composable private fun InputGesturesSection() {
-    val p = prefs()
-    var palmMs by remember { mutableLongStateOf(AppPrefs.palmMs(p.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { p.contains(AppPrefs.PALM_MS) })) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            if (k == AppPrefs.PALM_MS) palmMs = AppPrefs.palmMs(p.getLong(k, AppPrefs.DEFAULT_PALM_MS))
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Touch & gestures")
-    SectionHint("Fine-tune palm rejection and the shortcuts that live on the page canvas. Pen pressure curves stay per-tool in Tool settings.")
-    Text(if (palmMs == 0L) "Palm rejection: off" else "Palm rejection: ${palmMs} ms after the stylus", style = MaterialTheme.typography.titleSmall)
-    Slider(palmMs.toFloat(), {
-        palmMs = AppPrefs.palmMs(it.roundToInt().toLong())
-        p.edit().putLong(AppPrefs.PALM_MS, palmMs).apply()
-    }, valueRange = AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat())
-    SectionHint("How long a finger still counts as a resting palm after stylus activity. 0 turns palm filtering off; 500 ms is the balanced default.")
-    PrefsSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap undo", "Two fingers: undo, three fingers: redo — on the page canvas (not the toolbar). Stylus and palm input never trigger it.")
+    private fun e(c: SettingsCategory, title: String, keywords: String = "") = Hit(c, title, keywords)
 
-}
+    private val all = listOf(
+        e(SettingsCategory.APPEARANCE, "Theme", "light dark system mode night"),
+        e(SettingsCategory.APPEARANCE, "Colour theme", "color palette sage ocean plum warm wallpaper dynamic material you"),
+        e(SettingsCategory.APPEARANCE, "Pure black dark", "amoled oled black"),
+        e(SettingsCategory.APPEARANCE, "Accent colour", "color tint highlight picker custom"),
+        e(SettingsCategory.APPEARANCE, "Text size", "font bigger smaller scale"),
+        e(SettingsCategory.APPEARANCE, "Fullscreen", "status bar gesture immersive"),
+        e(SettingsCategory.APPEARANCE, "Keep screen on", "sleep display awake"),
+        e(SettingsCategory.WRITING, "Draw with a finger", "touch palm scroll"),
+        e(SettingsCategory.WRITING, "Tidy up shapes", "shape recognition perfect line circle square triangle"),
+        e(SettingsCategory.WRITING, "Live shape measurements", "length angle width height"),
+        e(SettingsCategory.WRITING, "Snap to grid and 15°", "math maths angle graph"),
+        e(SettingsCategory.WRITING, "Tool in hand", "default tool pen highlighter open"),
+        e(SettingsCategory.WRITING, "Typed text size and alignment", "font default left centre right"),
+        e(SettingsCategory.STYLUS, "Pencil double-tap", "stylus shortcut action oneplus oppo"),
+        e(SettingsCategory.STYLUS, "Pen haptics", "vibration buzz bluetooth"),
+        e(SettingsCategory.STYLUS, "Palm rejection", "resting hand touch milliseconds"),
+        e(SettingsCategory.STYLUS, "Two-finger tap to undo", "gesture redo three fingers"),
+        e(SettingsCategory.ERASING, "Pressure-sensitive eraser", "size grows"),
+        e(SettingsCategory.ERASING, "Single-stroke eraser", "previous tool"),
+        e(SettingsCategory.ERASING, "Whole-stroke eraser", "remove entire stroke"),
+        e(SettingsCategory.ERASING, "Scribble to erase", "scrub sensitivity"),
+        e(SettingsCategory.FOLLOW, "Writing follow", "page move glide scroll automatically"),
+        e(SettingsCategory.FOLLOW, "Reading direction", "left right rtl ltr"),
+        e(SettingsCategory.FOLLOW, "Hand holding the pen", "left handed right handed"),
+        e(SettingsCategory.FOLLOW, "Automatic line return", "next line answer area"),
+        e(SettingsCategory.LIBRARY, "Sort by", "order shelf recent name"),
+        e(SettingsCategory.LIBRARY, "Library layout", "covers compact list view grid"),
+        e(SettingsCategory.LIBRARY, "Default paper", "new notebook ruled grid dots blank"),
+        e(SettingsCategory.LIBRARY, "Default cover colour", "new notebook"),
+        e(SettingsCategory.LIBRARY, "First page as cover", "thumbnail shelf"),
+        e(SettingsCategory.LIBRARY, "Your cover colours", "custom add remove"),
+        e(SettingsCategory.BACKUP, "Automatic backup", "folder restore point cloud drive daily"),
+        e(SettingsCategory.BACKUP, "Restore from backup folder", "recover"),
+        e(SettingsCategory.BACKUP, "Backup exclusions", "leave out textbook pdf skip"),
+        e(SettingsCategory.BACKUP, "Library backup file", "save restore export zip portable move device"),
+        e(SettingsCategory.WORKFLOW, "Exam timer", "custom minutes reading time"),
+        e(SettingsCategory.WORKFLOW, "Resume timer on pen down", "pause start"),
+        e(SettingsCategory.WORKFLOW, "Stop timer after inactivity", "idle"),
+        e(SettingsCategory.WORKFLOW, "Page image sharpness", "png export scale quality"),
+        e(SettingsCategory.WORKFLOW, "Split view balance", "workspace editor share companion pane"),
+        e(SettingsCategory.MISTAKES, "Mistake practice paper", "question wrong revision review handwriting infinite canvas"),
+        e(SettingsCategory.ACCOUNT, "Focal account", "sign in sync study sessions mistakes"),
+        e(SettingsCategory.ACCOUNT, "Check for updates", "github release version launch"),
+    )
 
-// ---- Writing follow defaults -------------------------------------------------------------------
-
-@Composable private fun WritingFollowDefaultsSection() {
-    val p = prefs()
-    var followEnabled by remember { mutableStateOf(p.getBoolean("writingFollow", false)) }
-    var mode by remember { mutableStateOf(runCatching { FollowMode.valueOf(p.getString("follow.mode", "TEXT") ?: "TEXT") }.getOrDefault(FollowMode.TEXT)) }
-    var direction by remember { mutableStateOf(runCatching { WritingDirection.valueOf(p.getString("follow.direction", "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)) }
-    var hand by remember { mutableStateOf(runCatching { WritingHand.valueOf(p.getString("writingHand", "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)) }
-    var autoReturn by remember { mutableStateOf(p.getBoolean("follow.autoReturn", false)) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            when (k) {
-                "writingFollow" -> followEnabled = p.getBoolean(k, false)
-                "follow.mode" -> mode = runCatching { FollowMode.valueOf(p.getString(k, "TEXT") ?: "TEXT") }.getOrDefault(FollowMode.TEXT)
-                "follow.direction" -> direction = runCatching { WritingDirection.valueOf(p.getString(k, "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)
-                "writingHand" -> hand = runCatching { WritingHand.valueOf(p.getString(k, "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)
-                "follow.autoReturn" -> autoReturn = p.getBoolean(k, false)
-            }
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Writing follow")
-    SectionHint("Defaults for new sessions. Height, column, line spacing and glide timing stay in the editor's Writing follow dialog.")
-    PreferenceSwitch("Writing follow on by default", "The page stays still while the pen is down and reveals space after a lift.", followEnabled, {
-        followEnabled = it
-        p.edit().putBoolean("writingFollow", it).apply()
-    })
-    Text("Follow mode", style = MaterialTheme.typography.titleSmall)
-    FolioButtonGroup {
-        toggleableItem(mode == FollowMode.TEXT, "Text", {
-            mode = FollowMode.TEXT
-            p.edit().putString("follow.mode", FollowMode.TEXT.name).apply()
-        })
-        toggleableItem(mode == FollowMode.MATH, "Maths", {
-            mode = FollowMode.MATH
-            p.edit().putString("follow.mode", FollowMode.MATH.name).apply()
-        })
-    }
-    Text("Reading direction", style = MaterialTheme.typography.titleSmall)
-    FolioButtonGroup {
-        toggleableItem(direction == WritingDirection.LTR, "Left → right", {
-            direction = WritingDirection.LTR
-            p.edit().putString("follow.direction", WritingDirection.LTR.name).apply()
-        })
-        toggleableItem(direction == WritingDirection.RTL, "Right → left", {
-            direction = WritingDirection.RTL
-            p.edit().putString("follow.direction", WritingDirection.RTL.name).apply()
-        })
-    }
-    Text("Hand holding the pen", style = MaterialTheme.typography.titleSmall)
-    FolioButtonGroup {
-        toggleableItem(hand == WritingHand.RIGHT, "Right hand", {
-            hand = WritingHand.RIGHT
-            p.edit().putString("writingHand", WritingHand.RIGHT.name).apply()
-        })
-        toggleableItem(hand == WritingHand.LEFT, "Left hand", {
-            hand = WritingHand.LEFT
-            p.edit().putString("writingHand", WritingHand.LEFT.name).apply()
-        })
-    }
-    PreferenceSwitch("Automatic line return", if (mode == FollowMode.TEXT)
-        "After writing across a line, pause near the answer area's edge to return. Touch down to cancel."
-        else "Available in Text mode. In Maths, tap Next line when you want a new row.", autoReturn, {
-        autoReturn = it
-        p.edit().putBoolean("follow.autoReturn", it).apply()
-    }, enabled = mode == FollowMode.TEXT)
-}
-
-// ---- Mistake practice ------------------------------------------------------------------------
-
-/** The printed guide a new mistake-practice page starts with; the canvas itself stays infinite. */
-@Composable private fun MistakePracticeSection() {
-    val p = prefs()
-    var paper by remember { mutableStateOf(AppPrefs.mistakePaper(p.getString(AppPrefs.MISTAKE_PAPER, null))) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            if (k == AppPrefs.MISTAKE_PAPER) paper = AppPrefs.mistakePaper(p.getString(k, null))
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Practice pages")
-    SectionHint("Every question you practise opens on its own infinite canvas. This picks the guide printed behind it.")
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Paper.entries.forEach { item ->
-            FilterChip(paper == item, {
-                paper = item
-                p.edit().putString(AppPrefs.MISTAKE_PAPER, item.name).apply()
-            }, { Text(paperLabel(item)) })
+    /** Every word typed must appear in the title, keywords or category name. */
+    fun search(query: String): List<Hit> {
+        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        return all.filter { hit ->
+            val haystack = "${hit.title} ${hit.keywords} ${hit.category.title}".lowercase()
+            words.all { it in haystack }
         }
     }
-    SectionHint("Applies to the next question you practise; pages you have already written keep their own paper.")
-    SectionHint("The question sits beside your writing while you work. Drag the divider to give one more room than the other, or double-tap it for the default split; the last position is remembered.")
-}
-
-// ---- Workflow: timer, export, split ---------------------------------------------------
-
-@Composable private fun WorkflowSection() {
-    val p = prefs()
-    var customMinutes by remember { mutableStateOf(AppPrefs.timerCustomMinutes(p.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { p.contains(AppPrefs.TIMER_CUSTOM_MIN) }).toString()) }
-    var readingMinutes by remember { mutableFloatStateOf(AppPrefs.timerReadingMinutes(p.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { p.contains(AppPrefs.TIMER_READING_MIN) }).toFloat()) }
-    var autoStart by remember { mutableStateOf(p.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START)) }
-    var idleMinutes by remember { mutableFloatStateOf(AppPrefs.timerIdleMinutes(p.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { p.contains(AppPrefs.TIMER_IDLE_MIN) }).toFloat()) }
-    var pngScale by remember { mutableFloatStateOf(AppPrefs.pngScale(p.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { p.contains(AppPrefs.EXPORT_PNG_SCALE) })) }
-    var split by remember { mutableFloatStateOf(AppPrefs.splitFraction(p.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { p.contains(AppPrefs.SPLIT_FRACTION) })) }
-    var customError by rememberSaveable { mutableStateOf(false) }
-    DisposableEffect(p) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
-            when (k) {
-                AppPrefs.TIMER_CUSTOM_MIN -> customMinutes = AppPrefs.timerCustomMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN)).toString()
-                AppPrefs.TIMER_READING_MIN -> readingMinutes = AppPrefs.timerReadingMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_READING_MIN)).toFloat()
-                AppPrefs.TIMER_AUTO_START -> autoStart = p.getBoolean(k, AppPrefs.DEFAULT_TIMER_AUTO_START)
-                AppPrefs.TIMER_IDLE_MIN -> idleMinutes = AppPrefs.timerIdleMinutes(p.getInt(k, AppPrefs.DEFAULT_TIMER_IDLE_MIN)).toFloat()
-                AppPrefs.EXPORT_PNG_SCALE -> pngScale = AppPrefs.pngScale(p.getFloat(k, AppPrefs.DEFAULT_PNG_SCALE))
-                AppPrefs.SPLIT_FRACTION -> split = AppPrefs.splitFraction(p.getFloat(k, AppPrefs.DEFAULT_SPLIT))
-            }
-        }
-        p.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    SectionTitle("Exam timer")
-    Text("Custom timer writing minutes", style = MaterialTheme.typography.titleSmall)
-    OutlinedTextField(customMinutes, {
-        customMinutes = it.filter(Char::isDigit).take(3)
-        val parsed = customMinutes.toIntOrNull()
-        customError = parsed != null && (parsed < AppPrefs.TIMER_CUSTOM_MIN_RANGE || parsed > AppPrefs.TIMER_CUSTOM_MAX)
-        parsed?.let { minutes ->
-            if (minutes in AppPrefs.TIMER_CUSTOM_MIN_RANGE..AppPrefs.TIMER_CUSTOM_MAX) {
-                p.edit().putInt(AppPrefs.TIMER_CUSTOM_MIN, minutes).apply()
-            }
-        }
-    }, label = { Text("Writing minutes (1–480)") }, singleLine = true, isError = customError,
-        supportingText = { if (customError) Text("Enter 1–480") else Text("Prefills the Custom timer; Exam 1 (90) and Exam 2 (120) presets are unchanged.") })
-    Text("Custom timer reading minutes: ${readingMinutes.roundToInt()} min", style = MaterialTheme.typography.titleSmall)
-    Slider(readingMinutes, {
-        readingMinutes = it
-        p.edit().putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()).apply()
-    }, valueRange = AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(), steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1)
-    PreferenceSwitch("Resume the timer on pen down", "A paused exam clock resumes on the next pen stroke. The pen never starts a new sitting by itself — start the timer from the timer panel.", autoStart, {
-        autoStart = it
-        p.edit().putBoolean(AppPrefs.TIMER_AUTO_START, it).apply()
-    })
-    Text(if (idleMinutes <= 0f) "Stop after inactivity: never" else "Stop after ${idleMinutes.roundToInt()} min without writing", style = MaterialTheme.typography.titleSmall)
-    Slider(idleMinutes, {
-        idleMinutes = it
-        p.edit().putInt(AppPrefs.TIMER_IDLE_MIN, it.roundToInt()).apply()
-    }, valueRange = AppPrefs.TIMER_IDLE_MIN_RANGE.toFloat()..AppPrefs.TIMER_IDLE_MAX.toFloat(), steps = AppPrefs.TIMER_IDLE_MAX - AppPrefs.TIMER_IDLE_MIN_RANGE - 1)
-    SectionHint("The clock stops itself once the pen has been idle this long, and your next stroke resumes it. Set 0 to keep it running until you stop it. Leaving the editor, backgrounding the app or the screen going off parks it as before.")
-    HorizontalDivider()
-    SectionTitle("Export")
-    SectionHint("PDF exports keep vector ink. PNG sharpness only affects page images.")
-    Text("Page image (PNG) sharpness: ${"%.1f".format(pngScale)}×", style = MaterialTheme.typography.titleSmall)
-    Slider(pngScale, {
-        pngScale = AppPrefs.pngScale(it)
-        p.edit().putFloat(AppPrefs.EXPORT_PNG_SCALE, pngScale).apply()
-    }, valueRange = AppPrefs.PNG_SCALE_MIN..AppPrefs.PNG_SCALE_MAX)
-    SectionHint("Higher is crisper on large pages and larger to share. 2.0× is the balanced default.")
-    HorizontalDivider()
-    SectionTitle("Split view")
-    Text("Split view balance: ${(split * 100).roundToInt()}% editor", style = MaterialTheme.typography.titleSmall)
-    Slider(split, {
-        split = AppPrefs.splitFraction(it)
-        p.edit().putFloat(AppPrefs.SPLIT_FRACTION, split).apply()
-    }, valueRange = SplitPanes.MIN_FRACTION..SplitPanes.MAX_FRACTION)
-    SectionHint("Default share of the split given to the editor pane. Drag the divider any time; the last position is remembered.")
-    HorizontalDivider()
-    SectionTitle("Display")
-    PrefsSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "The display never sleeps while Folio is open. Handy for long writing sessions and timed papers.")
 }

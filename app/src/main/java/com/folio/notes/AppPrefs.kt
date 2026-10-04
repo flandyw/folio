@@ -43,8 +43,12 @@ object AppPrefs {
     const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
     const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
+    /** Local notebook identities omitted from automatic and portable library backups. */
+    const val BACKUP_EXCLUDED_NOTEBOOKS = "backup.excludedNotebooks"
     /** Peek shows the whole current page instead of a pinned view. */
     const val AUTO_PEEK = "peek.auto"
+
+    val DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS: Set<String> = emptySet()
 
     const val DEFAULT_FULLSCREEN = true
     const val DEFAULT_KEEP_SCREEN_ON = false
@@ -77,6 +81,13 @@ object AppPrefs {
     const val DEFAULT_UI_TEXT_SCALE = 1f
     const val UI_TEXT_SCALE_MIN = 0.85f
     const val UI_TEXT_SCALE_MAX = 1.4f
+
+    fun backupExcludedNotebookIds(raw: Set<String>?): Set<String> =
+        (raw ?: DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS).filter { it.length in 1..64 && it.matches(Regex("[a-zA-Z0-9-]+")) }.toSet()
+
+    /** A deliberate single-notebook export includes the chosen notebook even if it is excluded. */
+    fun notebooksForBackup(notes: List<Notebook>, excludedIds: Set<String>, includeExcluded: Boolean = false): List<Notebook> =
+        if (includeExcluded) notes else notes.filterNot { it.id in excludedIds }
 
     fun defaultTool(raw: String?): Tool =
         runCatching { Tool.valueOf(raw ?: "") }.getOrDefault(Tool.PEN)

@@ -75,6 +75,7 @@ data class FolioState(
     val pendingPdfImports: List<PendingPdfImport> = emptyList(),
     val importProgress: String? = null,
     val backupProgress: String? = null,
+    val backupExcludedNotebookIds: Set<String> = emptySet(),
     val canUndo: Boolean = false, val canRedo: Boolean = false,
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
     val timer: ExamTimerState = ExamTimerState(),
@@ -119,6 +120,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     val thumbnails = (application as FolioApplication).thumbnails
     private val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"])
     private val _state = MutableStateFlow(FolioState(tabs = restoredTabs,
+        backupExcludedNotebookIds = AppPrefs.backupExcludedNotebookIds(prefs.getStringSet(AppPrefs.BACKUP_EXCLUDED_NOTEBOOKS, AppPrefs.DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS)),
         pdfSearch = restoredTabs.find { it.notebookId == savedState.get<String>("activeId") }?.search ?: PdfSearchState(),
         companion = WorkspaceSessionCodec.decode(
             if (savedState.contains("workspaceCompanion")) savedState.get<String>("workspaceCompanion")
@@ -1018,10 +1020,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 awaitQueuedWrites()
                 val live = _state.value.notes.find { it.id == note.id } ?: return@launch
                 val title = duplicateNotebookTitle(live.title, _state.value.notes.map { it.title }.toSet())
-                val copy = getApplication<FolioApplication>().storageGate.withLock {
-                    repository.duplicateNotebook(live, title)
+                getApplication<FolioApplication>().storageGate.withLock {
+                    val copy = repository.duplicateNotebook(live, title)
+                    _state.update { it.copy(notes = it.notes + copy) }
+                    // Publish the copy's preference before an automatic backup can capture it.
+                    if (live.id in _state.value.backupExcludedNotebookIds) setBackupExcluded(setOf(copy.id), true)
                 }
-                _state.update { it.copy(notes = it.notes + copy) }
                 LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
             } catch (e: Exception) {
                 reportError("Couldn't duplicate notebook: ${e.message}")
@@ -1974,7 +1978,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             val staged = getApplication<FolioApplication>().storageGate.withLock {
                 val current = repository.load().first.firstOrNull { it.id == note.id }
                     ?: error("This notebook is no longer in the library")
-                repository.stageLibrary(listOf(current.copy(folderId = null)), emptyList())
+                repository.stageLibrary(listOf(current.copy(folderId = null)), emptyList(), includeExcluded = true)
             }
             staged.use { repository.writeStaged(it, uri) }
             reportError("Notebook saved as a Folio backup")
@@ -1990,6 +1994,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         check(!_state.value.saveFailed) { "Some changes have not been saved. Use Retry save first." }
     }
 
+    /** Preference-only: excluding a textbook never changes its content, metadata or identity. */
+    fun setBackupExcluded(ids: Set<String>, excluded: Boolean) {
+        val snapshot = _state.value
+        if (snapshot.loading || snapshot.loadFailed) return
+        val validIds = ids.intersect(snapshot.notes.map { it.id }.toSet())
+        if (validIds.isEmpty()) return
+        val next = if (excluded) snapshot.backupExcludedNotebookIds + validIds else snapshot.backupExcludedNotebookIds - validIds
+        if (next == snapshot.backupExcludedNotebookIds) return
+        prefs.edit().putStringSet(AppPrefs.BACKUP_EXCLUDED_NOTEBOOKS, next).apply()
+        _state.update { it.copy(backupExcludedNotebookIds = next) }
+        LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
+    }
+
     fun backupLibrary(uri: Uri) {
         if (_state.value.busy || _state.value.exporting || _state.value.loadFailed) return
         _state.update { it.copy(exporting = true, backupProgress = "Saving pending changes…") }
@@ -1999,7 +2016,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 _state.update { it.copy(backupProgress = "Capturing library…") }
                 val (staged, count) = getApplication<FolioApplication>().storageGate.withLock {
                     val (notes, folders) = repository.load()
-                    repository.stageLibrary(notes, folders) to notes.size
+                    val staged = repository.stageLibrary(notes, folders)
+                    staged to staged.notebookCount
                 }
                 _state.update { it.copy(backupProgress = "Writing compact library backup…") }
                 staged.use { repository.writeStaged(it, uri) }

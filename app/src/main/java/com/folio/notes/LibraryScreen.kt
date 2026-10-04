@@ -394,6 +394,10 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
                                     TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
                                     TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
+                                    val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
+                                    TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
+                                        Text(if (allExcluded) "Include in backups" else "Exclude from backups")
+                                    }
                                     val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
                                     TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
                                     TextButton(
@@ -442,10 +446,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     Column(Modifier.weight(1f)) {
                                         Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                                         Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
+                                        if (note.id in state.backupExcludedNotebookIds) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     if (!selecting) {
                                         IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
-                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) })
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) })
                                     }
                                 }
                             } else NotebookCard(
@@ -455,6 +460,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 selected = note.id in selection, onLongPress = longPress,
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
                                 duplicate = { model.duplicateNotebook(note) },
+                                backupExcluded = note.id in state.backupExcludedNotebookIds,
+                                onBackupToggle = { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) },
                                 modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) selected = note.id in selection }
                             )
                     }
@@ -579,7 +586,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         alwaysShowLabel = true)
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, modifier: Modifier = Modifier) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -612,13 +619,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: "Unfiled"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle)
         }
+        if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ExamBadges(note, modifier = Modifier.padding(top = FolioSpacing.dp4), redoCount = redoCount)
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
@@ -631,6 +639,11 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                 { Text(if (pageCover) "Use default cover" else "Use first page as cover") },
                 { menu = false; onCoverToggle() },
                 leadingIcon = { Icon(if (pageCover) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.Image, null) }
+            )
+            DropdownMenuItem(
+                { Text(if (backupExcluded) "Include in library backups" else "Exclude from library backups") },
+                { menu = false; onBackupToggle() },
+                leadingIcon = { Icon(if (backupExcluded) Icons.Rounded.Backup else Icons.Rounded.CloudOff, null) }
             )
             DropdownMenuItem({ Text("Move to folder") }, { menu = false; move() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })

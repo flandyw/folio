@@ -165,6 +165,7 @@ import java.io.File
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let { target -> state.active?.let { model.exportArchive(it, target) } }
     }
+    var backupExclusionsOpen by rememberSaveable { mutableStateOf(false) }
     val saveLibraryBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let(model::backupLibrary)
     }
@@ -535,6 +536,8 @@ import java.io.File
                     updateChecking = updateChecking,
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
+                    backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
+                    onBackupExclusions = { backupExclusionsOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
                     onRestoreAutomaticBackup = { settings = false; restoreBackupFolder.launch(null) },
                     onRestoreLibrary = { settings = false; openLibraryBackup.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
@@ -544,6 +547,12 @@ import java.io.File
                     backupBusy = state.busy || state.exporting || state.loading || state.loadFailed)
             }
         }
+        if (backupExclusionsOpen) BackupExclusionsPanel(
+            notes = state.notes,
+            excludedIds = state.backupExcludedNotebookIds,
+            onExcluded = model::setBackupExcluded,
+            onDismiss = { backupExclusionsOpen = false }
+        )
         if (focalAccountOpen) FocalAccountPanel(
             onDismiss = { focalAccountOpen = false },
             onMistakes = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMistakes = true },

@@ -578,16 +578,19 @@ class NoteRepository(private val context: Context) {
     /** Captures a consistent native file set. Call under the app storage gate. Immutable files
      * are pinned with hard links; only appendable journals need copying. Hashing, compression and
      * destination I/O happen later, after the editor's save gate has been released. */
-    suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>): StagedLibrary = withContext(Dispatchers.IO) {
+    suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>, includeExcluded: Boolean = false): StagedLibrary = withContext(Dispatchers.IO) {
+        val exclusions = AppPrefs.backupExcludedNotebookIds(context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
+            .getStringSet(AppPrefs.BACKUP_EXCLUDED_NOTEBOOKS, AppPrefs.DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS))
+        val included = AppPrefs.notebooksForBackup(notes, exclusions, includeExcluded)
         val staging = newBackupStaging("backup")
         val job = currentCoroutineContext()
         try {
-            notes.forEach { note -> note.pages.forEach { page ->
+            included.forEach { note -> note.pages.forEach { page ->
                 job.ensureActive()
                 convertLegacyPage(note.id, page.id)
             } }
             val files = lock.withLock {
-                notes.associate { note ->
+                included.associate { note ->
                     job.ensureActive()
                     val captured = linkedMapOf<String, File>()
                     fun capture(path: String, source: File, appendable: Boolean = false) {
@@ -633,6 +636,8 @@ class NoteRepository(private val context: Context) {
         private val folders: List<Folder>,
         private val files: Map<String, Map<String, File>>
     ) : java.io.Closeable {
+        val notebookCount: Int get() = files.size
+
         suspend fun prepare(): NativeBackup.Prepared = withContext(Dispatchers.IO) {
             val job = currentCoroutineContext()
             val sources = linkedMapOf<String, NativeBackup.Source>()
