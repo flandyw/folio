@@ -44,7 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}) {
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     val close: () -> Unit = { if (category != null) category = null else onBack() }
     BackHandler(onBack = close)
@@ -97,12 +97,12 @@ import kotlin.math.roundToInt
                         selected = selected,
                         modifier = Modifier.weight(1f),
                         animateEntrance = false,
-                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking) }
+                    ) { SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onFocal, onCheckForUpdates, updateChecking) }
                 }
             } else {
                 SettingsPage(selected = selected, modifier = Modifier.fillMaxSize(), animateEntrance = maxWidth < 840.dp) {
                     if (selected == null) SettingsHome(onSelect = { category = it })
-                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onFocal, onCheckForUpdates, updateChecking)
+                    else SettingsDetails(selected, themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics, shapeRecognition, onShapeRecognition, hapticsSupported, dynamicAvailable, backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onFocal, onCheckForUpdates, updateChecking)
                 }
             }
         }
@@ -274,6 +274,7 @@ private fun SettingsDetails(
     onDisableAutoBackup: () -> Unit,
     onBackupLibrary: () -> Unit,
     onRestoreLibrary: () -> Unit,
+    onRestoreAutomaticBackup: () -> Unit,
     onFocal: () -> Unit,
     onCheckForUpdates: () -> Unit,
     updateChecking: Boolean,
@@ -321,13 +322,13 @@ private fun SettingsDetails(
                             LibraryDefaultsSection()
                             HorizontalDivider()
                             SectionTitle("Automatic library backup")
-                            SectionHint("Folio backs up after saved changes and once a day. It keeps one current backup in a subfolder of the location you choose.")
+                            SectionHint("After saved changes and once a day, Folio checks for changes and copies only new data. It keeps the latest two restore points, sharing unchanged pages, PDFs and images.")
                             backupTree?.let {
                                 Text("Folder: ${backupFolderName ?: "Selected location"}", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (backupLastSuccess > 0L) {
-                                Text("Last backup: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(backupLastSuccess))}",
+                                Text("Last successful backup check: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(backupLastSuccess))}",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else if (backupTree != null) {
                                 Text("No automatic backup has completed yet.", style = MaterialTheme.typography.bodySmall,
@@ -342,9 +343,11 @@ private fun SettingsDetails(
                                 OutlinedButton(onBackupNow, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Back up now") }
                                 TextButton(onDisableAutoBackup, enabled = !backupBusy) { Text("Turn off automatic backup") }
                             }
+                            OutlinedButton(onRestoreAutomaticBackup, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Restore from backup folder") }
+                            SectionHint("Choose the same folder on any device to restore its latest backup. Keep the restore points and Folio backup data folder together.")
                             HorizontalDivider()
-                            SectionTitle("Manual library backup")
-                            SectionHint("Save a separate file wherever you like, or restore a backup alongside your current notebooks.")
+                            SectionTitle("Portable library backup")
+                            SectionHint("Save a compact, self-contained file for sharing or moving devices. Backups include all pages and undo history. Restoring adds copies alongside your current notebooks; older backups still open.")
                             OutlinedButton(onBackupLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Save library backup") }
                             OutlinedButton(onRestoreLibrary, enabled = !backupBusy, shapes = ButtonDefaults.shapes()) { Text("Restore library backup") }
                         }

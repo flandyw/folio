@@ -142,3 +142,17 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
+
+// JVM smoke checks use real org.json rather than Android's throwing SDK stubs. This standalone
+// configuration is only resolved for verification and never packaged into the APK.
+val backupSmokeRuntime = configurations.create("backupSmokeRuntime")
+
+dependencies {
+    add(backupSmokeRuntime.name, "org.json:json:20240303")
+}
+
+tasks.register("prepareBackupSmoke") {
+    dependsOn("bundleDebugClassesToCompileJar")
+    inputs.files(backupSmokeRuntime)
+    doLast { /* Resolving the declared inputs populates the smoke runner's JVM dependency cache. */ }
+}

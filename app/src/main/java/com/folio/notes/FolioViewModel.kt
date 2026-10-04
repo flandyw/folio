@@ -74,6 +74,7 @@ data class FolioState(
     val lastSaveProgressAt: Long? = null, val loadFailed: Boolean = false, val error: String? = null,
     val pendingPdfImports: List<PendingPdfImport> = emptyList(),
     val importProgress: String? = null,
+    val backupProgress: String? = null,
     val canUndo: Boolean = false, val canRedo: Boolean = false,
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
     val timer: ExamTimerState = ExamTimerState(),
@@ -1969,7 +1970,13 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     /** Writes a self-contained `.folio` backup that another device can open again. */
     fun exportArchive(note: Notebook, uri: Uri) {
         export {
-            repository.exportArchive(note, uri)
+            awaitSaved()
+            val staged = getApplication<FolioApplication>().storageGate.withLock {
+                val current = repository.load().first.firstOrNull { it.id == note.id }
+                    ?: error("This notebook is no longer in the library")
+                repository.stageLibrary(listOf(current.copy(folderId = null)), emptyList())
+            }
+            staged.use { repository.writeStaged(it, uri) }
             reportError("Notebook saved as a Folio backup")
         }
     }
@@ -1985,35 +1992,44 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     fun backupLibrary(uri: Uri) {
         if (_state.value.busy || _state.value.exporting || _state.value.loadFailed) return
-        _state.update { it.copy(exporting = true) }
+        _state.update { it.copy(exporting = true, backupProgress = "Saving pending changes…") }
         viewModelScope.launch {
             try {
                 awaitSaved()
+                _state.update { it.copy(backupProgress = "Capturing library…") }
                 val (staged, count) = getApplication<FolioApplication>().storageGate.withLock {
                     val (notes, folders) = repository.load()
                     repository.stageLibrary(notes, folders) to notes.size
                 }
+                _state.update { it.copy(backupProgress = "Writing compact library backup…") }
                 staged.use { repository.writeStaged(it, uri) }
                 reportError("Library backup saved ($count notebooks)")
-            } catch (e: Exception) { reportError("Library backup failed: ${e.message}") }
-            finally { _state.update { it.copy(exporting = false) } }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { reportError("Library backup failed: ${e.message}") }
+            finally { _state.update { it.copy(exporting = false, backupProgress = null) } }
         }
     }
 
-    fun restoreLibrary(uri: Uri) {
+    fun restoreLibrary(uri: Uri) = restoreBackup(uri, null)
+
+    fun restoreAutomaticBackup(tree: Uri) = restoreBackup(null, tree)
+
+    private fun restoreBackup(uri: Uri?, backupTree: Uri?) {
         if (_state.value.busy || _state.value.exporting || _state.value.loadFailed) return
         _state.update { it.copy(busy = true, importProgress = "Checking library backup…") }
         viewModelScope.launch {
             try {
                 awaitSaved()
                 val snapshot = _state.value
+                val source = uri ?: IncrementalBackup.latest(getApplication(), backupTree!!)
                 val (notes, folders) = getApplication<FolioApplication>().storageGate.withLock {
-                    repository.importLibrary(uri, snapshot.folders)
+                    repository.importLibrary(source, snapshot.folders, backupTree)
                 }
                 _state.update { it.copy(notes = it.notes + notes, folders = it.folders + folders) }
                 LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                 reportError("Restored ${notes.size} notebooks and ${folders.size} folders")
-            } catch (e: Exception) { reportError("Library restore failed: ${e.message}") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { reportError("Library restore failed: ${e.message}") }
             finally { _state.update { it.copy(busy = false, importProgress = null) } }
         }
     }

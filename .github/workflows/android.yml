@@ -38,7 +38,9 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v6
-      - name: Android lint
-        run: ./gradlew :app:lintDebug
+      - name: Android build and lint
+        run: ./gradlew :app:assembleDebug :app:lintDebug :app:prepareBackupSmoke
+      - name: Backup format regression checks
+        run: node tools/backup-smoke.cjs
       - name: Writing follow regression traces
         run: node tools/writing-follow-smoke.cjs

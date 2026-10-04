@@ -14,7 +14,7 @@ object LibraryBackup {
     const val MANIFEST = "manifest.json"
     const val NOTE_PREFIX = "notebooks/"
     const val ASSET_PREFIX = "assets/"
-    const val VERSION = 2
+    const val VERSION = 3
     const val MAX_NOTEBOOKS = 10_000
     const val MAX_ASSETS = 100_000
     const val MAX_MANIFEST_BYTES = 16L * 1024 * 1024
@@ -27,7 +27,8 @@ object LibraryBackup {
         val version: Int,
         val folders: List<Folder>,
         val notebookIds: List<String>,
-        val assetsByNotebook: Map<String, AssetReference> = emptyMap()
+        val assetsByNotebook: Map<String, AssetReference> = emptyMap(),
+        val native: NativeBackup.Manifest? = null
     )
     data class NotebookPayload(
         val notebookId: String,
@@ -38,7 +39,7 @@ object LibraryBackup {
 
     fun manifestV2(folders: List<Folder>, notes: List<NotebookPayload>): String = JSONObject()
         .put("format", "folio-library")
-        .put("version", VERSION)
+        .put("version", 2)
         .put("folders", JSONArray().apply { folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) } })
         .put("notebooks", JSONArray().apply {
             notes.forEach { payload ->
@@ -66,6 +67,10 @@ object LibraryBackup {
         val version = obj.getInt("version")
         require(obj.getString("format") == "folio-library" && version in 1..VERSION) {
             "Unsupported Folio library backup"
+        }
+        if (version == NativeBackup.VERSION) {
+            val native = NativeBackup.decode(json)
+            return Manifest(version, native.folders, native.notes.map { it.id }, native = native)
         }
         val folderArray = obj.getJSONArray("folders")
         val noteArray = obj.getJSONArray("notebooks")

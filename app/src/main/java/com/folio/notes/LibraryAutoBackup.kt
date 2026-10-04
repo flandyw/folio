@@ -8,7 +8,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
@@ -32,9 +32,6 @@ object LibraryAutoBackup {
     private const val DAILY_INTERVAL = 24L * 60 * 60 * 1000
     private const val EDIT_DELAY = 2L * 60 * 1000
     private const val EDIT_DEADLINE = 30L * 60 * 1000
-    private const val MIME_ZIP = "application/zip"
-    private const val AUTO_PREFIX = "Folio-auto-"
-    private const val AUTO_SUFFIX = ".folio-backup.zip"
 
     fun enable(context: Context, treeUri: Uri) {
         val prefs = context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
@@ -115,70 +112,6 @@ object LibraryAutoBackup {
         context.getSharedPreferences("preferences", Context.MODE_PRIVATE).edit().putString(LAST_ERROR, message).apply()
     }
 
-    internal fun createBackupDocument(context: Context, treeUri: Uri): Uri {
-        val resolver = context.contentResolver
-        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
-        val root = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
-        var directory: Uri? = null
-        resolver.query(childrenUri,
-            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            while (cursor.moveToNext()) {
-                if (cursor.getString(nameCol) == BACKUP_FOLDER &&
-                    cursor.getString(mimeCol) == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    directory = DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idCol))
-                    break
-                }
-            }
-        }
-        val targetDirectory = directory ?: DocumentsContract.createDocument(resolver, root,
-            DocumentsContract.Document.MIME_TYPE_DIR, BACKUP_FOLDER)
-            ?: error("Couldn't create the Folio backup folder")
-        val name = "$AUTO_PREFIX${System.currentTimeMillis()}$AUTO_SUFFIX"
-        return DocumentsContract.createDocument(resolver, targetDirectory, MIME_ZIP, name)
-            ?: error("Couldn't create the automatic backup file")
-    }
-
-    internal fun pruneOldBackups(context: Context, treeUri: Uri, latest: Uri) {
-        runCatching {
-            val rootId = DocumentsContract.getTreeDocumentId(treeUri)
-            val rootChildren = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
-            var backupDirectory: Uri? = null
-            context.contentResolver.query(rootChildren,
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                null, null, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                while (cursor.moveToNext()) if (cursor.getString(nameCol) == BACKUP_FOLDER) {
-                    backupDirectory = DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idCol))
-                    break
-                }
-            }
-            val parent = backupDirectory ?: return
-            val parentId = DocumentsContract.getDocumentId(parent)
-            val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
-            val keepId = DocumentsContract.getDocumentId(latest)
-            context.contentResolver.query(children,
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                null, null, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                while (cursor.moveToNext()) {
-                    val name = cursor.getString(nameCol)
-                    val id = cursor.getString(idCol)
-                    if (name.startsWith(AUTO_PREFIX) && name.endsWith(AUTO_SUFFIX) && id != keepId) {
-                        runCatching { DocumentsContract.deleteDocument(context.contentResolver,
-                            DocumentsContract.buildDocumentUriUsingTree(treeUri, id)) }
-                    }
-                }
-            }
-        }
-    }
-
     private fun scheduleDaily(context: Context) {
         val scheduler = scheduler(context) ?: return
         val job = JobInfo.Builder(PERIODIC_JOB_ID, ComponentName(context, LibraryBackupJobService::class.java))
@@ -208,32 +141,30 @@ object LibraryAutoBackup {
 class LibraryBackupJobService : JobService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<Int, Job>()
-    private val stoppedJobs = ConcurrentHashMap.newKeySet<Int>()
+    private val stoppedJobs = ConcurrentHashMap.newKeySet<Job>()
+    private val jobGate = Mutex()
 
     override fun onStartJob(params: JobParameters): Boolean {
         val job = serviceScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             var retry = false
             try {
-                val treeUri = LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService)
-                    ?: return@launch
-                retry = params.jobId != LibraryAutoBackup.PERIODIC_JOB_ID
-                val app = application as FolioApplication
-                // Only the local read holds the gate; the slow write to the backup folder must not
-                // stall note saves, which the editor (and mistake ratings) wait on.
-                val staged = app.storageGate.withLock {
-                    val (notes, folders) = app.repository.load()
-                    app.repository.stageLibrary(notes, folders)
-                }
-                staged.use {
-                    val target = LibraryAutoBackup.createBackupDocument(this@LibraryBackupJobService, treeUri)
-                    try {
-                        app.repository.writeStaged(staged, target)
-                        LibraryAutoBackup.pruneOldBackups(this@LibraryBackupJobService, treeUri, target)
-                        LibraryAutoBackup.setSuccess(this@LibraryBackupJobService)
+                jobGate.withLock {
+                    val treeUri = LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService)
+                        ?: return@launch
+                    retry = params.jobId != LibraryAutoBackup.PERIODIC_JOB_ID
+                    val app = application as FolioApplication
+                    // Only the local read holds the gate; the slow write to the backup folder must not
+                    // stall note saves, which the editor (and mistake ratings) wait on.
+                    val staged = app.storageGate.withLock {
+                        val (notes, folders) = app.repository.load()
+                        app.repository.stageLibrary(notes, folders)
+                    }
+                    staged.use {
+                        IncrementalBackup.write(this@LibraryBackupJobService, treeUri, staged.prepare())
+                        if (LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService) == treeUri) {
+                            LibraryAutoBackup.setSuccess(this@LibraryBackupJobService)
+                        }
                         retry = false
-                    } catch (e: Exception) {
-                        runCatching { DocumentsContract.deleteDocument(contentResolver, target) }
-                        throw e
                     }
                 }
             } catch (e: CancellationException) {
@@ -242,8 +173,9 @@ class LibraryBackupJobService : JobService() {
                 LibraryAutoBackup.setFailure(this@LibraryBackupJobService,
                     e.message?.takeIf { it.isNotBlank() } ?: "Automatic backup failed")
             } finally {
-                activeJobs.remove(params.jobId)
-                if (!stoppedJobs.remove(params.jobId)) jobFinished(params, retry)
+                val running = kotlinx.coroutines.currentCoroutineContext()[Job]!!
+                activeJobs.remove(params.jobId, running)
+                if (!stoppedJobs.remove(running)) jobFinished(params, retry)
             }
         }
         if (activeJobs.putIfAbsent(params.jobId, job) != null) {
@@ -256,7 +188,7 @@ class LibraryBackupJobService : JobService() {
 
     override fun onStopJob(params: JobParameters): Boolean {
         activeJobs[params.jobId]?.let { job ->
-            stoppedJobs.add(params.jobId)
+            stoppedJobs.add(job)
             activeJobs.remove(params.jobId, job)
             job.cancel()
         }
@@ -264,7 +196,7 @@ class LibraryBackupJobService : JobService() {
     }
 
     override fun onDestroy() {
-        stoppedJobs.addAll(activeJobs.keys)
+        stoppedJobs.addAll(activeJobs.values)
         serviceScope.cancel()
         activeJobs.clear()
         super.onDestroy()

@@ -22,6 +22,8 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOut
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -62,12 +64,30 @@ import kotlin.math.max
  * version, which kept every page inline, is split into this layout the first time it is read, and a
  * page still stored as JSON (`<id>.json` + `<id>.journal`, optionally `<id>.history`) is converted
  * to the binary files the first time it is opened, after the new snapshot has been read back and
- * proven identical. Nothing writes the JSON shape any more; `.folio` archives and library backups
- * still carry it as the portable interchange form, and importing one writes binary pages.
+ * proven identical. Nothing writes the JSON shape any more; legacy `.folio` archives
+ * still carry it as the portable interchange form. New backups carry the native binary files.
  */
 class NoteRepository(private val context: Context) {
     private val root = File(context.filesDir, "notebooks").apply { mkdirs() }
     private val lock = Mutex()
+    private val backupStagingLock = Mutex()
+    private var backupStagingCleaned = false
+
+    /** Remove unpublished files left by process death once, before any current backup starts. */
+    private suspend fun cleanBackupStaging() = backupStagingLock.withLock {
+        if (!backupStagingCleaned) {
+            val uuid = "[a-f0-9-]{36}"
+            val cacheName = Regex("(?:backup|restore)-$uuid|backup-object-.*\\.tmp")
+            context.cacheDir.listFiles().orEmpty().filter { cacheName.matches(it.name) }.forEach { it.deleteRecursively() }
+            root.listFiles().orEmpty().filter { it.isDirectory && Regex("\\.restore-$uuid").matches(it.name) }.forEach { it.deleteRecursively() }
+            backupStagingCleaned = true
+        }
+    }
+
+    private suspend fun newBackupStaging(prefix: String): File {
+        cleanBackupStaging()
+        return File(context.cacheDir, "$prefix-${UUID.randomUUID()}").apply { check(mkdirs()) { "Couldn't stage the backup" } }
+    }
     /**
      * The next journal sequence number, last known-good byte length, and newest page revision seen,
      * per `<note>/<page>`. Parallel page reads (an export, a duplicate) touch this from several IO
@@ -134,8 +154,9 @@ class NoteRepository(private val context: Context) {
     // ---- Reading -------------------------------------------------------------------------
 
     suspend fun load(): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
+        cleanBackupStaging()
         val dirs = root.listFiles().orEmpty()
-            .filter { it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
+            .filter { idPattern.matches(it.name) && it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
         // Decode indexes concurrently; each notebook lives in its own directory.
         val notes = coroutineScope {
             dirs.map { async(Dispatchers.IO) { readIndex(it) } }.awaitAll()
@@ -513,24 +534,24 @@ class NoteRepository(private val context: Context) {
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
     }
 
-    /** Writes a portable `.folio` backup, expanding every page of a lazily stored notebook first. */
-    suspend fun exportArchive(note: Notebook, uri: Uri) = withContext(Dispatchers.IO) {
-        val full = loadPages(note)
-        val pdf = File(storedDirectory(note.id), "source.pdf").takeIf { it.exists() }?.readBytes()
-        require(full.pages.none { it.pdfIndex != null } || pdf != null) { "Source PDF is missing from ${note.title}" }
-        val images = archiveImages(full)
-        context.contentResolver.openOutputStream(uri, "wt")?.use { NotebookArchive.write(full, pdf, images, it) }
-            ?: error("Couldn't open the backup destination")
-    }
-
-    /**
-     * Reads a `.folio` backup into a notebook with a fresh identity, so importing the same file twice
-     * leaves the copy already on the device untouched.
-     */
+    /** Reads either a native single-notebook backup or an older portable JSON `.folio` archive. */
     suspend fun importArchive(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {
-        val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it) }
-            ?: error("This backup could not be opened")
-        importArchived(archived, folder)
+        val staging = newBackupStaging("restore")
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input -> ZipInputStream(input.buffered()).use { zip ->
+                if (zip.nextEntry?.name == LibraryBackup.MANIFEST) {
+                    val manifest = NativeBackup.decode(readBounded(zip, LibraryBackup.MAX_MANIFEST_BYTES).toString(Charsets.UTF_8))
+                    require(!manifest.external && manifest.notes.size == 1 && manifest.folders.isEmpty()) { "Use Restore library backup for this file" }
+                    zip.closeEntry()
+                    val job = currentCoroutineContext()
+                    val objects = NativeBackup.readEntries(zip, manifest, staging, job::ensureActive)
+                    return@withContext importNativeLibrary(manifest, objects, emptyList(), folder, saveLibraryFolders = false).first.single()
+                }
+            } } ?: error("This backup could not be opened")
+            val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it) }
+                ?: error("This backup could not be opened")
+            importArchived(archived, folder)
+        } finally { staging.deleteRecursively() }
     }
 
     private suspend fun importArchived(archived: ArchivedNotebook, folder: String?): Notebook {
@@ -554,71 +575,102 @@ class NoteRepository(private val context: Context) {
     suspend fun exportLibrary(uri: Uri, notes: List<Notebook>, folders: List<Folder>) =
         stageLibrary(notes, folders).use { writeStaged(it, uri) }
 
-    /**
-     * Reads every notebook into a private staging directory so the slow part, writing to the
-     * destination, can run without holding the storage gate. Only local disk is touched here;
-     * source PDFs and pictures are never rewritten in place, so they are referenced, not copied.
-     */
+    /** Captures a consistent native file set. Call under the app storage gate. Immutable files
+     * are pinned with hard links; only appendable journals need copying. Hashing, compression and
+     * destination I/O happen later, after the editor's save gate has been released. */
     suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>): StagedLibrary = withContext(Dispatchers.IO) {
-        val staging = File(context.cacheDir, "backup-${UUID.randomUUID()}").apply { mkdirs() }
+        val staging = newBackupStaging("backup")
+        val job = currentCoroutineContext()
         try {
-            val payloads = mutableListOf<LibraryBackup.NotebookPayload>()
-            val assets = linkedMapOf<String, File>()
-            notes.forEach { summary ->
-                val note = loadPages(summary)
-                val pdfFile = File(storedDirectory(note.id), "source.pdf").takeIf { it.isFile }
-                require(note.pages.none { it.pdfIndex != null } || pdfFile != null) {
-                    "Source PDF is missing from ${note.title}"
+            notes.forEach { note -> note.pages.forEach { page ->
+                job.ensureActive()
+                convertLegacyPage(note.id, page.id)
+            } }
+            val files = lock.withLock {
+                notes.associate { note ->
+                    job.ensureActive()
+                    val captured = linkedMapOf<String, File>()
+                    fun capture(path: String, source: File, appendable: Boolean = false) {
+                        if (!source.exists() && !File(source.path + ".bak").exists()) return
+                        // Recover any AtomicFile interrupted before its new value was published.
+                        AtomicFile(source).openRead().use { }
+                        val target = File(staging, "${checked(note.id)}/$path").apply { parentFile?.mkdirs() }
+                        require(source.length() <= LibraryBackup.MAX_ENTRY_BYTES) { "Backup file is too large" }
+                        if (appendable) source.copyTo(target) else pinFile(source, target)
+                        captured[path] = target
+                    }
+                    val meta = File(staging, "${checked(note.id)}/note.json").apply { parentFile?.mkdirs() }
+                    meta.writeText(NoteMetaCodec.encode(note), Charsets.UTF_8)
+                    captured["note.json"] = meta
+                    note.pages.forEach { page ->
+                        job.ensureActive()
+                        capture("pages/${checked(page.id)}.fps", storedPageFile(note.id, page.id))
+                        capture("pages/${checked(page.id)}.fjl", storedJournalFile(note.id, page.id), appendable = true)
+                    }
+                    capture("source.pdf", File(storedDirectory(note.id), "source.pdf"))
+                    require(note.pages.none { it.pdfIndex != null } || "source.pdf" in captured) { "Source PDF is missing from ${note.title}" }
+                    // Keep images referenced by undo/redo too, without decoding every page's history.
+                    val images = File(storedDirectory(note.id), "images")
+                    images.listFiles().orEmpty().map { it.name.removeSuffix(".bak") }.distinct().forEach { name ->
+                        val id = name.removeSuffix(".jpg")
+                        if (name.endsWith(".jpg") && id.length <= 64 && idPattern.matches(id)) capture("images/$name", File(images, name))
+                    }
+                    note.id to captured.toMap()
                 }
-                val pdfHash = pdfFile?.let { registerBackupAsset(it, assets) }
-                val imageHashes = note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
-                    val file = storedImageFile(note.id, image.id).takeIf { it.isFile }
-                        ?: error("Image is missing from ${note.title}")
-                    image.id to registerBackupAsset(file, assets)
-                }
-                val noteFile = File(staging, "note-${checked(note.id)}.json")
-                noteFile.writeText(NoteCodec.encode(note), Charsets.UTF_8)
-                payloads += LibraryBackup.NotebookPayload(note.id, noteFile, pdfHash, imageHashes)
             }
-            StagedLibrary(staging, folders, payloads, assets)
-        } catch (e: Throwable) {
-            staging.deleteRecursively()
-            throw e
-        }
+            StagedLibrary(staging, folders, files)
+        } catch (e: Throwable) { staging.deleteRecursively(); throw e }
+    }
+
+    /** Pin files whose writers publish with AtomicFile; fall back for filesystems without links. */
+    private fun pinFile(source: File, target: File) {
+        try { android.system.Os.link(source.path, target.path) }
+        catch (_: android.system.ErrnoException) { source.copyTo(target, overwrite = true) }
     }
 
     class StagedLibrary internal constructor(
         private val staging: File,
         private val folders: List<Folder>,
-        private val payloads: List<LibraryBackup.NotebookPayload>,
-        private val assets: Map<String, File>
+        private val files: Map<String, Map<String, File>>
     ) : java.io.Closeable {
+        suspend fun prepare(): NativeBackup.Prepared = withContext(Dispatchers.IO) {
+            val job = currentCoroutineContext()
+            val sources = linkedMapOf<String, NativeBackup.Source>()
+            val notes = files.map { (id, paths) ->
+                NativeBackup.Note(id, paths.mapValues { (path, file) ->
+                    job.ensureActive()
+                    val limit = when {
+                        path == "note.json" -> NotebookArchive.MAX_NOTE_BYTES
+                        path == "source.pdf" -> NotebookArchive.MAX_PDF_BYTES
+                        path.startsWith("images/") -> NotebookArchive.MAX_IMAGE_BYTES
+                        else -> LibraryBackup.MAX_ENTRY_BYTES
+                    }
+                    require(file.length() <= limit) { "Backup file is too large" }
+                    val (hash, source) = NativeBackup.inspect(file,
+                        path != "source.pdf" && !path.startsWith("images/"), job::ensureActive)
+                    sources.putIfAbsent(hash, source)
+                    hash
+                })
+            }
+            val manifest = NativeBackup.Manifest(folders, notes, sources.mapValues { it.value.info })
+            NativeBackup.decode(NativeBackup.encode(manifest))
+            NativeBackup.Prepared(manifest, sources)
+        }
         suspend fun writeTo(output: OutputStream) = withContext(Dispatchers.IO) {
-            LibraryBackup.write(output, folders, payloads, assets)
+            val job = currentCoroutineContext()
+            NativeBackup.writePortable(output, prepare(), job::ensureActive)
         }
         override fun close() { staging.deleteRecursively() }
     }
 
-    suspend fun writeStaged(staged: StagedLibrary, uri: Uri) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { staged.writeTo(it) } ?: error("Couldn't open the backup destination")
+    suspend fun writeStaged(staged: StagedLibrary, uri: Uri) = withContext(Dispatchers.IO) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { staged.writeTo(it) }
+            ?: error("Couldn't open the backup destination")
     }
-
-    private fun registerBackupAsset(file: File, assets: MutableMap<String, File>): String {
-        require(file.length() <= LibraryBackup.MAX_ENTRY_BYTES) { "Backup asset is too large" }
-        val hash = sha256(file)
-        assets.putIfAbsent(hash, file)
-        return hash
-    }
-
-    private fun archiveImages(note: Notebook): Map<String, ByteArray> =
-        note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
-            image.id to (storedImageFile(note.id, image.id).takeIf { it.exists() }?.readBytes()
-                ?: error("Image is missing from ${note.title}"))
-        }
 
     /** Validate every archive entry before adding anything to the existing library. */
-    suspend fun importLibrary(uri: Uri, existingFolders: List<Folder>): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
-        val staged = File(context.cacheDir, "restore-${UUID.randomUUID()}").apply { mkdirs() }
+    suspend fun importLibrary(uri: Uri, existingFolders: List<Folder>, backupTree: Uri? = null): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
+        val staged = newBackupStaging("restore")
         val added = mutableListOf<Notebook>()
         try {
             var manifest: LibraryBackup.Manifest? = null
@@ -633,6 +685,13 @@ class NoteRepository(private val context: Context) {
                             require(manifest == null) { "Duplicate backup manifest" }
                             val bytes = readBounded(zip, LibraryBackup.MAX_MANIFEST_BYTES)
                             manifest = LibraryBackup.parseManifest(bytes.toString(Charsets.UTF_8))
+                            manifest.native?.let { native ->
+                                zip.closeEntry()
+                                val job = currentCoroutineContext()
+                                val objects = NativeBackup.readEntries(zip, native, staged, job::ensureActive).toMutableMap()
+                                if (native.external) objects.putAll(IncrementalBackup.readObjects(context, uri, backupTree, native, staged, job::ensureActive))
+                                return@withContext importNativeLibrary(native, objects, existingFolders)
+                            }
                         } else {
                             val info = manifest ?: error("The library manifest must come first")
                             when {
@@ -789,11 +848,73 @@ class NoteRepository(private val context: Context) {
         return note
     }
 
+    /** Validates one page at a time, then installs native files without re-encoding ink or history. */
+    private suspend fun importNativeLibrary(
+        manifest: NativeBackup.Manifest, objects: Map<String, File>, existingFolders: List<Folder>,
+        targetFolder: String? = null, saveLibraryFolders: Boolean = true
+    ): Pair<List<Notebook>, List<Folder>> {
+        val job = currentCoroutineContext()
+        val folderIds = manifest.folders.map { it.id }.toSet()
+        val notes = manifest.notes.map { entry ->
+            job.ensureActive()
+            fun file(path: String) = entry.files[path]?.let(objects::getValue)
+            val note = NoteMetaCodec.decode(file("note.json")!!.readText(Charsets.UTF_8))
+            require(note.id == entry.id && (note.folderId == null || note.folderId in folderIds) &&
+                note.pages.map { it.id }.distinct().size == note.pages.size && note.pages.all { LibraryBackup.validId(it.id) && it.id.length <= 64 }) {
+                "Notebook does not match the backup manifest"
+            }
+            val allowedPages = note.pages.flatMap { listOf("pages/${it.id}.fps", "pages/${it.id}.fjl") }.toSet()
+            require(entry.files.keys.filter { it.startsWith("pages/") }.all { it in allowedPages }) { "Unexpected backup page" }
+            require(note.pages.none { it.pdfIndex != null } || file("source.pdf") != null) { "Backup is missing its source PDF" }
+            require((file("source.pdf")?.length() ?: 0) <= NotebookArchive.MAX_PDF_BYTES &&
+                entry.files.filterKeys { it.startsWith("images/") }.values.all { objects.getValue(it).length() <= NotebookArchive.MAX_IMAGE_BYTES }) { "Backup asset is too large" }
+            note.copy(pages = note.pages.map { page ->
+                job.ensureActive()
+                val snapshot = file("pages/${page.id}.fps")?.let { PageSnapshotBinary.read(it.readBytes()) }
+                val records = file("pages/${page.id}.fjl")?.let { JournalBinary.readAll(it.readBytes()) }.orEmpty()
+                val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images) } ?: PageContent.EMPTY
+                val content = PageJournal.replay(base, snapshot?.journalSeq ?: 0, records)
+                require(content.images.all { "images/${it.id}.jpg" in entry.files }) { "Backup is missing an image" }
+                page.copy(revision = maxOf(page.revision, snapshot?.revision ?: 0, records.maxOfOrNull { it.revision } ?: 0))
+            })
+        }
+        val folders = manifest.folders.map { it.copy(id = UUID.randomUUID().toString()) }
+        val folderMap = manifest.folders.map { it.id }.zip(folders.map { it.id }).toMap()
+        val added = mutableListOf<Notebook>()
+        try {
+            notes.zip(manifest.notes).forEach { (original, entry) ->
+                job.ensureActive()
+                val id = UUID.randomUUID().toString()
+                val note = original.copy(id = id, folderId = if (saveLibraryFolders) original.folderId?.let(folderMap::get) else targetFolder,
+                    updated = System.currentTimeMillis(), mistakeReviews = original.mistakeReviews.map { it.copy(practiceNotebookId = id) })
+                val pending = File(root, ".restore-$id").apply { mkdirs() }
+                try {
+                    entry.files.filterKeys { it != "note.json" }.forEach { (path, hash) ->
+                        job.ensureActive()
+                        val target = File(pending, path).apply { parentFile?.mkdirs() }
+                        // Journals are appendable, so they must never share an inode with another page.
+                        if (path.endsWith(".fjl")) atomicWriteStream(target) { out -> objects.getValue(hash).inputStream().use { it.copyTo(out) } }
+                        else pinFile(objects.getValue(hash), target)
+                    }
+                    atomicWrite(File(pending, "note.json"), NoteMetaCodec.encode(note))
+                    check(pending.renameTo(storedDirectory(id))) { "Couldn't install restored notebook" }
+                    added += note
+                } finally { pending.deleteRecursively() }
+            }
+            if (saveLibraryFolders) saveFolders(existingFolders + folders)
+            return added.toList() to folders
+        } catch (e: Throwable) {
+            // Cleanup also runs on coroutine cancellation.
+            added.forEach { storedDirectory(it.id).deleteRecursively() }
+            throw e
+        }
+    }
+
     // ---- Placed images -------------------------------------------------------------------
 
     /** Stores one placed picture's bytes; the page JSON keeps only its placement. */
     suspend fun saveImage(noteId: String, imageId: String, bytes: ByteArray) = withContext(Dispatchers.IO) {
-        lock.withLock { imageFile(noteId, imageId).writeBytes(bytes) }
+        lock.withLock { atomicWriteStream(imageFile(noteId, imageId)) { it.write(bytes) } }
         Unit
     }
 

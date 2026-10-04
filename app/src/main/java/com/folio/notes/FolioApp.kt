@@ -171,6 +171,9 @@ import java.io.File
     val openLibraryBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(model::restoreLibrary)
     }
+    val restoreBackupFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { tree -> model.restoreAutomaticBackup(tree) }
+    }
     val pickBackupFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try {
@@ -504,7 +507,7 @@ import java.io.File
                 if (state.busy || exportBusy) Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
                         Surface(shape = FolioShapes.panel) {
                             Row(Modifier.padding(FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
-                                LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) (state.importProgress ?: "Opening your file…") else "Preparing your export…")
+                                LoadingIndicator(Modifier.size(48.dp)); Text(if (state.busy) (state.importProgress ?: "Opening your file…") else (state.backupProgress ?: "Preparing your export…"))
                             }
                         }
                 }
@@ -533,6 +536,7 @@ import java.io.File
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
+                    onRestoreAutomaticBackup = { settings = false; restoreBackupFolder.launch(null) },
                     onRestoreLibrary = { settings = false; openLibraryBackup.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                     onChooseBackupFolder = { pickBackupFolder.launch(null) },
                     onBackupNow = { LibraryAutoBackup.requestNow(context.applicationContext) },
@@ -567,7 +571,7 @@ import java.io.File
                 ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
                     exportMenu = false; pageExportDialog = true
                 }
-                ExportOption(Icons.Rounded.FolderZip, "Save as Folio backup", "A file holding the notebook and its PDF, to open again in Folio") {
+                ExportOption(Icons.Rounded.FolderZip, "Save as Folio backup", "A compact file with every page, image, PDF and undo history") {
                     state.active?.let { saveArchive.launch("${exporter.filename(it)}.folio") }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
