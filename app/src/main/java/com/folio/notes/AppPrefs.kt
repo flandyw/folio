@@ -43,14 +43,6 @@ object AppPrefs {
     const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
     const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
-    /** Writing follow's single timing control, 0 (relaxed) to 1 (responsive); see [FollowPrefsStore]. */
-    const val FOLLOW_FEEL = "follow.feel"
-    /** Canvas paragraph width at its initial zoom, in visible screen widths (1–4). */
-    const val FOLLOW_CANVAS_SCREENS = "follow.canvasLineScreens"
-    const val DEFAULT_FOLLOW_CANVAS_SCREENS = FollowPreferences.DEFAULT_CANVAS_SCREENS
-    fun followCanvasScreens(value: Int) = FollowPreferences.clampCanvasScreens(value)
-    /** Draw the answer areas writing follow detected on the page as dashed outlines. */
-    const val FOLLOW_SHOW_AREAS = "follow.showAreas"
     /** Peek shows the whole current page instead of a pinned view. */
     const val AUTO_PEEK = "peek.auto"
 

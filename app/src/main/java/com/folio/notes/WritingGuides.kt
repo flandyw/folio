@@ -14,10 +14,40 @@ data class AnswerArea(val left: Float, val top: Float, val right: Float, val bot
     fun contains(x: Float, y: Float) = x in left..right && y in top..bottom
 }
 
+/** A move from one printed rule to the next. */
+data class WritingAdvance(val from: WritingGuide, val to: WritingGuide) {
+    fun startX(hand: WritingHand) = if (hand == WritingHand.RIGHT) to.left else to.right
+}
+
 /** What the page's printed background offers the follow engine. */
 data class DetectedGuides(val guides: List<WritingGuide>, val areas: List<AnswerArea>)
 
 object WritingGuides {
+    /** Partition all printed rules into separate answer areas, including adjacent columns. */
+    fun regions(guides: List<WritingGuide>): List<WritingLane> {
+        // Each nearest-neighbour scan is O(N); resolve it once, not for every edge candidate.
+        val following = guides.associateWith { next(it, guides) }
+        val remaining = guides.sortedWith(compareBy({ it.y }, { it.left })).toMutableSet()
+        val result = mutableListOf<WritingLane>()
+        while (remaining.isNotEmpty()) {
+            val group = mutableSetOf(remaining.first())
+            val queue = java.util.ArrayDeque<WritingGuide>().apply { add(remaining.first()) }
+            while (queue.isNotEmpty()) {
+                val line = queue.removeFirst()
+                remaining.remove(line)
+                val neighbours = remaining.filter { following[line] == it || following[it] == line }
+                for (neighbour in neighbours) if (group.add(neighbour)) queue.add(neighbour)
+            }
+            if (group.size >= 2) result += WritingLane(group.minOf { it.left },
+                (group.minOf { it.y } - 28f).coerceAtLeast(0f), group.maxOf { it.right }, group.maxOf { it.y })
+        }
+        return result.sortedWith(compareBy({ it.top }, { it.left }))
+    }
+
+    fun regionAt(regions: List<WritingLane>, x: Float, y: Float): WritingLane? = regions
+        .filter { x in it.left..it.right && y in it.top..it.bottom }
+        .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
+
     /** The tightest response-line area around the writer. */
     fun areaAt(areas: List<AnswerArea>, x: Float, y: Float): AnswerArea? =
         areas.filter { it.contains(x, y) }.minByOrNull { it.size }
@@ -37,9 +67,15 @@ object WritingGuides {
         next(line, guides)?.let { it.y - line.y }
             ?: guides.asSequence().filter { follows(it, line) }.minOfOrNull { line.y - it.y }
 
-    fun ruled(width: Float, height: Float): List<WritingGuide> =
-        generateSequence(70f) { it + 28f }.takeWhile { it < height }
-            .map { WritingGuide(36f, width - 36f, it) }.toList()
+    /**
+     * The printed rules of ruled paper. Split paper is two columns either side of its centre divider, each
+     * its own block, so a line ends at the divider and a return never crosses into the other column.
+     */
+    fun ruled(width: Float, height: Float, split: Boolean = false): List<WritingGuide> =
+        generateSequence(70f) { it + 28f }.takeWhile { it < height }.flatMap { y ->
+            if (split) sequenceOf(WritingGuide(36f, width / 2f, y, 0), WritingGuide(width / 2f, width - 36f, y, 1))
+            else sequenceOf(WritingGuide(36f, width - 36f, y))
+        }.toList()
 
     /**
      * Scan the unannotated PDF raster off the UI thread. Join dots, dashes and antialiasing gaps,
@@ -49,10 +85,9 @@ object WritingGuides {
     fun detect(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): List<WritingGuide> =
         analyze(pixels, width, height, pageWidth, pageHeight).guides
 
-    fun analyze(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float,
-                text: List<PdfTextLine> = emptyList()): DetectedGuides {
+    fun analyze(pixels: IntArray, width: Int, height: Int, pageWidth: Float, pageHeight: Float): DetectedGuides {
         require(width > 0 && height > 0 && pixels.size.toLong() == width.toLong() * height)
-        return analyze(width, height, pageWidth, pageHeight, { y, row -> System.arraycopy(pixels, y * width, row, 0, width) }, text)
+        return analyze(width, height, pageWidth, pageHeight) { y, row -> System.arraycopy(pixels, y * width, row, 0, width) }
     }
 
     /** One byte per pixel: ink dark enough to be a printed rule. Computed once, then only looked up. */
@@ -87,11 +122,8 @@ object WritingGuides {
     /**
      * Group response lines into answer areas using alignment, spacing and clear space between them.
      * [readRow] fills one raster row (ARGB), so a caller never needs the whole page's pixels at once.
-     * With the page's embedded [text], white space under a question that has no response lines becomes an
-     * answer area too (after the ruled ones, so their indices stay put), when the raster confirms it is blank.
      */
-    fun analyze(width: Int, height: Int, pageWidth: Float, pageHeight: Float, readRow: (Int, IntArray) -> Unit,
-                text: List<PdfTextLine> = emptyList()): DetectedGuides {
+    fun analyze(width: Int, height: Int, pageWidth: Float, pageHeight: Float, readRow: (Int, IntArray) -> Unit): DetectedGuides {
         require(width > 0 && height > 0)
         require(pageWidth.isFinite() && pageHeight.isFinite() && pageWidth > 0 && pageHeight > 0)
         val sx = pageWidth / width
@@ -100,24 +132,6 @@ object WritingGuides {
         val minLength = max(60f, pageWidth * .12f) / sx
         val mask = darkMask(width, height, readRow)
         fun dark(x: Int, y: Int): Boolean = x in 0 until width && y in 0 until height && mask[y * width + x]
-        /** The share of an area's rows that carry printed ink, away from its edges. */
-        fun inkShare(area: AnswerArea): Float {
-            val x0 = ceil((area.left + 4f) / sx).toInt()
-            val x1 = ((area.right - 4f) / sx).toInt()
-            val y0 = ceil((area.top + 4f) / sy).toInt()
-            val y1 = ((area.bottom - 4f) / sy).toInt()
-            if (x1 <= x0 || y1 <= y0) return 1f
-            val minInk = ceil(3f / sx).toInt().coerceAtLeast(2)
-            var rows = 0
-            for (y in y0..y1) {
-                var ink = 0
-                for (x in x0..x1) if (dark(x, y) && ++ink >= minInk) break
-                if (ink >= minInk) rows++
-            }
-            return rows.toFloat() / (y1 - y0 + 1)
-        }
-        fun blank(ruled: List<AnswerArea>): List<AnswerArea> =
-            if (text.isEmpty()) emptyList() else AnswerSpaces.infer(text, pageWidth, pageHeight, ruled, ::inkShare)
         /** A dashed or dotted rule has evenly spaced gaps; a row of text does not. */
         fun regularDashes(y: Int, left: Int, right: Int): Boolean {
             val gaps = ArrayList<Int>()
@@ -156,7 +170,7 @@ object WritingGuides {
                 else { band.left = min(band.left, left); band.right = max(band.right, right); band.bottom = y; open += band }
             }
         }
-        if (bands.isEmpty()) return DetectedGuides(emptyList(), blank(emptyList()))
+        if (bands.isEmpty()) return DetectedGuides(emptyList(), emptyList())
         // A rule whose ends meet a printed border may be an answer-box line or a table row; blocks decide.
         val bordered = mutableSetOf<WritingGuide>()
         val candidates = bands.mapNotNull { band ->
@@ -328,6 +342,6 @@ object WritingGuides {
             areas += AnswerArea(block.minOf { it.left }, topOf(block.first(), block.minOf { it.left }, block.maxOf { it.right }, pitch),
                 block.maxOf { it.right }, block.last().y)
         }
-        return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas + blank(areas))
+        return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas)
     }
 }

@@ -21,7 +21,6 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.P
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
-import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -92,8 +91,6 @@ class NoteRepository(private val context: Context) {
     /** Tappable PDF links and bookmarks by notebook, so navigation never reparses either. */
     private val pdfLinkCache = mutableMapOf<String, List<PdfLink>>()
     private val pdfOutlineCache = mutableMapOf<String, List<PdfOutlineEntry>>()
-    /** Positioned text of the pages being written on, by `<note>/<pdf page>/<size>`, so follow reads each once. */
-    private val pdfTextLineCache = LinkedHashMap<String, List<PdfTextLine>>()
     private var pdfBoxReady = false
 
     /** Notebook and page ids are UUID-shaped, so anything else never reaches the file system. */
@@ -370,7 +367,7 @@ class NoteRepository(private val context: Context) {
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)
-        pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfOutlineCache.remove(id); pdfTextLineCache.keys.removeAll { it.startsWith("$id/") } }
+        pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfOutlineCache.remove(id) }
         lock.withLock {
             val dir = storedDirectory(id)
             if (!dir.exists()) return@withLock
@@ -863,49 +860,6 @@ class NoteRepository(private val context: Context) {
         }
     }
 
-    /**
-     * The embedded text of one imported-PDF page as pieces with positions, in Folio page coordinates, read
-     * once and remembered. Writing follow uses it to find white space left for answers. A scanned page has
-     * no text and yields nothing; a rotated page is skipped, as for links, because its text space no longer
-     * lines up with the rendered background.
-     */
-    suspend fun pdfTextLines(noteId: String, page: NotePage): List<PdfTextLine> = withContext(Dispatchers.IO) {
-        val index = page.pdfIndex ?: return@withContext emptyList()
-        pdfLock.withLock {
-            val key = "$noteId/$index/${page.width}x${page.height}"
-            pdfTextLineCache[key]?.let { return@withLock it }
-            val file = File(storedDirectory(noteId), "source.pdf")
-            if (!file.exists()) return@withLock emptyList()
-            val lines = try {
-                ensurePdfBox()
-                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
-                    .setTempDir(context.cacheDir)).use { doc -> pageTextLines(doc, index, page.width, page.height) }
-            } catch (_: Exception) { emptyList() }
-            if (pdfTextLineCache.size >= MAX_CACHED_TEXT_PAGES) pdfTextLineCache.keys.firstOrNull()?.let { pdfTextLineCache.remove(it) }
-            pdfTextLineCache[key] = lines
-            lines
-        }
-    }
-
-    private fun pageTextLines(doc: PDDocument, index: Int, pageW: Float, pageH: Float): List<PdfTextLine> {
-        if (index !in 0 until doc.numberOfPages) return emptyList()
-        val pdfPage = doc.getPage(index)
-        if (pdfPage.rotation != 0) return emptyList()
-        val crop = pdfPage.cropBox
-        val glyphs = ArrayList<PdfGlyph>()
-        val stripper = object : PDFTextStripper() {
-            override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
-                textPositions?.forEach {
-                    glyphs += PdfGlyph(it.xDirAdj, it.yDirAdj, it.widthDirAdj, maxOf(it.heightDir, it.fontSizeInPt * .7f), it.unicode.orEmpty())
-                }
-            }
-        }
-        stripper.startPage = index + 1
-        stripper.endPage = index + 1
-        stripper.getText(doc)
-        return PdfTextLayout.group(index, glyphs, crop.width, crop.height, pageW, pageH)
-    }
-
     // ---- Imported PDF navigation -----------------------------------------------------------
 
     /** Loads pdfbox's bundled resources once; extraction without it fails on some font tables. */
@@ -1241,8 +1195,6 @@ class NoteRepository(private val context: Context) {
     private companion object {
         /** Extracted PDF texts kept in memory; the oldest goes when another notebook is searched. */
         const val MAX_CACHED_TEXTS = 8
-        /** Pages of positioned text kept for writing follow. */
-        const val MAX_CACHED_TEXT_PAGES = 24
         /**
          * A page journal is folded into its snapshot once it grows past this many bytes. Handwriting
          * is dense — a single busy page reaches megabytes — so a small bound would compact over and

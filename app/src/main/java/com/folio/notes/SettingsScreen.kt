@@ -766,7 +766,6 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     var direction by remember { mutableStateOf(runCatching { WritingDirection.valueOf(p.getString("follow.direction", "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)) }
     var hand by remember { mutableStateOf(runCatching { WritingHand.valueOf(p.getString("writingHand", "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)) }
     var autoReturn by remember { mutableStateOf(p.getBoolean("follow.autoReturn", false)) }
-    var adaptive by remember { mutableStateOf(p.getBoolean(FollowPrefsStore.ADAPTIVE, true)) }
     DisposableEffect(p) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
             when (k) {
@@ -775,15 +774,14 @@ private fun paperLabel(paper: Paper): String = when (paper) {
                 "follow.direction" -> direction = runCatching { WritingDirection.valueOf(p.getString(k, "LTR") ?: "LTR") }.getOrDefault(WritingDirection.LTR)
                 "writingHand" -> hand = runCatching { WritingHand.valueOf(p.getString(k, "RIGHT") ?: "RIGHT") }.getOrDefault(WritingHand.RIGHT)
                 "follow.autoReturn" -> autoReturn = p.getBoolean(k, false)
-                FollowPrefsStore.ADAPTIVE -> adaptive = p.getBoolean(k, true)
             }
         }
         p.registerOnSharedPreferenceChangeListener(listener)
         onDispose { p.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     SectionTitle("Writing follow")
-    SectionHint("Defaults for new sessions. Feel and writing height are in the editor's Writing follow settings; line height, spacing and line length are measured from your writing.")
-    PreferenceSwitch("Writing follow on by default", "The page never moves while the pen is down. After a short pause it keeps your line in view.", followEnabled, {
+    SectionHint("Defaults for new sessions. Height, column, line spacing and glide timing stay in the editor's Writing follow dialog.")
+    PreferenceSwitch("Writing follow on by default", "The page stays still while the pen is down and reveals space after a lift.", followEnabled, {
         followEnabled = it
         p.edit().putBoolean("writingFollow", it).apply()
     })
@@ -821,15 +819,11 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         })
     }
     PreferenceSwitch("Automatic line return", if (mode == FollowMode.TEXT)
-        "After a full line reaches its end, a pause moves to the next line. Touch down to cancel."
+        "After writing across a line, pause near the answer area's edge to return. Touch down to cancel."
         else "Available in Text mode. In Maths, tap Next line when you want a new row.", autoReturn, {
         autoReturn = it
         p.edit().putBoolean("follow.autoReturn", it).apply()
     }, enabled = mode == FollowMode.TEXT)
-    PreferenceSwitch("Learn from how I write", "Follow adjusts a little to your pauses, line wraps, word width, speed and where you like your line, and offers a setting when your writing points to one. It forgets when the app closes.", adaptive, {
-        adaptive = it
-        p.edit().putBoolean(FollowPrefsStore.ADAPTIVE, it).apply()
-    })
 }
 
 // ---- Mistake practice ------------------------------------------------------------------------
