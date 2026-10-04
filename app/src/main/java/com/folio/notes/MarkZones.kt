@@ -5,7 +5,7 @@ import kotlin.math.min
 
 /**
  * A printed mark allocation such as "[4 marks]" on an imported PDF page, in Folio page coordinates.
- * Found from the PDF's own text layer, so a scanned paper simply has none.
+ * Found from the PDF text layer or offline OCR of its rendered background.
  */
 data class MarkZone(
     val pageIndex: Int,
@@ -30,7 +30,7 @@ object MarkZones {
     const val MAX_MARKS = 40
     private const val STAMP_W = 110f
     private const val STAMP_H = 40f
-    private val allocation = Regex("""[\[(]?\s*(\d{1,2})\s*marks?\s*[\])]?""", RegexOption.IGNORE_CASE)
+    private val allocation = Regex("""(?<![\w.])(?:[\[(]\s*)?(\d{1,2})\s*marks?\b(?:\s*[\])])?""", RegexOption.IGNORE_CASE)
 
     /** Allocations in [line]: "[4 marks]", "(2 marks)", "3 marks", "1 mark". Zero and absurd counts are skipped. */
     fun find(line: String): List<MarkMatch> = allocation.findAll(line).mapNotNull { m ->

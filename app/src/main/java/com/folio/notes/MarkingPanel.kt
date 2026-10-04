@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
     color: Int, onColor: (Int) -> Unit,
     bank: List<String>, onBank: (List<String>) -> Unit,
     markAssist: Boolean, onMarkAssist: (Boolean) -> Unit, zoneCount: Int, zoneTotal: Int,
+    scanStatus: String?, scanComplete: Boolean,
     autoPlace: Boolean, onAutoPlace: (Boolean) -> Unit,
     onArm: (MarkingAction) -> Unit,
     onPlaceNow: (MarkingAction) -> Boolean,
@@ -94,7 +95,8 @@ import kotlin.math.roundToInt
                 Column(Modifier.weight(1f)) {
                     Text("Tick printed marks", style = MaterialTheme.typography.bodyMedium)
                     Text(if (!markAssist) "Off. Turn on to tap or hover a printed “[4 marks]” and award it."
-                    else if (zoneCount == 0) "On. No printed mark allocations found — a scanned paper has no text to read."
+                    else if (scanStatus != null) scanStatus
+                    else if (zoneCount == 0) "No printed mark allocations found. Faint or handwritten labels may need manual stamps."
                     else "On. $zoneCount allocations found ($zoneTotal marks). Tap or hover one: tick awards it in full, cross lets you adjust.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -177,7 +179,7 @@ import kotlin.math.roundToInt
                 }
             }
 
-            MarksTally(note, zoneTotal.takeIf { it > 0 }, loadPages, onRecord)
+            MarksTally(note, zoneTotal.takeIf { it > 0 && scanComplete }, loadPages, onRecord)
         }
     }
 }

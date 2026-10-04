@@ -378,6 +378,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
     var markingBank by remember { mutableStateOf(Marking.loadBank(appPrefs.getString(Marking.PREF_COMMENTS, null))) }
     var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
+    var markScanStatus by remember(note.id) { mutableStateOf<String?>(null) }
+    var markScanBusy by remember(note.id) { mutableStateOf(false) }
     var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
     var markingAutoPlace by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_AUTO_PLACE, false)) }
     LaunchedEffect(tool) { if (tool != Tool.TEXT) armedMarking = null }
@@ -621,11 +623,24 @@ private fun paperLabel(p: Paper): String = when (p) {
             try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() }
         } else emptyList()
     }
-    // Printed "[4 marks]" labels are read once per notebook, and only while the assist is on.
-    LaunchedEffect(note.id, markAssist) {
-        markZones = if (markAssist && note.pages.any { it.pdfIndex != null }) {
-            try { model.repository.pdfMarkZones(note.id, note.pages) } catch (_: Exception) { emptyList() }
-        } else emptyList()
+    val markPageGeometry = note.pages.map { Triple(it.pdfIndex, it.width, it.height) }
+    LaunchedEffect(note.id, markAssist, markPageGeometry) {
+        markZones = emptyList()
+        markScanStatus = null
+        if (markAssist && note.pages.any { it.pdfIndex != null }) {
+            markScanBusy = true
+            markScanStatus = "Looking for printed marks…"
+            try {
+                markZones = model.repository.pdfMarkZones(note.id, note.pages) { zones, status ->
+                    markZones = zones
+                    markScanStatus = status
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                markScanStatus = "Couldn’t read printed marks. Turn the switch off and on to retry."
+            } finally { markScanBusy = false }
+        }
     }
     LaunchedEffect(note.id, page.infinite, note.pages.size) {
         if (page.infinite) return@LaunchedEffect
@@ -1577,6 +1592,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         bank = markingBank, onBank = { markingBank = it; appPrefs.edit().putString(Marking.PREF_COMMENTS, Marking.encodeBank(it)).apply() },
         markAssist = markAssist, onMarkAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
         zoneCount = markZones.size, zoneTotal = MarkZones.total(markZones),
+        scanStatus = markScanStatus, scanComplete = !markScanBusy && markScanStatus == null,
         autoPlace = markingAutoPlace, onAutoPlace = { markingAutoPlace = it; appPrefs.edit().putBoolean(Marking.PREF_AUTO_PLACE, it).apply() },
         onArm = { action -> armedMarking = action; tool = Tool.TEXT; markingPanel = false },
         onPlaceNow = { action -> model.placeInFreeSpace(action, markingColor) },

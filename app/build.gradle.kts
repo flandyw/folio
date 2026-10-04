@@ -140,6 +140,8 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // PDF text extraction for in-app search (Apache 2.0). Rendering stays on the framework PdfRenderer.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // Bundled Latin OCR: available offline on first use, including scanned exam papers.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
 

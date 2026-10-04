@@ -114,7 +114,7 @@ class NoteRepository(private val context: Context) {
     private val pdfTextCache = mutableMapOf<String, List<PdfPageText>>()
     /** Tappable PDF links and bookmarks by notebook, so navigation never reparses either. */
     private val pdfLinkCache = mutableMapOf<String, List<PdfLink>>()
-    private val pdfMarkZoneCache = mutableMapOf<String, List<MarkZone>>()
+    private val pdfMarkZoneCache = mutableMapOf<String, Pair<String, List<MarkZone>>>()
     private val pdfOutlineCache = mutableMapOf<String, List<PdfOutlineEntry>>()
     private var pdfBoxReady = false
 
@@ -1053,20 +1053,63 @@ class NoteRepository(private val context: Context) {
      * remembered. Needs the PDF's own text layer, so a scanned paper yields none; rotated pages are skipped
      * like links, since their text space no longer lines up with the rendered background.
      */
-    suspend fun pdfMarkZones(noteId: String, pages: List<NotePage>): List<MarkZone> = withContext(Dispatchers.IO) {
+    private suspend fun pdfTextMarkZones(noteId: String, pages: List<NotePage>): List<MarkZone> = withContext(Dispatchers.IO) {
         pdfLock.withLock {
-            pdfMarkZoneCache[noteId]?.let { return@withLock it }
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyList()
             val dims = pages.filter { it.pdfIndex != null }.associate { it.pdfIndex!! to (it.width to it.height) }
+            val signature = "${file.length()}:${file.lastModified()}:$dims"
+            pdfMarkZoneCache[noteId]?.takeIf { it.first == signature }?.let { return@withLock it.second }
             val zones = try {
                 ensurePdfBox()
                 PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
                     .setTempDir(context.cacheDir)).use { doc -> extractMarkZones(doc, dims) }
             } catch (_: Exception) { emptyList() }
             evictPdfCache(pdfMarkZoneCache, noteId)
-            pdfMarkZoneCache[noteId] = zones
+            pdfMarkZoneCache[noteId] = signature to zones
             zones
+        }
+    }
+
+    private val markOcrLock = Mutex()
+
+    /** OCR has its own renderer and lock: a long paper must not hold up editor PDF backgrounds. */
+    suspend fun pdfMarkZones(
+        noteId: String, pages: List<NotePage>,
+        onProgress: (List<MarkZone>, String?) -> Unit = { _, _ -> }
+    ): List<MarkZone> = withContext(Dispatchers.IO) {
+        markOcrLock.withLock {
+            val zones = pdfTextMarkZones(noteId, pages).toMutableList()
+            val targets = pages.distinctBy { it.pdfIndex }.filter { page ->
+                page.pdfIndex != null && zones.none { it.pageIndex == page.pdfIndex }
+            }
+            suspend fun report(message: String?) = withContext(Dispatchers.Main) {
+                onProgress(zones.toList(), message)
+            }
+            report(if (targets.isEmpty()) null else "Looking for printed marks on scanned pages…")
+            if (targets.isEmpty()) return@withLock zones.toList()
+            val file = sourcePdfFile(noteId) ?: run {
+                report("The source PDF is unavailable. Manual stamps still work.")
+                return@withLock zones.toList()
+            }
+            var failures = 0
+            val ocr = MarkOcr(context.cacheDir, file)
+            try {
+                openPdf(noteId)?.use { renderer ->
+                    for ((position, page) in targets.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        report("Reading scanned page ${position + 1} of ${targets.size}…")
+                        try {
+                            zones += ocr.read(page) { renderer.render(page, 2200)!! }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { failures++ }
+                    }
+                } ?: run { failures = targets.size }
+            } finally { ocr.close() }
+            report(if (failures == 0) null else
+                "Couldn’t read $failures pages. Turn printed marks off and on to retry; manual stamps still work.")
+            zones.toList()
         }
     }
 

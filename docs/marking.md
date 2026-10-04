@@ -11,13 +11,13 @@ titled `Feedback`, found by title, whose numbered lines decide the next flag num
   switches to the pen; *typed* opens the text editor on a new box. The panel is white so it covers any printed
   text the free-space guess missed. Cancelling a typed note leaves its dot and leader (undo removes them).
 - **Printed marks** — on an imported PDF, `NoteRepository.pdfMarkZones` reads `[4 marks]`, `(2 marks)`, `1 mark`
-  with positions from PDFBox's text layer (cached per notebook; scanned or rotated pages yield none). A stylus
+  with positions from PDFBox's text layer, then offline OCR on pages without detected allocations. A stylus
   hovering over one, or a finger tapping it (`InkView.beginZone`; stylus *touches* still write), floats a chip
   (`MarkChip`): **tick** stamps `+N` in full, **cross** opens a − / + stepper for part marks. Nothing is stored
   beyond the `+N` text box, which the tally already counts; re-opening a stamped label edits that stamp. The
   chip never takes focus, vanishes after 3 s (10 s while adjusting) or when the pen touches the page, and the
   whole thing is switchable in the panel (`marking.assist`). The summed allocations feed "of N" in the tally
-  when exam details have no total. Unverified against real exam PDFs: positions assume PDFBox text coordinates
+  when exam details have no total and the scan completes without errors. Unverified against real exam PDFs: positions assume PDFBox text coordinates
   are relative to the crop box.
 - **Quick comments** — a saved bank (`marking.comments` pref, 24 max, editable). Tap one, then tap the page;
   the tool stays armed so several can be placed. With *Place in free space* on, it drops into the clearest
@@ -38,3 +38,33 @@ Armed taps reuse the text tool's tap path (`EditorScreen.placeTextBox`); changin
 
 Manual check before release: mark a PDF with comments + flags, confirm the Feedback page appears and exports;
 make room on a notebook page, force-stop, reopen and confirm ink and page height agree.
+
+## Scanned papers
+
+The fallback uses bundled ML Kit Latin text recognition (`com.google.mlkit:text-recognition:16.0.1`).
+The model ships in the APK, so first use works offline without a model download. Page images are processed
+on device. This adds native OCR/model assets to the APK; no camera permission or cloud service is needed.
+Reference: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
+
+- PDF text extraction runs first; only pages with no matching allocations go through OCR. This supports
+  mixed scanned/digital papers without duplicating text-layer labels. A page with both searchable labels
+  and additional labels embedded in an image is not exhaustively scanned.
+- A separate framework PDF renderer scans the original background (never the user's annotations), one
+  page at a time, at up to 2200 × 2800 pixels. OCR does not hold the editor's PDF render lock. Element
+  bounding boxes are unioned only over the matched label and scaled from rendered pixels into page units.
+  PDF rotation metadata is handled by the renderer; sideways text baked into a scan may still be missed.
+- Only literal numeric allocations from 1 to 40 are accepted; no guessing `I`/`l` as `1`, or automatic
+  awarding. Faint scans and handwriting may need manual stamps. Recognition accuracy is not guaranteed.
+- Progress and errors appear in the existing panel, without a modal or notification. Labels become usable
+  as pages finish. Leaving the notebook or disabling assist cancels subsequent work; an in-flight inference
+  finishes before its bitmap is recycled. Failed pages can be retried by toggling assist off and on.
+- Successful per-page results, including empty results, are cached under `cacheDir/mark-ocr-v1`, bounded
+  to 512 entries. Keys include source path, length, modification time, page index and dimensions. Only
+  allocation boxes/values are retained; clearing app cache safely rebuilds them. Cache format/model or
+  matching changes should bump this directory version. No notebook, journal or backup format changes.
+
+Device check before release: import a scanned paper with `[4 marks]`, `(2 marks)` and `1 mark`, plus a
+mixed digital/scanned PDF and a PDF with rotation metadata. In airplane mode, confirm labels line up at
+multiple zooms, tick awards full marks, cross adjusts and revisiting edits the existing award. Check a
+blank/faint page, reopen to exercise the cache, and turn assist off/navigate away during a long scan.
+Build/lint and matcher checks do not substitute for verifying OCR accuracy on actual exam scans.
