@@ -38,6 +38,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -56,6 +58,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     onOpenNotebook: (String) -> Unit = model::open,
     selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
     mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
+    // Extra top space for panes with no top bar of their own (full screen has no status bar inset).
+    topGap: Dp = 0.dp,
 ) {
     val focusManager = LocalFocusManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -171,6 +175,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     header = {
                         // MDC's rail puts the logo and primary action in its header; the hold opens
                         // the same create/import menu the narrow layout shows behind its add button.
+                        Spacer(Modifier.height(topGap))
                         Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primary) {
                             Icon(Icons.AutoMirrored.Rounded.MenuBook, "folio", Modifier.padding(FolioSpacing.dp10).size(23.dp), tint = MaterialTheme.colorScheme.onPrimary)
                         }
@@ -220,7 +225,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                 }
                 if (!showMistakes && !showStudy && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().then(entrance),
                     state = libraryGridState,
-                    contentPadding = PaddingValues(if (wide) 20.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
+                    contentPadding = PaddingValues(if (wide) 20.dp else 12.dp).let { PaddingValues(it.calculateLeftPadding(LayoutDirection.Ltr), it.calculateTopPadding() + topGap, it.calculateRightPadding(LayoutDirection.Ltr), it.calculateBottomPadding()) }, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             if (selectionCaption != null) Surface(
@@ -456,7 +461,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 
                 }
                 if (!showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.PROGRESS) {
-                    com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().then(entrance),
+                    com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().padding(top = topGap).then(entrance),
                         onSettings, onMistakes, onStudy, onOpenNotebook)
                 }
         }

@@ -218,11 +218,16 @@ class LibraryBackupJobService : JobService() {
                     ?: return@launch
                 retry = params.jobId != LibraryAutoBackup.PERIODIC_JOB_ID
                 val app = application as FolioApplication
-                app.storageGate.withLock {
+                // Only the local read holds the gate; the slow write to the backup folder must not
+                // stall note saves, which the editor (and mistake ratings) wait on.
+                val staged = app.storageGate.withLock {
                     val (notes, folders) = app.repository.load()
+                    app.repository.stageLibrary(notes, folders)
+                }
+                staged.use {
                     val target = LibraryAutoBackup.createBackupDocument(this@LibraryBackupJobService, treeUri)
                     try {
-                        app.repository.exportLibrary(target, notes, folders)
+                        app.repository.writeStaged(staged, target)
                         LibraryAutoBackup.pruneOldBackups(this@LibraryBackupJobService, treeUri, target)
                         LibraryAutoBackup.setSuccess(this@LibraryBackupJobService)
                         retry = false

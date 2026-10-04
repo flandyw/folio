@@ -437,11 +437,10 @@ import java.io.File
             snackbarHost = { SnackbarHost(snackbar) },
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
-            // Full screen hides the status bar, so its inset is zero: keep a minimum top gap on
-            // the library-style screens so the logo and search bar don't touch the screen edge.
-            val libraryScreen = showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null
-            val topGap = if (libraryScreen) (16.dp - padding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp
-            Box(Modifier.fillMaxSize().padding(padding).padding(top = topGap).then(
+            // Full screen hides the status bar, so its inset is zero. Screens without a top bar of
+            // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
+            val topGap = (16.dp - padding.calculateTopPadding()).coerceAtLeast(0.dp)
+            Box(Modifier.fillMaxSize().padding(padding).then(
                 if (showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
                 val screen = when {
@@ -483,7 +482,7 @@ import java.io.File
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
                             onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                             onFolder = { folderDialog = true }, onSettings = { settings = true },
-                            showMistakes = showMistakes,
+                            showMistakes = showMistakes, topGap = topGap,
                             onLibrary = { showStudy = false; showMistakes = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
                                 if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)

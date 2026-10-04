@@ -486,7 +486,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     private fun queueIndexCheckpoint(noteId: String) {
         val note = _state.value.notes.find { it.id == noteId } ?: return
-        queue(WriteOp.Once { repository.saveMeta(note) }, scheduleAutoBackup = false)
+        // Not counted as an edit: the ink is already durable in the journal, so a checkpoint must not
+        // flip the page back to "Saving…" (which locks mistake ratings) for housekeeping.
+        writes.trySend(WriteOp.Once { repository.saveMeta(note) })
     }
 
     /**
@@ -1985,11 +1987,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         viewModelScope.launch {
             try {
                 awaitSaved()
-                val count = getApplication<FolioApplication>().storageGate.withLock {
+                val (staged, count) = getApplication<FolioApplication>().storageGate.withLock {
                     val (notes, folders) = repository.load()
-                    repository.exportLibrary(uri, notes, folders)
-                    notes.size
+                    repository.stageLibrary(notes, folders) to notes.size
                 }
+                staged.use { repository.writeStaged(it, uri) }
                 reportError("Library backup saved ($count notebooks)")
             } catch (e: Exception) { reportError("Library backup failed: ${e.message}") }
             finally { _state.update { it.copy(exporting = false) } }

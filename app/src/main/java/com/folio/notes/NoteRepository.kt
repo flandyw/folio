@@ -33,6 +33,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.io.Writer
 import java.util.zip.ZipInputStream
@@ -545,33 +546,56 @@ class NoteRepository(private val context: Context) {
     }
 
     /** Save the entire shelf through a SAF document, including folder organization. */
-    suspend fun exportLibrary(uri: Uri, notes: List<Notebook>, folders: List<Folder>) = withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
-            val staging = File(context.cacheDir, "backup-${UUID.randomUUID()}").apply { mkdirs() }
-            try {
-                val payloads = mutableListOf<LibraryBackup.NotebookPayload>()
-                val assets = linkedMapOf<String, File>()
-                notes.forEach { summary ->
-                    val note = loadPages(summary)
-                    val pdfFile = File(storedDirectory(note.id), "source.pdf").takeIf { it.isFile }
-                    require(note.pages.none { it.pdfIndex != null } || pdfFile != null) {
-                        "Source PDF is missing from ${note.title}"
-                    }
-                    val pdfHash = pdfFile?.let { registerBackupAsset(it, assets) }
-                    val imageHashes = note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
-                        val file = storedImageFile(note.id, image.id).takeIf { it.isFile }
-                            ?: error("Image is missing from ${note.title}")
-                        image.id to registerBackupAsset(file, assets)
-                    }
-                    val noteFile = File(staging, "note-${checked(note.id)}.json")
-                    noteFile.writeText(NoteCodec.encode(note), Charsets.UTF_8)
-                    payloads += LibraryBackup.NotebookPayload(note.id, noteFile, pdfHash, imageHashes)
+    suspend fun exportLibrary(uri: Uri, notes: List<Notebook>, folders: List<Folder>) =
+        stageLibrary(notes, folders).use { writeStaged(it, uri) }
+
+    /**
+     * Reads every notebook into a private staging directory so the slow part, writing to the
+     * destination, can run without holding the storage gate. Only local disk is touched here;
+     * source PDFs and pictures are never rewritten in place, so they are referenced, not copied.
+     */
+    suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>): StagedLibrary = withContext(Dispatchers.IO) {
+        val staging = File(context.cacheDir, "backup-${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            val payloads = mutableListOf<LibraryBackup.NotebookPayload>()
+            val assets = linkedMapOf<String, File>()
+            notes.forEach { summary ->
+                val note = loadPages(summary)
+                val pdfFile = File(storedDirectory(note.id), "source.pdf").takeIf { it.isFile }
+                require(note.pages.none { it.pdfIndex != null } || pdfFile != null) {
+                    "Source PDF is missing from ${note.title}"
                 }
-                LibraryBackup.write(output, folders, payloads, assets)
-            } finally {
-                staging.deleteRecursively()
+                val pdfHash = pdfFile?.let { registerBackupAsset(it, assets) }
+                val imageHashes = note.pages.flatMap { it.images }.distinctBy { it.id }.associate { image ->
+                    val file = storedImageFile(note.id, image.id).takeIf { it.isFile }
+                        ?: error("Image is missing from ${note.title}")
+                    image.id to registerBackupAsset(file, assets)
+                }
+                val noteFile = File(staging, "note-${checked(note.id)}.json")
+                noteFile.writeText(NoteCodec.encode(note), Charsets.UTF_8)
+                payloads += LibraryBackup.NotebookPayload(note.id, noteFile, pdfHash, imageHashes)
             }
-        } ?: error("Couldn't open the backup destination")
+            StagedLibrary(staging, folders, payloads, assets)
+        } catch (e: Throwable) {
+            staging.deleteRecursively()
+            throw e
+        }
+    }
+
+    class StagedLibrary internal constructor(
+        private val staging: File,
+        private val folders: List<Folder>,
+        private val payloads: List<LibraryBackup.NotebookPayload>,
+        private val assets: Map<String, File>
+    ) : java.io.Closeable {
+        suspend fun writeTo(output: OutputStream) = withContext(Dispatchers.IO) {
+            LibraryBackup.write(output, folders, payloads, assets)
+        }
+        override fun close() { staging.deleteRecursively() }
+    }
+
+    suspend fun writeStaged(staged: StagedLibrary, uri: Uri) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { staged.writeTo(it) } ?: error("Couldn't open the backup destination")
     }
 
     private fun registerBackupAsset(file: File, assets: MutableMap<String, File>): String {
