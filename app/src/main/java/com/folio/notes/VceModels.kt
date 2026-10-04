@@ -499,9 +499,15 @@ data class StopwatchState(
          */
         fun resume(
             startedAt: Long?, now: Long = System.currentTimeMillis(),
-            pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false
+            pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false,
+            lastSeen: Long? = null
         ): StopwatchState? {
             if (startedAt == null || startedAt <= 0 || startedAt > now) return null
+            // Freeze a kill-while-running sitting at its last heartbeat, not at today's clock.
+            if (pausedAt == null && lastSeen != null && lastSeen >= startedAt && lastSeen < now &&
+                now - lastSeen > UNSEEN_GAP_GRACE_MS) {
+                return resume(startedAt, now, pausedAt = lastSeen, pausedMillis = pausedMillis, parkAuto = true)
+            }
             if (pausedAt != null && (pausedAt < startedAt || pausedAt > now)) return null
             val elapsed = (pausedAt ?: now) - startedAt - pausedMillis
             if (pausedMillis < 0L || elapsed < 0L || elapsed > MAX_RESUME_AGE_MS) return null
@@ -686,8 +692,16 @@ data class ExamTimerState(
          * a missing or future start moment, or a record older than [MAX_RESUME_AGE_MS].
          */
         fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis(),
-                   pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false): ExamTimerState? {
+                   pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false,
+                   lastSeen: Long? = null): ExamTimerState? {
             if (preset == null || startedAt == null || startedAt <= 0 || startedAt > now) return null
+            // A sitting still running after a kill is frozen at its last heartbeat *before* it is
+            // caught up: ticking to [now] first would finish it (or age it out) on time nobody
+            // was watching, and the later clamp could no longer park a finished sitting.
+            if (pausedAt == null && lastSeen != null && lastSeen >= startedAt && lastSeen < now &&
+                now - lastSeen > UNSEEN_GAP_GRACE_MS) {
+                return resume(preset, startedAt, now, pausedAt = lastSeen, pausedMillis = pausedMillis, parkAuto = true)
+            }
             if (pausedAt != null && (pausedAt < startedAt || pausedAt > now)) return null
             val elapsed = (pausedAt ?: now) - startedAt - pausedMillis
             if (pausedMillis < 0L || elapsed < 0L || elapsed > MAX_RESUME_AGE_MS) return null

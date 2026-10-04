@@ -217,7 +217,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L),
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
                 pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L),
-                parkAuto = prefs.getInt(timerKey(TIMER_PARK_AUTO_KEY), 0) != 0)
+                parkAuto = prefs.getInt(timerKey(TIMER_PARK_AUTO_KEY), 0) != 0,
+                lastSeen = prefs.getLong(timerKey(TIMER_LAST_SEEN_KEY), 0L).takeIf { it > 0L })
             ?: ExamTimerState()
         // A crash or kill while foregrounded leaves a running sitting with no recorded pause;
         // anything past the last confirmed-visible moment never counts.
@@ -243,7 +244,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             now = now,
             pausedAt = prefs.getLong(stopwatchKey(STOPWATCH_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
             pausedMillis = prefs.getLong(stopwatchKey(STOPWATCH_PAUSED_MILLIS_KEY), 0L),
-            parkAuto = prefs.getInt(stopwatchKey(STOPWATCH_PARK_AUTO_KEY), 0) != 0
+            parkAuto = prefs.getInt(stopwatchKey(STOPWATCH_PARK_AUTO_KEY), 0) != 0,
+            lastSeen = prefs.getLong(stopwatchKey(STOPWATCH_LAST_SEEN_KEY), 0L).takeIf { it > 0L }
         ) ?: return StopwatchState()
         val clamped = restored.clampUnseenGap(prefs.getLong(stopwatchKey(STOPWATCH_LAST_SEEN_KEY), 0L).takeIf { it > 0L }, now)
         if (clamped != restored) saveStopwatch(clamped, clamped.pausedAt ?: now)
