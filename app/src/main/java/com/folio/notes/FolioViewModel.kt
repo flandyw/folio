@@ -168,6 +168,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private var ready = CompletableDeferred<Unit>()
     /** Offsets each paste a little further, so repeated pastes stack instead of hiding each other. */
     private var pasteGeneration = 0
+    private var clipboardNoteId: String? = null
+    private var clipboardToken: String? = null
+    private val systemClipboard get() = getApplication<Application>()
+        .getSystemService(android.content.ClipboardManager::class.java)
     /** Pages whose content is being read right now, so a page is never fetched twice at once. */
     private val loadingPages = mutableSetOf<String>()
     private var timerNotebookId: String? = _state.value.activeId
@@ -590,16 +594,119 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders.filterNot { it.id == folder.id }
         _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
     }
-    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true, response: LongResponse? = null, responseMode: ResponseMode = ResponseMode.FULL) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
-        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover)
+        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover,
+            defaultPaper = if (response != null) Paper.RULED else null,
+            longResponse = response?.copy(attempts = listOf(ResponseAttempt(title = "First attempt", mode = responseMode, pageIds = pages.map { it.id }))))
         captureTab()
         selectNotebookTimer(note.id)
         _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
         captureTab()
         enqueue { repository.saveAll(note) }
     }
+    fun configureResponse(noteId: String, response: LongResponse, subject: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        if (response.prompt.isBlank()) return
+        val attempts = note.longResponse?.attempts ?: listOf(ResponseAttempt(
+            title = "Original work", pageIds = note.pages.map { it.id }))
+        updateNote(note.copy(longResponse = response.copy(attempts = attempts), defaultPaper = Paper.RULED,
+            exam = note.exam.copy(subject = VceSubject.entries.find { it.label == subject.trim() }, subjectText = subject.trim())))
+    }
+
+    fun updateResponsePlan(noteId: String, attemptId: String, plan: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val response = note.longResponse ?: return
+        if (response.attempts.none { it.id == attemptId && it.plan != plan }) return
+        updateNote(note.copy(longResponse = response.updateAttempt(attemptId) { it.copy(plan = plan) }))
+    }
+
+    fun renameResponseAttempt(noteId: String, attemptId: String, title: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val response = note.longResponse ?: return
+        if (title.isBlank()) return
+        updateNote(note.copy(longResponse = response.updateAttempt(attemptId) { it.copy(title = title.trim()) }))
+    }
+
+    private val copyingResponses = mutableSetOf<String>()
+
+    /** A new attempt owns fresh page identities; copying for marking never edits the original. */
+    fun newResponseAttempt(noteId: String, mode: ResponseMode, parentId: String? = null,
+        actionId: String? = null, copyForMarking: Boolean = false) {
+        if (!copyingResponses.add(noteId)) return
+        viewModelScope.launch {
+            try {
+                awaitQueuedWrites()
+                val source = _state.value.notes.find { it.id == noteId } ?: return@launch
+                val action = actionId?.let { id -> source.feedbackActions.find { it.id == id } }
+                val response = source.longResponse ?: action?.let {
+                    LongResponse(prompt = it.text, attempts = listOf(ResponseAttempt(
+                        title = "Original work", pageIds = source.pages.map { page -> page.id })))
+                } ?: return@launch
+                val parent = response.attempts.find { it.id == parentId }
+                    ?: action?.let { response.attemptFor(it.pageId) }
+                val title = if (copyForMarking) "Marked copy · ${parent?.title ?: "Response"}"
+                    else "${action?.practice?.label ?: mode.label} · ${response.attempts.size + 1}"
+                val pages = if (copyForMarking) {
+                    val originals = parent?.pageIds?.map { id ->
+                        source.pages.find { it.id == id } ?: error("A page from this attempt was deleted")
+                    }.orEmpty()
+                    check(originals.isNotEmpty()) { "This attempt has no pages to copy" }
+                    originals.map { page ->
+                        val loaded = if (page.loaded) page else repository.loadPage(noteId, page)
+                        loaded.copy(id = java.util.UUID.randomUUID().toString(), revision = 0, title = title)
+                    }
+                } else listOf(NotePage(paper = Paper.RULED, title = title))
+                // Loading pages can suspend: merge with the latest metadata and ink, never the old notebook.
+                val current = _state.value.notes.find { it.id == noteId } ?: return@launch
+                val latest = current.longResponse ?: response
+                val attempt = ResponseAttempt(title = title, mode = mode, pageIds = pages.map { it.id },
+                    plan = if (copyForMarking) parent?.plan.orEmpty() else "",
+                    parentId = parent?.id, sourceActionId = action?.id)
+                val updated = current.copy(pages = current.pages + pages, defaultPaper = Paper.RULED,
+                    longResponse = latest.copy(attempts = latest.attempts + attempt),
+                    feedbackActions = current.feedbackActions.map {
+                        if (it.id == action?.id) it.copy(practiceAttemptId = attempt.id) else it
+                    }, updated = System.currentTimeMillis())
+                _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) updated else it }) }
+                enqueue { repository.saveResponsePages(updated, pages) }
+                openAt(noteId, current.pages.size)
+            } catch (e: Exception) {
+                reportError("Couldn't create this attempt: ${e.message.orEmpty()}")
+            } finally { copyingResponses.remove(noteId) }
+        }
+    }
+
+    fun addFeedbackAction(noteId: String, pageId: String, text: String, practice: FeedbackPractice, sourceTextId: String? = null) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        if (text.isBlank() || note.pages.none { it.id == pageId }) return
+        val action = FeedbackAction(pageId = pageId, text = text.trim(), practice = practice, sourceTextId = sourceTextId)
+        updateNote(note.copy(feedbackActions = note.feedbackActions + action))
+    }
+
+    fun completeFeedbackAction(noteId: String, actionId: String, done: Boolean) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        updateNote(note.copy(feedbackActions = note.feedbackActions.map { if (it.id == actionId) it.copy(done = done) else it }))
+    }
+
+    fun removeFeedbackAction(noteId: String, actionId: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        updateNote(note.copy(feedbackActions = note.feedbackActions.filterNot { it.id == actionId }))
+    }
+
+    fun openResponseAttempt(noteId: String, attemptId: String, beside: Boolean = false) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val attempt = note.longResponse?.attempts?.find { it.id == attemptId } ?: return
+        val index = note.pages.indexOfFirst { it.id in attempt.pageIds }
+        if (index < 0) { reportError("This attempt's pages have been deleted"); return }
+        if (beside) {
+            showCompanion(noteId, CompanionMode.REFERENCE)
+            setCompanionLinked(false)
+            companionPage(index)
+        } else openAt(noteId, index)
+    }
+
     /**
      * Starts a practice notebook in memory only. The first stroke, text or picture
      * persists it through the normal page save; an untouched page never reaches disk,
@@ -944,13 +1051,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * The paper's total is filled in from the attempt when it is still unknown, so the next
      * mark dialog opens pre-filled instead of asking for the total again.
      */
-    fun recordAttempt(noteId: String, attempt: ExamAttempt) {
+    fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null) {
         val note = _state.value.notes.find { it.id == noteId } ?: return
         var exam = if (note.exam.status == ExamStatus.TO_DO) note.exam.copy(status = ExamStatus.MARKED) else note.exam
         if (exam.marksTotal == null && attempt.total != null && attempt.total > 0) {
             exam = exam.copy(marksTotal = attempt.total)
         }
-        updateNote(note.withAttempt(attempt).copy(exam = exam))
+        val responseAttempt = note.longResponse?.attempts?.find { it.id == responseAttemptId }
+        val recorded = responseAttempt?.resultId?.let { attempt.copy(id = it) } ?: attempt
+        updateNote(note.withAttempt(recorded).copy(exam = exam,
+            longResponse = if (responseAttempt == null) note.longResponse else note.longResponse?.updateAttempt(responseAttempt.id) { it.copy(resultId = recorded.id) }))
         // A timed sitting is spent on the mark it belongs to, not offered to the next one.
         if (attempt.timed) {
             notebookSittings.consumeResult(noteId)
@@ -1146,7 +1256,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.active ?: return
         // Older notebooks inherit the current page until a default is chosen.
         val chosen = paper ?: note.defaultPaper ?: _state.value.page?.paper ?: Paper.MATH_GRID
-        updateNote(note.copy(pages = note.pages + NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))); selectPage(note.pages.size)
+        val page = NotePage(paper = chosen, infinite = _state.value.page?.infinite == true)
+        updateNote(note.copy(pages = note.pages + page).linkResponsePage(page.id, _state.value.page?.id)); selectPage(note.pages.size)
     }
     /**
      * Copies a page, reading its ink from disk first when only its summary is in memory. A copy of a
@@ -1187,7 +1298,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = state.active ?: return state.pageIndex
         val chosen = paper ?: note.defaultPaper ?: state.page?.paper ?: Paper.MATH_GRID
         val at = index.coerceIn(0, note.pages.size)
-        val updated = note.withInsertedPage(at, NotePage(paper = chosen, infinite = _state.value.page?.infinite == true))
+        val page = NotePage(paper = chosen, infinite = _state.value.page?.infinite == true)
+        val updated = note.withInsertedPage(at, page).linkResponsePage(page.id, _state.value.page?.id)
         updateNote(updated)
         _state.update { it.copy(pageIndex = at) }
         captureTab()
@@ -1461,6 +1573,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun copyToClipboard(selection: CanvasSelection) {
         if (selection.isEmpty()) return
         pasteGeneration = 0
+        clipboardNoteId = _state.value.active?.id
+        clipboardToken = "folio-selection-${UUID.randomUUID()}"
+        val plainText = selection.texts.joinToString("\n") { it.text }
+        systemClipboard.setPrimaryClip(android.content.ClipData.newPlainText(clipboardToken, plainText))
         _state.update { it.copy(clipboard = selection) }
     }
     /** Copies the selection to the clipboard and takes it off the current page in one step. */
@@ -1528,32 +1644,87 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * the page already uses their id, otherwise they share the notebook-scoped image file like a
      * duplicated page does. One undoable step.
      */
-    fun pasteClipboard() {
+    fun pasteClipboard(at: InkPoint? = null) {
         val note = _state.value.active ?: return
-        val page = _state.value.page ?: return
-        if (!page.loaded) return
-        val clip = _state.value.clipboard
+        val targetId = _state.value.page?.id ?: return
+        val system = systemClipboard.primaryClip
+        val internal = system?.description?.label?.toString() == clipboardToken
+        val clip = if (internal) _state.value.clipboard else {
+            val text = system?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+            if (text.isBlank()) { reportError("Copy some text or a selection first."); return }
+            CanvasSelection(texts = listOf(TextBox(text = text, x = 0f, y = 0f)))
+        }
         if (clip.isEmpty()) return
-        val offset = PASTE_OFFSET * ++pasteGeneration
-        val pastedStrokes = clip.strokes.map { InkGeometry.translate(it, offset, offset) }
-        val pastedTexts = clip.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(offset, offset) }
+        val sourceNoteId = clipboardNoteId ?: note.id
         viewModelScope.launch {
-            val existingIds = page.images.map { it.id }.toSet()
-            val pastedImages = clip.images.map { image ->
-                val placed = image.moved(offset, offset)
-                if (placed.id !in existingIds) return@map placed
-                val freshId = UUID.randomUUID().toString()
-                try {
-                    repository.loadImageBytes(note.id, image.id)?.let { repository.saveImage(note.id, freshId, it) }
-                } catch (_: Exception) { }
-                placed.copy(id = freshId)
+            awaitLoaded(targetId) ?: run { reportError("Couldn't load the page for pasting."); return@launch }
+            try {
+                // New image ids keep placements independent, including across notebooks.
+                val images = clip.images.map { image ->
+                    val bytes = repository.loadImageBytes(sourceNoteId, image.id)
+                        ?: error("The copied picture is unavailable")
+                    val id = UUID.randomUUID().toString()
+                    repository.saveImage(note.id, id, bytes)
+                    image.copy(id = id)
+                }
+                val current = _state.value.active?.takeIf { it.id == note.id } ?: return@launch
+                val page = current.pages.find { it.id == targetId && it.loaded } ?: return@launch
+                val placed = placeSelection(clip.copy(images = images), page, at,
+                    PASTE_OFFSET * (pasteGeneration++ % 5))
+                updateContent(page.id, page.strokes + placed.strokes, page.texts + placed.texts, page.images + placed.images)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { reportError("Couldn't paste the selection. The original is unchanged.") }
+        }
+    }
+
+    /** Place in view rather than retaining coordinates from a different page or infinite canvas. */
+    private fun placeSelection(clip: CanvasSelection, page: NotePage, at: InkPoint?, offset: Float = 0f, centred: Boolean = false): CanvasSelection {
+        val bounds = InkGeometry.contentBounds(clip.strokes, clip.texts, clip.images,
+            InkRenderer::textHeight, page.width, page.height)
+        var x = (at?.x ?: 32f) + offset - if (centred) (bounds.right - bounds.left) / 2f else 0f
+        var y = (at?.y ?: 32f) + offset - if (centred) (bounds.bottom - bounds.top) / 2f else 0f
+        if (!page.infinite) {
+            x = x.coerceIn(0f, (page.width - (bounds.right - bounds.left)).coerceAtLeast(0f))
+            y = y.coerceIn(0f, (page.height - (bounds.bottom - bounds.top)).coerceAtLeast(0f))
+        }
+        val dx = x - bounds.left
+        val dy = y - bounds.top
+        return CanvasSelection(clip.strokes.map { InkGeometry.translate(it, dx, dy) },
+            clip.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(dx, dy) },
+            clip.images.map { it.moved(dx, dy) })
+    }
+
+    /** Destination is loaded before removing anything; both page edits use the usual save queue. */
+    fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null) {
+        val noteId = _state.value.active?.id ?: return
+        if (sourceId == targetId || selection.isEmpty()) return
+        viewModelScope.launch {
+            awaitLoaded(targetId) ?: run { reportError("Couldn't open the destination page."); return@launch }
+            val movedImages = try {
+                selection.images.map { image ->
+                    val bytes = repository.loadImageBytes(noteId, image.id) ?: error("Missing picture")
+                    val id = UUID.randomUUID().toString()
+                    repository.saveImage(noteId, id, bytes)
+                    image.copy(id = id)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { reportError("Couldn't move the pictures. The selection is unchanged."); return@launch }
+            val note = _state.value.active?.takeIf { it.id == noteId } ?: return@launch
+            val source = note.pages.find { it.id == sourceId && it.loaded } ?: return@launch
+            val target = note.pages.find { it.id == targetId && it.loaded } ?: return@launch
+            if (!source.strokes.containsAll(selection.strokes) || !source.texts.containsAll(selection.texts) ||
+                !source.images.containsAll(selection.images)) {
+                reportError("The selection changed. Select it again before moving."); return@launch
             }
-            updateContent(
-                page.id,
-                page.strokes + pastedStrokes,
-                page.texts + pastedTexts,
-                page.images + pastedImages
-            )
+            val placed = placeSelection(selection.copy(images = movedImages), target, at, centred = at != null)
+            updateContent(target.id, target.strokes + placed.strokes, target.texts + placed.texts, target.images + placed.images)
+            updateContent(source.id, source.strokes.filterNot { it in selection.strokes },
+                source.texts.filterNot { it in selection.texts }, source.images.filterNot { it in selection.images })
+            // A drag lands where the finger is, so the view stays put; the menu route jumps to the page.
+            if (at == null) {
+                selectPage(note.pages.indexOfFirst { it.id == targetId })
+                _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
+            }
         }
     }
     /** Applies a new look to the selection as one undoable step; nulls leave those properties alone. */
@@ -1595,6 +1766,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             is MarkingAction.Note -> placeFeedbackNote(at, action.handwritten, color)
             MarkingAction.Flag -> dropFlag(page, at, color)
             is MarkingAction.MakeRoom -> makeRoom(page, at.y, action.amount)
+            is MarkingAction.RemoveRoom -> {
+                val shift = Marking.removeRoom(page, at.y, action.amount, InkRenderer::textHeight)
+                if (shift == null) reportError("Choose an empty gap large enough for this amount. Nothing was removed.")
+                else {
+                    // Save shifted content before shortening the index: interruption leaves spare paper.
+                    replacePage(page.copy(strokes = shift.strokes, texts = shift.texts, images = shift.images))
+                    val note = _state.value.active ?: return
+                    val fresh = findPageContent(page.id) ?: return
+                    updateNote(note.withPage(fresh.copy(height = shift.height)))
+                }
+            }
         }
     }
 
@@ -1633,7 +1815,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun awardMark(pageId: String, zone: MarkZone, value: Int, color: Int) {
         val page = findPageContent(pageId) ?: return
         if (!page.loaded) return
-        texts(pageId, MarkZones.withAward(zone, page, value, color))
+        val (texts, strokes) = MarkZones.withAward(zone, page, value, color)
+        if (texts != page.texts || strokes != page.strokes) replacePage(page.copy(texts = texts, strokes = strokes))
+    }
+
+    /** Removes a printed allocation's award entirely, so it no longer counts toward the tally. */
+    fun clearMark(pageId: String, zone: MarkZone) {
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded) return
+        val (texts, strokes) = MarkZones.withoutAward(zone, page)
+        if (texts != page.texts || strokes != page.strokes) replacePage(page.copy(texts = texts, strokes = strokes))
     }
 
     /** Opens space below [y]; imported PDF pages cannot grow, so they say why instead. */
@@ -1966,7 +2157,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             add(back); while (size > MAX_UNDO) removeAt(0)
         }
         val after = page.copy(strokes = afterContent.strokes, texts = afterContent.texts, images = afterContent.images)
-        val revised = after.revised()
+        val bounds = InkGeometry.contentBounds(after.strokes, after.texts, after.images, InkRenderer::textHeight, after.width, after.height)
+        val revised = (if (!after.infinite && after.pdfIndex == null && bounds.bottom > after.height)
+            after.copy(height = bounds.bottom + 24f) else after).revised()
+        if (revised.height != page.height) enqueue { repository.saveMeta(note.withPage(revised)) }
         val updated = note.copy(pages = note.pages.map { if (it.id == page.id) revised else it }, updated = System.currentTimeMillis())
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
         // One record says both what the page now holds and which stack it came out of and went into.

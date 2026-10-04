@@ -14,7 +14,47 @@ private fun rejects(name: String, action: () -> Unit) {
     check(runCatching(action).isFailure) { "$name was accepted" }
 }
 
+private fun checkResponseMetadata() {
+    val original = NotePage(id = "draft", texts = listOf(TextBox(text = "Explain the evidence", x = 10f, y = 20f)))
+    val retry = NotePage(id = "retry")
+    val first = ResponseAttempt(id = "first", title = "Draft", pageIds = listOf(original.id), plan = "A contention\nTwo arguments")
+    val action = FeedbackAction(id = "action", pageId = original.id, text = "Explain the evidence",
+        sourceTextId = original.texts.single().id, practiceAttemptId = "second")
+    val second = ResponseAttempt(id = "second", title = "Rewrite", mode = ResponseMode.PARAGRAPH,
+        pageIds = listOf(retry.id), parentId = first.id, sourceActionId = action.id, resultId = "mark")
+    val note = Notebook(title = "Response", pages = listOf(original, retry),
+        attempts = listOf(ExamAttempt(id = "mark", score = 16, total = 20)),
+        longResponse = LongResponse("Evaluate this argument", "Justice", 20, 40, listOf(first, second)),
+        feedbackActions = listOf(action))
+    check(NoteCodec.decode(NoteCodec.encode(note)) == note)
+    val index = NoteMetaCodec.decode(NoteMetaCodec.encode(note))
+    check(index.longResponse == note.longResponse && index.feedbackActions == note.feedbackActions)
+    val legacy = JSONObject(NoteMetaCodec.encode(note)).apply { remove("longResponse"); remove("feedbackActions") }
+    val old = NoteMetaCodec.decode(legacy.toString())
+    check(old.longResponse == null && old.feedbackActions.isEmpty())
+    val continuation = NotePage(id = "continuation")
+    val expanded = note.copy(pages = note.pages + continuation).linkResponsePage(continuation.id, original.id)
+    check(expanded.longResponse!!.attemptFor(continuation.id)?.id == first.id)
+    check(expanded.longResponse!!.attemptFor(retry.id)?.id == second.id)
+    check(note.withMovedPage(0, 1).longResponse == note.longResponse)
+    val copiedPage = note.withDuplicatedPage(0)
+    check(copiedPage.longResponse!!.attemptFor(copiedPage.pages[1].id)?.id == first.id)
+    val copy = note.duplicatedAsCopy("Copy")
+    check(copy.pages.none { it.id in note.pages.map { page -> page.id } })
+    check(copy.longResponse!!.attemptFor(copy.pages[0].id)?.id == first.id)
+    check(copy.feedbackActions.single().pageId == copy.pages[0].id)
+    check(copy.longResponse!!.attempts.all { it.resultId == null })
+    check(copy.attempts.isEmpty())
+    val deleted = note.withDeletedPage(0)
+    check(deleted.feedbackActions.single().text == action.text)
+    check(deleted.pages.none { it.id == deleted.feedbackActions.single().pageId })
+    check(matchesQuery(note, "justice evaluate"))
+    check(!matchesQuery(note, "nonexistent"))
+    println("Response smoke: legacy defaults, portable/index round-trips, continuation, copying, reordering, missing sources and search passed.")
+}
+
 fun main() = runBlocking {
+    checkResponseMetadata()
     val root = kotlin.io.path.createTempDirectory("folio-backup-check-").toFile()
     try {
         val strokes = (0 until 80).map { line -> Stroke(Tool.PEN, -16777216, 2.5f,
@@ -34,7 +74,10 @@ fun main() = runBlocking {
         rejects("empty source snapshot") { NativeBackup.inspect(File(root, "empty.fps").apply { writeBytes(byteArrayOf()) }, true) }
         val journalFile = File(root, "page.fjl").apply { writeBytes(JournalBinary.frame(transaction.copy(seq = 7)) + frame + frame.copyOf(5)) }
         val folder = Folder("folder-1", "Study")
-        val note = Notebook(id = "note-1", title = "Handwriting", folderId = folder.id, pages = listOf(page), updated = 100)
+        val note = Notebook(id = "note-1", title = "Handwriting", folderId = folder.id, pages = listOf(page), updated = 100,
+            longResponse = LongResponse("Discuss the evidence", "English", 20, 40,
+                listOf(ResponseAttempt(id = "response-1", title = "Draft", pageIds = listOf(page.id), plan = "Argument and evidence"))),
+            feedbackActions = listOf(FeedbackAction(pageId = page.id, text = "Develop the argument")))
         val meta = File(root, "note.json").apply { writeText(NoteMetaCodec.encode(note)) }
         val pdf = File(root, "source.pdf").apply { writeBytes(ByteArray(256 * 1024).also { java.util.Random(42).nextBytes(it) }) }
         val sources = linkedMapOf<String, NativeBackup.Source>()
@@ -86,6 +129,8 @@ fun main() = runBlocking {
             NativeBackup.readEntries(zip, decoded, extracted)
         }
         check(restored.keys == sources.keys)
+        val restoredNote = NoteMetaCodec.decode(restored.getValue(paths.getValue("note.json")).readText())
+        check(restoredNote.longResponse == note.longResponse && restoredNote.feedbackActions == note.feedbackActions)
         restored.forEach { (hash, file) -> check(file.readBytes().contentEquals(sources.getValue(hash).file.readBytes())) }
         val snapshot = PageSnapshotBinary.read(restored.getValue(paths.getValue("pages/page-1.fps")).readBytes())
         val records = JournalBinary.readAll(restored.getValue(paths.getValue("pages/page-1.fjl")).readBytes())

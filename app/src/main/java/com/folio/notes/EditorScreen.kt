@@ -299,6 +299,10 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var mainInkView by remember { mutableStateOf<InkView?>(null) }
     val activeInkView = mainInkView
+    fun pasteInView() {
+        val visible = activeInkView?.currentPeekAnchor()?.takeIf { it.pageId == page.id }
+        model.pasteClipboard(visible?.let { InkPoint(it.left + 24f, it.top + 48f) })
+    }
     val followView = activeInkView
     fun setWritingFollow(enabled: Boolean) {
         writingFollowEnabled = enabled
@@ -331,6 +335,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { shortcuts.stop() }
     }
     var selection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
+    val pageFrames = remember { mutableMapOf<String, Rect>() }
+    var moveSelection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
     /** Selection frame in view fractions for the context menu; cleared with the page. */
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
@@ -374,6 +380,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     var stampPicker by remember { mutableStateOf(false) }
     // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
     var markingPanel by remember { mutableStateOf(false) }
+    var responseAttempts by rememberSaveable { mutableStateOf(false) }
+    var feedbackActions by rememberSaveable { mutableStateOf(false) }
     var armedMarking by remember { mutableStateOf<MarkingAction?>(null) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
     var markingBank by remember { mutableStateOf(Marking.loadBank(appPrefs.getString(Marking.PREF_COMMENTS, null))) }
@@ -419,7 +427,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             model.applyMarking(action, at, markingColor)
             // Comments and marks keep stamping; a flag or a gap is a single deliberate act.
-            if (action is MarkingAction.Flag || action is MarkingAction.MakeRoom) armedMarking = null
+            if (action is MarkingAction.Flag || action is MarkingAction.MakeRoom || action is MarkingAction.RemoveRoom) armedMarking = null
             return
         }
         val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
@@ -642,7 +650,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             } finally { markScanBusy = false }
         }
     }
-    LaunchedEffect(note.id, page.infinite, note.pages.size) {
+    var handledNavigation by remember(note.id) { mutableIntStateOf(state.navigationRequest) }
+    LaunchedEffect(note.id, page.infinite, note.pages.size, state.navigationRequest) {
+        if (handledNavigation != state.navigationRequest) {
+            activeInkView?.suspendWritingFollow()
+            motion.reset()
+            if (!page.infinite) pages.scrollToItem(state.pageIndex.coerceIn(0, note.pages.lastIndex))
+            handledNavigation = state.navigationRequest
+        }
         if (page.infinite) return@LaunchedEffect
         snapshotFlow { visibleCurrentPage(pages, note.pages.size) }
             .distinctUntilChanged().collect { index -> index?.let(model::selectPage) }
@@ -670,6 +685,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
+        LongResponseBar(note, page, model, onAttempts = { responseAttempts = true }, onFeedback = { feedbackActions = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
         var floatingToolbarTop by remember { mutableStateOf(120.dp) }
@@ -710,6 +726,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     availableWidth = availableWidth,
                     canRestyle = selected.strokes.isNotEmpty(),
                     onCopy = { model.copyToClipboard(selected) },
+                    canMove = note.pages.size > 1,
+                    onMove = { moveSelection = page.id to selected },
+                    onPaste = { pasteInView(); dismissSelection() },
                     onCut = { model.cutSelection(selected); dismissSelection() },
                     onDuplicate = {
                         model.duplicateSelection(selected)
@@ -868,6 +887,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 },
                                 pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                                 markZones = markZones, markAssist = markAssist, markColor = markingColor,
+                                onPageFrame = { id, frame -> if (frame == null) pageFrames.remove(id) else pageFrames[id] = frame },
+                                onSelectionDrop = { sourceId, picked, x, y ->
+                                    // A selection let go over another page lands there, centred on the finger.
+                                    val hit = pageFrames.entries.firstOrNull { (id, f) -> id != sourceId && f.contains(Offset(x, y)) }
+                                    val target = hit?.let { e -> note.pages.find { it.id == e.key } }
+                                    if (hit == null || target == null || target.infinite || hit.value.width <= 0f || hit.value.height <= 0f) false
+                                    else {
+                                        val f = hit.value
+                                        model.moveSelectionToPage(sourceId, target.id, picked,
+                                            InkPoint((x - f.left) / f.width * target.width, (y - f.top) / f.height * target.height))
+                                        true
+                                    }
+                                },
                                 eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                                 eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                                 palmRejectMs = palmRejectMs,
@@ -1116,6 +1148,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             is MarkingAction.Note -> "Tap the spot this feedback is about"
                             MarkingAction.Flag -> "Tap to drop a numbered flag"
                             is MarkingAction.MakeRoom -> "Tap the line to open space below it"
+                            is MarkingAction.RemoveRoom -> "Tap the top of an empty gap to remove it"
                         }, style = MaterialTheme.typography.labelLarge)
                         TextButton({ armedMarking = null }, shapes = ButtonDefaults.shapes()) {
                             Text("Done", color = MaterialTheme.colorScheme.inversePrimary)
@@ -1200,9 +1233,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onExport = onExport,
                             onPageOptions = { more = true },
                             additionalMenus = {
-                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed, state.clipboard.isNotEmpty(),
+                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed, true,
                                         onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { openPaperMenu(false) },
-                                        onPaste = { model.pasteClipboard() },
+                                        onPaste = { pasteInView() },
                                         onClear = { clear = true }, onRetry = model::retrySave,
                                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
@@ -1426,7 +1459,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         note = note,
         onDismiss = { examPanel = false },
         onSave = { tags -> model.updateExamTags(note.id, tags); examPanel = false },
-        onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
+        onRecordMark = { attempt -> model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
         suggestedSeconds = state.lastTimedSeconds
     )
@@ -1449,6 +1482,22 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         )
     }
+    moveSelection?.let { (sourceId, picked) ->
+        FolioPanel(title = "Move to page", onDismissRequest = { moveSelection = null }) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                itemsIndexed(note.pages) { index, destination ->
+                    if (destination.id != sourceId) TextButton({
+                        model.moveSelectionToPage(sourceId, destination.id, picked)
+                        moveSelection = null
+                        activeInkView?.clearSelection()
+                        selection = null
+                    }, Modifier.fillMaxWidth()) {
+                        Text("Page ${index + 1}" + destination.title.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
+                    }
+                }
+            }
+        }
+    }
     textEditor?.let { box ->
         TextBoxDialog(
             box = box, isNew = textEditorNew, colors = quick.colors(InkColors.INK_GROUP),
@@ -1456,7 +1505,13 @@ private fun paperLabel(p: Paper): String = when (p) {
             onCreate = { created -> model.addText(created); rememberTextLook(created); textEditor = null },
             onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
             onDelete = { model.removeText(box.id); textEditor = null },
-            onDuplicate = { source -> model.duplicateText(source.id); rememberTextLook(source); textEditor = null }
+            onDuplicate = { source -> model.duplicateText(source.id); rememberTextLook(source); textEditor = null },
+            canMove = note.pages.size > 1,
+            onMove = { source ->
+                model.updateText(source)
+                moveSelection = page.id to CanvasSelection(texts = listOf(source))
+                textEditor = null
+            }
         )
     }
     selectedImage?.let { (ownerId, image) ->
@@ -1586,6 +1641,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         }
     }
+    if (responseAttempts) LongResponseAttemptsPanel(note, page.id, model) { responseAttempts = false }
+    if (feedbackActions) FeedbackActionsPanel(state.notes, model, { feedbackActions = false }, note, page)
     if (markingPanel) MarkingPanel(
         note = note, page = page,
         color = markingColor, onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
@@ -1598,7 +1655,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         onPlaceNow = { action -> model.placeInFreeSpace(action, markingColor) },
         loadPages = { model.pagesForMarking() },
         onOpenSheet = { index -> markingPanel = false; if (index >= 0) jumpTo(index) },
-        onRecord = { attempt -> model.recordAttempt(note.id, attempt) },
+        onRecord = { attempt -> model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id) },
+        onFeedbackActions = { markingPanel = false; feedbackActions = true },
         onDismiss = { markingPanel = false }
     )
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
@@ -1892,7 +1950,10 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     selectionMenu: (@Composable (Dp) -> Unit)? = null,
     selectionMenuViewport: Rect? = null,
     onSelectionAnchor: (Rect?) -> Unit = {},
-    markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR) {
+    markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR,
+    onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
+    onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
+    DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
     var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
@@ -1979,6 +2040,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         .onGloballyPositioned { coordinates ->
             val origin = coordinates.localToWindow(Offset.Zero)
             pageWindowFrame = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
+            onPageFrame(page.id, pageWindowFrame)
         }) {
         Surface(
             Modifier.fillMaxSize(),
@@ -2028,6 +2090,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
+                view.onSelectionDrop = { picked, x, y -> !readOnly && onSelectionDrop(page.id, picked, x, y) }
                 view.onMarkZone = { zone, rect ->
                     offeredZone = if (zone != null && rect != null) zone to rect else null
                     offerStamp++
@@ -2049,6 +2112,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         offeredZone?.takeIf { page.loaded && !readOnly }?.let { (zone, rect) ->
             MarkChip(zone, rect, page, offerStamp, markColor,
                 onAward = { value -> model.awardMark(page.id, zone, value, markColor); offeredZone = null },
+                onClear = { model.clearMark(page.id, zone); offeredZone = null },
                 onDismiss = { offeredZone = null })
         }
         if (selectionMenu != null && page.loaded && ready) {
@@ -2561,6 +2625,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     var submenu by remember { mutableStateOf<Submenu?>(null) }
     val open: (Submenu) -> Unit = { submenu = if (submenu == it) null else it }
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
+        DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         MenuSectionHeader("Page")
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
         DropdownMenuItem({ Text("Marking & feedback") }, { onDismiss(); onMarking() }, leadingIcon = { Icon(Icons.Rounded.RateReview, null) })
@@ -2590,7 +2655,6 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             } else {
                 DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
             }
-            DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
             DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
             HorizontalDivider()
             DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
@@ -2774,7 +2838,7 @@ private enum class ToolSub { PRESETS, TOOL }
 @Composable private fun TextBoxDialog(
     box: TextBox, isNew: Boolean, colors: List<Int>,
     onDismiss: () -> Unit, onCreate: (TextBox) -> Unit, onUpdate: (TextBox) -> Unit, onDelete: () -> Unit,
-    onDuplicate: (TextBox) -> Unit
+    onDuplicate: (TextBox) -> Unit, onMove: (TextBox) -> Unit, canMove: Boolean
 ) {
     val textFocus = remember(box.id) { FocusRequester() }
     var text by remember(box.id) { mutableStateOf(box.text) }
@@ -2862,6 +2926,7 @@ private enum class ToolSub { PRESETS, TOOL }
                     FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
                     FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
                 }
+                if (!isNew && canMove) OutlinedButton({ onMove(edited()) }, enabled = text.isNotBlank()) { Text("Move to page…") }
                 Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     colors.forEach { option -> InkColorDot(option, option == color, { color = option }, touch = 36.dp, dot = 24.dp, label = "Text colour") }
@@ -2978,7 +3043,7 @@ private enum class FollowSub { AREAS }
  */
 @Composable private fun MarkChip(
     zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long, color: Int,
-    onAward: (Int) -> Unit, onDismiss: () -> Unit
+    onAward: (Int) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit
 ) {
     val existing = remember(zone, page.texts) { MarkZones.awarded(zone, page)?.roundToInt() }
     var adjusting by remember(zone) { mutableStateOf(false) }
@@ -3008,6 +3073,9 @@ private enum class FollowSub { AREAS }
                     }
                     IconButton({ adjusting = true }, Modifier.size(44.dp)) {
                         Icon(Icons.Rounded.Close, "Award fewer marks", tint = Color(0xFFC62828))
+                    }
+                    if (existing != null) IconButton(onClear, Modifier.size(44.dp)) {
+                        Icon(Icons.Rounded.Delete, "Remove this mark")
                     }
                 } else {
                     IconButton({ value = (value - 1).coerceAtLeast(0) }, Modifier.size(44.dp), enabled = value > 0) { Icon(Icons.Rounded.Remove, "One fewer mark") }

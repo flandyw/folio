@@ -320,7 +320,9 @@ data class Notebook(
     /** The view kept for peeking; stored with the notebook, it can frame any of its pages. */
     val peekAnchor: PeekAnchor? = null,
     /** Null preserves older notebooks’ current-page inheritance. */
-    val defaultPaper: Paper? = null
+    val defaultPaper: Paper? = null,
+    val longResponse: LongResponse? = null,
+    val feedbackActions: List<FeedbackAction> = emptyList()
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -338,7 +340,7 @@ fun Notebook.withAttempt(attempt: ExamAttempt): Notebook {
 fun Notebook.withDuplicatedPage(index: Int): Notebook {
     if (index !in pages.indices) return this
     val duplicate = pages[index].copy(id = UUID.randomUUID().toString())
-    return copy(pages = pages.toMutableList().apply { add(index + 1, duplicate) })
+    return copy(pages = pages.toMutableList().apply { add(index + 1, duplicate) }).linkResponsePage(duplicate.id, pages[index].id)
 }
 
 /**
@@ -370,7 +372,9 @@ fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMi
         attempts = emptyList(),
         mistakeReviews = emptyList(),
         pages = pages.map { page -> page.copy(id = pageIds[page.id] ?: UUID.randomUUID().toString()) },
-        peekAnchor = peekAnchor?.let { anchor -> pageIds[anchor.pageId]?.let { anchor.copy(pageId = it) } }
+        peekAnchor = peekAnchor?.let { anchor -> pageIds[anchor.pageId]?.let { anchor.copy(pageId = it) } },
+        longResponse = longResponse?.remapPages(pageIds)?.let { response -> response.copy(attempts = response.attempts.map { it.copy(resultId = null) }) },
+        feedbackActions = feedbackActions.map { it.copy(pageId = pageIds[it.pageId] ?: it.pageId) }
     )
 }
 
@@ -432,6 +436,8 @@ object NoteCodec {
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         if (!note.pageCover) put("pageCover", false)
         note.defaultPaper?.let { put("defaultPaper", it.name) }
+        note.longResponse?.let { put("longResponse", LongResponseCodec.encode(it)) }
+        if (note.feedbackActions.isNotEmpty()) put("feedbackActions", LongResponseCodec.encodeActions(note.feedbackActions))
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
@@ -467,7 +473,9 @@ object NoteCodec {
             pageCover = o.optBoolean("pageCover", true),
             mistakePractice = o.optBoolean("mistakePractice", false),
             mistakeReviews = decodeMistakeReviews(o),
-            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf)).let { note ->
+            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
+            longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
+            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

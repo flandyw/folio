@@ -259,6 +259,14 @@ class NoteRepository(private val context: Context) {
         lock.withLock { atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note)) }
     }
 
+    /** Publish an attempt only after all of its new page snapshots exist. Existing histories stay intact. */
+    suspend fun saveResponsePages(note: Notebook, pages: List<NotePage>) = withContext(Dispatchers.IO) {
+        lock.withLock {
+            pages.forEach { writeSnapshot(note.id, it, history = PageJournal.History.EMPTY) }
+            atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note))
+        }
+    }
+
     /**
      * Writes one page's content as a fresh snapshot together with the index that carries its
      * revision, so a preview or an export can never believe a page is newer or older than it really

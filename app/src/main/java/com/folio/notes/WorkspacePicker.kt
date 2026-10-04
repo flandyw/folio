@@ -24,6 +24,8 @@ object WorkspacePicker {
         if (needle.isEmpty()) return true
         val haystack = listOfNotNull(
             note.title,
+            note.longResponse?.prompt,
+            note.longResponse?.topic,
             note.exam.summaryLine(),
             note.exam.subjectLabel,
             folderName,

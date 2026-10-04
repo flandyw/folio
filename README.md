@@ -20,6 +20,7 @@ Folio is a native Android notebook built with Kotlin and Jetpack Compose. Write 
 - Pressure-sensitive handwriting, drawing tools, and undo/redo
 - [Writing follow](docs/writing-follow.md) that measures your lines from the ink, holds still for corrections, and offers one-tap or automatic line return, plus a pinned peek view (hold to glance, tap to keep open)
 - Typed notes, photos, and PDF annotation
+- [Long responses](docs/long-responses.md): pinned questions, plans, linked drafts and marked copies, side-by-side comparison, and feedback actions
 - Ruled, dotted, grid, maths, and infinite-canvas pages
 - Graph tool: centred or corner axes, optional grid, ticks, unit numbers and x/y labels
 - Page bookmarks, search, and notebook organization

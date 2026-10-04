@@ -49,8 +49,10 @@ import kotlin.math.roundToInt
     loadPages: suspend () -> List<NotePage>,
     onOpenSheet: ((Int) -> Unit),
     onRecord: (ExamAttempt) -> Unit,
+    onFeedbackActions: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var removingSpace by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -105,6 +107,11 @@ import kotlin.math.roundToInt
             notice?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
+
+            FilledTonalButton(onFeedbackActions, modifier = Modifier.fillMaxWidth()) {
+                Text("Feedback actions · ${note.feedbackActions.count { !it.done }} open")
+            }
+            Text("Turn a page comment into a paragraph rewrite, question retry or planning task.", style = MaterialTheme.typography.bodySmall)
 
             SectionLabel("Note at a point")
             Text("Tap the exact spot in the response. A box opens in the nearest clear space, tied back to it with a line.",
@@ -167,19 +174,31 @@ import kotlin.math.roundToInt
                 OutlinedButton({ onOpenSheet(sheetIndex) }, enabled = sheetIndex >= 0, shapes = ButtonDefaults.shapes()) { Text("Open feedback sheet") }
             }
 
-            SectionLabel("Make room")
-            Text(if (canGrow) "Tap a line on the page: everything below it moves down so there is space to write."
+            SectionLabel("Page space")
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FilterChip(!removingSpace, { removingSpace = false }, { Text("Make room") })
+                FilterChip(removingSpace, { removingSpace = true }, { Text("Remove space") })
+            }
+            Text(if (canGrow && removingSpace) "Tap the top of an empty gap to close it and shorten the page. Content below moves up; occupied gaps are kept."
+            else if (canGrow) "Tap a line on the page: everything below it moves down so there is space to write."
             else "An imported PDF page can't grow. Use margin comments or the feedback sheet here.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Marking.ROOM_AMOUNTS.forEach { (label, amount) ->
-                    FilledTonalButton({ onArm(MarkingAction.MakeRoom(amount)) }, enabled = canGrow, shapes = ButtonDefaults.shapes()) {
+                    FilledTonalButton({ onArm(if (removingSpace) MarkingAction.RemoveRoom(amount) else MarkingAction.MakeRoom(amount)) }, enabled = canGrow, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.UnfoldMore, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(label)
                     }
                 }
             }
 
-            MarksTally(note, zoneTotal.takeIf { it > 0 && scanComplete }, loadPages, onRecord)
+            val responseAttempt = note.longResponse?.attemptFor(page.id)
+            val tallyNote = if (responseAttempt == null) note else note.copy(
+                pages = note.pages.filter { it.id in responseAttempt.pageIds },
+                exam = note.exam.copy(marksTotal = note.longResponse?.marks ?: note.exam.marksTotal))
+            if (responseAttempt != null) Text("Marks for ${responseAttempt.title}", style = MaterialTheme.typography.labelLarge)
+            MarksTally(tallyNote, zoneTotal.takeIf { it > 0 && scanComplete },
+                { loadPages().filter { responseAttempt == null || it.id in responseAttempt.pageIds } }, onRecord,
+                responseAttempt != null)
         }
     }
 }
@@ -189,7 +208,7 @@ import kotlin.math.roundToInt
 }
 
 /** Totals every "+2", tick and ½ in the notebook, and can file the result as a marked attempt. */
-@Composable private fun MarksTally(note: Notebook, printedTotal: Int?, loadPages: suspend () -> List<NotePage>, onRecord: (ExamAttempt) -> Unit) {
+@Composable private fun MarksTally(note: Notebook, printedTotal: Int?, loadPages: suspend () -> List<NotePage>, onRecord: (ExamAttempt) -> Unit, responseAttempt: Boolean = false) {
     var pages by remember { mutableStateOf<List<NotePage>?>(null) }
     var recorded by remember { mutableStateOf(false) }
     LaunchedEffect(note.id, note.pages.size) { pages = loadPages() }
@@ -223,7 +242,7 @@ import kotlin.math.roundToInt
                     onRecord(ExamAttempt(score = total.roundToInt(), total = available)); recorded = true
                 }, enabled = !recorded && unread == 0, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.AutoMirrored.Rounded.Grading, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(if (recorded) "Recorded" else "Record as this paper's mark")
+                    Text(if (recorded) "Recorded" else if (responseAttempt) "Record this attempt’s mark" else "Record as this paper's mark")
                 }
             }
         }

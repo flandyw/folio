@@ -18,6 +18,7 @@ sealed interface MarkingAction {
     data class Note(val handwritten: Boolean) : MarkingAction
     /** Everything below the tap moves down by [amount] page units. */
     data class MakeRoom(val amount: Float) : MarkingAction
+    data class RemoveRoom(val amount: Float) : MarkingAction
 }
 
 /** What a make-room shift produced; [height] is unchanged on an infinite canvas. */
@@ -98,8 +99,8 @@ object Marking {
             text = text, size = COMMENT_SIZE, color = color)
     }
 
-    fun markBox(label: String, x: Float, y: Float, color: Int) =
-        TextBox(x = x, y = y, width = 110f, text = label, size = MARK_SIZE, color = color, bold = true)
+    fun markBox(label: String, x: Float, y: Float, color: Int, size: Float = MARK_SIZE) =
+        TextBox(x = x, y = y, width = if (size < MARK_SIZE) 60f else 110f, text = label, size = size, color = color, bold = true)
 
     /** A ring with its number centred inside, centred on ([cx], [cy]). */
     fun flag(number: Int, cx: Float, cy: Float, color: Int): Pair<Stroke, TextBox> {
@@ -267,6 +268,26 @@ object Marking {
         val texts = page.texts.map { if (it.y >= y) { moved++; it.moved(0f, amount) } else it }
         val images = page.images.map { if (it.y >= y) { moved++; it.moved(0f, amount) } else it }
         return RoomShift(strokes, texts, images, height, moved)
+    }
+
+    /** Closes an empty horizontal strip; occupied strips are never cut through. */
+    fun removeRoom(page: NotePage, y: Float, amount: Float, textHeight: (TextBox) -> Float): RoomShift? {
+        if (page.pdfIndex != null || !y.isFinite() || !amount.isFinite() || amount <= 0f || (!page.infinite && y < 0f)) return null
+        if (!page.infinite && (y + amount > page.height || page.height - amount < 160f)) return null
+        val end = y + amount
+        fun overlaps(top: Float, bottom: Float) = top < end && bottom > y
+        if (page.strokes.any { s -> s.points.isNotEmpty() && overlaps(
+                s.points.minOf { it.y } - s.width * 2, s.points.maxOf { it.y } + s.width * 2) } ||
+            page.texts.any { overlaps(it.y, it.y + textHeight(it)) } ||
+            page.images.any { overlaps(it.y, it.y + it.height) }) return null
+        val moved = page.strokes.count { (it.points.minOfOrNull { p -> p.y } ?: -Float.MAX_VALUE) >= end } +
+            page.texts.count { it.y >= end } + page.images.count { it.y >= end }
+        // Use the same boundary as makeRoom, moving upwards instead of opening space.
+        return RoomShift(
+            page.strokes.map { s -> if ((s.points.minOfOrNull { it.y } ?: -Float.MAX_VALUE) >= end) InkGeometry.translate(s, 0f, -amount) else s },
+            page.texts.map { if (it.y >= end) it.moved(0f, -amount) else it },
+            page.images.map { if (it.y >= end) it.moved(0f, -amount) else it },
+            if (page.infinite) page.height else page.height - amount, moved)
     }
 
     // ---- Marks ----------------------------------------------------------------------------------

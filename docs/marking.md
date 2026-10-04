@@ -13,8 +13,10 @@ titled `Feedback`, found by title, whose numbered lines decide the next flag num
 - **Printed marks** — on an imported PDF, `NoteRepository.pdfMarkZones` reads `[4 marks]`, `(2 marks)`, `1 mark`
   with positions from PDFBox's text layer, then offline OCR on pages without detected allocations. A stylus
   hovering over one, or a finger tapping it (`InkView.beginZone`; stylus *touches* still write), floats a chip
-  (`MarkChip`): **tick** stamps `+N` in full, **cross** opens a − / + stepper for part marks. Nothing is stored
-  beyond the `+N` text box, which the tally already counts; re-opening a stamped label edits that stamp. The
+  (`MarkChip`): **tick** boxes the label in a rectangle and adds a small red `+N`; **cross** opens a − / + stepper and
+  strikes the label through with a small red `+N`. The box/strikethrough are ordinary `RECTANGLE`/`LINE` strokes
+  derived from the label's geometry; the bin button on the chip removes the stamp (so it stops counting) and its
+  decoration. Erasing the `+N` text box by hand also stops it counting; re-opening a stamped label edits that stamp. The
   chip never takes focus, vanishes after 3 s (10 s while adjusting) or when the pen touches the page, and the
   whole thing is switchable in the panel (`marking.assist`). The summed allocations feed "of N" in the tally
   when exam details have no total and the scan completes without errors. Unverified against real exam PDFs: positions assume PDFBox text coordinates
@@ -68,3 +70,9 @@ mixed digital/scanned PDF and a PDF with rotation metadata. In airplane mode, co
 multiple zooms, tick awards full marks, cross adjusts and revisiting edits the existing award. Check a
 blank/faint page, reopen to exercise the cache, and turn assist off/navigate away during a long scan.
 Build/lint and matcher checks do not substitute for verifying OCR accuracy on actual exam scans.
+
+## Response practice
+
+**Feedback actions** turns a typed page comment or a new instruction into a linked paragraph rewrite,
+question retry or planning task. For a long response, the tally covers the current attempt’s pages
+and its result appears in the attempt history. See [Long responses](long-responses.md).

@@ -130,6 +130,12 @@ class InkView(context: Context) : View(context) {
     private var selectionIdsKey: List<Stroke>? = null
     private var selectionIds: MutableSet<Stroke>? = null
     private var movingSelection = false
+    /**
+     * Called when a selection drag ends off this page, with the pointer in window pixels. Returns true when
+     * the editor moved the selection onto the page under it, so this view only drops its own ghost.
+     */
+    var onSelectionDrop: (CanvasSelection, Float, Float) -> Boolean = { _, _, _ -> false }
+    private var dragWindowX = 0f; private var dragWindowY = 0f; private var dragOffPage = false
     private var lastMoveX = 0f; private var lastMoveY = 0f
     /** Direct frame handles: a resize drag, a rotate drag, or neither (a plain move). */
     private var resizingSelection = false
@@ -1136,7 +1142,11 @@ class InkView(context: Context) : View(context) {
                                 handleStartAngle, InkGeometry.angleOf(handleCenter, at))
                         }
                     } else if (movingSelection) {
-                        val moved = clampToPage(point(event, index))
+                        val rawPoint = point(event, index)
+                        dragOffPage = !page.infinite && (rawPoint.x < 0f || rawPoint.x > page.width || rawPoint.y < 0f || rawPoint.y > page.height)
+                        val where = IntArray(2).also { getLocationInWindow(it) }
+                        dragWindowX = where[0] + event.getX(index); dragWindowY = where[1] + event.getY(index)
+                        val moved = clampToPage(rawPoint)
                         selectionDx += moved.x - lastMoveX; selectionDy += moved.y - lastMoveY
                         lastMoveX = moved.x; lastMoveY = moved.y
                     } else {
@@ -1659,6 +1669,13 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
     }
     private fun commitSelectionMove() {
+        val dropped = dragOffPage
+        dragOffPage = false
+        if (dropped && hasSelection() &&
+            onSelectionDrop(CanvasSelection(selection, selectedTexts, selectedImages), dragWindowX, dragWindowY)) {
+            setSelection(CanvasSelection())
+            return
+        }
         if ((selectionDx != 0f || selectionDy != 0f) &&
             (selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty())
         ) {

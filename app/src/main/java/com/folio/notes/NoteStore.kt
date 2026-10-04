@@ -142,6 +142,8 @@ object NoteMetaCodec {
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pageCover", note.pageCover)
         note.defaultPaper?.let { put("defaultPaper", it.name) }
+        note.longResponse?.let { put("longResponse", LongResponseCodec.encode(it)) }
+        if (note.feedbackActions.isNotEmpty()) put("feedbackActions", LongResponseCodec.encodeActions(note.feedbackActions))
         put("mistakePractice", note.mistakePractice)
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
@@ -185,7 +187,9 @@ object NoteMetaCodec {
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
             mistakeReviews = decodeMistakeReviews(o),
-            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf)).let { note ->
+            defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
+            longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
+            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

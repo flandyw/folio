@@ -4,6 +4,7 @@ package com.folio.notes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,6 +60,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 @Composable internal fun SelectionContextMenu(
     availableWidth: Dp, canRestyle: Boolean,
     onCopy: () -> Unit, onCut: () -> Unit, onDuplicate: () -> Unit,
+    onMove: () -> Unit, canMove: Boolean, onPaste: () -> Unit,
     onStyle: () -> Unit, onDelete: () -> Unit, onDeselect: () -> Unit, onSelectAll: () -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
@@ -79,6 +81,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
                 DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
                     if (!showCopy) DropdownMenuItem({ Text("Copy") }, { run(onCopy) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                     DropdownMenuItem({ Text("Cut") }, { run(onCut) }, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
+                    DropdownMenuItem({ Text("Paste") }, { run(onPaste) }, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
+                    DropdownMenuItem({ Text("Move to page…") }, { run(onMove) }, enabled = canMove, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
                     DropdownMenuItem({ Text("Duplicate") }, { run(onDuplicate) }, leadingIcon = { Icon(Icons.Rounded.DynamicFeed, null) })
                     if (canRestyle && !showStyle) DropdownMenuItem({ Text("Style") }, { run(onStyle) }, leadingIcon = { Icon(Icons.Rounded.Palette, null) })
                     if (!showDelete) DropdownMenuItem({ Text("Delete") }, { run(onDelete) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })

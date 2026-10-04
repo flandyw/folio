@@ -1,5 +1,6 @@
 package com.folio.notes
 
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -28,8 +29,10 @@ data class MarkMatch(val start: Int, val end: Int, val marks: Int)
  */
 object MarkZones {
     const val MAX_MARKS = 40
-    private const val STAMP_W = 110f
-    private const val STAMP_H = 40f
+    private const val STAMP_W = 60f
+    private const val STAMP_H = 24f
+    private const val STAMP_SIZE = 16f
+    private const val PAD = 3f
     private val allocation = Regex("""(?<![\w.])(?:[\[(]\s*)?(\d{1,2})\s*marks?\b(?:\s*[\])])?""", RegexOption.IGNORE_CASE)
 
     /** Allocations in [line]: "[4 marks]", "(2 marks)", "3 marks", "1 mark". Zero and absurd counts are skipped. */
@@ -60,13 +63,39 @@ object MarkZones {
     /** The label stamped for an award; "+0" still counts as marked, so a zero is a decision, not a gap. */
     fun label(value: Int): String = "+${value.coerceIn(0, MAX_MARKS)}"
 
-    /** The page's text boxes with [zone] answered by [value]: the existing stamp changed, or a new one added. */
-    fun withAward(zone: MarkZone, page: NotePage, value: Int, color: Int): List<TextBox> {
+    /** Full marks box the label; fewer strike it through. Both are ordinary strokes derived from the zone. */
+    private fun box(zone: MarkZone, color: Int) = Stroke(Tool.RECTANGLE, color, 2f, listOf(
+        InkPoint(zone.x - PAD, zone.y - PAD), InkPoint(zone.x + zone.width + PAD, zone.y + zone.height + PAD)))
+    private fun strike(zone: MarkZone, color: Int) = Stroke(Tool.LINE, color, 2f, listOf(
+        InkPoint(zone.x - PAD, zone.y + zone.height / 2f), InkPoint(zone.x + zone.width + PAD, zone.y + zone.height / 2f)))
+
+    private fun isDecoration(zone: MarkZone, s: Stroke): Boolean {
+        val candidates = listOf(box(zone, 0), strike(zone, 0))
+        return candidates.any { c ->
+            c.tool == s.tool && s.points.size == 2 &&
+                c.points.indices.all { abs(c.points[it].x - s.points[it].x) < 0.5f && abs(c.points[it].y - s.points[it].y) < 0.5f }
+        }
+    }
+
+    /** The page with [zone] answered by [value]: stamp text changed or added, and its box/strikethrough redrawn. */
+    fun withAward(zone: MarkZone, page: NotePage, value: Int, color: Int): Pair<List<TextBox>, List<Stroke>> {
         val existing = stampFor(zone, page)
-        val text = label(min(value, zone.marks))
-        if (existing != null) return page.texts.map { if (it.id == existing.id) it.copy(text = text) else it }
-        val slot = stampSlot(zone, page)
-        return page.texts + Marking.markBox(text, slot.x, slot.y, color)
+        val clamped = min(value, zone.marks)
+        val text = label(clamped)
+        val texts = if (existing != null) page.texts.map { if (it.id == existing.id) it.copy(text = text) else it }
+        else {
+            val slot = stampSlot(zone, page)
+            page.texts + Marking.markBox(text, slot.x, slot.y, color, STAMP_SIZE)
+        }
+        val strokes = page.strokes.filterNot { isDecoration(zone, it) } +
+            if (clamped >= zone.marks) box(zone, color) else strike(zone, color)
+        return texts to strokes
+    }
+
+    /** The page with [zone]'s award removed: its stamp (so it stops counting) and its decoration. */
+    fun withoutAward(zone: MarkZone, page: NotePage): Pair<List<TextBox>, List<Stroke>> {
+        val existing = stampFor(zone, page)
+        return page.texts.filterNot { it.id == existing?.id } to page.strokes.filterNot { isDecoration(zone, it) }
     }
 
     /** Total marks available across the zones — the paper's own total when it prints every allocation. */
