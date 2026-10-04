@@ -5,8 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -15,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -89,10 +88,17 @@ internal val EditorFloatingGroupHeight = 56.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane, including the narrower mistake-review split.
         // Only the tool tray scrolls; Back and overflow always remain on screen.
-        // Hide the title first, then move timing controls into the notebook menu.
-        val collapsedTitle = maxWidth < 840.dp
-        val compact = maxWidth < 680.dp
+        // Hide the title first, then move timing controls into the notebook menu. The timer is
+        // measured at its natural width so a chip is never clipped or scrolled: it either fits
+        // beside the title, fits once the title is hidden, or lives in the menu.
+        val timerWidth = remember { mutableStateOf(0.dp) }
+        MeasureNaturalWidth(timerWidth) { timer() }
+        val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
+        val actionsWidth = 48.dp * 2 + FolioSpacing.dp2 * 2
         val sideWidth = ((maxWidth - 480.dp) / 2).coerceAtLeast(0.dp)
+        val collapsedTitle = maxWidth < 840.dp || timerNeed > sideWidth - actionsWidth
+        val collapsedRoom = maxWidth - 480.dp - 48.dp - actionsWidth - FolioSpacing.dp2 * 2
+        val compact = collapsedTitle && timerNeed > collapsedRoom
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
             Row(if (collapsedTitle) Modifier else Modifier.width(sideWidth),
@@ -115,11 +121,11 @@ internal val EditorFloatingGroupHeight = 56.dp
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.End)) {
                 if (!compact) Box(
-                    if (collapsedTitle) Modifier.widthIn(max = sideWidth) else Modifier.weight(1f),
+                    if (collapsedTitle) Modifier else Modifier.weight(1f),
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     EditorGlassSurface {
-                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp6),
+                        Row(Modifier.padding(horizontal = FolioSpacing.dp6),
                             verticalAlignment = Alignment.CenterVertically) { timer() }
                     }
                 }
@@ -174,6 +180,16 @@ internal val EditorFloatingGroupHeight = 56.dp
                 }
             }
         }
+    }
+}
+
+/** Composes [content] once, unconstrained and invisible, and reports how wide it wants to be. */
+@Composable private fun MeasureNaturalWidth(width: MutableState<androidx.compose.ui.unit.Dp>, content: @Composable () -> Unit) {
+    SubcomposeLayout(Modifier) { constraints ->
+        val placeable = subcompose("natural", content).map { it.measure(androidx.compose.ui.unit.Constraints()) }
+        val natural = (placeable.maxOfOrNull { it.width } ?: 0).toDp()
+        if (width.value != natural) width.value = natural
+        layout(0, 0) {}
     }
 }
 
