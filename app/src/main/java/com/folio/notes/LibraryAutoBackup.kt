@@ -16,12 +16,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /** SAF-backed rolling library backup. Access is retained only for the folder the user chooses. */
 object LibraryAutoBackup {
+    private val currentProgress = MutableStateFlow<String?>(null)
+    val progress = currentProgress.asStateFlow()
+    internal fun reportProgress(message: String?) { currentProgress.value = message }
+
     const val TREE_URI = AppPrefs.AUTO_BACKUP_TREE_URI
     const val LAST_SUCCESS = AppPrefs.AUTO_BACKUP_LAST_SUCCESS
     const val LAST_ERROR = AppPrefs.AUTO_BACKUP_LAST_ERROR
@@ -61,6 +67,7 @@ object LibraryAutoBackup {
             scheduler.cancel(PERIODIC_JOB_ID)
             scheduler.cancel(DEBOUNCED_JOB_ID)
             scheduler.cancel(IMMEDIATE_JOB_ID)
+            reportProgress(null)
             setFailure(context, "Folder access was revoked. Choose a backup folder again.")
         }
     }
@@ -71,6 +78,7 @@ object LibraryAutoBackup {
             runCatching { context.contentResolver.releasePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
         }
+        reportProgress(null)
         prefs.edit().remove(TREE_URI).remove(LAST_SUCCESS).remove(LAST_ERROR).apply()
         scheduler(context)?.cancel(PERIODIC_JOB_ID)
         scheduler(context)?.cancel(DEBOUNCED_JOB_ID)
@@ -122,16 +130,20 @@ object LibraryAutoBackup {
     }
 
     private fun scheduleEditBackup(context: Context) = scheduleOneShot(context, DEBOUNCED_JOB_ID, EDIT_DELAY, EDIT_DEADLINE)
-    private fun scheduleNow(context: Context) = scheduleOneShot(context, IMMEDIATE_JOB_ID, 0, 60_000)
+    private fun scheduleNow(context: Context) {
+        if (scheduleOneShot(context, IMMEDIATE_JOB_ID, 0, 60_000) == JobScheduler.RESULT_SUCCESS) {
+            currentProgress.compareAndSet(null, "Backup queued · waiting for Android to start…")
+        }
+    }
 
-    private fun scheduleOneShot(context: Context, jobId: Int, delay: Long, deadline: Long) {
+    private fun scheduleOneShot(context: Context, jobId: Int, delay: Long, deadline: Long): Int? {
         val job = JobInfo.Builder(jobId, ComponentName(context, LibraryBackupJobService::class.java))
             .setPersisted(true)
             .setMinimumLatency(delay)
             .setOverrideDeadline(deadline)
             .setBackoffCriteria(30_000, JobInfo.BACKOFF_POLICY_LINEAR)
             .build()
-        scheduler(context)?.schedule(job)
+        return scheduler(context)?.schedule(job)
     }
 
     private fun scheduler(context: Context) = context.getSystemService(JobScheduler::class.java)
@@ -152,20 +164,24 @@ class LibraryBackupJobService : JobService() {
                     val treeUri = LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService)
                         ?: return@launch
                     retry = params.jobId != LibraryAutoBackup.PERIODIC_JOB_ID
-                    val app = application as FolioApplication
-                    // Only the local read holds the gate; the slow write to the backup folder must not
-                    // stall note saves, which the editor (and mistake ratings) wait on.
-                    val staged = app.storageGate.withLock {
-                        val (notes, folders) = app.repository.load()
-                        app.repository.stageLibrary(notes, folders)
-                    }
-                    staged.use {
-                        IncrementalBackup.write(this@LibraryBackupJobService, treeUri, staged.prepare())
-                        if (LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService) == treeUri) {
-                            LibraryAutoBackup.setSuccess(this@LibraryBackupJobService)
+                    try {
+                        LibraryAutoBackup.reportProgress("Waiting for saved changes…")
+                        val progress: (String) -> Unit = LibraryAutoBackup::reportProgress
+                        val app = application as FolioApplication
+                        // Only the local read holds the gate; the slow write to the backup folder must not
+                        // stall note saves, which the editor (and mistake ratings) wait on.
+                        val staged = app.storageGate.withLock {
+                            val (notes, folders) = app.repository.load()
+                            app.repository.stageLibrary(notes, folders, onProgress = progress)
                         }
-                        retry = false
-                    }
+                        staged.use {
+                            IncrementalBackup.write(this@LibraryBackupJobService, treeUri, staged.prepare(progress), progress)
+                            if (LibraryAutoBackup.configuredTreeUri(this@LibraryBackupJobService) == treeUri) {
+                                LibraryAutoBackup.setSuccess(this@LibraryBackupJobService)
+                            }
+                            retry = false
+                        }
+                    } finally { LibraryAutoBackup.reportProgress(null) }
                 }
             } catch (e: CancellationException) {
                 throw e

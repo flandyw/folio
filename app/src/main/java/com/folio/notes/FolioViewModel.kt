@@ -2012,15 +2012,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(exporting = true, backupProgress = "Saving pending changes…") }
         viewModelScope.launch {
             try {
+                val progress: (String) -> Unit = { message -> _state.update { it.copy(backupProgress = message) } }
                 awaitSaved()
                 _state.update { it.copy(backupProgress = "Capturing library…") }
                 val (staged, count) = getApplication<FolioApplication>().storageGate.withLock {
                     val (notes, folders) = repository.load()
-                    val staged = repository.stageLibrary(notes, folders)
+                    val staged = repository.stageLibrary(notes, folders, onProgress = progress)
                     staged to staged.notebookCount
                 }
                 _state.update { it.copy(backupProgress = "Writing compact library backup…") }
-                staged.use { repository.writeStaged(it, uri) }
+                staged.use { repository.writeStaged(it, uri, progress) }
                 reportError("Library backup saved ($count notebooks)")
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportError("Library backup failed: ${e.message}") }

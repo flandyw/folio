@@ -578,20 +578,24 @@ class NoteRepository(private val context: Context) {
     /** Captures a consistent native file set. Call under the app storage gate. Immutable files
      * are pinned with hard links; only appendable journals need copying. Hashing, compression and
      * destination I/O happen later, after the editor's save gate has been released. */
-    suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>, includeExcluded: Boolean = false): StagedLibrary = withContext(Dispatchers.IO) {
+    suspend fun stageLibrary(notes: List<Notebook>, folders: List<Folder>, includeExcluded: Boolean = false, onProgress: (String) -> Unit = {}): StagedLibrary = withContext(Dispatchers.IO) {
         val exclusions = AppPrefs.backupExcludedNotebookIds(context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
             .getStringSet(AppPrefs.BACKUP_EXCLUDED_NOTEBOOKS, AppPrefs.DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS))
         val included = AppPrefs.notebooksForBackup(notes, exclusions, includeExcluded)
         val staging = newBackupStaging("backup")
         val job = currentCoroutineContext()
         try {
-            included.forEach { note -> note.pages.forEach { page ->
-                job.ensureActive()
-                convertLegacyPage(note.id, page.id)
-            } }
-            val files = lock.withLock {
-                included.associate { note ->
+            included.forEachIndexed { index, note ->
+                onProgress("Preparing notebook ${index + 1} of ${included.size}: ${note.title}")
+                note.pages.forEach { page ->
                     job.ensureActive()
+                    convertLegacyPage(note.id, page.id)
+                }
+            }
+            val files = lock.withLock {
+                included.withIndex().associate { (index, note) ->
+                    job.ensureActive()
+                    onProgress("Capturing notebook ${index + 1} of ${included.size}: ${note.title}")
                     val captured = linkedMapOf<String, File>()
                     fun capture(path: String, source: File, appendable: Boolean = false) {
                         if (!source.exists() && !File(source.path + ".bak").exists()) return
@@ -638,12 +642,15 @@ class NoteRepository(private val context: Context) {
     ) : java.io.Closeable {
         val notebookCount: Int get() = files.size
 
-        suspend fun prepare(): NativeBackup.Prepared = withContext(Dispatchers.IO) {
+        suspend fun prepare(onProgress: (String) -> Unit = {}): NativeBackup.Prepared = withContext(Dispatchers.IO) {
             val job = currentCoroutineContext()
             val sources = linkedMapOf<String, NativeBackup.Source>()
+            val total = files.values.sumOf { it.size }
+            var checked = 0
             val notes = files.map { (id, paths) ->
                 NativeBackup.Note(id, paths.mapValues { (path, file) ->
                     job.ensureActive()
+                    onProgress("Checking file ${++checked} of $total")
                     val limit = when {
                         path == "note.json" -> NotebookArchive.MAX_NOTE_BYTES
                         path == "source.pdf" -> NotebookArchive.MAX_PDF_BYTES
@@ -661,15 +668,15 @@ class NoteRepository(private val context: Context) {
             NativeBackup.decode(NativeBackup.encode(manifest))
             NativeBackup.Prepared(manifest, sources)
         }
-        suspend fun writeTo(output: OutputStream) = withContext(Dispatchers.IO) {
+        suspend fun writeTo(output: OutputStream, onProgress: (String) -> Unit = {}) = withContext(Dispatchers.IO) {
             val job = currentCoroutineContext()
-            NativeBackup.writePortable(output, prepare(), job::ensureActive)
+            NativeBackup.writePortable(output, prepare(onProgress), job::ensureActive, onProgress)
         }
         override fun close() { staging.deleteRecursively() }
     }
 
-    suspend fun writeStaged(staged: StagedLibrary, uri: Uri) = withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { staged.writeTo(it) }
+    suspend fun writeStaged(staged: StagedLibrary, uri: Uri, onProgress: (String) -> Unit = {}) = withContext(Dispatchers.IO) {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { staged.writeTo(it, onProgress) }
             ?: error("Couldn't open the backup destination")
     }
 

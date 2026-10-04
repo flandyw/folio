@@ -150,7 +150,7 @@ object NativeBackup {
         return hex(digest.digest()) to Source(file, ObjectInfo(size, compressed), crc.value)
     }
 
-    fun writePortable(output: OutputStream, prepared: Prepared, check: () -> Unit = {}) {
+    fun writePortable(output: OutputStream, prepared: Prepared, check: () -> Unit = {}, onProgress: (String) -> Unit = {}) {
         val manifest = prepared.manifest.copy(external = false)
         // Validate what we write with exactly the same limits used by the reader.
         val json = encode(manifest).also(::decode)
@@ -160,16 +160,29 @@ object NativeBackup {
         ZipOutputStream(output.buffered(BUFFER)).use { zip ->
             zip.setLevel(Deflater.BEST_SPEED)
             zip.putNextEntry(ZipEntry(LibraryBackup.MANIFEST)); zip.write(json.toByteArray()); zip.closeEntry()
-            prepared.sources.forEach { (hash, source) ->
+            val totalBytes = prepared.sources.values.sumOf { it.info.size }
+            var written = 0L
+            var reported = -1L
+            prepared.sources.entries.forEachIndexed { index, (hash, source) ->
                 check()
+                fun report(bytes: Long) {
+                    val current = written + bytes
+                    if (bytes == 0L || current - reported >= 1024 * 1024 || bytes == source.info.size) {
+                        onProgress("Writing file ${index + 1} of ${prepared.sources.size} · ${BackupProgress.bytes(current)} of ${BackupProgress.bytes(totalBytes)} of source data")
+                        reported = current
+                    }
+                }
+                report(0)
                 zip.putNextEntry(ZipEntry(OBJECT_PREFIX + hash).apply {
                     if (!source.info.compressed) {
                         method = ZipEntry.STORED; size = source.info.size; compressedSize = size; crc = source.crc
                     }
                 })
-                source.file.inputStream().use { copy(it, zip, source.info.size, check) }
+                source.file.inputStream().use { copy(it, zip, source.info.size, check, ::report) }
                 zip.closeEntry()
+                written += source.info.size
             }
+            onProgress("Finishing library backup…")
         }
     }
 
@@ -242,7 +255,7 @@ object NativeBackup {
         return files
     }
 
-    fun copy(input: InputStream, output: OutputStream, max: Long, check: () -> Unit = {}) {
+    fun copy(input: InputStream, output: OutputStream, max: Long, check: () -> Unit = {}, onBytes: (Long) -> Unit = {}) {
         val buffer = ByteArray(BUFFER)
         var size = 0L
         while (true) {
@@ -252,6 +265,7 @@ object NativeBackup {
             size += count
             require(size <= max) { "Backup entry is too large" }
             output.write(buffer, 0, count)
+            onBytes(size)
         }
         require(size == max) { "Backup file changed while being read" }
     }

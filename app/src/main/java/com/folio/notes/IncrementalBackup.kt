@@ -77,9 +77,10 @@ object IncrementalBackup {
             }
         } } ?: error("Couldn't open the restore point")
 
-    suspend fun write(context: Context, tree: Uri, prepared: NativeBackup.Prepared) = withContext(Dispatchers.IO) {
+    suspend fun write(context: Context, tree: Uri, prepared: NativeBackup.Prepared, onProgress: (String) -> Unit = {}) = withContext(Dispatchers.IO) {
         gate.withLock {
             val job = currentCoroutineContext()
+            onProgress("Checking the backup folder…")
             val folder = backupDirectory(context, tree, true)!!
             val data = directory(context, folder, DATA_FOLDER, true)!!
             val grouped = children(context, data).groupBy { it.name }
@@ -96,18 +97,24 @@ object IncrementalBackup {
             val currentKey = prepared.manifest.contentKey()
             val latest = snapshots.firstOrNull()?.let { runCatching { readPoint(context, it.uri).native }.getOrNull() }
             if (latest?.external == true && latest.contentKey() == currentKey && latest.objects.all { (hash, info) -> present(hash, info) }) {
+                onProgress("No changes to copy · cleaning up old backup data…")
                 pruneSafely(context, folder, data, snapshots.first().uri, job::ensureActive)
                 return@withLock
             }
             val objects = linkedMapOf<String, NativeBackup.ObjectInfo>()
-            prepared.sources.forEach { (hash, source) ->
+            var reused = 0
+            var copied = 0
+            prepared.sources.entries.forEachIndexed { index, (hash, source) ->
                 job.ensureActive()
                 val committed = known[hash]?.takeIf { it.size == source.info.size && present(hash, it) }
                 if (committed != null) {
                     objects[hash] = committed
+                    reused++
+                    onProgress("Checking file ${index + 1} of ${prepared.sources.size} · $reused reused, $copied copied")
                 } else {
                     // Only new/changed objects need a local compressed file. An uncommitted orphan
                     // (for example after process death) is rewritten, never trusted by its filename.
+                    onProgress("Compressing file ${index + 1} of ${prepared.sources.size} · $reused reused, $copied copied")
                     val encoded = File.createTempFile("backup-object-", ".tmp", context.cacheDir)
                     try {
                         encoded.outputStream().use { NativeBackup.writeObject(source, it, job::ensureActive) }
@@ -118,9 +125,18 @@ object IncrementalBackup {
                         val target = create(context, data, "application/octet-stream", NativeBackup.objectName(hash))
                         try {
                             context.contentResolver.openOutputStream(target, "wt")?.use { output ->
-                                encoded.inputStream().use { NativeBackup.copy(it, output, encoded.length(), job::ensureActive) }
+                                var reported = -1L
+                                encoded.inputStream().use {
+                                    NativeBackup.copy(it, output, encoded.length(), job::ensureActive) { bytes ->
+                                        if (reported < 0 || bytes - reported >= 1024 * 1024 || bytes == encoded.length()) {
+                                            onProgress("Copying file ${index + 1} of ${prepared.sources.size} · ${BackupProgress.bytes(bytes)} of ${BackupProgress.bytes(encoded.length())}\n$reused reused, $copied copied")
+                                            reported = bytes
+                                        }
+                                    }
+                                }
                             } ?: error("Couldn't write a backup object")
                             objects[hash] = info
+                            copied++
                         } catch (e: Throwable) {
                             runCatching { DocumentsContract.deleteDocument(context.contentResolver, target) }
                             throw e
@@ -129,6 +145,7 @@ object IncrementalBackup {
                 }
             }
             job.ensureActive()
+            onProgress("Verifying backup data · $reused reused, $copied copied…")
             val manifest = prepared.manifest.copy(objects = objects, external = true)
             require(hasObjects(manifest, children(context, data).groupBy { it.name })) { "Backup data did not finish writing" }
             val previousStamp = snapshots.maxOfOrNull { pointName.matchEntire(it.name)!!.groupValues[1].toLongOrNull() ?: 0L } ?: 0L
@@ -137,15 +154,18 @@ object IncrementalBackup {
             val stamp = maxOf(System.currentTimeMillis(), previousStamp + 1)
             val target = create(context, folder, MIME_ZIP, "$PREFIX$stamp-${UUID.randomUUID()}$SUFFIX")
             try {
+                onProgress("Saving restore point…")
                 context.contentResolver.openOutputStream(target, "wt")?.use { NativeBackup.writeRestorePoint(it, manifest) }
                     ?: error("Couldn't write the restore point")
                 job.ensureActive()
                 // Read the published descriptor back before deleting any prior restore point.
+                onProgress("Verifying restore point…")
                 require(readPoint(context, target).native == manifest) { "Automatic backup verification failed" }
             } catch (e: Throwable) {
                 runCatching { DocumentsContract.deleteDocument(context.contentResolver, target) }
                 throw e
             }
+            onProgress("Cleaning up old restore points · $reused reused, $copied copied…")
             pruneSafely(context, folder, data, target, job::ensureActive)
         }
     }

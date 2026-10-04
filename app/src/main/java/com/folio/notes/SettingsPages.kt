@@ -38,6 +38,7 @@ internal class BackupSettings(
     val onChooseFolder: () -> Unit, val onBackupNow: () -> Unit, val onDisable: () -> Unit,
     val onSaveLibrary: () -> Unit, val onRestoreLibrary: () -> Unit, val onRestoreFromFolder: () -> Unit,
     val onExclusions: () -> Unit,
+    val progress: String? = null,
 )
 
 internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val updateChecking: Boolean)
@@ -335,6 +336,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsLinkRow(
             if (auto) "Backing up to ${b.folderName ?: "the selected folder"}" else "Not set up",
             when {
+                b.progress != null -> b.progress
                 b.lastError != null -> "Issue: ${b.lastError}"
                 b.lastSuccess > 0L -> "Last checked ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(b.lastSuccess))}"
                 auto -> "No automatic backup has completed yet."
@@ -342,6 +344,9 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             },
             trailing = {},
         )
+        if (b.progress != null) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp))
+        }
         SettingsDivider()
         SettingsLinkRow(if (auto) "Change backup folder" else "Choose backup folder", onClick = b.onChooseFolder, enabled = !b.busy)
         if (auto) {

@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
     var query by rememberSaveable { mutableStateOf("") }
     val searching = query.isNotBlank()
 
+    val backupProgress by LibraryAutoBackup.progress.collectAsState()
     val backupTree by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) }
     val backupLastSuccess by rememberPref(prefs, LibraryAutoBackup.LAST_SUCCESS) { it.getLong(LibraryAutoBackup.LAST_SUCCESS, 0L) }
     val backupLastError by rememberPref(prefs, LibraryAutoBackup.LAST_ERROR) { it.getString(LibraryAutoBackup.LAST_ERROR, null) }
@@ -58,8 +59,8 @@ import kotlinx.coroutines.withContext
         shapeRecognition, onShapeRecognition, remember(context) { PenHapticsManager.isSupported(context) }, Build.VERSION.SDK_INT >= 31,
     )
     val backup = BackupSettings(
-        backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy, backupExcludedCount,
-        onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions,
+        backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy || backupProgress != null, backupExcludedCount,
+        onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions, backupProgress,
     )
     val account = AccountSettings(onFocal, onCheckForUpdates, updateChecking)
 
@@ -179,7 +180,7 @@ import kotlinx.coroutines.withContext
 
 private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupSettings): String = when (item) {
     SettingsCategory.APPEARANCE -> "${app.themeMode.label} · ${app.themePalette.label}"
-    SettingsCategory.BACKUP -> if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
+    SettingsCategory.BACKUP -> if (backup.progress != null) "Backup in progress" else if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
     else -> item.summary
 }
 

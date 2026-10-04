@@ -50,3 +50,11 @@ Before release, check on a device:
 5. On a second device/install, choose **Restore from backup folder** without enabling automatic backups. Check root and subfolder selection. Also select an older point using a granted folder. Truncate/remove/corrupt an object or descriptor and confirm restore refuses damaged content without adding notebooks. Test a failed newer descriptor and restore the previous readable point.
 
 6. Exclude an imported textbook in its menu and in the settings list. Restart Folio and verify the setting and shelf label persist after renaming/moving it. Save automatic and portable library backups and confirm the textbook is absent, other notebooks restore, shared PDFs/assets needed elsewhere remain, and the saved notebook count is correct. Export the excluded textbook individually and restore its complete PDF/annotations/history. Test bulk include/exclude, duplication, re-including a notebook, and excluding all notebooks. Check that older retained points remain usable and may still contain the excluded textbook.
+
+## Progress in Folio
+
+Backup & restore settings shows when a requested automatic backup is queued by Android, then the active preparation, file checking, compression/copying, verification and cleanup stages. Counts distinguish reused files from newly copied files; copying a large file also reports its encoded bytes. Progress lives in the process rather than preferences, and clears when a running job finishes, fails or stops.
+
+Saving a portable library backup reports pending saves, notebook preparation/capture, file checks, file counts and streamed source bytes, followed by archive finalization. Source bytes are uncompressed and may exceed the final ZIP size. This flow uses the same native v3 binary snapshot/journal writer as notebook exports.
+
+On a device, watch both flows with a large PDF and dense ink, then repeat an unchanged automatic backup. Confirm counts and stages update, controls cannot start overlapping requests, completion returns to the last-checked timestamp, and failures/stopped jobs clear active progress.
