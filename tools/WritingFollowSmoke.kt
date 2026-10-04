@@ -23,6 +23,19 @@ private fun scenario(name: String, block: () -> Unit) {
     catch (e: Throwable) { throw AssertionError(name, e) }
 }
 
+/** Deliver ordinary frames after the glide's initial zero frame. */
+private fun advanceGlide(glide: FollowGlide, from: Long, to: Long,
+                         apply: (FollowGlide.Step) -> Unit): FollowGlide.Step {
+    var now = from
+    var step = FollowGlide.Step()
+    while (now < to) {
+        now = minOf(now + 16, to)
+        step = glide.step(now)
+        apply(step)
+    }
+    return step
+}
+
 fun main() {
     val prefs = FollowPreferences(automaticReturn = true)
     val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 300f, it) }
@@ -49,7 +62,6 @@ fun main() {
         check(follow.completed(letter(65f, 116f, 128f), 1000, prefs) == WritingProgress.NEW_LINE)
         check(follow.state.baselineY == 128f && follow.state.lineStartX == 40f)
         for (i in 0..3) {
-            follow.penDown(1100L + i * 200)
             check(follow.completed(letter(90f + i * 20, 116f, 128f), 1200L + i * 200, prefs) == WritingProgress.SAME_LINE)
             check(follow.state.needsPlacement) { "A later letter lost the new-line glide" }
         }
@@ -95,20 +107,18 @@ fun main() {
     scenario("Finishing dots and crossbars retain the accepted line end and reset the quiet period") {
         val follow = seeded()
         val dot = listOf(InkPoint(133f, 82f), InkPoint(134f, 83f))
-        follow.penDown(550)
         check(follow.completed(dot, 600, prefs) == WritingProgress.NONE)
         check(follow.finishingMark(FollowNavigation.bounds(dot)!!, prefs))
-        check(follow.state.frontierRight == 136f && follow.state.baselineY == 100f && follow.state.liftedAt == 600L)
+        check(follow.state.frontierRight == 136f && follow.state.baselineY == 100f)
         check(follow.finishingMark(FollowNavigation.bounds(letter(130f, 90f, 92f, 12f))!!, prefs))
         check(!follow.finishingMark(FollowNavigation.bounds(letter(40f, 90f, 92f, 12f))!!, prefs))
     }
-    scenario("Corrections and dots do not destroy a staged line change or learn writing gaps") {
+    scenario("Corrections do not destroy a staged line change") {
         val follow = seeded()
         check(follow.completed(letter(40f, 116f, 128f), 800, prefs) == WritingProgress.NONE)
         val candidate = follow.state.candidateLane
-        follow.penDown(900)
         check(follow.completed(letter(80f), 1000, prefs) == WritingProgress.NONE)
-        check(follow.state.candidateLane == candidate && follow.state.writingGaps.isEmpty())
+        check(follow.state.candidateLane == candidate)
         check(follow.completed(letter(65f, 116f, 128f), 10000, prefs) == WritingProgress.NEW_LINE)
     }
     scenario("Deep descender corrections on ruled paper hold the old line instead of snapping down") {
@@ -120,29 +130,53 @@ fun main() {
         check(follow.completed(letter(40f, 86f, 128f), 1000, prefs, guides) == WritingProgress.NONE)
         check(follow.completed(letter(65f, 116f, 128f), 1200, prefs, guides) == WritingProgress.NEW_LINE)
     }
-    scenario("Normal writing learns pen-up gaps, excluding stroke duration and corrections") {
-        val follow = seeded()
-        var lifted = 400L
-        val expected = mutableListOf<Long>()
-        for (i in 0..5) {
-            val gap = 110L + i * 10
-            follow.penDown(lifted + gap)
-            lifted += gap + 300 // deliberately much longer than the gap
-            check(follow.completed(letter(160f + i * 24), lifted, prefs) == WritingProgress.SAME_LINE)
-            expected += gap
+    scenario("Configured pauses stay fixed through fast writing, long gaps and finishing marks") {
+        for (delay in listOf(300, 650, 2000)) {
+            val custom = prefs.copy(returnDelayMs = delay)
+            val follow = seeded()
+            var now = 400L
+            for ((i, gap) in listOf(60L, 110L, 450L, 1600L, 75L, 900L).withIndex()) {
+                now += gap + 180
+                check(follow.completed(letter(160f + i * 24), now, custom) == WritingProgress.SAME_LINE)
+                val glide = FollowGlide()
+                glide.start(-400f, 0f, now, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
+                check(glide.step(now + delay / 2 - 1).waitMs == 1L)
+                check(glide.step(now + delay / 2).dx == 0f)
+                glide.cancel()
+                val frontier = follow.state.frontierRight!!
+                val dot = listOf(InkPoint(frontier - 3f, 82f), InkPoint(frontier - 2f, 83f))
+                now += delay + 30
+                check(follow.completed(dot, now, custom) == WritingProgress.NONE)
+                check(follow.finishingMark(FollowNavigation.bounds(dot)!!, custom))
+                glide.start(-400f, 0f, now, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
+                check(glide.step(now + delay / 2 - 1).waitMs == 1L)
+                glide.start(-400f, -32f, now, custom.automaticReturnDelayMs, custom.glideDurationMs, 1000f, 1000f)
+                check(glide.step(now + delay - 1).waitMs == 1L)
+                check(glide.step(now + delay).dx == 0f)
+            }
         }
-        check(follow.state.writingGaps == expected)
-        check(follow.sameLineDelayMs(650) < follow.returnDelayMs(prefs))
-        check(follow.glideDelayMs(prefs, true) <= follow.glideDelayMs(prefs, false))
-        check(follow.glideDelayMs(prefs, true) < expected.sorted()[expected.size / 2])
-        check(follow.glideDurationMs(prefs, true) <= 180)
-        follow.penDown(lifted + 1000)
-        check(follow.completed(letter(40f), lifted + 1200, prefs) == WritingProgress.NONE)
-        check(follow.state.writingGaps == expected)
-        val fixed = prefs.copy(adaptiveTiming = false)
-        check(follow.glideDelayMs(fixed, true) == follow.glideDelayMs(fixed, false))
-        check(follow.glideDurationMs(fixed, true) == fixed.glideDurationMs)
-        check(follow.returnDelayMs(fixed) == 650)
+    }
+    scenario("Dotting an i interrupts the edge glide and starts a fresh full pause") {
+        for (direction in WritingDirection.entries) {
+            val follow = seeded(direction)
+            val custom = prefs.copy(direction = direction, glideDurationMs = 650)
+            val frontier = if (direction == WritingDirection.LTR) follow.state.frontierRight!! else follow.state.frontierLeft!!
+            val fraction = if (direction == WritingDirection.LTR) .94f else .06f
+            val glide = FollowGlide()
+            val dx = follow.horizontalShift(fraction, .5f, direction) * 1000f
+            glide.start(dx, 0f, 400, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
+            check(glide.step(500).waitMs == 225L) { "The edge started moving during a letter gap" }
+            glide.cancel()
+            val dot = listOf(InkPoint(frontier - 2f, 82f), InkPoint(frontier - 1f, 83f))
+            check(follow.completed(dot, 600, custom) == WritingProgress.NONE)
+            check(follow.finishingMark(FollowNavigation.bounds(dot)!!, custom))
+            glide.start(dx, 0f, 600, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
+            check(glide.step(800).waitMs == 125L)
+            check(glide.step(925).dx == 0f)
+            val half = advanceGlide(glide, 925, 1250) { glide.applied(it.dx, it.dy) }
+            check(!half.finished) { "A Gentle glide was shortened at the edge" }
+            check(glide.step(1266).dx != 0f)
+        }
     }
     scenario("RTL uses the same descender, frontier, return and natural line mechanics") {
         val follow = seeded(WritingDirection.RTL)
@@ -153,13 +187,11 @@ fun main() {
         check(follow.completed(letter(136f, 116f, 128f), 1200, rtl) == WritingProgress.NEW_LINE)
         check(follow.state.lineStartX == 176f)
     }
-    scenario("Navigation resets placement/frontiers and preserves the learned rhythm") {
+    scenario("Navigation resets placement and frontiers and suspends recognition briefly") {
         val follow = seeded()
-        follow.penDown(500)
         follow.completed(letter(160f), 600, prefs)
         follow.suspend(700)
         check(follow.state.baselineY == null && !follow.state.needsPlacement)
-        check(follow.state.writingGaps == listOf(100L))
         check(follow.completed(letter(40f), 1000, prefs) == WritingProgress.NONE)
         check(follow.completed(letter(40f), 2300, prefs) == WritingProgress.SAME_LINE)
     }
@@ -216,7 +248,7 @@ fun main() {
     }
     scenario("Delayed frames start at zero; glides have smooth endpoints and exact total travel") {
         val glide = FollowGlide()
-        glide.start(-200f, -56f, 0, 300, 280)
+        glide.start(-200f, -56f, 0, 300, 280, 1000f, 1000f)
         check(glide.step(100).waitMs == 200L)
         val first = glide.step(900)
         check(first.dx == 0f && first.dy == 0f && !first.finished)
@@ -232,12 +264,45 @@ fun main() {
         sumX += last.dx; sumY += last.dy
         check(last.finished && abs(sumX + 200f) < .001f && abs(sumY + 56f) < .001f && glide.reachedLine)
     }
+    scenario("Large pans take longer and keep the same speed across viewport sizes and directions") {
+        for (size in listOf(500f, 1000f, 2000f)) for (sign in listOf(-1f, 1f)) {
+            val glide = FollowGlide()
+            glide.start(sign * size * .6f, sign * size * .2f, 0, 0, 180, size, size)
+            glide.step(0)
+            var x = 0f; var y = 0f
+            val middle = advanceGlide(glide, 0, 300) {
+                x += it.dx; y += it.dy; glide.applied(it.dx, it.dy)
+            }
+            check(!middle.finished && abs(x / size - sign * .3f) < .001f)
+            val end = advanceGlide(glide, 300, 600) {
+                x += it.dx; y += it.dy; glide.applied(it.dx, it.dy)
+            }
+            check(end.finished && abs(x / size - sign * .6f) < .001f && glide.reachedLine)
+            check(abs(y / size - sign * .2f) < .001f)
+        }
+    }
+    scenario("Busy frames slow the glide instead of jumping to the end") {
+        val glide = FollowGlide()
+        glide.start(-200f, -56f, 0, 0, 280, 1000f, 1000f)
+        glide.step(0)
+        val busy = glide.step(500)
+        glide.applied(busy.dx, busy.dy)
+        check(!busy.finished && abs(busy.dx) < 5f)
+        var x = busy.dx; var y = busy.dy
+        val end = advanceGlide(glide, 500, 756) {
+            x += it.dx; y += it.dy; glide.applied(it.dx, it.dy)
+        }
+        check(end.finished && abs(x + 200f) < .001f && abs(y + 56f) < .001f && glide.reachedLine)
+        glide.cancel()
+        check(!glide.active && !glide.moved)
+        glide.start(50f, 0f, 800, 100, 280, 1000f, 1000f)
+        check(glide.step(850).waitMs == 50L && glide.step(900).dx == 0f)
+    }
     scenario("Horizontal-only clamped movement cannot pretend to complete a vertical return") {
         val glide = FollowGlide()
-        glide.start(-200f, -56f, 0, 0, 280)
+        glide.start(-200f, -56f, 0, 0, 280, 1000f, 1000f)
         glide.step(0)
-        val step = glide.step(280)
-        glide.applied(step.dx, 0f)
+        advanceGlide(glide, 0, 280) { glide.applied(it.dx, 0f) }
         check(glide.moved && !glide.reachedLine)
     }
     scenario("Interrupt/replan uses remaining absolute travel and Back records only actual movement") {
@@ -247,25 +312,28 @@ fun main() {
         var y = 300f
         val desiredY = 220f
         history.begin(state)
-        glide.start(-100f, desiredY - y, 0, 0, 280)
+        glide.start(-100f, desiredY - y, 0, 0, 280, 1000f, 1000f)
         glide.step(0)
-        val halfway = glide.step(140)
-        y += halfway.dy
-        glide.applied(halfway.dx, halfway.dy)
-        history.moved(halfway.dx, halfway.dy)
+        advanceGlide(glide, 0, 140) {
+            y += it.dy
+            glide.applied(it.dx, it.dy)
+            history.moved(it.dx, it.dy)
+        }
         check(!glide.reachedLine)
         val previous = history.entry
         glide.cancel()
         history.cancelPending()
         history.begin(state)
-        glide.start(0f, desiredY - y, 200, 0, 280)
+        glide.start(0f, desiredY - y, 200, 0, 280, 1000f, 1000f)
         glide.step(200)
-        val remainder = glide.step(480)
-        y += remainder.dy
-        glide.applied(0f, remainder.dy)
-        history.moved(0f, remainder.dy)
+        val remainingY = desiredY - y
+        advanceGlide(glide, 200, 480) {
+            y += it.dy
+            glide.applied(0f, it.dy)
+            history.moved(0f, it.dy)
+        }
         check(abs(y - desiredY) < .001f && glide.reachedLine)
-        check(previous != null && history.entry!!.y == remainder.dy)
+        check(previous != null && abs(history.entry!!.y - remainingY) < .001f)
         val entry = history.entry
         history.begin(state)
         history.moved(0f, 0f)

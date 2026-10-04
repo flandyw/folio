@@ -201,7 +201,13 @@ class InkView(context: Context) : View(context) {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
     }
     private val predicted = FloatArray(2)
-    private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA387C83.toInt(); style = Paint.Style.STROKE }
+    private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
+    /** The answer-area box takes the app's accent, so it reads as part of the theme rather than as ink. */
+    var answerAreaColor = 0xFF387C83.toInt()
+        set(value) { if (field != value) { field = value; invalidate() } }
+    /** False hides the box; an area being dragged out is always shown, so selecting one still works. */
+    var showAnswerAreas = true
+        set(value) { if (field != value) { field = value; invalidate() } }
     val writingFollow = WritingFollow()
     private var guideRegions: List<WritingLane> = emptyList()
     var writingGuides: List<WritingGuide> = emptyList()
@@ -437,7 +443,7 @@ class InkView(context: Context) : View(context) {
         }
     }
     private fun queueFollowReturn(advance: WritingAdvance) {
-        val delay = writingFollow.returnDelayMs(followPreferences)
+        val delay = followPreferences.automaticReturnDelayMs
         pendingReturn = advance; returnStartAt = SystemClock.uptimeMillis() + delay
         reportFollowStatus("Next line in ${FollowPreferences.returnDelayLabel(delay)} · touch down to cancel")
         scheduleFollow()
@@ -456,7 +462,8 @@ class InkView(context: Context) : View(context) {
         val dx = if (followPreferences.mode == FollowMode.MATH) 0f else desiredX -
             (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale)
         val dy = desiredY - (originY + advance.to.y * scale)
-        followGlide.start(dx, dy, SystemClock.uptimeMillis(), 0, followPreferences.glideDurationMs)
+        followGlide.start(dx, dy, SystemClock.uptimeMillis(), 0, followPreferences.glideDurationMs,
+            followVisible.width().toFloat(), followVisible.height().toFloat())
         lineAdvance = advance
         captureFollowBack = false
         scheduleFollow()
@@ -849,9 +856,15 @@ class InkView(context: Context) : View(context) {
                 ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         }
         outlined?.let { drawImageSelection(canvas, it) }
-        (writingRegions + listOfNotNull(regionDraft ?: writingRegion)).distinct().forEach { r ->
-            writingRegionPaint.strokeWidth = 2f / scale
-            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
+        val areas = (if (showAnswerAreas) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
+        if (areas.isNotEmpty()) {
+            // A constant on-screen dash and width, whatever the zoom: sized in dp and divided by the canvas scale.
+            val unit = selectionUiUnit()
+            writingRegionPaint.color = answerAreaColor
+            writingRegionPaint.alpha = 0xCC
+            writingRegionPaint.strokeWidth = 1.5f * unit
+            writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
+            areas.distinct().forEach { r -> canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint) }
         }
         canvas.restore()
     }
@@ -1326,7 +1339,7 @@ class InkView(context: Context) : View(context) {
         // accepted line frontier, rather than that last pen sample, determines the return.
         val returnAdvance = writingFollow.returnFor(region, writingGuides, followPreferences)
         val atEnd = returnAdvance != null
-        val returnDelay = writingFollow.returnDelayMs(followPreferences)
+        val returnDelay = followPreferences.automaticReturnDelayMs
         reportFollowStatus(when {
             atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(returnDelay)} · touch down to cancel"
             atEnd -> "Next line ready · tap Next line"
@@ -1361,9 +1374,9 @@ class InkView(context: Context) : View(context) {
             }
             return
         }
-        val atEdge = if (followPreferences.direction == WritingDirection.LTR) fraction > .9f else fraction < .1f
-        val delay = writingFollow.glideDelayMs(followPreferences, atEdge || placing)
-        followGlide.start(dx, dy, now, delay, writingFollow.glideDurationMs(followPreferences, atEdge || placing))
+        val delay = followPreferences.glideDelayMs
+        followGlide.start(dx, dy, now, delay, followPreferences.glideDurationMs,
+            followVisible.width().toFloat(), followVisible.height().toFloat())
         captureFollowBack = true
         scheduleFollow()
     }
@@ -1781,8 +1794,8 @@ class InkView(context: Context) : View(context) {
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
-        // Cancel on contact, including strokes that finish before the next animation frame.
-        cancelFollowMotion()
+        // onTouchEvent already stopped follow on contact and retained finishing-mark intent.
+        // Cancelling again here would clear that intent before a dot/crossbar can resume it.
         val raw = point(event, index)
         if (!onPage(raw.x, raw.y)) { navigating = true; return }
         var start = clampToPage(raw)
@@ -1813,7 +1826,6 @@ class InkView(context: Context) : View(context) {
             eraserMark = start
             onPenInput(false)
         } else {
-            if (followEnabled && tool == Tool.PEN) writingFollow.penDown(SystemClock.uptimeMillis())
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
                 style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID)
             onPenInput(true)

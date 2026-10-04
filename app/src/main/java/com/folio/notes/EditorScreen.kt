@@ -141,6 +141,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
     var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
     var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
+    var showAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.showAnswerAreas", true)) }
     var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
     var followSettingsOpen by remember { mutableStateOf(false) }
     var followPreferences by remember { mutableStateOf(FollowPreferences(
@@ -151,7 +152,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         horizontalPosition = appPrefs.getFloat("follow.horizontal", .5f).coerceIn(.35f, .65f),
         spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
         returnDelayMs = appPrefs.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
-        adaptiveTiming = appPrefs.getBoolean("follow.adaptiveTiming", true),
         adaptiveSpacing = appPrefs.getBoolean("follow.adaptiveSpacing", true),
         horizontalFollow = appPrefs.getBoolean("follow.horizontalFollow", true),
         verticalFollow = appPrefs.getBoolean("follow.verticalFollow", true),
@@ -163,7 +163,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800))) }
     LaunchedEffect(followPreferences) {
         appPrefs.edit()
-            .putBoolean("follow.adaptiveTiming", followPreferences.adaptiveTiming)
             .putBoolean("follow.adaptiveSpacing", followPreferences.adaptiveSpacing)
             .putBoolean("follow.horizontalFollow", followPreferences.horizontalFollow)
             .putBoolean("follow.verticalFollow", followPreferences.verticalFollow)
@@ -686,7 +685,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     palmRejectMs = palmRejectMs,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, inputBlocked = peekOpen,
+                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
@@ -821,7 +820,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 palmRejectMs = palmRejectMs,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom,
+                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
                                 autoDetectAnswerAreas = autoDetectAnswerAreas,
                                 inputBlocked = peekOpen, onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
@@ -997,6 +996,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                                         edit.putBoolean("writingFollow", true)
                                     }
                                     edit.apply()
+                                    followMenu = false
+                                })
+                            DropdownMenuItem(
+                                text = { Text("Show answer area box") },
+                                trailingIcon = { Checkbox(checked = showAnswerAreas, onCheckedChange = null) },
+                                onClick = {
+                                    showAnswerAreas = !showAnswerAreas
+                                    appPrefs.edit().putBoolean("follow.showAnswerAreas", showAnswerAreas).apply()
                                     followMenu = false
                                 })
                             if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
@@ -1787,7 +1794,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 
 @Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
-    autoDetectAnswerAreas: Boolean = false,
+    autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
@@ -1797,6 +1804,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     onSelectionAnchor: (Rect?) -> Unit = {}) {
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
     val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
+    val areaColor = MaterialTheme.colorScheme.primary.toArgb()
     val shapeMeasurement = remember(page.id) { mutableStateOf<ShapeMeasurement?>(null) }
     var background by remember(page.id) { mutableStateOf<Bitmap?>(null) }
     var writingGuides by remember(page.id) { mutableStateOf<List<WritingGuide>>(emptyList()) }
@@ -1895,7 +1903,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
-                view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
+                view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger

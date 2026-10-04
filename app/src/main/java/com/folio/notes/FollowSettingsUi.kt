@@ -59,7 +59,7 @@ fun FollowSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
             ) {
                 FollowSectionTitle("Choose how following feels")
-                Text("Write naturally. The page moves after a pause, holds still for corrections, and learns your rhythm. Use Pause in the editor to keep the view still.",
+                Text("Write naturally. The page moves after your configured pause and holds still for corrections. Use Pause in the editor to keep the view still.",
                     style = MaterialTheme.typography.bodyMedium)
                 val presets = listOf("Relaxed" to 0f, "Balanced" to .5f, "Responsive" to 1f)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -242,7 +242,6 @@ fun FollowSettingsDialog(
                     HorizontalDivider()
 
                     FollowSectionTitle("Tracking controls")
-                    FollowToggle("Learn my writing rhythm", preferences.adaptiveTiming) { onPreferences(preferences.copy(adaptiveTiming = it)) }
                     FollowToggle("Follow horizontally in text mode", preferences.horizontalFollow) { onPreferences(preferences.copy(horizontalFollow = it)) }
                     FollowToggle("Follow vertically", preferences.verticalFollow) { onPreferences(preferences.copy(verticalFollow = it)) }
                     FollowToggle("Switch areas when I write in them", preferences.autoSwitchAreas) { onPreferences(preferences.copy(autoSwitchAreas = it)) }
@@ -262,7 +261,7 @@ fun FollowSettingsDialog(
                         FollowSliderRow(
                             label = "Pause before line return",
                             valueText = FollowPreferences.returnDelayLabel(preferences.returnDelayMs),
-                            hint = "Automatic return waits this long, allowing for your usual word gaps. Sideways glides use a shorter pause and respond sooner near the visible edge.",
+                            hint = "Automatic return uses this pause. Sideways glides use half this pause, including at the visible edge and after dots or crossbars.",
                             value = preferences.returnDelayMs / 1000f,
                             onValueChange = {
                                 onPreferences(
@@ -275,7 +274,7 @@ fun FollowSettingsDialog(
                     FollowSliderRow(
                         label = "Glide smoothness",
                         valueText = "${FollowPreferences.glideLabel(preferences.glideDurationMs)} · ${preferences.glideDurationMs} ms",
-                        hint = "Each glide accelerates and settles smoothly. Snappy finishes sooner; Gentle takes longer. Touch down to stop.",
+                        hint = "Each glide accelerates and settles smoothly. Snappy finishes sooner; Gentle takes longer. Larger movements take extra time. Touch down to stop.",
                         value = preferences.glideDurationMs.toFloat(),
                         onValueChange = {
                             onPreferences(preferences.copy(glideDurationMs = it.roundToInt().coerceIn(120, 800)))
@@ -456,8 +455,7 @@ private fun FollowTimingPreview(preferences: FollowPreferences) {
             drawRect(pauseColor, size = androidx.compose.ui.geometry.Size(pause, size.height))
             drawRect(glideColor, topLeft = Offset(pause, 0f), size = androidx.compose.ui.geometry.Size(glide, size.height))
         }
-        Text("Pause ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms" +
-            if (preferences.adaptiveTiming) ". Learns your rhythm; sideways following starts sooner." else ". Sideways following uses half the pause.",
+        Text("Pause ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms. Sideways following uses half the pause.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

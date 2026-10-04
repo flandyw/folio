@@ -11,11 +11,14 @@ absolute writing height, so stopping halfway and resuming cannot apply a second 
 Actual consumed pan determines whether a return arrived; horizontal movement alone cannot advance
 the tracked baseline when vertical scrolling is clamped. Back records only movement actually applied.
 
-Sideways glides use half the configured return pause, extended by learned pen-up gaps. Near the
-visible edge, adaptive following uses a shorter letter-gap wait and a glide of at most 180 ms.
-New-line placement uses the same urgency; automatic returns keep the longer pause and configured
-glide duration. Dots and crossbars near the final word can resume an interrupted request after pen-up;
-corrections farther back hold the view. Rejected palm contacts do not cancel a pending glide.
+Sideways glides and new-line placement use half the configured return pause. Automatic returns
+use the full configured pause. Timing is fixed: stroke history never changes it, and the visible
+edge does not shorten the pause or accelerate the glide. Every glide honours
+the configured duration as a minimum and takes at least one second per viewport of travel on
+either axis (a half-screen pan takes at least 500 ms). Missed frames advance the animation by at
+most 32 ms, so a busy frame slows movement instead of catching up in a jump. Dots and crossbars
+near the final word can resume an interrupted request after a fresh pen-up pause; corrections
+farther back hold the view. Rejected palm contacts do not cancel a pending glide.
 
 On a canvas, the current viewport width defines a line's length. Its start stays fixed in canvas
 coordinates during follow pans, even when that start moves off screen. Deliberate navigation or a
@@ -40,6 +43,14 @@ of the page you are writing on, fitted to the screen, and works the same way (ho
 a device preference, and a pinned view is kept for when it is off. An infinite canvas has no page
 edge, so there the eye still uses the pinned view. The view is fixed when the peek opens.
 
+## Answer area box
+
+The box drawn around the selected or detected answer area is a dashed outline in the app's accent colour
+(`MaterialTheme.colorScheme.primary`, so it follows the theme). Its dash and width are fixed on screen
+(sized in dp and divided by the canvas scale), so they look the same at every zoom. *Follow options →
+Answer areas… → Show answer area box* (`follow.showAnswerAreas`, on by default) hides it; this only
+hides the drawing, never the area itself, and an area being dragged out is always shown.
+
 ## Checks
 
 Run the usual Android build/lint checks, then the pure regression smoke check using the same JDK:
@@ -61,7 +72,11 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
 
 1. Write words containing `f`, `g`, `j`, `p`, and `y`, including as the first and final letter.
    Check sideways following and the next-line return. Repeat with small letters and joined-up words.
-2. Finish near the line's edge, then dot an `i` or cross a `t`. The return should restart its pause.
+2. Finish near the visible edge, then dot an `i` or cross a `t`. Sideways movement should wait
+   through the brief lift and restart its full pause after the mark. Compare glides just before
+   and past 90% across the viewport: the speed should not jump. Repeat with Gentle selected,
+   at different zoom levels, and after stopping a glide partway through. Larger pans should
+   take longer. At the answer area's end, the return should also restart its pause.
    Correct an earlier word instead: the view should hold. Rest a palm during the pause: rejected
    palm contacts should leave the request intact.
 3. Start a natural next line with a tall capital, then a short letter or a descender. Continue

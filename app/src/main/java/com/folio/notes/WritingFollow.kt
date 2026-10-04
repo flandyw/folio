@@ -21,9 +21,6 @@ data class WritingFollowState(
     val candidateAt: Long? = null,
     val lineStartX: Float? = null,
     val lineSpacings: List<Float> = emptyList(),
-    val liftedAt: Long? = null,
-    val pendingGap: Long? = null,
-    val writingGaps: List<Long> = emptyList(),
     val lineStrokeCount: Int = 0,
     /** Survives pen-down interruptions until the new line has actually been placed. */
     val needsPlacement: Boolean = false,
@@ -67,43 +64,6 @@ class WritingFollow {
         else state.frontierLeft?.let { points.minOf { p -> p.x } < it - 2f } ?: true
     }
 
-    /** Every touchdown cancels the request; every completed stroke starts a fresh quiet period. */
-    fun penDown(now: Long) {
-        state = state.copy(pendingGap = state.liftedAt?.let { now - it }?.takeIf { it in 1..2000 })
-    }
-
-    fun sameLineDelayMs(returnDelayMs: Int, adaptive: Boolean = true): Int {
-        val base = (returnDelayMs * .5f).roundToInt().coerceIn(120, 1000)
-        if (!adaptive) return base
-        val gaps = state.writingGaps.sorted()
-        // Learn normal pen-up gaps, not stroke duration or long thinking breaks. A high
-        // percentile protects word spaces; a small buffer leaves time to touch down again.
-        // The floor stays near letter gaps (not word gaps) so fast writers still get a
-        // glide between words instead of outrunning the view.
-        val learned = if (gaps.size >= 4) (gaps[(gaps.size - 1) * 3 / 4] + 80).toInt() else 0
-        return maxOf(base, learned.coerceIn(0, 1000))
-    }
-
-    fun returnDelayMs(preferences: FollowPreferences): Int {
-        val gaps = state.writingGaps.sorted()
-        val learned = if (preferences.adaptiveTiming && gaps.size >= 4)
-            (gaps[(gaps.size - 1) * 3 / 4] + 220).toInt().coerceAtMost(1600) else 0
-        return maxOf(preferences.returnDelayMs.coerceIn(300, 2000), learned)
-    }
-
-    /** At the visible edge, use letter gaps instead of waiting for a whole word pause. */
-    fun glideDelayMs(preferences: FollowPreferences, atEdge: Boolean): Int {
-        val normal = sameLineDelayMs(preferences.returnDelayMs, preferences.adaptiveTiming)
-        if (!atEdge || !preferences.adaptiveTiming) return normal
-        val gaps = state.writingGaps.sorted()
-        val quick = if (gaps.size >= 4) (gaps[(gaps.size - 1) / 2] * .6f).roundToInt() else 80
-        return minOf(normal, quick.coerceIn(60, 300))
-    }
-
-    fun glideDurationMs(preferences: FollowPreferences, urgent: Boolean): Int =
-        if (urgent && preferences.adaptiveTiming) minOf(preferences.glideDurationMs, 180)
-        else preferences.glideDurationMs
-
     /** Keep a real dead band even when the preferred writing column is near an edge. */
     fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection, edgeThreshold: Float = .72f): Float {
         if (!fraction.isFinite() || !target.isFinite()) return 0f
@@ -118,9 +78,7 @@ class WritingFollow {
     }
 
     fun suspend(now: Long) {
-        // Navigation changes the writing location, but not the writer's rhythm.
-        state = WritingFollowState(suspendedUntil = now + 1500, writingGaps = state.writingGaps,
-            lineSpacings = state.lineSpacings)
+        state = WritingFollowState(suspendedUntil = now + 1500, lineSpacings = state.lineSpacings)
     }
 
     /** Learn spacing only from confirmed natural line breaks; a skipped line cannot set the pace. */
@@ -217,16 +175,12 @@ class WritingFollow {
                   guides: List<WritingGuide> = emptyList()): WritingProgress {
         if (now < state.suspendedUntil) return WritingProgress.NONE
         val box = FollowNavigation.bounds(points) ?: return WritingProgress.NONE
-        val gap = state.pendingGap
-        // All lifts reset the quiet period, including dots/corrections. Only actual writing
-        // below contributes to learned rhythm; a correction must not erase the previous gap.
-        state = state.copy(liftedAt = now, pendingGap = null)
         val noise = minOf(2f, preferences.spacing * .06f)
         if (box.height < noise && box.width < noise) return WritingProgress.NONE
         val baseline = state.baselineY
         if (preferences.mode == FollowMode.MATH) {
             if (baseline != null && box.bottom <= baseline + 2f) return WritingProgress.NONE
-            accept(box, listOf(box), now, false, preferences.direction, gap)
+            accept(box, listOf(box), false, preferences.direction)
             return WritingProgress.SAME_LINE
         }
         val height = laneHeight()
@@ -254,7 +208,7 @@ class WritingFollow {
                 return WritingProgress.NONE
             }
             val recent = if (fresh && sameBody) listOf(last!!, box) else listOf(box)
-            accept(box, recent, now, true, preferences.direction, null, guide?.y)
+            accept(box, recent, true, preferences.direction, guide?.y)
             return WritingProgress.NEW_LINE
         }
         val progressing = extendsFrontier(box, preferences.direction)
@@ -265,12 +219,12 @@ class WritingFollow {
         val bodySample = box.height >= maxOf(2f, height * .3f) &&
             (baseline == null || abs(box.bottom - baseline) <= threshold)
         val recent = if (bodySample || state.recent.isEmpty()) (state.recent + box).takeLast(16) else state.recent
-        accept(box, recent, now, false, preferences.direction, gap, guide?.y)
+        accept(box, recent, false, preferences.direction, guide?.y)
         return WritingProgress.SAME_LINE
     }
 
-    private fun accept(box: WritingLane, recent: List<WritingLane>, now: Long, changedLane: Boolean,
-                       direction: WritingDirection, gap: Long?, guideY: Float? = null) {
+    private fun accept(box: WritingLane, recent: List<WritingLane>, changedLane: Boolean,
+                       direction: WritingDirection, guideY: Float? = null) {
         val ys = recent.map { it.bottom }.sorted()
         // The lower median recovers immediately when the first letter was a descender,
         // and mixed ascenders/descenders cannot drag the lane steadily downward.
@@ -286,8 +240,6 @@ class WritingFollow {
             lineSpacings = if (gapY != null) (state.lineSpacings + gapY).takeLast(6) else state.lineSpacings,
             frontierLeft = if (changedLane) recent.minOf { it.left } else minOf(state.frontierLeft ?: box.left, box.left),
             frontierRight = if (changedLane) recent.maxOf { it.right } else maxOf(state.frontierRight ?: box.right, box.right),
-            liftedAt = now, pendingGap = null,
-            writingGaps = if (gap != null && !changedLane) (state.writingGaps + gap).takeLast(16) else state.writingGaps,
             lineStrokeCount = if (changedLane) recent.size else state.lineStrokeCount + 1,
             needsPlacement = state.needsPlacement || changedLane,
         )
@@ -329,7 +281,7 @@ class WritingFollow {
 
     fun arrived(advance: WritingAdvance) {
         state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from,
-            frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null, liftedAt = null, pendingGap = null,
+            frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null,
             lineStrokeCount = 0, needsPlacement = false)
     }
 
@@ -354,11 +306,10 @@ data class FollowPreferences(
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
     val spacing: Float = 32f,
-    /** Pause before automatic return; sideways follow uses a shorter, rhythm-aware wait. */
+    /** Pause before automatic return; sideways follow uses half this pause. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
-    /** Carriage-return glide length. 120..800 ms. */
+    /** Minimum glide length. 120..800 ms; longer travel takes extra time. */
     val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
-    val adaptiveTiming: Boolean = true,
     val adaptiveSpacing: Boolean = true,
     val horizontalFollow: Boolean = true,
     val verticalFollow: Boolean = true,
@@ -368,6 +319,10 @@ data class FollowPreferences(
     val verticalDeadBand: Float = .15f,
     val endMargin: Float = .08f,
 ) {
+    val automaticReturnDelayMs: Int get() = returnDelayMs.coerceIn(300, 2000)
+    /** Fixed quiet period, independent of stroke history and distance from the visible edge. */
+    val glideDelayMs: Int get() = (automaticReturnDelayMs * .5f).roundToInt()
+
     /** Page units are A4 at 4 units per mm (840 x 1188), so users see millimetres. */
     val spacingMm: Float get() = spacing / UNITS_PER_MM
     /** Vertical writing height as a whole percent down the screen. */
