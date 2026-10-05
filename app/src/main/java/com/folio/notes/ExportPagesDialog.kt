@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -157,17 +159,18 @@ import androidx.compose.ui.unit.dp
                     val checked = index in selected
                     val hold = rememberLongPressGuard()
                     Row(
-                        Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = checked,
-                            onCheckedChange = { on ->
+                        Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null }
+                            .toggleable(checked, role = Role.Checkbox, onValueChange = { on ->
                                 hold.click {
                                     selected = if (on) selected + index else selected - index
                                     rangeError = null
                                 }()
-                            }
+                            }),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = null
                         )
                         Column(Modifier.weight(1f)) {
                             Text(
