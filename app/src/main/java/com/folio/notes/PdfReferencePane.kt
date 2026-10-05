@@ -165,7 +165,7 @@ import androidx.compose.ui.unit.dp
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 428.dp).padding(bottom = FolioSpacing.dp16),
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = FolioSpacing.dp16),
                 contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 itemsIndexed(outline) { _, entry ->
                     Surface(onClick = { onOpen(entry.pageIndex) }, shape = FolioShapes.large,
