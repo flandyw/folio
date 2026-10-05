@@ -1564,16 +1564,34 @@ private fun paperLabel(p: Paper): String = when (p) {
         )
     }
     moveSelection?.let { (sourceId, picked) ->
-        FolioPanel(title = "Move to page", onDismissRequest = { moveSelection = null }) {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-                itemsIndexed(note.pages) { index, destination ->
-                    if (destination.id != sourceId) TextButton({
+        var destinationQuery by rememberSaveable(sourceId) { mutableStateOf("") }
+        val destinations = remember(note.pages, sourceId, destinationQuery) {
+            organizePages(note.pages, destinationQuery, PageFilter.ALL).filter { it.value.id != sourceId }
+        }
+        FolioPanel(title = "Move ${picked.size} item${if (picked.size == 1) "" else "s"} to page", onDismissRequest = { moveSelection = null }) {
+            OutlinedTextField(destinationQuery, { destinationQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
+                singleLine = true, label = { Text("Find destination page") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = "" }) { Icon(Icons.Rounded.Close, "Clear destination search") } })
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                if (destinations.isEmpty()) item {
+                    Text("No destination pages match.", style = MaterialTheme.typography.bodyMedium)
+                    TextButton({ destinationQuery = "" }) { Text("Show all destinations") }
+                }
+                items(destinations, key = { it.value.id }) { (index, destination) ->
+                    Surface(onClick = {
                         model.moveSelectionToPage(sourceId, destination.id, picked)
-                        moveSelection = null
-                        activeInkView?.clearSelection()
-                        selection = null
-                    }, Modifier.fillMaxWidth()) {
-                        Text("Page ${index + 1}" + destination.title.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
+                        moveSelection = null; activeInkView?.clearSelection(); selection = null
+                    }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                            PageThumbnail(note.id, destination, model.thumbnails, Modifier.width(40.dp).height(56.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(destination.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("Page ${index + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Move to page ${index + 1}")
+                        }
                     }
                 }
             }
