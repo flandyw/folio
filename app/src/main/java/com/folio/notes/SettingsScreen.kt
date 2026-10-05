@@ -125,7 +125,7 @@ import kotlinx.coroutines.withContext
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
                     .padding(horizontal = FolioSpacing.dp16).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp32),
