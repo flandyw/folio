@@ -298,6 +298,22 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 } }
                                 AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                             }
+                            if (!pickingNotebook && !selecting && !scoped) {
+                                state.notes.maxByOrNull { it.updated }?.let { recent ->
+                                    Surface(onClick = { onOpenNotebook(recent.id) }, shape = FolioShapes.large,
+                                        color = MaterialTheme.colorScheme.secondaryContainer) {
+                                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                                            NotebookListThumbnail(recent, model.thumbnails, Modifier.width(32.dp).height(42.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text("Continue writing", style = MaterialTheme.typography.labelMedium)
+                                                Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open most recently edited notebook")
+                                        }
+                                    }
+                                }
+                            }
                             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
