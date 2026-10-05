@@ -677,6 +677,10 @@ private fun paperLabel(p: Paper): String = when (p) {
         activeInkView?.clearSelection()
         selection = null
     }
+    BackHandler(enabled = cropActive || selectedImage != null) {
+        if (cropActive) activeInkView?.endImageCrop(false)
+        else { selectedImage = null; activeInkView?.clearImageSelection() }
+    }
     var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
@@ -685,6 +689,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             Key.F -> { if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
             Key.G -> { pageBrowser = true; pageJumpExpanded = true; true }
             Key.Zero -> { resetZoom(); true }
+            else -> false
+        } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) when {
+            cropActive -> { activeInkView?.endImageCrop(false); true }
+            selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
+            selected.isNotEmpty() -> { activeInkView?.clearSelection(); selection = null; true }
+            pageMenu != null -> { pageMenu = null; true }
             else -> false
         } else false
     }) {
