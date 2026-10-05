@@ -93,6 +93,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     notebookActions: @Composable (() -> Unit) -> Unit = {},
     onExport: () -> Unit,
     onSettings: () -> Unit,
+    onKeyboardShortcuts: () -> Unit,
     pageActions: @Composable (() -> Unit) -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
@@ -185,6 +186,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                                     HorizontalDivider()
                                     PopoverGroup("Workspace") { notebookActions(dismiss) }
                                     HorizontalDivider()
+                                    PopoverRow(Icons.Rounded.Keyboard, "Keyboard shortcuts") { run(onKeyboardShortcuts) }
                                     PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
                                 }
                             }

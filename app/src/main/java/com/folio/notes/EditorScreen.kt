@@ -388,6 +388,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
+    var keyboardShortcuts by remember { mutableStateOf(false) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
     var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
@@ -1258,6 +1259,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = onExport,
                             onSettings = onSettings,
+                            onKeyboardShortcuts = { keyboardShortcuts = true },
                             pageActions = { dismiss ->
                                 PageOptionsContent(dismiss, page, state.saveFailed,
                                     onPaper = { openPaperMenu(false) }, onClear = { clear = true }, onRetry = model::retrySave,
@@ -1704,6 +1706,17 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+    if (keyboardShortcuts) FolioPanel("Keyboard shortcuts", { keyboardShortcuts = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            listOf("Ctrl + F" to "Find in the current document", "Ctrl + G" to "Go to a page", "Ctrl + 0" to "Reset zoom",
+                "Ctrl + Z" to "Undo", "Ctrl + Shift + Z / Ctrl + Y" to "Redo", "Ctrl + Enter" to "Apply a text-box draft").forEach { (keys, action) ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    Text(action, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(keys, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
