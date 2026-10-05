@@ -243,9 +243,9 @@ import androidx.compose.ui.unit.dp
                 headlineContent = { Text(WorkspacePicker.flipCaption(state.editorOnRight)) },
                 supportingContent = { Text(WorkspacePicker.sideHint(state.editorOnRight)) },
                 leadingContent = { Icon(Icons.Rounded.SwapHoriz, null) },
-                trailingContent = { Switch(state.editorOnRight, model::setEditorOnRight) },
+                trailingContent = { Switch(state.editorOnRight, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.fillMaxWidth().semanticsLabel(WorkspacePicker.flipAction(state.editorOnRight))
+                modifier = Modifier.fillMaxWidth().toggleable(state.editorOnRight, role = Role.Switch, onValueChange = model::setEditorOnRight)
             )
             ListItem(
                 headlineContent = { Text("Link pages") },
