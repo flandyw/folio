@@ -433,7 +433,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     var movingPage by remember { mutableStateOf<String?>(null) }
     var destinationPage by remember { mutableStateOf("") }
     var deletingPage by remember { mutableStateOf<String?>(null) }
-    var pageNumber by remember { mutableStateOf("") }
+    var pageNumber by rememberSaveable(note.id) { mutableStateOf("") }
+    var pageJumpExpanded by rememberSaveable(note.id) { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var renameTitle by remember { mutableStateOf(note.title) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -1283,7 +1284,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                 FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+        TextButton({ pageJumpExpanded = !pageJumpExpanded }, modifier = Modifier.padding(horizontal = FolioSpacing.dp24)) {
+            Icon(Icons.Rounded.Numbers, null); Spacer(Modifier.width(FolioSpacing.dp8))
+            Text(if (pageJumpExpanded) "Hide page jump" else "Go to a page number")
+        }
+        if (pageJumpExpanded) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
                 shape = FolioShapes.large,
