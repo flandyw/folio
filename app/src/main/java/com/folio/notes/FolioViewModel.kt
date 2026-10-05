@@ -2098,7 +2098,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         return note.pages.map { summary ->
             currentCoroutineContext().ensureActive()
             if (summary.loaded) summary else try {
-                summary.withLoadedContent(repository.loadPage(note.id, summary))
+                summary.withLoadedContent(repository.loadPage(note.id, summary)).copy(strokes = emptyList(), images = emptyList())
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { summary }
         }
