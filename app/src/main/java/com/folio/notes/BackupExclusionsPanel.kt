@@ -1,14 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
@@ -16,7 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -45,21 +45,21 @@ import androidx.compose.ui.unit.dp
             } else {
                 if (query.isNotBlank()) Text("${visible.size} matching notebook${if (visible.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium)
                 LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
-                items(visible, key = { it.id }) { note ->
-                    val excluded = note.id in excludedIds
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 64.dp).toggleable(excluded, role = Role.Checkbox,
-                            onValueChange = { onExcluded(setOf(note.id), it) }).padding(vertical = FolioSpacing.dp8),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
-                    ) {
-                        Checkbox(excluded, onCheckedChange = null)
-                        Column(Modifier.weight(1f)) {
-                            Text(note.title.ifBlank { "Untitled notebook" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(if (excluded) "Excluded from library backups" else "Included in library backups", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    items(visible, key = { it.id }) { note ->
+                        val excluded = note.id in excludedIds
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 64.dp).toggleable(excluded, role = Role.Checkbox,
+                                onValueChange = { onExcluded(setOf(note.id), it) }).padding(vertical = FolioSpacing.dp8),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
+                        ) {
+                            Checkbox(excluded, onCheckedChange = null)
+                            Column(Modifier.weight(1f)) {
+                                Text(note.title.ifBlank { "Untitled notebook" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(if (excluded) "Excluded from library backups" else "Included in library backups", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
-            }
             }
             TextButton(onDismiss, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("Done") }
         }
