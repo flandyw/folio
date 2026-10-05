@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,7 +62,7 @@ import androidx.compose.ui.unit.dp
     onDismiss: () -> Unit,
     onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable(purpose) { mutableStateOf("") }
     var mode by remember { mutableStateOf(state.companionMode) }
     val keyboard = LocalSoftwareKeyboardController.current
     val openIds = remember(state.tabs) { state.tabs.map { it.notebookId }.toSet() }
