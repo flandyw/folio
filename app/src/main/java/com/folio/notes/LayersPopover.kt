@@ -96,7 +96,7 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }
-        Text("Deleting a layer moves its items to the layer beneath it. Hidden layers are left out of exports.",
+        Text("Deleting a layer moves its items to the layer beneath it. Hidden layers are left out of exports. Show and unlock a layer before drawing on it.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = FolioSpacing.dp8))
     }
