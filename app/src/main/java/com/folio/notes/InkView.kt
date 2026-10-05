@@ -38,7 +38,7 @@ class InkView(context: Context) : View(context) {
             // A half-finished text gesture belongs to the text tool.
             if (value != Tool.TEXT) { movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f }
             // A half-dragged picture belongs to the hand tool.
-            if (value != Tool.HAND) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null }
+            if (value != Tool.HAND) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; endImageCrop(false); clearImageSelection() }
         }
     var inkColor = Color.rgb(47, 49, 47)
     var inkWidth = 3f
@@ -678,7 +678,7 @@ class InkView(context: Context) : View(context) {
     }
     // A dense page's raster is built on a worker; its arrival just needs the view drawn again.
     private val committedInk = CommittedInkCache(onRasterReady = { invalidate() })
-    private val navigationInk = CommittedInkCache(maxPixels = 1_100_000L)
+    private val navigationInk = CommittedInkCache(maxPixels = NAVIGATION_INK_MAX_PIXELS)
     private val zoomRenderState = ZoomRenderState()
     private val navigationBounds = android.graphics.Rect()
     private val requiredInkBounds = android.graphics.Rect()
@@ -795,8 +795,10 @@ class InkView(context: Context) : View(context) {
             // Overscan reduces rebuilds when panning or zooming out on an unbounded canvas.
             navigationBounds.inset(-requiredInkBounds.width() / 2, -requiredInkBounds.height() / 2)
         }
-        val longest = max(navigationBounds.width(), navigationBounds.height()).coerceAtLeast(1)
-        val previewScale = min(scale, 1024f / longest)
+        // Resolution follows an area budget rather than a longest-side cap, so a viewport-sized
+        // preview stays close to screen sharpness and only an overscanned or huge area softens.
+        val area = (navigationBounds.width().toDouble() * navigationBounds.height()).coerceAtLeast(1.0)
+        val previewScale = min(scale, kotlin.math.sqrt(NAVIGATION_INK_PIXEL_BUDGET / area).toFloat())
         // Preview trades taper detail for one draw per stroke so a dense page pans at rate;
         // the settled frame below repaints full detail after 90ms without motion.
         navigationInk.draw(canvas, content.strokes, previewScale, ::boundsOf, ::renderedOf,
@@ -806,6 +808,7 @@ class InkView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         removeCallbacks(followFrame)
         removeCallbacks(reportMeasurement)
+        removeCallbacks(longPressRunnable)
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
@@ -936,7 +939,8 @@ class InkView(context: Context) : View(context) {
             (liveImage?.takeIf { it.id == id } ?: placed.images.find { it.id == id })
                 ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         }
-        outlined?.let { drawImageSelection(canvas, it) }
+        outlined?.let { if (cropImageId == null) drawImageSelection(canvas, it) }
+        cropImageId?.let { id -> placed.images.find { it.id == id } }?.let { drawCropOverlay(canvas, it) }
         val areas = (if (showAnswerAreas) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
         if (areas.isNotEmpty()) {
             // A constant on-screen dash and width, whatever the zoom: sized in dp and divided by the canvas scale.
@@ -1037,6 +1041,10 @@ class InkView(context: Context) : View(context) {
         }
         // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
         if ((0 until event.pointerCount).any { isStylus(event, it) }) lastStylusAt = SystemClock.uptimeMillis()
+        if (longPressFired && event.actionMasked != MotionEvent.ACTION_DOWN) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) longPressFired = false
+            return true
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 dismissZone()
@@ -1057,7 +1065,18 @@ class InkView(context: Context) : View(context) {
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
                 panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
-                if (!readOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
+                longPressFired = false
+                removeCallbacks(longPressRunnable)
+                if (!stylus && !ignored && !readOnly && !inputBlocked) {
+                    longPressX = event.x; longPressY = event.y
+                    postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                }
+                tapOffX = event.x; tapOffY = event.y
+                tapOff = false
+                if (cropImageId != null && !readOnly && tool == Tool.HAND && !ignored) {
+                    if (beginCrop(event, 0)) navigating = false
+                    else tapOff = !cropFrameContains(point(event, 0))
+                } else if (!readOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
                     navigating = false
                 } else if (tool == Tool.HAND && !ignored && beginLink(event, 0)) {
                     navigating = false
@@ -1068,9 +1087,11 @@ class InkView(context: Context) : View(context) {
                 else if (!navigating && !ignored) beginStroke(event, 0)
                 // Pen-only mode is where a finger means "navigate", so a hand that has not travelled
                 // yet is left where it is. The pen takes the gesture over the moment its tip lands.
+                if (cropImageId == null) tapOff = !readOnly && tool == Tool.HAND && !ignored && selectedImageId != null && movingImage == null
                 panGate.arm(navigating && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                removeCallbacks(longPressRunnable); tapOff = false
                 if (isStylus(event, event.actionIndex)) {
                     // The stylus landed over an in-progress palm stroke: drop it and follow the stylus.
                     pointerId = event.getPointerId(event.actionIndex)
@@ -1097,6 +1118,7 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
+                if (hypot(event.x - longPressX, event.y - longPressY) > ViewConfiguration.get(context).scaledTouchSlop) removeCallbacks(longPressRunnable)
                 // A stroke or eraser still in progress is work, even when the pen never lifts.
                 if (draft != null || erasing != null) onPenInput(false)
                 if (pendingLink != null) {
@@ -1122,7 +1144,8 @@ class InkView(context: Context) : View(context) {
                         } else beginStroke(event, index)
                     }
                 }
-                if (movingImage != null) {
+                if (cropEdges != 0) dragCrop(point(event, index))
+                else if (movingImage != null) {
                     val at = point(event, index)
                     val current = movingImage!!
                     if (resizingImage) {
@@ -1303,6 +1326,14 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
+                removeCallbacks(longPressRunnable)
+                cropEdges = 0
+                if (tapOff) {
+                    tapOff = false
+                    if (hypot(event.x - tapOffX, event.y - tapOffY) <= ViewConfiguration.get(context).scaledTouchSlop) {
+                        if (cropImageId != null) endImageCrop(true) else clearImageSelection()
+                    }
+                }
                 val chord = touchChord.finish(event.eventTime)
                 if (chord != 0) {
                     cancelGesture()
@@ -1349,7 +1380,7 @@ class InkView(context: Context) : View(context) {
                 }
                 performClick()
             }
-            MotionEvent.ACTION_CANCEL -> { touchChord.reset(); cancelGesture() }
+            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPressRunnable); tapOff = false; touchChord.reset(); cancelGesture() }
         }
         reportSelectionViewBounds()
         if (!dirtyInvalidated) invalidate()
@@ -1561,6 +1592,125 @@ class InkView(context: Context) : View(context) {
         return true
     }
 
+    // ---- Inline crop: insets of the displayed frame, applied to the photo when the crop ends. ----
+    /** Called when crop mode starts or ends so the editor can swap the picture menu for Done/Cancel. */
+    var onCropMode: (Boolean) -> Unit = {}
+    private var cropImageId: String? = null
+    private val cropInset = FloatArray(4)
+    private var cropEdges = 0
+    private var tapOff = false
+    private var tapOffX = 0f; private var tapOffY = 0f
+    private val cropScrimPaint = Paint().apply { color = Color.argb(120, 0, 0, 0); style = Paint.Style.FILL }
+    private val cropFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE }
+
+    private fun cropImage(): PageImage? = cropImageId?.let { id -> page.images.find { it.id == id } }
+    private fun cropMinShare(image: PageImage) = max(0.1f, PageImage.MIN_CROP_SPAN / min(image.cropWidth(), image.cropHeight()).coerceAtLeast(0.05f))
+    private fun cropFrameContains(at: InkPoint): Boolean {
+        val image = cropImage() ?: return false
+        return at.x in (image.x + cropInset[0] * image.width)..(image.x + (1f - cropInset[2]) * image.width) &&
+            at.y in (image.y + cropInset[1] * image.height)..(image.y + (1f - cropInset[3]) * image.height)
+    }
+
+    /** Starts cropping the selected picture directly on the page. */
+    fun beginImageCrop() {
+        val id = selectedImageId ?: return
+        if (readOnly || cropImageId == id) return
+        cropImageId = id; cropEdges = 0; cropInset.fill(0f)
+        onCropMode(true); invalidate()
+    }
+
+    /** Leaves crop mode, trimming the photo to the frame when [apply] is set. */
+    fun endImageCrop(apply: Boolean) {
+        val image = cropImage()
+        val inset = cropInset.copyOf()
+        if (cropImageId == null) return
+        cropImageId = null; cropEdges = 0
+        onCropMode(false)
+        if (apply && image != null) {
+            val cw = image.cropWidth(); val ch = image.cropHeight()
+            var l = image.cropLeft; var t = image.cropTop; var r = image.cropRight; var b = image.cropBottom
+            val (il, it, ir, ib) = inset.toList()
+            // Displayed edges map to photo edges according to the picture's rotation.
+            when (image.normalizedRotation()) {
+                0 -> { l += il * cw; r -= ir * cw; t += it * ch; b -= ib * ch }
+                90 -> { l += it * cw; t += ir * ch; r -= ib * cw; b -= il * ch }
+                180 -> { l += ir * cw; r -= il * cw; t += ib * ch; b -= it * ch }
+                else -> { r -= it * cw; b -= ir * ch; l += ib * cw; t += il * ch }
+            }
+            val cropped = image.withCrop(l, t, r, b)
+            if (cropped != image) {
+                // Keep the kept part where it was instead of shrinking about the centre.
+                val placed = cropped.copy(x = image.x + il * image.width, y = image.y + it * image.height)
+                val images = page.images.map { if (it.id == image.id) placed else it }
+                page = page.copy(images = images)
+                onImagesChanged(images)
+            }
+        }
+        reportSelectionViewBounds(); invalidate()
+    }
+
+    private fun beginCrop(event: MotionEvent, index: Int): Boolean {
+        val image = cropImage() ?: return false
+        val at = point(event, index)
+        val reach = SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit()
+        val l = image.x + cropInset[0] * image.width; val r = image.x + (1f - cropInset[2]) * image.width
+        val t = image.y + cropInset[1] * image.height; val b = image.y + (1f - cropInset[3]) * image.height
+        val inY = at.y > t - reach && at.y < b + reach
+        val inX = at.x > l - reach && at.x < r + reach
+        var edges = 0
+        if (inY && abs(at.x - l) <= reach) edges = edges or 1
+        if (inY && abs(at.x - r) <= reach && (edges and 1 == 0 || abs(at.x - r) < abs(at.x - l))) edges = (edges and 1.inv()) or 4
+        if (inX && abs(at.y - t) <= reach) edges = edges or 2
+        if (inX && abs(at.y - b) <= reach && (edges and 2 == 0 || abs(at.y - b) < abs(at.y - t))) edges = (edges and 2.inv()) or 8
+        cropEdges = edges
+        return edges != 0
+    }
+
+    private fun dragCrop(at: InkPoint) {
+        val image = cropImage() ?: return
+        val min = cropMinShare(image)
+        if (cropEdges and 1 != 0) cropInset[0] = ((at.x - image.x) / image.width).coerceIn(0f, 1f - cropInset[2] - min)
+        if (cropEdges and 4 != 0) cropInset[2] = ((image.x + image.width - at.x) / image.width).coerceIn(0f, 1f - cropInset[0] - min)
+        if (cropEdges and 2 != 0) cropInset[1] = ((at.y - image.y) / image.height).coerceIn(0f, 1f - cropInset[3] - min)
+        if (cropEdges and 8 != 0) cropInset[3] = ((image.y + image.height - at.y) / image.height).coerceIn(0f, 1f - cropInset[1] - min)
+    }
+
+    private fun drawCropOverlay(canvas: Canvas, image: PageImage) {
+        val unit = selectionUiUnit(preview = true)
+        val l = image.x + cropInset[0] * image.width; val r = image.x + (1f - cropInset[2]) * image.width
+        val t = image.y + cropInset[1] * image.height; val b = image.y + (1f - cropInset[3]) * image.height
+        val x2 = image.x + image.width; val y2 = image.y + image.height
+        canvas.drawRect(image.x, image.y, x2, t, cropScrimPaint)
+        canvas.drawRect(image.x, b, x2, y2, cropScrimPaint)
+        canvas.drawRect(image.x, t, l, b, cropScrimPaint)
+        canvas.drawRect(r, t, x2, b, cropScrimPaint)
+        cropFramePaint.strokeWidth = 1.5f * unit
+        canvas.drawRect(l, t, r, b, cropFramePaint)
+        val mx = (l + r) / 2f; val my = (t + b) / 2f
+        val radius = SelectionChrome.HANDLE_RADIUS_DP * unit
+        imageHandleEdgePaint.strokeWidth = unit
+        listOf(l to t, r to t, l to b, r to b, mx to t, mx to b, l to my, r to my).forEach { (cx, cy) ->
+            canvas.drawCircle(cx, cy, radius, imageHandlePaint)
+            canvas.drawCircle(cx, cy, radius, imageHandleEdgePaint)
+        }
+    }
+
+    // ---- Finger long-press: the editor offers a page context menu (paste, select all, ...). ----
+    /** Window position of the press and the page point under it. */
+    var onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> }
+    private var longPressFired = false
+    private var longPressX = 0f; private var longPressY = 0f
+    private val longPressRunnable = Runnable {
+        if (stylus || ignored || readOnly || movingSelection || resizingSelection || rotatingSelection || resizingImage || imageMoved || cropEdges != 0) return@Runnable
+        longPressFired = true
+        // The held finger may have started a dot, an eraser pass or a lasso: drop them, it was a hold.
+        cancelGesture()
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        val at = IntArray(2); getLocationInWindow(at)
+        onLongPress(at[0] + longPressX, at[1] + longPressY, InkPoint((longPressX - originX) / scale, (longPressY - originY) / scale))
+        invalidate()
+    }
+
     private fun corners(image: PageImage) = arrayOf(
         image.x to image.y, (image.x + image.width) to image.y,
         (image.x + image.width) to (image.y + image.height), image.x to (image.y + image.height))
@@ -1654,7 +1804,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -2049,6 +2199,9 @@ class InkView(context: Context) : View(context) {
         const val SCRIBBLE_RADIUS = 14f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
+        /** Preview raster budget (~2.4 MP, ~10 MB); the cache cap sits just above so rounding never falls back to vector. */
+        const val NAVIGATION_INK_PIXEL_BUDGET = 2_400_000.0
+        const val NAVIGATION_INK_MAX_PIXELS = 2_600_000L
         /**
          * Geometry caches hold a dense page's live strokes without thrashing: LRU keeps the
          * visible working set resident while panning, and 8k entries cover ~2× the old bound

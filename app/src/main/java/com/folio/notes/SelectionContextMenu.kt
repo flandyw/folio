@@ -1,10 +1,14 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.automirrored.rounded.RotateLeft
 import androidx.compose.material.icons.automirrored.rounded.RotateRight
 import androidx.compose.material.icons.rounded.*
@@ -24,7 +28,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
 /** A nonmodal popup: only the bar receives input, so canvas taps and stylus gestures still work. */
 @Composable internal fun SelectionContextPopup(
-    anchor: Rect?, pageFrame: Rect?, viewport: Rect?, content: @Composable (Dp) -> Unit
+    anchor: Rect?, pageFrame: Rect?, viewport: Rect?, tightGap: Boolean = false, content: @Composable (Dp) -> Unit
 ) {
     if (anchor == null || pageFrame == null) return
     val visibleViewport = viewport ?: pageFrame
@@ -34,7 +38,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     if (selection.intersect(visibleViewport.menuRect()) == null) return
     val density = LocalDensity.current
     val margin = with(density) { 8.dp.toPx() }
-    val aboveGap = with(density) { 48.dp.toPx() }
+    val aboveGap = with(density) { (if (tightGap) 12.dp else 48.dp).toPx() }
     val belowGap = with(density) { 16.dp.toPx() }
     val availableWidth = with(density) { (visibleViewport.width - margin * 2).coerceAtLeast(0f).toDp() }
     if (availableWidth < 56.dp || with(density) { visibleViewport.height.toDp() } < 64.dp) return
@@ -112,24 +116,82 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     cropped: Boolean, onRotateLeft: () -> Unit, onRotateRight: () -> Unit, onCrop: () -> Unit,
     onFullPhoto: () -> Unit, onFront: () -> Unit, onBack: () -> Unit, onDelete: () -> Unit
 ) {
-    var overflow by remember { mutableStateOf(false) }
+    // Extra actions expand inline: a dropdown inside this non-focusable popup is placed against the wrong window.
+    var more by remember { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
-            SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
-            SelectionAction(Icons.Rounded.Crop, "Crop", onClick = onCrop)
-            SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
-            Box {
-                SelectionAction(Icons.Rounded.MoreHoriz, "More picture options") { overflow = !overflow }
-                DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                    if (cropped) DropdownMenuItem({ Text("Show full photo") }, { overflow = false; onFullPhoto() }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
-                    DropdownMenuItem({ Text("Bring to front") }, { overflow = false; onFront() }, leadingIcon = { Icon(Icons.Rounded.FlipToFront, null) })
-                    DropdownMenuItem({ Text("Send to back") }, { overflow = false; onBack() }, leadingIcon = { Icon(Icons.Rounded.FlipToBack, null) })
-                }
+        Column(Modifier.padding(horizontal = 4.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
+                SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
+                SelectionAction(Icons.Rounded.Crop, "Crop", onClick = onCrop)
+                SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
+                SelectionAction(Icons.Rounded.MoreHoriz, "More picture options") { more = !more }
+            }
+            if (more) Row(verticalAlignment = Alignment.CenterVertically) {
+                if (cropped) SelectionAction(Icons.Rounded.RestartAlt, "Show full photo", onClick = onFullPhoto)
+                SelectionAction(Icons.Rounded.FlipToFront, "Bring to front", onClick = onFront)
+                SelectionAction(Icons.Rounded.FlipToBack, "Send to back", onClick = onBack)
             }
         }
+    }
+}
+
+/** Shown while a picture is being cropped on the page: the frame is dragged in place, this ends it. */
+@Composable internal fun CropContextMenu(onApply: () -> Unit, onCancel: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.guardUiTouches().semanticsLabel("Crop options")) {
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            SelectionAction(Icons.Rounded.Close, "Cancel crop", onClick = onCancel)
+            SelectionAction(Icons.Rounded.Check, "Apply crop", onClick = onApply)
+        }
+    }
+}
+
+/** Finger long-press menu on the page itself; opens above the press, or below when there is no room. */
+@Composable internal fun PageContextMenu(
+    windowX: Float, windowY: Float, onPaste: () -> Unit, onSelectAll: () -> Unit, onText: () -> Unit, onImage: () -> Unit,
+    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit
+) {
+    val gap = with(LocalDensity.current) { 16.dp.toPx() }
+    val provider = remember(windowX, windowY, gap) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+                layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                val x = (windowX - popupContentSize.width / 2f).coerceIn(gap, (windowSize.width - popupContentSize.width - gap).coerceAtLeast(gap))
+                val above = windowY - popupContentSize.height - gap * 2
+                val y = if (above >= gap) above else windowY + gap * 2
+                return IntOffset(x.toInt(), y.toInt().coerceAtMost((windowSize.height - popupContentSize.height).coerceAtLeast(0)))
+            }
+        }
+    }
+    fun run(action: () -> Unit) { onDismiss(); action() }
+    Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.width(200.dp).semanticsLabel("Page options")) {
+            Column(Modifier.padding(vertical = 4.dp)) {
+                PageMenuRow(Icons.Rounded.ContentPaste, "Paste", true) { run(onPaste) }
+                PageMenuRow(Icons.Rounded.TextFields, "Add text here", true) { run(onText) }
+                PageMenuRow(Icons.Rounded.Image, "Insert image", true) { run(onImage) }
+                PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
+                HorizontalDivider()
+                PageMenuRow(Icons.AutoMirrored.Rounded.Undo, "Undo", canUndo) { run(onUndo) }
+                PageMenuRow(Icons.AutoMirrored.Rounded.Redo, "Redo", canRedo) { run(onRedo) }
+            }
+        }
+    }
+}
+
+@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(icon, null, Modifier.size(20.dp), tint = tint)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = tint)
     }
 }

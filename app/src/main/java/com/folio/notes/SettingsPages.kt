@@ -41,7 +41,7 @@ internal class BackupSettings(
     val progress: String? = null,
 )
 
-internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean)
+internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit)
 
 private fun <E : Enum<E>> readEnum(raw: String?, fallback: E, values: Array<E>): E = values.firstOrNull { it.name == raw } ?: fallback
 
@@ -464,5 +464,6 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             if (a.updateChecking) "Checking…" else if (experimental) "Check Folio server" else "Check for updates", onClick = a.onCheckForUpdates, enabled = !a.updateBusy,
             trailing = if (a.updateChecking) ({ LoadingIndicator(Modifier.size(24.dp)) }) else null,
         )
+        a.updateContent()
     }
 }

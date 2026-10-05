@@ -378,7 +378,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by remember { mutableStateOf("") }
     var stampPicker by remember { mutableStateOf(false) }
-    var layersPanel by remember { mutableStateOf(false) }
+    var layersPopover by remember { mutableStateOf(false) }
     // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
     var markingPanel by remember { mutableStateOf(false) }
     var markingDock by rememberSaveable { mutableStateOf(false) }
@@ -412,8 +412,10 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectedImage by remember { mutableStateOf<Pair<String, PageImage>?>(null) }
     LaunchedEffect(page.id) { if (selectedImage?.first != page.id) selectedImage = null }
     // The picture being cropped; separate from the selection so the panel stays put underneath.
-    var croppingImage by remember { mutableStateOf<PageImage?>(null) }
-    LaunchedEffect(page.id) { croppingImage = null }
+    var cropActive by remember { mutableStateOf(false) }
+    LaunchedEffect(page.id) { cropActive = false }
+    var pageMenu by remember { mutableStateOf<Triple<Float, Float, InkPoint>?>(null) }
+    LaunchedEffect(page.id) { pageMenu = null }
     fun rememberTextLook(box: TextBox) {
         textSize = box.size; textColor = box.color; textBold = box.bold; textItalic = box.italic
         textAlign = box.align; textUnderline = box.underline
@@ -758,11 +760,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
                 val live = page.images.find { it.id == picked.id }
                 if (live == null) null else { _ ->
-                    PictureContextMenu(
+                    if (cropActive) CropContextMenu(
+                        onApply = { activeInkView?.endImageCrop(true) },
+                        onCancel = { activeInkView?.endImageCrop(false) }
+                    ) else PictureContextMenu(
                         cropped = live.isCropped(),
                         onRotateLeft = { model.rotateImageCounterClockwise(live.id) },
                         onRotateRight = { model.rotateImageClockwise(live.id) },
-                        onCrop = { croppingImage = live },
+                        onCrop = { activeInkView?.beginImageCrop() },
                         onFullPhoto = { model.resetImageCrop(live.id) },
                         onFront = { model.bringImageToFront(live.id) },
                         onBack = { model.sendImageToBack(live.id) },
@@ -779,6 +784,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
+                    onCropMode = { cropActive = it }, onLongPress = { x, y, at -> pageMenu = Triple(x, y, at) },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
@@ -911,6 +917,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onTextCreate = ::placeTextBox,
                                 onLoad = { model.loadPage(item.id) }, activeLayer = model.activeLayerOf(item),
                                 selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
+                                onCropMode = { if (item.id == page.id) cropActive = it },
+                                onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
                                 onImageSelected = { image ->
                                     selectedImage = image?.let { item.id to it }
                                 },
@@ -1199,13 +1207,13 @@ private fun paperLabel(p: Paper): String = when (p) {
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
-                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6)
-                    .onSizeChanged { floatingToolbarTop = with(density) { it.height.toDp() } + 8.dp },
+                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 FloatingInkToolbar(
                     modifier = Modifier,
+                    onMainHeight = { floatingToolbarTop = with(density) { it.toDp() } + 8.dp },
                     tool = tool,
                     onTool = { selectTool(it) },
                     options = options,
@@ -1272,7 +1280,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onFitAll = if (page.infinite) ::fitAllContent else null,
                             onAdd = ::addPage,
                             onSearch = { noteQuery = ""; noteSearchOpen = true },
-                            onLayers = { layersPanel = true },
+                            onLayers = { layersPopover = true },
+                            layersPopover = {
+                                if (layersPopover) LayersPopover(page, model.activeLayerOf(page), selected.size, model,
+                                    onMoveSelection = { layer -> model.moveSelectionToLayer(selected, layer) },
+                                    onDismiss = { layersPopover = false })
+                            },
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = onExport,
@@ -1558,17 +1571,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         )
     }
-    croppingImage?.let { target ->
-        val live = note.pages.find { it.id == page.id }?.images?.find { it.id == target.id } ?: target
-        ImageCropDialog(
-            image = live,
-            onDismiss = { croppingImage = null },
-            onReset = { model.resetImageCrop(live.id); croppingImage = null },
-            onApply = { left, top, right, bottom ->
-                model.cropImage(live.id, left, top, right, bottom)
-                croppingImage = null
-            }
-        )
+    pageMenu?.let { (wx, wy, at) ->
+        PageContextMenu(wx, wy,
+            onPaste = { model.pasteClipboard(at) },
+            onSelectAll = ::selectAllInk,
+            onText = { placeTextBox(at) },
+            onImage = { imagePicker.launch(arrayOf("image/*")) },
+            canUndo = state.canUndo, canRedo = state.canRedo, onUndo = model::undo, onRedo = model::redo,
+            onDismiss = { pageMenu = null })
     }
     if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
         // Search runs off the main thread with a debounce so typing never janks composition.
@@ -1649,9 +1659,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         onFeedbackActions = { markingPanel = false; feedbackActions = true },
         onDismiss = { markingPanel = false }
     )
-    if (layersPanel) LayersPanel(page, model.activeLayerOf(page), selected.size, model,
-        onMoveSelection = { layer -> model.moveSelectionToLayer(selected, layer) },
-        onDismiss = { layersPanel = false })
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
@@ -1945,6 +1952,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     onSelectionAnchor: (Rect?) -> Unit = {},
     markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR,
     onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
+    onCropMode: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
     DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
@@ -2013,7 +2021,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val imageKey = remember(page.id, page.loaded, page.images.size) {
         page.images.fold(0) { acc, img -> 31 * acc + img.id.hashCode() }
     }
-    LaunchedEffect(noteId, page.id, page.loaded, imageKey) {
+    val imageFiles by model.imageFiles.collectAsState()
+    LaunchedEffect(noteId, page.id, page.loaded, imageKey, imageFiles) {
         if (!page.loaded) return@LaunchedEffect
         if (page.images.isEmpty()) {
             pictures = emptyMap()
@@ -2082,6 +2091,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
                 view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
                 view.onImageSelected = onImageSelected
+                view.onCropMode = onCropMode; view.onLongPress = onLongPress
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
@@ -2111,13 +2121,14 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 onDismiss = { offeredZone = null })
         }
         if (selectionMenu != null && page.loaded && ready) {
-            SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, selectionMenu)
+            SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, tightGap = selectedImageId != null, content = selectionMenu)
         }
     }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun FloatingInkToolbar(
+    onMainHeight: (Int) -> Unit = {},
     modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState,
     canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: (Boolean) -> Unit, onPalette: (Boolean) -> Unit,
     eraserSingleStroke: Boolean = false, onEraserSingleStroke: ((Boolean) -> Unit)? = null,
@@ -2424,6 +2435,10 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     Column(modifier.guardUiTouches().fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        // Only the header and main strip reserve space; the quick bar floats over the page so
+        // toggling it never moves the document.
+        Column(Modifier.onSizeChanged { onMainHeight(it.height) }, horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         header {
         BoxWithConstraints {
         val compactTools = maxWidth < 360.dp
@@ -2436,6 +2451,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
         ) {
             Row(Modifier.padding(horizontal = FolioSpacing.dp6, vertical = FolioSpacing.dp2).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) { controls(compactTools) }
+        }
         }
         }
         }
@@ -2991,60 +3007,6 @@ private enum class ToolSub { PRESETS, TOOL }
             }
         }
     )
-}
-
-/**
- * Trims a picture to part of its photo. Edges are shares of the original (0–100%); the frame
- * rescales about its centre so the visible photo never stretches. Nothing is rewritten on disk,
- * so every crop undoes cleanly and the full photo returns with one tap.
- */
-@Composable private fun ImageCropDialog(
-    image: PageImage,
-    onDismiss: () -> Unit,
-    onReset: () -> Unit,
-    onApply: (Float, Float, Float, Float) -> Unit
-) {
-    var left by remember(image.id, image.cropLeft) { mutableFloatStateOf(image.cropLeft) }
-    var top by remember(image.id, image.cropTop) { mutableFloatStateOf(image.cropTop) }
-    var right by remember(image.id, image.cropRight) { mutableFloatStateOf(image.cropRight) }
-    var bottom by remember(image.id, image.cropBottom) { mutableFloatStateOf(image.cropBottom) }
-    val valid = PageImage.isValidCrop(left, top, right, bottom)
-    val changed = left != image.cropLeft || top != image.cropTop || right != image.cropRight || bottom != image.cropBottom
-    FolioPanel(title = "Crop picture", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Text("Drag each edge inward to keep only that part. The picture on the page shrinks about its centre to match.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (image.normalizedRotation() != 0) {
-                Text("Rotated ${image.normalizedRotation()}° · edges refer to the unrotated photo.",
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            @Composable fun edgeRow(label: String, value: Float, onValue: (Float) -> Unit) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
-                    Slider(value, onValue, valueRange = 0f..1f, modifier = Modifier.weight(1f))
-                    Text("${(value * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-                }
-            }
-            edgeRow("Left", left) { left = it.coerceIn(0f, (right - PageImage.MIN_CROP_SPAN).coerceAtLeast(0f)) }
-            edgeRow("Top", top) { top = it.coerceIn(0f, (bottom - PageImage.MIN_CROP_SPAN).coerceAtLeast(0f)) }
-            edgeRow("Right", right) { right = it.coerceIn((left + PageImage.MIN_CROP_SPAN).coerceAtMost(1f), 1f) }
-            edgeRow("Bottom", bottom) { bottom = it.coerceIn((top + PageImage.MIN_CROP_SPAN).coerceAtMost(1f), 1f) }
-            if (valid) {
-                val visibleW = ((right - left) * 100).roundToInt()
-                val visibleH = ((bottom - top) * 100).roundToInt()
-                Text("Visible $visibleW% × $visibleH% of the photo.",
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Text("That rectangle is too small — keep at least 5% visible each way.",
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                if (image.isCropped()) TextButton(onReset, shapes = ButtonDefaults.shapes()) { Text("Full photo") }
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ onApply(left, top, right, bottom) }, enabled = valid && changed, shapes = ButtonDefaults.shapes()) { Text("Crop") }
-            }
-        }
-    }
 }
 
 /** One gesture recognizer owns both actions, so holding never also adds a page. */

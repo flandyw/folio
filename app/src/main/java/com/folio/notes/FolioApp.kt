@@ -42,7 +42,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -131,27 +130,12 @@ import java.io.File
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
-    val updateChecker = remember(context) { FolioUpdateChecker(context.applicationContext) }
+    val updates = remember(context) { (context.applicationContext as FolioApplication).updates }
+    val updateState by updates.state.collectAsStateWithLifecycle()
     val experimentalUpdates by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
         it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
     }
-    val updateScope = rememberCoroutineScope()
-    var updateInfo by remember { mutableStateOf<FolioUpdate?>(null) }
-    var updateReady by remember { mutableStateOf<Uri?>(null) }
-    var updateChecking by remember { mutableStateOf(false) }
-    var updateDownloading by remember { mutableStateOf(false) }
-    var updateDialog by remember { mutableStateOf(false) }
-    var updateMessage by remember { mutableStateOf<String?>(null) }
-    var updateFailure by remember { mutableStateOf(false) }
-    LaunchedEffect(experimentalUpdates) {
-        updateInfo = null
-        updateReady = null
-        updateMessage = null
-        updateFailure = false
-        updateDialog = false
-    }
-    val updateProgressFlow = remember { MutableStateFlow(0) }
-    val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(experimentalUpdates) { updates.sourceChanged(experimentalUpdates) }
     val snackbar = remember { SnackbarHostState() }
     val focalState by (context.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
     // Not saveable on purpose: the counter lives in the manager and restarts at zero with the
@@ -336,110 +320,34 @@ import java.io.File
         prefs.edit().putBoolean("penHaptics", allowed).apply()
         if (!allowed) model.reportError("Pen haptics need Bluetooth permission")
     }
-    fun installUpdate(uri: Uri) {
+    fun installUpdate() {
+        val ready = updateState.ready ?: return
+        if (!ready.file.isFile) {
+            updates.discard()
+            updates.message("The downloaded update is missing. Download it again.")
+            return
+        }
         if (!context.packageManager.canRequestPackageInstalls()) {
-            updateReady = uri
-            updateMessage = "Allow Folio to install updates, then tap Install update again."
-            updateDialog = true
+            updates.message("Allow Folio to install updates, then tap Install update again.")
             runCatching {
                 context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
-            }.onFailure {
-                updateMessage = "Open Android settings to allow Folio to install updates."
-            }
+            }.onFailure { updates.message("Open Android settings to allow Folio to install updates.") }
             return
         }
         try {
-            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            })
-            updateReady = null
-            updateDialog = false
-        } catch (_: ActivityNotFoundException) {
-            updateMessage = "Android could not open the downloaded update."
-            updateFailure = true
-            updateDialog = true
-        }
-    }
-    fun downloadUpdate(update: FolioUpdate) {
-        if (updateDownloading) return
-        updateDownloading = true
-        updateMessage = null
-        updateFailure = false
-        updateProgressFlow.value = 0
-        updateDialog = true
-        updateScope.launch {
-            try {
-                val file = withContext(Dispatchers.IO) {
-                    updateChecker.download(update) { updateProgressFlow.tryEmit(it) }
-                }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-                updateReady = uri
-                installUpdate(uri)
-            } catch (error: Exception) {
-                updateMessage = error.message ?: "The update could not be downloaded."
-                updateFailure = true
-                updateDialog = true
-            } finally {
-                updateDownloading = false
-            }
-        }
-    }
-    fun checkForUpdates(showDialog: Boolean) {
-        if (updateChecking || updateDownloading) return
-        // The unauthenticated 60/hour quota is shared by everyone on this IP.
-        // Manual retries must honour the server cooldown too.
-        val now = System.currentTimeMillis()
-        val experimental = experimentalUpdates
-        val retryKey = AppPrefs.updateRetryAtKey(experimental)
-        val lastCheckKey = AppPrefs.lastUpdateCheckKey(experimental)
-        val retryAt = prefs.getLong(retryKey, 0L)
-        if (retryAt > now) {
-            if (showDialog) {
-                updateInfo = null
-                updateMessage = "Update check paused · try again in ${((retryAt - now) + 59_999) / 60_000} min"
-                updateFailure = false
-                updateDialog = true
-            }
-            return
-        }
-        if (!showDialog && !shouldAutoUpdateCheck(now, prefs.getLong(lastCheckKey, 0L))) return
-        updateChecking = true
-        updateInfo = null
-        updateReady = null
-        updateMessage = null
-        updateFailure = false
-        updateDialog = showDialog
-        updateScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) { updateChecker.check(experimental) }
-                prefs.edit().putLong(lastCheckKey, System.currentTimeMillis())
-                    .remove(retryKey).apply()
-                updateInfo = result
-                if (result != null) updateDialog = true
-                else if (showDialog) updateMessage = if (experimental) "No newer experimental build is available." else "You’re up to date."
-            } catch (error: Exception) {
-                // Rate-limit cooldown applies even to manual checks. Other failures only
-                // throttle automatic retries, so users can retry after restoring connectivity.
-                val rateRetry = (error as? UpdateHttpException)?.retryAtMillis
-                if (rateRetry != null) prefs.edit().putLong(retryKey, rateRetry).apply()
-                else if (!showDialog) prefs.edit().putLong(lastCheckKey,
-                    System.currentTimeMillis() - AUTO_UPDATE_CHECK_INTERVAL_MILLIS + UPDATE_FAILURE_RETRY_MILLIS).apply()
-                if (showDialog) {
-                    updateMessage = error.message ?: "Could not check for updates."
-                    updateFailure = true
-                    updateDialog = true
-                }
-            } finally {
-                updateChecking = false
-            }
+            commitUpdateSession(context, ready.file)
+            updates.message("Installing Folio ${ready.update.versionName}…")
+            // Keep the APK if the install is cancelled. The next app start removes installed builds.
+        } catch (_: Exception) {
+            updates.message("Android could not install the downloaded update.")
         }
     }
     // Deferred past first paint + library load so cold start never competes with a network fetch.
     LaunchedEffect(autoUpdate, experimentalUpdates) {
         if (!autoUpdate) return@LaunchedEffect
+        updates.awaitReady()
         kotlinx.coroutines.delay(3000)
-        checkForUpdates(showDialog = false)
+        updates.check(experimentalUpdates, manual = false)
     }
     LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
     LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
@@ -453,6 +361,13 @@ import java.io.File
         // The shared library/mistakes shell owns safe edges; nested app bars consume them.
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
+            bottomBar = {
+                if (!settings && (updateState.downloading != null || updateState.ready != null || updateState.downloadCandidate != null)) {
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.navigationBarsPadding()) {
+                        UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard)
+                    }
+                }
+            },
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
             // Full screen hides the status bar, so its inset is zero. Screens without a top bar of
@@ -552,9 +467,10 @@ import java.io.File
                         else if (PenHapticsManager.isSupported(context)) hapticPermissions.launch(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT))
                     },
                     shapeRecognition, { shapeRecognition = it; prefs.edit().putBoolean("shapeRecognition", it).apply() },
-                    onCheckForUpdates = { checkForUpdates(showDialog = true) },
-                    updateChecking = updateChecking,
-                    updateBusy = updateChecking || updateDownloading,
+                    onCheckForUpdates = { updates.check(experimentalUpdates, manual = true) },
+                    updateChecking = updateState.checking,
+                    updateBusy = updateState.busy,
+                    updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
@@ -642,36 +558,7 @@ import java.io.File
                 onPdfModeChange = ::rememberPdfMode
             )
         }
-        if (updateDialog) AlertDialog(
-        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
-        modifier = Modifier.guardUiTouches(),
-            onDismissRequest = { if (!updateChecking && !updateDownloading) updateDialog = false },
-            title = { Text(if (updateInfo != null) "Folio update available" else "App updates") },
-            text = {
-                when {
-                    updateChecking -> Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                        LoadingIndicator(Modifier.size(24.dp))
-                        Text("Checking GitHub releases…")
-                    }
-                    updateDownloading -> Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                        Text("Downloading and verifying Folio ${updateInfo?.versionName ?: "update"}…")
-                        LinearProgressIndicator(progress = { updateProgress / 100f }, modifier = Modifier.fillMaxWidth())
-                        Text("$updateProgress%", style = MaterialTheme.typography.labelMedium)
-                    }
-                    updateReady != null -> Text(updateMessage ?: "The update is ready to install.")
-                    updateInfo != null -> Text("Folio ${updateInfo!!.versionName}${if (experimentalUpdates) " (experimental)" else ""} is ready. Download it and Android will verify the existing release signature before installing.")
-                    else -> Text(updateMessage ?: "No update information available.")
-                }
-            },
-            dismissButton = { if (!updateChecking && !updateDownloading) TextButton({ updateDialog = false }, shapes = ButtonDefaults.shapes()) { Text("Later") } },
-            confirmButton = {
-                when {
-                    updateReady != null && !updateDownloading -> Button({ installUpdate(updateReady!!) }, shapes = ButtonDefaults.shapes()) { Text("Install update") }
-                    updateInfo != null && !updateDownloading -> Button({ downloadUpdate(updateInfo!!) }, shapes = ButtonDefaults.shapes()) { Text("Download & install") }
-                    updateFailure && !updateChecking -> TextButton({ checkForUpdates(showDialog = true) }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
-                }
-            }
-        )
+
     }
 }
 

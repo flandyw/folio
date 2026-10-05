@@ -79,7 +79,7 @@ jobs:
         if: steps.existing.outputs.skip != 'true'
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
       - uses: android-actions/setup-android@v4
         if: steps.existing.outputs.skip != 'true'
         with:
@@ -109,7 +109,7 @@ jobs:
           umask 077
           trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
-          bash ./gradlew :app:assembleRelease
+          bash ./gradlew :app:assembleRelease -PfolioMinify=true
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/folio-$VERSION_NAME.apk"
           signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)

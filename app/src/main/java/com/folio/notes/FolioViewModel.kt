@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
@@ -16,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 class FolioApplication : Application() {
+    val updates by lazy { FolioUpdates(this) }
     val repository by lazy { NoteRepository(this) }
     val thumbnails by lazy { PageThumbnailCache(this, repository) }
     val storageScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1663,9 +1665,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = note.pages.find { it.id == pageId } ?: return
         if (!page.loaded) return
         commitEdit(note, page, page.copy(images = page.images + image.copy(layer = activeLayerOf(page)))) {
-            if (bytes != null) repository.saveImage(note.id, image.id, bytes)
+            if (bytes != null) {
+                repository.saveImage(note.id, image.id, bytes)
+                // The page already shows the picture; tell the editor its file has now landed.
+                _imageFiles.update { it + 1 }
+            }
         }
     }
+    private val _imageFiles = MutableStateFlow(0)
+    /** Bumps whenever a newly placed picture's bytes reach disk, so a decode that raced the write retries. */
+    val imageFiles: StateFlow<Int> = _imageFiles
 
     fun updateImage(image: PageImage) {
         val page = _state.value.page ?: return

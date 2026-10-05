@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 # ── Options ──────────────────────────────────────────────────────────────────
 publish=ask      # ask | yes | no
 verbose=0
+minify=false
 gradle_args=()
 
 usage() {
@@ -15,10 +16,13 @@ Usage: ./build.sh [options] [-- extra gradle args]
 
   -p, --publish     publish to the Folio server without asking
   -n, --no-publish  build only; never prompt to publish
+  -r, --r8          enable R8 minify + resource shrinking (slow; off by default)
   -v, --verbose     stream raw Gradle output instead of the progress view
   -h, --help        show this help
 
 Environment: NO_COLOR=1 disables colour; JAVA_HOME / ANDROID_HOME override defaults.
+FOLIO_BUILD_TOOLS overrides the Android build-tools directory.
+Every successful build verifies the APK signature, package and reserved version.
 EOF
 }
 
@@ -26,6 +30,7 @@ while (($#)); do
     case "$1" in
         -p|--publish) publish=yes ;;
         -n|--no-publish) publish=no ;;
+        -r|--r8) minify=true ;;
         -v|--verbose) verbose=1 ;;
         -h|--help) usage; exit 0 ;;
         --) shift; gradle_args+=("$@"); break ;;
@@ -63,8 +68,10 @@ total_steps=4
 [[ $publish == no ]] && total_steps=3
 start_all=$SECONDS
 log=
+staging=
 cleanup() {
-    [[ $tty == 1 ]] && printf '\e[?25h'
+    if [[ $tty == 1 ]]; then printf '\e[?25h'; fi
+    if [[ -n $staging ]]; then rm -rf -- "$staging"; fi
 }
 trap cleanup EXIT
 trap 'echo; fail "Interrupted"; exit 130' INT TERM
@@ -80,8 +87,9 @@ if ((dirty > 0)); then printf '  %s(%s uncommitted change%s)%s' "$YLW" "$dirty" 
 printf '\n'
 
 # ── Environment ──────────────────────────────────────────────────────────────
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-arm64}"
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk-arm64}"
+export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
+tools="${FOLIO_BUILD_TOOLS:-$ANDROID_HOME/build-tools/36.0.0}"
 export ANDROID_KEYSTORE_PATH="$PWD/.signing/folio-release.p12"
 
 step 1 "Preflight"
@@ -89,10 +97,15 @@ problems=0
 check() { # check <label> <test-expression-result> <hint>
     if [[ $2 == 1 ]]; then ok "$1"; else fail "$1 ${D}($3)${R}"; problems=$((problems + 1)); fi
 }
-check "JDK        ${D}$JAVA_HOME${R}"          "$([[ -x $JAVA_HOME/bin/java ]] && echo 1 || echo 0)" "set JAVA_HOME to a JDK 17"
+check "JDK        ${D}$JAVA_HOME${R}"          "$([[ -x $JAVA_HOME/bin/java ]] && echo 1 || echo 0)" "set JAVA_HOME to a JDK 25"
 check "Android SDK ${D}$ANDROID_HOME${R}"      "$([[ -d $ANDROID_HOME ]] && echo 1 || echo 0)"       "set ANDROID_HOME"
 check "Keystore   ${D}.signing/folio-release.p12${R}" "$([[ -f $ANDROID_KEYSTORE_PATH ]] && echo 1 || echo 0)" "missing keystore"
 check "Password   ${D}.signing/password${R}"   "$([[ -r .signing/password ]] && echo 1 || echo 0)"   "missing password file"
+check "APK verifier ${D}$tools/apksigner${R}" "$([[ -x $tools/apksigner ]] && echo 1 || echo 0)" "set FOLIO_BUILD_TOOLS"
+check "APK metadata ${D}$tools/aapt${R}" "$([[ -x $tools/aapt ]] && echo 1 || echo 0)" "set FOLIO_BUILD_TOOLS"
+for command in python3 flock sha256sum; do
+    check "$command" "$(command -v "$command" >/dev/null && echo 1 || echo 0)" "install $command"
+done
 if ((problems)); then
     fail "$problems preflight problem(s); fix them and rerun."
     exit 1
@@ -122,6 +135,7 @@ log=$(mktemp -t folio-build.XXXXXX.log)
 gradle_cmd=(./gradlew :app:assembleRelease --console=plain
     "-PfolioExperimentalBuild=$experimental_build"
     "-PfolioExperimentalCommitCount=$allocated_commit"
+    "-PfolioMinify=$minify"
     "${gradle_args[@]}")
 build_start=$SECONDS
 
@@ -175,15 +189,35 @@ ok "Build finished in ${B}$(fmt_secs "$build_secs")${R} ${D}· $ran ran, $cached
 rm -f "$log"
 
 # ── Verify & summarize ───────────────────────────────────────────────────────
-apk=$(ls -1t app/build/outputs/apk/release/*.apk 2>/dev/null | head -1 || true)
-if [[ -z $apk ]]; then fail "No APK found in app/build/outputs/apk/release/"; exit 1; fi
-size=$(stat -c %s "$apk" 2>/dev/null || stat -f %z "$apk")
-sum=$(sha256sum "$apk" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$apk" | cut -d' ' -f1)
-cert=
-tools="$ANDROID_HOME/build-tools/36.0.0"
-if [[ -x $tools/apksigner ]]; then
-    cert=$("$tools/apksigner" verify --print-certs "$apk" 2>/dev/null \
-        | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' || true)
+apk=app/build/outputs/apk/release/app-release.apk
+if [[ ! -f $apk || -L $apk ]]; then fail "No regular release APK found at $apk"; exit 1; fi
+# Verify, summarize and publish one private snapshot even if another build replaces
+# Gradle's output while the publication prompt is open.
+staging=$(mktemp -d -t folio-build.XXXXXX)
+verified_apk="$staging/app-release.apk"
+cp -- "$apk" "$verified_apk"
+size=$(stat -c %s "$verified_apk" 2>/dev/null || stat -f %z "$verified_apk")
+if ((size == 0 || size > 100 * 1024 * 1024)); then
+    fail "Release APK must be between 1 byte and 100 MiB"; exit 1
+fi
+sum=$(sha256sum -- "$verified_apk")
+sum=${sum%% *}
+if ! signers=$("$tools/apksigner" verify --print-certs "$verified_apk"); then
+    fail "Release APK signature verification failed"; exit 1
+fi
+cert=$(printf '%s\n' "$signers" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+if [[ ! $cert =~ ^[0-9a-f]{64}$ ]]; then
+    fail "Release APK has no valid signing certificate fingerprint"; exit 1
+fi
+if ! badging=$("$tools/aapt" dump badging "$verified_apk"); then
+    fail "Could not read release APK metadata"; exit 1
+fi
+package=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+actual_code=$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p")
+actual_version=$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p")
+expected_version="${stable_name}-exp.${experimental_build}"
+if [[ $package != com.folio.notes || $actual_code != "$version_code" || $actual_version != "$expected_version" ]]; then
+    fail "Release APK package/version does not match the reserved build ($expected_version, code $version_code)"; exit 1
 fi
 
 echo
@@ -219,7 +253,9 @@ esac
 if [[ $publish == yes ]]; then step 4 "Publish"; fi
 if ((do_publish)); then
     pub_start=$SECONDS
-    if FOLIO_EXPECTED_VERSION_CODE=$version_code bash ./release-server/publish.sh 9>&-; then
+    if FOLIO_EXPECTED_VERSION_CODE=$version_code FOLIO_EXPECTED_VERSION_NAME=$expected_version \
+        FOLIO_EXPECTED_APK_SHA256=$sum FOLIO_BUILD_TOOLS=$tools \
+        bash ./release-server/publish.sh "$verified_apk" 9>&-; then
         ok "Published ${B}${stable_name}-exp.${experimental_build}${R} in $(fmt_secs $((SECONDS - pub_start)))"
     else
         fail "Publish failed; the APK is still at $apk"

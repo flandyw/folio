@@ -1,11 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -21,7 +18,7 @@ import androidx.compose.ui.unit.dp
  * to; the eye hides it (hidden layers also stay out of exports and previews) and the lock keeps it
  * from being drawn on, erased or selected. Every change here is one undoable step on the page.
  */
-@Composable internal fun LayersPanel(
+@Composable internal fun LayersPopover(
     page: NotePage,
     active: Int,
     selectionCount: Int,
@@ -32,7 +29,12 @@ import androidx.compose.ui.unit.dp
     val layers = PageLayers.effective(page.layers)
     val content = page.content()
     var renaming by remember { mutableStateOf<PageLayer?>(null) }
-    FolioPanel(title = "Layers", onDismissRequest = onDismiss) {
+    FolioPopover(onDismiss = onDismiss, width = 360.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Layers, null, Modifier.size(20.dp))
+            Text("Layers", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.titleMedium)
+            IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Close layers") }
+        }
         Row(Modifier.fillMaxWidth().padding(bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
             Text("${layers.size} of ${PageLayers.MAX_LAYERS}", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -40,8 +42,8 @@ import androidx.compose.ui.unit.dp
                 Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("New layer")
             }
         }
-        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            items(layers.asReversed(), key = { it.id }) { layer ->
+        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            for (layer in layers.asReversed()) key(layer.id) {
                 val index = layers.indexOfFirst { it.id == layer.id }
                 val isActive = layer.id == active
                 Surface(
@@ -67,6 +69,9 @@ import androidx.compose.ui.unit.dp
                                     if (isActive) append(" · drawing here")
                                 }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End) {
                             IconButton({ model.moveLayer(layer.id, up = true) }, Modifier.size(36.dp), enabled = index < layers.lastIndex) {
                                 Icon(Icons.Rounded.KeyboardArrowUp, "Move ${layer.name} up", Modifier.size(20.dp))
                             }

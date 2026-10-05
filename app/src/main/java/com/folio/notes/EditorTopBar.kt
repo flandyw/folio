@@ -79,6 +79,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     onAdd: () -> Unit,
     onSearch: () -> Unit,
     onLayers: () -> Unit,
+    layersPopover: @Composable () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
@@ -108,7 +109,10 @@ internal val EditorFloatingGroupHeight = 46.dp
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     DockButton(Icons.Rounded.AddBox, "Add page at end", onAdd)
                     DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
-                    DockButton(Icons.Rounded.Layers, "Layers", onLayers)
+                    Box {
+                        DockButton(Icons.Rounded.Layers, "Layers", onLayers)
+                        layersPopover()
+                    }
                 }
             } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }

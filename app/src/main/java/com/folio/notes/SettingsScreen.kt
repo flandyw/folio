@@ -38,7 +38,7 @@ import kotlinx.coroutines.withContext
  * a tablet keeps the category list beside the page. Search looks at individual settings, not just
  * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
@@ -62,7 +62,7 @@ import kotlinx.coroutines.withContext
         backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy || backupProgress != null, backupExcludedCount,
         onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions, backupProgress,
     )
-    val account = AccountSettings(onFocal, onCheckForUpdates, updateChecking, updateBusy)
+    val account = AccountSettings(onFocal, onCheckForUpdates, updateChecking, updateBusy, updateContent)
 
     BackHandler(enabled = searching || category != null) {
         if (searching) query = "" else category = null

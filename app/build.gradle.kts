@@ -121,6 +121,8 @@ android {
         applicationId = "com.folio.notes"
         minSdk = 26
         targetSdk = 35
+        // x86/x86_64 only serve emulators, yet the bundled OCR library ships ~23 MB of native code for them.
+        ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
     signingConfigs {
         create("release") {
@@ -135,16 +137,27 @@ android {
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
-            // Shrinking is off until a baseline profile + R8 keep-rules for pdfbox are validated;
-            // enabling fullMode blindly strips reflectively loaded font tables. See README build notes.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 + resource shrinking are slow, so they are opt-in locally (-PfolioMinify=true, build.sh -r8)
+            // and always on in CI. Keep rules for reflectively loaded libraries live in proguard-rules.pro.
+            val minify = providers.gradleProperty("folioMinify").orNull == "true"
+            isMinifyEnabled = minify
+            isShrinkResources = minify
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     buildFeatures { compose = true; buildConfig = false }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    packaging {
+        resources.excludes += setOf(
+            "org/bouncycastle/pqc/**", "META-INF/*.version", "META-INF/DEPENDENCIES", "META-INF/LICENSE*",
+            "META-INF/NOTICE*", "META-INF/INDEX.LIST", "META-INF/{AL2.0,LGPL2.1}", "DebugProbesKt.bin",
+            "kotlin-tooling-metadata.json"
+        )
+        // Compress native libraries inside the APK (smaller download; the installer extracts them).
+        jniLibs.useLegacyPackaging = true
     }
     lint {
         // Release lint-vital re-analyses the whole app on every build; CI runs :app:lintDebug instead.

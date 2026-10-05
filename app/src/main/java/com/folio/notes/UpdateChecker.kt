@@ -2,6 +2,8 @@ package com.folio.notes
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
+import android.util.AtomicFile
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -106,8 +108,51 @@ internal fun isTrustedUpdateUrl(url: String): Boolean {
         parsed.userInfo == null && (parsed.port == -1 || parsed.port == 443)
 }
 
+data class UpdateDownloadProgress(val percent: Int? = null, val bytesPerSecond: Long = 0, val verifying: Boolean = false)
+data class DownloadedUpdate(val update: FolioUpdate, val file: File)
+
 /** Stable GitHub releases by default; the VPS channel is explicitly opt-in. */
 class FolioUpdateChecker(private val context: Context) {
+    private val directory get() = File(context.noBackupFilesDir, "updates").apply { mkdirs() }
+    private val record get() = AtomicFile(File(directory, "ready.json"))
+
+    /** Keep only the verified, still-newer APK; discard interrupted downloads and installed builds. */
+    fun restoreDownload(): DownloadedUpdate? {
+        val ready = runCatching {
+            val json = JSONObject(record.openRead().bufferedReader().use { it.readText() })
+            val update = FolioUpdate(json.getLong("versionCode"), json.getString("versionName"),
+                json.getString("apkName"), json.getString("apkUrl"), json.getString("checksumUrl"), json.getString("releaseUrl"))
+            require(update.apkName.matches(Regex("folio-[A-Za-z0-9._-]+\\.apk")))
+            val file = File(directory, "${update.versionCode}-${update.apkName}")
+            require(update.versionCode > installedVersionCode() && file.isFile && sha256(file) == json.getString("sha256"))
+            DownloadedUpdate(update, file)
+        }.getOrNull()
+        if (ready == null) record.delete()
+        directory.listFiles()?.filter { it != ready?.file && it.name != "ready.json" }?.forEach { it.delete() }
+        // Older builds used an evictable cache without a persistent install action.
+        File(context.cacheDir, "updates").deleteRecursively()
+        return ready
+    }
+
+    fun discardDownload(ready: DownloadedUpdate) {
+        if (ready.file.exists() && !ready.file.delete()) throw IOException("Couldn’t delete the downloaded update")
+        record.delete()
+    }
+
+    private fun saveDownload(update: FolioUpdate, checksum: String) {
+        val json = JSONObject().put("versionCode", update.versionCode).put("versionName", update.versionName)
+            .put("apkName", update.apkName).put("apkUrl", update.apkUrl).put("checksumUrl", update.checksumUrl)
+            .put("releaseUrl", update.releaseUrl).put("sha256", checksum)
+        val output = record.startWrite()
+        try {
+            output.write(json.toString().toByteArray())
+            record.finishWrite(output)
+        } catch (error: Throwable) {
+            record.failWrite(output)
+            throw error
+        }
+    }
+
     fun check(experimental: Boolean = false): FolioUpdate? {
         val installedVersion = installedVersionCode()
         var release = try {
@@ -124,18 +169,21 @@ class FolioUpdateChecker(private val context: Context) {
     }
 
     /** Downloads to a temporary file, checks SHA-256, then atomically exposes the APK to the UI. */
-    fun download(update: FolioUpdate, onProgress: (Int) -> Unit = {}): File {
-        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
-        val target = File(directory, update.apkName)
-        val temporary = File(directory, "${update.apkName}.part")
+    fun download(update: FolioUpdate, onProgress: (UpdateDownloadProgress) -> Unit = {}): File {
+        val directory = directory
+        val target = File(directory, "${update.versionCode}-${update.apkName}")
+        val temporary = File(directory, "${update.versionCode}-${update.apkName}.part")
         temporary.delete()
         try {
             val expected = checksum(update).lowercase()
             downloadTo(update.apkUrl, temporary, onProgress)
+            onProgress(UpdateDownloadProgress(100, verifying = true))
             val actual = sha256(temporary)
             if (actual != expected) throw IOException("The downloaded update failed its checksum")
             if (target.exists() && !target.delete()) throw IOException("Couldn't replace the previous update")
             if (!temporary.renameTo(target)) throw IOException("Couldn't prepare the update")
+            try { saveDownload(update, expected) } catch (error: Throwable) { target.delete(); throw error }
+            directory.listFiles()?.filter { it.extension == "apk" && it != target }?.forEach { it.delete() }
             return target
         } catch (error: Throwable) {
             temporary.delete()
@@ -151,7 +199,7 @@ class FolioUpdateChecker(private val context: Context) {
             ?: throw IOException("The release checksum is invalid")
     }
 
-    private fun downloadTo(url: String, target: File, onProgress: (Int) -> Unit) {
+    private fun downloadTo(url: String, target: File, onProgress: (UpdateDownloadProgress) -> Unit) {
         val connection = open(url)
         try {
             val total = connection.contentLengthLong
@@ -161,19 +209,24 @@ class FolioUpdateChecker(private val context: Context) {
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var copied = 0L
                     var read: Int
-                    var lastProgress = -1
+                    var lastSampleAt = SystemClock.elapsedRealtime()
+                    var lastSampleBytes = 0L
                     while (input.read(buffer).also { read = it } != -1) {
                         output.write(buffer, 0, read)
                         copied += read
                         if (copied > MAX_APK_BYTES) throw IOException("The update is unexpectedly large")
-                        if (total > 0) {
-                            val progress = (copied * 100 / total).toInt().coerceIn(0, 100)
-                            if (progress != lastProgress) { lastProgress = progress; onProgress(progress) }
+                        val now = SystemClock.elapsedRealtime()
+                        val elapsed = now - lastSampleAt
+                        if (elapsed >= 500) {
+                            onProgress(UpdateDownloadProgress(if (total > 0) (copied * 100 / total).toInt().coerceIn(0, 100) else null,
+                                (copied - lastSampleBytes) * 1000 / elapsed))
+                            lastSampleAt = now
+                            lastSampleBytes = copied
                         }
                     }
                 }
             }
-            onProgress(100)
+            onProgress(UpdateDownloadProgress(100, verifying = true))
         } finally {
             connection.disconnect()
         }

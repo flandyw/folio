@@ -3,8 +3,10 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
+import hashlib
 import json
 import os
+import pty
 from pathlib import Path
 import subprocess
 import sys
@@ -66,24 +68,69 @@ class BuildVersions(unittest.TestCase):
 
     def prepare_build(self):
         (self.root / "tools").mkdir()
-        # Isolate the build wrapper from the live VPS's published counter too.
+        # Isolate all build tools, credentials, and release storage from the VPS.
         helper = (ROOT / "tools/next-experimental-build.py").read_text().replace(
             'default=Path("/var/lib/folio-releases")', f'default=Path({str(self.releases)!r})')
         (self.root / "tools/next-experimental-build.py").write_text(helper)
         (self.root / "build.sh").write_text((ROOT / "build.sh").read_text())
         (self.root / ".signing").mkdir()
         (self.root / ".signing/password").write_text("test-only")
+        (self.root / ".signing/folio-release.p12").touch()
         (self.root / "release-server").mkdir()
-        (self.root / "release-server/publish.sh").write_text('#!/usr/bin/env bash\nprintf "%s" "$FOLIO_EXPECTED_VERSION_CODE" > published\n')
+        (self.root / "release-server/publish.sh").write_text('''#!/usr/bin/env bash
+set -eu
+python3 - "$1" <<'CHECK'
+import hashlib, json, os, pathlib, sys
+apk = pathlib.Path(sys.argv[1])
+assert hashlib.sha256(apk.read_bytes()).hexdigest() == os.environ["FOLIO_EXPECTED_APK_SHA256"]
+pathlib.Path("published").write_text(json.dumps({"path": str(apk),
+    "code": os.environ["FOLIO_EXPECTED_VERSION_CODE"], "name": os.environ["FOLIO_EXPECTED_VERSION_NAME"]}))
+CHECK
+''')
         (self.root / "app/build/outputs/apk/release").mkdir(parents=True)
-        (self.root / "app/build/outputs/apk/release/app-release.apk").touch()
-        (self.root / "gradlew").write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > gradle-args\nexit "${BUILD_TEST_EXIT:-0}"\n')
+        (self.root / "gradlew").write_text('''#!/usr/bin/env bash
+printf "%s\\n" "$@" > gradle-args
+if [[ ${BUILD_TEST_EXIT:-0} != 0 ]]; then exit "$BUILD_TEST_EXIT"; fi
+for arg in "$@"; do
+    case "$arg" in
+        -PfolioExperimentalBuild=*) revision=${arg#*=} ;;
+        -PfolioExperimentalCommitCount=*) count=${arg#*=} ;;
+    esac
+done
+printf "package: name='${BUILD_TEST_PACKAGE:-com.folio.notes}' versionCode='%s' versionName='%s'\\n" \
+    "$((count * 10000 + revision))" "${BUILD_TEST_VERSION:-$((count / 100)).$(((count / 10) % 10)).$((count % 10))-exp.$revision}" \
+    > app/build/outputs/apk/release/app-release.apk
+''')
         (self.root / "gradlew").chmod(0o755)
         fake_bin = self.root / "fake-bin"
         fake_bin.mkdir()
-        (fake_bin / "git").write_text("#!/usr/bin/env bash\necho 217\n")
+        (fake_bin / "git").write_text("#!/usr/bin/env bash\nif [[ $1 != status ]]; then echo 217; fi\n")
         (fake_bin / "git").chmod(0o755)
-        return {**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]}
+        jdk = self.root / "jdk"
+        (jdk / "bin").mkdir(parents=True)
+        (jdk / "bin/java").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (jdk / "bin/java").chmod(0o755)
+        sdk = self.root / "sdk"
+        build_tools = sdk / "build-tools/36.0.0"
+        build_tools.mkdir(parents=True)
+        (build_tools / "aapt").write_text('#!/usr/bin/env bash\ncat "$3"\n')
+        (build_tools / "apksigner").write_text('#!/usr/bin/env bash\nif [[ ${BUILD_TEST_BAD_SIGNATURE:-0} == 1 ]]; then exit 1; fi\nprintf "Signer #1 certificate SHA-256 digest: %s\\n" "' + "a"*64 + '"\n')
+        for tool in (build_tools / "aapt", build_tools / "apksigner"):
+            tool.chmod(0o755)
+        return {**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
+                "JAVA_HOME": str(jdk), "ANDROID_HOME": str(sdk), "FOLIO_BUILD_TOOLS": str(build_tools)}
+
+    def run_build(self, env, *args, answer=None):
+        command = ["bash", str(self.root / "build.sh"), "--verbose", *args]
+        if answer is None:
+            return subprocess.run(command, stdin=subprocess.DEVNULL, env=env, text=True, capture_output=True)
+        master, slave = pty.openpty()
+        try:
+            os.write(master, answer.encode() if answer else b"\x04")
+            return subprocess.run(command, stdin=slave, env=env, text=True, capture_output=True, timeout=15)
+        finally:
+            os.close(master)
+            os.close(slave)
 
     def test_concurrent_allocator_reservations(self):
         env = self.prepare_build()
@@ -100,20 +147,87 @@ class BuildVersions(unittest.TestCase):
         marker = self.root / "published"
         for revision, (answer, published) in enumerate([("y\n", True), ("Y\n", True), ("n\n", False), ("\n", False), ("", False)], 1):
             marker.unlink(missing_ok=True)
-            result = subprocess.run(["bash", str(self.root / "build.sh"), "--offline"],
-                input=answer, env=env, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            result = self.run_build(env, "--", "--offline", answer=answer)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(marker.exists(), published)
             if published:
-                self.assertEqual(marker.read_text(), str(2170000 + revision))
-            self.assertEqual((self.root / "gradle-args").read_text().splitlines(), [":app:assembleRelease", "--offline",
-                f"-PfolioExperimentalBuild={revision}", "-PfolioExperimentalCommitCount=217"])
+                record = json.loads(marker.read_text())
+                self.assertEqual(record["code"], str(2170000 + revision))
+                self.assertEqual(record["name"], f"2.1.7-exp.{revision}")
+                # The verified private snapshot was published, then cleaned up.
+                self.assertNotEqual(record["path"], "app/build/outputs/apk/release/app-release.apk")
+                self.assertFalse(Path(record["path"]).exists())
+            self.assertEqual((self.root / "gradle-args").read_text().splitlines(), [":app:assembleRelease", "--console=plain",
+                f"-PfolioExperimentalBuild={revision}", "-PfolioExperimentalCommitCount=217", "--offline"])
         marker.unlink(missing_ok=True)
-        result = subprocess.run(["bash", str(self.root / "build.sh")], input="y\n",
-            env={**env, "BUILD_TEST_EXIT": "1"}, text=True, capture_output=True)
+        result = self.run_build({**env, "BUILD_TEST_EXIT": "1"}, "--publish")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(marker.exists())
         self.assertEqual(self.allocate(), 7) # Failed attempts never reuse a reserved number.
+
+    def test_explicit_publish_flags_and_noninteractive_default(self):
+        env = self.prepare_build()
+        marker = self.root / "published"
+        for args, expected in [((), False), (("--no-publish",), False), (("--publish",), True)]:
+            marker.unlink(missing_ok=True)
+            result = self.run_build(env, *args)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(marker.exists(), expected)
+
+    def test_invalid_apk_never_publishes(self):
+        env = self.prepare_build()
+        for overrides in [{"BUILD_TEST_BAD_SIGNATURE": "1"}, {"BUILD_TEST_PACKAGE": "evil.package"},
+                          {"BUILD_TEST_VERSION": "2.1.7-exp.999"}]:
+            result = self.run_build({**env, **overrides}, "--publish")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((self.root / "published").exists())
+
+    def test_publish_wrapper_rechecks_expected_artifact(self):
+        env = self.prepare_build()
+        pin = self.root / "certificate-pin"
+        pin.write_text("a" * 64 + "\n")
+        wrapper = (ROOT / "release-server/publish.sh").read_text().replace(
+            "pin=/etc/folio-releases/signing-cert.sha256", "pin=" + str(pin))
+        script = self.root / "release-server/publish.sh"
+        script.write_text(wrapper)
+        # Record the sudo invocation without executing anything privileged, and
+        # keep the final public health request off the network.
+        fake_bin = self.root / "fake-bin"
+        (fake_bin / "sudo").write_text('''#!/usr/bin/env bash
+python3 - "$@" <<'CHECK'
+import json, pathlib, sys
+pathlib.Path("published-command").write_text(json.dumps(sys.argv[1:]))
+CHECK
+''')
+        (fake_bin / "curl").write_text("#!/usr/bin/env bash\nexit 0\n")
+        for tool in (fake_bin / "sudo", fake_bin / "curl"):
+            tool.chmod(0o755)
+        apk = self.root / "app/build/outputs/apk/release/app-release.apk"
+        apk.write_text("package: name='com.folio.notes' versionCode='2170001' versionName='2.1.7-exp.1'\n")
+        digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+        env.update({"FOLIO_EXPECTED_VERSION_CODE": "2170001", "FOLIO_EXPECTED_VERSION_NAME": "2.1.7-exp.1",
+                    "FOLIO_EXPECTED_APK_SHA256": digest})
+        marker = self.root / "published-command"
+        for overrides in [{"FOLIO_EXPECTED_APK_SHA256": "0" * 64}, {"FOLIO_EXPECTED_VERSION_CODE": "2170002"},
+                          {"FOLIO_EXPECTED_VERSION_NAME": "2.1.7-exp.2"}]:
+            result = subprocess.run(["bash", str(script), str(apk)], env={**env, **overrides},
+                                    text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+        result = subprocess.run(["bash", str(script), str(apk)], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        invocation = json.loads(marker.read_text())
+        self.assertEqual(invocation[0:2], ["/usr/local/bin/folio-release-server", "publish"])
+        self.assertEqual(invocation[4:], ["-version-name", "2.1.7-exp.1", "-version-code", "2170001",
+                                        "-expected-sha256", digest])
+        self.assertFalse(Path(invocation[3]).exists()) # Wrapper cleaned up its snapshot.
+
+    def test_missing_verifier_fails_before_reserving_version(self):
+        env = self.prepare_build()
+        Path(env["FOLIO_BUILD_TOOLS"], "apksigner").unlink()
+        result = self.run_build(env, "--publish")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / ".tooling/experimental-version.json").exists())
 
 
 if __name__ == "__main__":
