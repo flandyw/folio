@@ -2977,27 +2977,27 @@ private enum class ToolSub { PRESETS, TOOL }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f))
+                    Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f).semanticsLabel("Text size, ${size.toInt()} points"))
                     Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f))
+                    Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f).semanticsLabel("Text wrap width, ${width.toInt()} points"))
                     Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
                 }
                 Text("Wrap width · the box grows downwards as it wraps.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f))
+                    Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f).semanticsLabel("Text opacity, ${(opacity * 100).roundToInt()} percent"))
                     Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(bold, { bold = !bold }, { Text("Bold") })
                     FilterChip(italic, { italic = !italic }, { Text("Italic") })
                     FilterChip(underline, { underline = !underline }, { Text("Underline") })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(align == TextAlignMode.LEFT, { align = TextAlignMode.LEFT }, { Text("Left") })
                     FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
                     FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
