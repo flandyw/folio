@@ -736,12 +736,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
                 val live = page.images.find { it.id == picked.id }
-                if (live == null) null else { _ ->
+                if (live == null) null else { availableWidth ->
                     if (cropActive) CropContextMenu(
                         onApply = { activeInkView?.endImageCrop(true) },
                         onCancel = { activeInkView?.endImageCrop(false) }
                     ) else PictureContextMenu(
-                        cropped = live.isCropped(),
+                        cropped = live.isCropped(), availableWidth = availableWidth,
                         onRotateLeft = { model.rotateImageCounterClockwise(live.id) },
                         onRotateRight = { model.rotateImageClockwise(live.id) },
                         onCrop = { activeInkView?.beginImageCrop() },

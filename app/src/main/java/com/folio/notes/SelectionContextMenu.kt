@@ -120,27 +120,36 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
 /** The picture's actions as one icon row, shown beside the picture instead of in a blocking panel. */
 @Composable internal fun PictureContextMenu(
-    cropped: Boolean, onRotateLeft: () -> Unit, onRotateRight: () -> Unit, onCrop: () -> Unit,
+    cropped: Boolean, availableWidth: Dp = 300.dp, onRotateLeft: () -> Unit, onRotateRight: () -> Unit, onCrop: () -> Unit,
     onFullPhoto: () -> Unit, onFront: () -> Unit, onBack: () -> Unit, onDelete: () -> Unit
 ) {
     // Extra actions expand inline: a dropdown inside this non-focusable popup is placed against the wrong window.
     var more by remember { mutableStateOf(false) }
+    val showLeft = availableWidth >= 152.dp
+    val showRight = availableWidth >= 200.dp
+    val showCrop = availableWidth >= 104.dp
+    val showDelete = availableWidth >= 248.dp
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
         Column(Modifier.padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
-                SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
-                SelectionAction(Icons.Rounded.Crop, "Crop", onClick = onCrop)
-                SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
+                if (showLeft) SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
+                if (showRight) SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
+                if (showCrop) SelectionAction(Icons.Rounded.Crop, "Crop", onClick = onCrop)
+                if (showDelete) SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
                 SelectionAction(Icons.Rounded.MoreHoriz, "More picture options") { more = !more }
             }
-            if (more) Row(verticalAlignment = Alignment.CenterVertically) {
-                if (cropped) SelectionAction(Icons.Rounded.RestartAlt, "Show full photo", onClick = onFullPhoto)
-                SelectionAction(Icons.Rounded.FlipToFront, "Bring to front", onClick = onFront)
-                SelectionAction(Icons.Rounded.FlipToBack, "Send to back", onClick = onBack)
+            if (more) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp))) {
+                fun run(action: () -> Unit) { more = false; action() }
+                if (!showLeft) PageMenuRow(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", true) { run(onRotateLeft) }
+                if (!showRight) PageMenuRow(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", true) { run(onRotateRight) }
+                if (!showCrop) PageMenuRow(Icons.Rounded.Crop, "Crop", true) { run(onCrop) }
+                if (!showDelete) PageMenuRow(Icons.Rounded.DeleteOutline, "Remove picture", true) { run(onDelete) }
+                if (cropped) PageMenuRow(Icons.Rounded.RestartAlt, "Show full photo", true) { run(onFullPhoto) }
+                PageMenuRow(Icons.Rounded.FlipToFront, "Bring to front", true) { run(onFront) }
+                PageMenuRow(Icons.Rounded.FlipToBack, "Send to back", true) { run(onBack) }
             }
         }
     }
