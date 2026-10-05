@@ -111,6 +111,7 @@ import androidx.compose.ui.unit.dp
                 label = { Text("Pages, e.g. 1-3, 5") },
                 placeholder = { Text("1–${note.pages.size}") },
                 singleLine = true,
+                isError = rangeError != null,
                 shape = FolioShapes.large,
                 supportingText = {
                     rangeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
