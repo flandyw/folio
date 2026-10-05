@@ -164,7 +164,7 @@ import kotlinx.coroutines.withContext
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
-        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
+        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
     )
 }
 
