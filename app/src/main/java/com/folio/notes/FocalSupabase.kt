@@ -30,7 +30,7 @@ internal fun focalSyncDeviceId(context: Context): String = context.applicationCo
 class FocalSupabaseConnection(context: Context) {
     private val appContext = context.applicationContext
     val sessions = EncryptedExamTrackSession(appContext, "focal-session", "folio-focal")
-    val client: SupabaseClient = createSupabaseClient(BuildConfig.FOCAL_SUPABASE_URL, BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY) {
+    val client: SupabaseClient = createSupabaseClient(FocalBuildConfig.FOCAL_SUPABASE_URL, FocalBuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY) {
         defaultLogLevel = LogLevel.NONE
         install(Auth) {
             codeVerifierCache = MemoryCodeVerifierCache()

@@ -186,6 +186,9 @@ class InkView(context: Context) : View(context) {
     private var movingImage: PageImage? = null
     private var resizingImage = false
     private var imageFromX = 0f; private var imageFromY = 0f
+    /** Corner being dragged (0 TL, 1 TR, 2 BR, 3 BL) and the opposite corner, which stays fixed. */
+    private var imageCorner = 2
+    private var imageAnchorX = 0f; private var imageAnchorY = 0f
     private var imageMoved = false
     // A PDF link pressed with the hand tool: a tap follows it, a drag pans instead.
     private var pendingLink: PdfLink? = null
@@ -514,7 +517,7 @@ class InkView(context: Context) : View(context) {
         }
         // A camera move under a live selection re-anchors the editor's menu,
         // but never mid-gesture: the release reports the settled frame.
-        if (hasSelection() && !movingSelection && !resizingSelection && !rotatingSelection && lasso == null) {
+        if ((hasSelection() || selectedImageId != null) && !movingSelection && !resizingSelection && !rotatingSelection && lasso == null) {
             reportSelectionViewBounds()
         }
     }
@@ -1123,9 +1126,12 @@ class InkView(context: Context) : View(context) {
                     val at = point(event, index)
                     val current = movingImage!!
                     if (resizingImage) {
-                        val targetWidth = current.width + (at.x - imageFromX)
-                        val resized = InkGeometry.resizeImage(current, targetWidth)
-                        if (resized != current) { movingImage = resized; imageMoved = true }
+                        val right = imageCorner == 1 || imageCorner == 2
+                        val resized = InkGeometry.resizeImage(current, if (right) at.x - imageAnchorX else imageAnchorX - at.x)
+                        val placed = resized.copy(
+                            x = if (right) imageAnchorX else imageAnchorX - resized.width,
+                            y = if (imageCorner <= 1) imageAnchorY - resized.height else imageAnchorY)
+                        if (placed != current) { movingImage = placed; imageMoved = true }
                     } else {
                         val dx = at.x - imageFromX; val dy = at.y - imageFromY
                         if (dx != 0f || dy != 0f) {
@@ -1535,10 +1541,14 @@ class InkView(context: Context) : View(context) {
         if (!onPage(raw.x, raw.y)) return false
         val at = if (page.infinite) raw else clampToPage(raw)
         val selected = selectedImageId?.let { id -> page.images.find { it.id == id } }
-        if (selected != null && InkGeometry.imageHandleContains(selected, at, SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit())) {
-            movingImage = selected; resizingImage = true; imageMoved = false
-            imageFromX = at.x; imageFromY = at.y
-            return true
+        val reach = SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit()
+        if (selected != null) {
+            val corner = cornerAt(selected, at, reach)
+            if (corner >= 0) {
+                startResize(selected, corner)
+                imageFromX = at.x; imageFromY = at.y
+                return true
+            }
         }
         val hit = InkGeometry.imageAt(page.images.filter { editableLayer(it.layer) }, at) ?: return false
         movingImage = hit; imageMoved = false
@@ -1547,9 +1557,22 @@ class InkView(context: Context) : View(context) {
             selectedImageId = hit.id
             onImageSelected(hit)
         }
-        resizingImage = InkGeometry.imageHandleContains(hit, at, SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit())
         imageFromX = at.x; imageFromY = at.y
         return true
+    }
+
+    private fun corners(image: PageImage) = arrayOf(
+        image.x to image.y, (image.x + image.width) to image.y,
+        (image.x + image.width) to (image.y + image.height), image.x to (image.y + image.height))
+
+    /** The corner handle under [at], or -1. */
+    private fun cornerAt(image: PageImage, at: InkPoint, reach: Float): Int =
+        corners(image).indexOfFirst { (cx, cy) -> abs(at.x - cx) <= reach && abs(at.y - cy) <= reach }
+
+    private fun startResize(image: PageImage, corner: Int) {
+        movingImage = image; resizingImage = true; imageMoved = false; imageCorner = corner
+        val (ax, ay) = corners(image)[(corner + 2) % 4]
+        imageAnchorX = ax; imageAnchorY = ay
     }
 
     /** A drag commits the picture's new place or size; a tap reports it as selected. */
@@ -1576,6 +1599,7 @@ class InkView(context: Context) : View(context) {
         if (selectedImageId != null) {
             selectedImageId = null
             onImageSelected(null)
+            reportSelectionViewBounds()
             invalidate()
         }
     }
@@ -1765,8 +1789,13 @@ class InkView(context: Context) : View(context) {
      * menu. Null while empty, being manipulated, or before first layout.
      */
     private fun reportSelectionViewBounds() {
-        val rect = if (!hasSelection() || width <= 0 || height <= 0 ||
+        val picture = if (hasSelection() || movingImage != null) null
+            else selectedImageId?.let { id -> page.images.find { it.id == id } }
+        val rect = if ((!hasSelection() && picture == null) || width <= 0 || height <= 0 ||
             movingSelection || resizingSelection || rotatingSelection || lasso != null) null
+        else if (picture != null) Rect(
+            (originX + picture.x * scale) / width, (originY + picture.y * scale) / height,
+            (originX + (picture.x + picture.width) * scale) / width, (originY + (picture.y + picture.height) * scale) / height)
         else selectionBox()?.let { box ->
             Rect(
                 (originX + box[0] * scale) / width,
@@ -1872,11 +1901,11 @@ class InkView(context: Context) : View(context) {
         canvas.drawRect(image.x - margin, image.y - margin,
             image.x + image.width + margin, image.y + image.height + margin, imageEdgePaint)
         if (!withHandle) return
-        val cx = image.x + image.width
-        val cy = image.y + image.height
         val r = SelectionChrome.HANDLE_RADIUS_DP * unit
-        canvas.drawCircle(cx, cy, r, imageHandlePaint)
-        canvas.drawCircle(cx, cy, r, imageHandleEdgePaint)
+        corners(image).forEach { (cx, cy) ->
+            canvas.drawCircle(cx, cy, r, imageHandlePaint)
+            canvas.drawCircle(cx, cy, r, imageHandleEdgePaint)
+        }
     }
     // Deliver after drawing, coalescing frames so Compose state is never changed inside onDraw.
     internal var onShapeMeasurement: (ShapeMeasurement?) -> Unit = {}

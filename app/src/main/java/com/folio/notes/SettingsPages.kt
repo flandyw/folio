@@ -41,7 +41,7 @@ internal class BackupSettings(
     val progress: String? = null,
 )
 
-internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val updateChecking: Boolean)
+internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean)
 
 private fun <E : Enum<E>> readEnum(raw: String?, fallback: E, values: Array<E>): E = values.firstOrNull { it.name == raw } ?: fallback
 
@@ -447,14 +447,21 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 // ---- Account & updates --------------------------------------------------------------------------
 
 @Composable internal fun AccountPage(a: AccountSettings) {
+    val prefs = rememberPrefs()
+    val experimental by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
+        it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
+    }
     SettingsGroup("Focal", footer = "One account for study sessions and mistake sync.") {
         SettingsLinkRow("Manage Focal account", onClick = a.onFocal)
     }
     SettingsGroup("Updates", footer = "Your notebooks stay on this device. Use Backup & restore to save or restore the whole library.") {
-        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Folio checks GitHub Releases for a newer signed build.")
+        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Check the selected source for a newer signed build.")
+        SettingsDivider()
+        SettingsSwitchRow("Enable experimental builds", "Get experimental builds from folio.flandolf.me. These may be less stable. Turn off to check GitHub Releases.",
+            experimental, { prefs.write { putBoolean(AppPrefs.EXPERIMENTAL_UPDATES, it) } }, enabled = !a.updateBusy)
         SettingsDivider()
         SettingsLinkRow(
-            if (a.updateChecking) "Checking…" else "Check for updates", onClick = a.onCheckForUpdates, enabled = !a.updateChecking,
+            if (a.updateChecking) "Checking…" else if (experimental) "Check Folio server" else "Check for updates", onClick = a.onCheckForUpdates, enabled = !a.updateBusy,
             trailing = if (a.updateChecking) ({ LoadingIndicator(Modifier.size(24.dp)) }) else null,
         )
     }

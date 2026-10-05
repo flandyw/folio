@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.RotateLeft
+import androidx.compose.material.icons.automirrored.rounded.RotateRight
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -101,6 +103,33 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         IconButton(onClick, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes(),
             colors = IconButtonDefaults.iconButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)) {
             Icon(icon, label, Modifier.size(20.dp))
+        }
+    }
+}
+
+/** The picture's actions as one icon row, shown beside the picture instead of in a blocking panel. */
+@Composable internal fun PictureContextMenu(
+    cropped: Boolean, onRotateLeft: () -> Unit, onRotateRight: () -> Unit, onCrop: () -> Unit,
+    onFullPhoto: () -> Unit, onFront: () -> Unit, onBack: () -> Unit, onDelete: () -> Unit
+) {
+    var overflow by remember { mutableStateOf(false) }
+    Surface(shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
+            SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
+            SelectionAction(Icons.Rounded.Crop, "Crop", onClick = onCrop)
+            SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
+            Box {
+                SelectionAction(Icons.Rounded.MoreHoriz, "More picture options") { overflow = !overflow }
+                DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
+                    if (cropped) DropdownMenuItem({ Text("Show full photo") }, { overflow = false; onFullPhoto() }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
+                    DropdownMenuItem({ Text("Bring to front") }, { overflow = false; onFront() }, leadingIcon = { Icon(Icons.Rounded.FlipToFront, null) })
+                    DropdownMenuItem({ Text("Send to back") }, { overflow = false; onBack() }, leadingIcon = { Icon(Icons.Rounded.FlipToBack, null) })
+                }
+            }
         }
     }
 }

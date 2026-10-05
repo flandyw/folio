@@ -18,8 +18,8 @@ data class FolioUpdate(
     val releaseUrl: String
 )
 
-/** Carries GitHub's cooldown so restarts and manual retries don't immediately re-hit a shared IP quota. */
-internal class GithubHttpException(
+/** Carries the source's cooldown across restarts and manual retries. */
+internal class UpdateHttpException(
     val code: Int, message: String, val retryAtMillis: Long? = null
 ) : IOException(message)
 
@@ -85,8 +85,14 @@ internal fun releaseVersionCode(tag: String): Long? {
     return if (legacyTag) parts.lastOrNull()?.toLongOrNull() else null
 }
 
-/** Hosts GitHub uses for the releases API, release pages and redirected asset bytes. */
+internal const val EXPERIMENTAL_UPDATE_URL = "https://folio.flandolf.me/releases/latest.json"
+
+internal fun updateApiUrl(experimental: Boolean): String = if (experimental) EXPERIMENTAL_UPDATE_URL
+    else "https://api.github.com/repos/flandyw/folio/releases/latest"
+
+/** Official stable and experimental sources, including GitHub asset redirect hosts. */
 internal val TRUSTED_UPDATE_HOSTS = setOf(
+    "folio.flandolf.me",
     "api.github.com",
     "github.com",
     "objects.githubusercontent.com",
@@ -96,66 +102,25 @@ internal val TRUSTED_UPDATE_HOSTS = setOf(
 
 internal fun isTrustedUpdateUrl(url: String): Boolean {
     val parsed = runCatching { URL(url) }.getOrNull() ?: return false
-    return parsed.protocol == "https" && parsed.host.lowercase() in TRUSTED_UPDATE_HOSTS
+    return parsed.protocol == "https" && parsed.host.lowercase() in TRUSTED_UPDATE_HOSTS &&
+        parsed.userInfo == null && (parsed.port == -1 || parsed.port == 443)
 }
 
-/** Checks and downloads signed Folio releases from the project's official GitHub repository. */
+/** Stable GitHub releases by default; the VPS channel is explicitly opt-in. */
 class FolioUpdateChecker(private val context: Context) {
-    private val apiUrl = "https://api.github.com/repos/flandyw/folio/releases/latest"
-
-    fun check(): FolioUpdate? {
+    fun check(experimental: Boolean = false): FolioUpdate? {
         val installedVersion = installedVersionCode()
-        val release = try {
-            getJson(apiUrl)
-        } catch (error: GithubHttpException) {
+        var release = try {
+            getJson(updateApiUrl(experimental))
+        } catch (error: UpdateHttpException) {
             // No published releases yet: not an error, just nothing to install.
             if (error.code == 404) return null
             throw error
         }
-        if (release.optBoolean("draft") || release.optBoolean("prerelease")) return null
-
-        val releaseTag = release.optString("tag_name").removePrefix("v")
-        // Current tags encode versionCode in their display version; releaseVersionCode
-        // also preserves the historical v0.2.N mapping for already-installed clients.
-        val versionCode = releaseVersionCode(releaseTag)
-            ?: throw IOException("The latest release has an invalid version")
-        val versionName = release.optString("name")
-            .removePrefix("Folio ")
-            .takeIf { it.matches(Regex("\\d+\\.\\d+\\.\\d+")) }
-            ?: releaseTag
-        if (versionCode <= installedVersion) return null
-
-        var apkName: String? = null
-        var apkUrl: String? = null
-        var checksumUrl: String? = null
-        release.optJSONArray("assets")?.let { assets ->
-            for (index in 0 until assets.length()) {
-                val asset = assets.optJSONObject(index) ?: continue
-                val name = asset.optString("name")
-                val url = asset.optString("browser_download_url")
-                when {
-                    name.endsWith(".apk", ignoreCase = true) && name.startsWith("folio-") -> {
-                        apkName = name
-                        apkUrl = url
-                    }
-                    name == "SHA256SUMS" -> checksumUrl = url
-                }
-            }
+        if (!experimental) stableUpdateMetadataUrl(release)?.let { url ->
+            release = withStableUpdateMetadata(release, getJson(url))
         }
-        val apk = apkUrl ?: throw IOException("The latest release has no APK")
-        val sums = checksumUrl ?: throw IOException("The latest release has no checksum")
-        val name = apkName ?: throw IOException("The latest release has no APK name")
-        require(name.matches(Regex("folio-[A-Za-z0-9._-]+\\.apk"))) { "Invalid update filename" }
-        requireTrustedDownload(apk)
-        requireTrustedDownload(sums)
-        return FolioUpdate(
-            versionCode = versionCode,
-            versionName = versionName,
-            apkName = name,
-            apkUrl = apk,
-            checksumUrl = sums,
-            releaseUrl = release.optString("html_url", "https://github.com/flandyw/folio/releases")
-        )
+        return decodeUpdateRelease(release, installedVersion, experimental)
     }
 
     /** Downloads to a temporary file, checks SHA-256, then atomically exposes the APK to the UI. */
@@ -233,11 +198,11 @@ class FolioUpdateChecker(private val context: Context) {
             val connection = (URL(current).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 60_000
-                // Follow redirects manually so every hop stays on GitHub-owned hosts.
+                // Every redirect must stay on an official update host.
                 instanceFollowRedirects = false
                 requestMethod = "GET"
-                setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                setRequestProperty("Accept", "application/json")
+                if (URL(current).host == "api.github.com") setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
                 setRequestProperty("User-Agent", "Folio/${installedVersionName()}")
             }
             connection.connect()
@@ -251,16 +216,16 @@ class FolioUpdateChecker(private val context: Context) {
                     redirects++
                     continue
                 }
-                throw GithubHttpException(code, "GitHub update failed (HTTP $code) · try again later")
+                throw UpdateHttpException(code, "Update redirect failed (HTTP $code) · try again later")
             }
             if (code in 200..299) return connection
-            val error = readGithubError(connection, code)
+            val error = readUpdateError(connection, code)
             connection.disconnect()
             throw error
         }
     }
 
-    private fun readGithubError(connection: HttpURLConnection, code: Int): GithubHttpException {
+    private fun readUpdateError(connection: HttpURLConnection, code: Int): UpdateHttpException {
         val remaining = connection.getHeaderField("X-RateLimit-Remaining")
         val reset = connection.getHeaderField("X-RateLimit-Reset")?.trim()?.toLongOrNull()
             ?: connection.getHeaderField("X-Ratelimit-Reset")?.trim()?.toLongOrNull()
@@ -277,14 +242,17 @@ class FolioUpdateChecker(private val context: Context) {
         val rateLimitedBody = body.contains("rate limit", ignoreCase = true) ||
             body.contains("abuse", ignoreCase = true)
         val now = System.currentTimeMillis()
-        return GithubHttpException(code, githubUpdateErrorMessage(
+        val message = githubUpdateErrorMessage(
             responseCode = code,
             rateRemaining = remaining,
             rateResetEpochSeconds = reset,
             retryAfterSeconds = retryAfter,
             rateLimitedBody = rateLimitedBody,
             nowEpochSeconds = now / 1000
-        ), updateRetryAtMillis(code, remaining, reset, retryAfter, rateLimitedBody, now))
+        )
+        return UpdateHttpException(code,
+            if (connection.url.host == "folio.flandolf.me") message.replace("GitHub", "Folio experimental server") else message,
+            updateRetryAtMillis(code, remaining, reset, retryAfter, rateLimitedBody, now))
     }
 
     private fun requireTrustedDownload(url: String) {

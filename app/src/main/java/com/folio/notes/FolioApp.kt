@@ -132,6 +132,9 @@ import java.io.File
     var exportMenu by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
     val updateChecker = remember(context) { FolioUpdateChecker(context.applicationContext) }
+    val experimentalUpdates by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
+        it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
+    }
     val updateScope = rememberCoroutineScope()
     var updateInfo by remember { mutableStateOf<FolioUpdate?>(null) }
     var updateReady by remember { mutableStateOf<Uri?>(null) }
@@ -140,6 +143,13 @@ import java.io.File
     var updateDialog by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
     var updateFailure by remember { mutableStateOf(false) }
+    LaunchedEffect(experimentalUpdates) {
+        updateInfo = null
+        updateReady = null
+        updateMessage = null
+        updateFailure = false
+        updateDialog = false
+    }
     val updateProgressFlow = remember { MutableStateFlow(0) }
     val updateProgress by updateProgressFlow.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -380,7 +390,10 @@ import java.io.File
         // The unauthenticated 60/hour quota is shared by everyone on this IP.
         // Manual retries must honour the server cooldown too.
         val now = System.currentTimeMillis()
-        val retryAt = prefs.getLong(AppPrefs.UPDATE_RETRY_AT, 0L)
+        val experimental = experimentalUpdates
+        val retryKey = AppPrefs.updateRetryAtKey(experimental)
+        val lastCheckKey = AppPrefs.lastUpdateCheckKey(experimental)
+        val retryAt = prefs.getLong(retryKey, 0L)
         if (retryAt > now) {
             if (showDialog) {
                 updateInfo = null
@@ -390,7 +403,7 @@ import java.io.File
             }
             return
         }
-        if (!showDialog && !shouldAutoUpdateCheck(now, prefs.getLong(AppPrefs.LAST_UPDATE_CHECK, 0L))) return
+        if (!showDialog && !shouldAutoUpdateCheck(now, prefs.getLong(lastCheckKey, 0L))) return
         updateChecking = true
         updateInfo = null
         updateReady = null
@@ -399,18 +412,18 @@ import java.io.File
         updateDialog = showDialog
         updateScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) { updateChecker.check() }
-                prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK, System.currentTimeMillis())
-                    .remove(AppPrefs.UPDATE_RETRY_AT).apply()
+                val result = withContext(Dispatchers.IO) { updateChecker.check(experimental) }
+                prefs.edit().putLong(lastCheckKey, System.currentTimeMillis())
+                    .remove(retryKey).apply()
                 updateInfo = result
                 if (result != null) updateDialog = true
-                else if (showDialog) updateMessage = "You’re up to date."
+                else if (showDialog) updateMessage = if (experimental) "No newer experimental build is available." else "You’re up to date."
             } catch (error: Exception) {
                 // Rate-limit cooldown applies even to manual checks. Other failures only
                 // throttle automatic retries, so users can retry after restoring connectivity.
-                val rateRetry = (error as? GithubHttpException)?.retryAtMillis
-                if (rateRetry != null) prefs.edit().putLong(AppPrefs.UPDATE_RETRY_AT, rateRetry).apply()
-                else if (!showDialog) prefs.edit().putLong(AppPrefs.LAST_UPDATE_CHECK,
+                val rateRetry = (error as? UpdateHttpException)?.retryAtMillis
+                if (rateRetry != null) prefs.edit().putLong(retryKey, rateRetry).apply()
+                else if (!showDialog) prefs.edit().putLong(lastCheckKey,
                     System.currentTimeMillis() - AUTO_UPDATE_CHECK_INTERVAL_MILLIS + UPDATE_FAILURE_RETRY_MILLIS).apply()
                 if (showDialog) {
                     updateMessage = error.message ?: "Could not check for updates."
@@ -423,7 +436,7 @@ import java.io.File
         }
     }
     // Deferred past first paint + library load so cold start never competes with a network fetch.
-    LaunchedEffect(autoUpdate) {
+    LaunchedEffect(autoUpdate, experimentalUpdates) {
         if (!autoUpdate) return@LaunchedEffect
         kotlinx.coroutines.delay(3000)
         checkForUpdates(showDialog = false)
@@ -541,6 +554,7 @@ import java.io.File
                     shapeRecognition, { shapeRecognition = it; prefs.edit().putBoolean("shapeRecognition", it).apply() },
                     onCheckForUpdates = { checkForUpdates(showDialog = true) },
                     updateChecking = updateChecking,
+                    updateBusy = updateChecking || updateDownloading,
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
@@ -645,7 +659,7 @@ import java.io.File
                         Text("$updateProgress%", style = MaterialTheme.typography.labelMedium)
                     }
                     updateReady != null -> Text(updateMessage ?: "The update is ready to install.")
-                    updateInfo != null -> Text("Folio ${updateInfo!!.versionName} is ready. Download it and Android will verify the existing release signature before installing.")
+                    updateInfo != null -> Text("Folio ${updateInfo!!.versionName}${if (experimentalUpdates) " (experimental)" else ""} is ready. Download it and Android will verify the existing release signature before installing.")
                     else -> Text(updateMessage ?: "No update information available.")
                 }
             },
