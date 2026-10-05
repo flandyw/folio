@@ -406,32 +406,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 }
                                 }
                             }
-                            FolioExpand(selecting) {
-                                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                    Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
-                                    Spacer(Modifier.weight(1f))
-                                    TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
-                                    TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
-                                }
-                                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
-                                    TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
-                                    TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
-                                    val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
-                                    TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
-                                        Text(if (allExcluded) "Include in backups" else "Exclude from backups")
-                                    }
-                                    val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
-                                    TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
-                                    TextButton(
-                                        { bulkDelete = true },
-                                        enabled = selection.isNotEmpty(),
-                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                        shapes = ButtonDefaults.shapes()) { Text("Delete") }
-                                }
-                                }
-                            }
                             FolioExpand(state.saveFailed) {
                                 FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes()) { Text("Changes need saving · Retry save") }
                             }
@@ -496,6 +470,37 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().padding(top = topGap).then(entrance),
                         onSettings, onMistakes, onStudy, onOpenNotebook)
                 }
+        }
+        if (selecting && !showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.LIBRARY) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
+        FolioExpand(selecting) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
+                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
+                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
+                val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
+                TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
+                    Text(if (allExcluded) "Include in backups" else "Exclude from backups")
+                }
+                val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
+                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
+                TextButton(
+                    { bulkDelete = true },
+                    enabled = selection.isNotEmpty(),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
+            }
+            }
+        }                }
+            }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
