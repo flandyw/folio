@@ -77,6 +77,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     val showCopy = availableWidth >= 104.dp
     val showDelete = availableWidth >= 152.dp
     val showStyle = canRestyle && availableWidth >= 200.dp
+    val showDuplicate = availableWidth >= 248.dp
     fun run(action: () -> Unit) { overflow = false; action() }
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
@@ -86,16 +87,17 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showCopy) SelectionAction(Icons.Rounded.ContentCopy, "Copy selection") { run(onCopy) }
             if (showStyle) SelectionAction(Icons.Rounded.Palette, "Style selection") { run(onStyle) }
+            if (showDuplicate) SelectionAction(Icons.Rounded.DynamicFeed, "Duplicate selection") { run(onDuplicate) }
             if (showDelete) SelectionAction(Icons.Rounded.DeleteOutline, "Delete selection", destructive = true) { run(onDelete) }
             SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
         }
         // Inline, not a DropdownMenu: a dropdown inside this non-focusable popup is placed against the wrong window.
-        if (overflow) Column(Modifier.width(200.dp).padding(bottom = 4.dp)) {
+        if (overflow) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp)).padding(bottom = 4.dp)) {
             if (!showCopy) PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
             PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
             PageMenuRow(Icons.Rounded.ContentPaste, "Paste", true) { run(onPaste) }
             PageMenuRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move to page…", canMove) { run(onMove) }
-            PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
+            if (!showDuplicate) PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
             if (canRestyle && !showStyle) PageMenuRow(Icons.Rounded.Palette, "Style", true) { run(onStyle) }
             if (!showDelete) PageMenuRow(Icons.Rounded.DeleteOutline, "Delete", true) { run(onDelete) }
             HorizontalDivider()
