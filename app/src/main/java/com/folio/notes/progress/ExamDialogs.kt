@@ -214,7 +214,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     var busy by remember { mutableStateOf(false) }
     var discard by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    fun dismiss() { if (!busy) { if (question.isNotBlank() || explanation.isNotBlank() || correction.isNotBlank() || topic.isNotBlank() || lost.isNotBlank() || total.isNotBlank()) discard = true else onDismiss() } }
+    fun dismiss() { if (!busy) { if (category != "Concept" || question.isNotBlank() || explanation.isNotBlank() || correction.isNotBlank() || topic.isNotBlank() || lost.isNotBlank() || total.isNotBlank()) discard = true else onDismiss() } }
     FolioPanel("Log mistake · ${exam.paper}", ::dismiss) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(exam.title)
