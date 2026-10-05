@@ -42,7 +42,9 @@ import androidx.compose.ui.unit.dp
             if (visible.isEmpty()) {
                 Text(if (notes.isEmpty()) "No notebooks yet." else "No notebooks match “${query.trim()}”.", Modifier.padding(vertical = FolioSpacing.dp12))
                 if (query.isNotBlank()) TextButton({ query = "" }) { Text("Show all notebooks") }
-            } else LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+            } else {
+                if (query.isNotBlank()) Text("${visible.size} matching notebook${if (visible.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium)
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 items(visible, key = { it.id }) { note ->
                     val excluded = note.id in excludedIds
                     Row(
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
                         }
                     }
                 }
+            }
             }
             TextButton(onDismiss, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("Done") }
         }
