@@ -324,11 +324,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         }
                                     }
                                 }
-                                FolioButtonGroup {
-                                    toggleableItem(listView, "Compact list", { listView = true },
-                                        icon = { Icon(Icons.AutoMirrored.Rounded.ViewList, null, Modifier.size(18.dp)) })
-                                    toggleableItem(!listView, "Covers", { listView = false },
-                                        icon = { Icon(Icons.Rounded.GridView, null, Modifier.size(18.dp)) })
+                                IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) {
+                                    Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList,
+                                        if (listView) "Switch to covers" else "Switch to list")
                                 }
                                 state.folders.find { it.id == state.folderId }?.let { folder -> Box {
                                     IconButton({ folderMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Folder options") }
