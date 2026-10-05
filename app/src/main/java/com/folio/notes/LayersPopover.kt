@@ -37,7 +37,8 @@ import androidx.compose.ui.unit.dp
             IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Close layers") }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-            Text("${layers.size} of ${PageLayers.MAX_LAYERS}", style = MaterialTheme.typography.labelMedium,
+            Text(if (layers.size == PageLayers.MAX_LAYERS) "Layer limit reached"
+                    else "${layers.size} of ${PageLayers.MAX_LAYERS} layers", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             FilledTonalButton({ model.addLayer() }, enabled = layers.size < PageLayers.MAX_LAYERS, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("New layer")
