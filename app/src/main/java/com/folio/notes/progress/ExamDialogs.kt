@@ -218,7 +218,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     FolioPanel("Log mistake · ${exam.paper}", ::dismiss) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(exam.title)
-            OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") })
+            OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") })
             ChoiceField("Category", category, listOf("Concept", "Knowledge recall", "Reasoning", "Evidence and analysis", "Written expression", "Process or technique", "Accuracy", "Interpretation", "Time management", "Algebra", "Arithmetic", "Calculator", "Other"), { category = it })
             OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), label = { Text("What went wrong?") }, minLines = 2)
             OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), label = { Text("Correction") }, minLines = 2)
