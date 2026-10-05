@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,9 +90,9 @@ import androidx.compose.ui.unit.dp
                     headlineContent = { Text("Link pages") },
                     supportingContent = { Text("Turning a page in the editor also turns the companion.") },
                     leadingContent = { Icon(if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff, null) },
-                    trailingContent = { Switch(state.companionLinked, model::setCompanionLinked) },
+                    trailingContent = { Switch(state.companionLinked, null) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().toggleable(state.companionLinked, role = Role.Switch, onValueChange = model::setCompanionLinked)
                 )
             }
             OutlinedTextField(
