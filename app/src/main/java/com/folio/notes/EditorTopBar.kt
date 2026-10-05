@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,6 +96,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     pageActions: @Composable (() -> Unit) -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
+    var focused by rememberSaveable { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. Only the tool tray scrolls; the left and right pills
@@ -195,9 +197,19 @@ internal val EditorFloatingGroupHeight = 46.dp
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f).clip(FolioShapes.small).clickable(role = Role.Button, onClickLabel = "Rename notebook", onClick = onRename)
                     .padding(vertical = FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                IconButton({ focused = !focused }) {
+                    Icon(if (focused) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                        if (focused) "Show document controls" else "Focus on writing")
+                }
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
             }
+            if (focused) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+                }
+            } else {
             Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center) {
                 IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
@@ -230,6 +242,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
                     Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterEnd) { DocumentControls() }
                 }
+            }
             }
 
         }
