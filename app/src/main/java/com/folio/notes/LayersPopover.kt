@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.dp
                                 val count = PageLayers.count(content, layer.id)
                                 Text(buildString {
                                     append(if (count == 1) "1 item" else "$count items")
-                                    if (isActive) append(" · drawing here")
+                                    if (!layer.visible) append(" · hidden")
+                                    if (layer.locked) append(" · locked")
+                                    if (isActive) append(if (layer.visible && !layer.locked) " · drawing here" else " · active")
                                 }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
