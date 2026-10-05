@@ -65,12 +65,12 @@ data class ToolbarLayout(
 object ToolbarLayouts {
     const val MIN_PRIMARY = 5
     const val MAX_PRIMARY = 7
-    const val DEFAULT_PRIMARY = 6
+    const val DEFAULT_PRIMARY = 7
     const val MAX_PINNED = 4
 
     val DEFAULT_ORDER: List<ToolbarSlot> = listOf(
-        ToolbarSlot.PEN, ToolbarSlot.SHAPES, ToolbarSlot.HIGHLIGHTER,
-        ToolbarSlot.ERASER, ToolbarSlot.TEXT, ToolbarSlot.LASSO, ToolbarSlot.HAND, ToolbarSlot.MARK_AREA
+        ToolbarSlot.PEN, ToolbarSlot.HIGHLIGHTER, ToolbarSlot.ERASER,
+        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.MARK_AREA
     )
 
     /** Every slot exactly once, in a sane order even when the stored value is corrupt. */
