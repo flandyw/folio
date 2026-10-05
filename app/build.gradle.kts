@@ -28,13 +28,23 @@ abstract class PrintReleaseVersionTask : DefaultTask() {
     }
 }
 
-// Derive every local and release build from the same full Git commit count.
-val automaticVersionCode = providers.exec {
+// Stable builds own the start of each 10,000-code block. build.sh reserves
+// offsets 1..9999 for local experimental builds without requiring a new commit.
+val commitCount = providers.exec {
     commandLine("git", "-C", rootProject.projectDir.absolutePath, "rev-list", "--count", "HEAD")
-    isIgnoreExitValue = true
-}.standardOutput.asText.map { it.trim().toIntOrNull() ?: 1 }.get()
-require(automaticVersionCode in 1..2_100_000_000) { "Generated Android versionCode is out of range" }
-val automaticVersionName = "${automaticVersionCode / 100}.${(automaticVersionCode / 10) % 10}.${automaticVersionCode % 10}"
+}.standardOutput.asText.map { it.trim().toInt() }.get()
+val experimentalBuild = providers.gradleProperty("folioExperimentalBuild").map {
+    it.toIntOrNull() ?: error("folioExperimentalBuild must be an integer")
+}.getOrElse(0)
+require(commitCount in 1..210_000 && experimentalBuild in 0..9999) { "Folio commit count or experimental build number is out of range" }
+providers.gradleProperty("folioExperimentalCommitCount").orNull?.let {
+    require(it.toIntOrNull() == commitCount) { "HEAD changed after reserving the experimental build; rerun build.sh" }
+}
+val generatedVersionCode = commitCount.toLong() * 10_000 + experimentalBuild
+require(generatedVersionCode in 1..2_100_000_000L) { "Generated Android versionCode is out of range" }
+val automaticVersionCode = generatedVersionCode.toInt()
+val stableVersionName = "${commitCount / 100}.${(commitCount / 10) % 10}.${commitCount % 10}"
+val automaticVersionName = if (experimentalBuild == 0) stableVersionName else "$stableVersionName-exp.$experimentalBuild"
 // Keep release tags aligned with the version shown in the app and release assets.
 val automaticReleaseTag = "v$automaticVersionName"
 

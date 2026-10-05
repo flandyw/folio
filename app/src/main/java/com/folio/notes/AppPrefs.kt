@@ -12,8 +12,12 @@ object AppPrefs {
     const val FULLSCREEN = "fullscreen"
     const val KEEP_SCREEN_ON = "editor.keepScreenOn"
     const val AUTO_UPDATE = "updates.auto"
+    /** Opt-in VPS builds; stable builds continue to come from GitHub. */
+    const val EXPERIMENTAL_UPDATES = "updates.experimental"
     const val LAST_UPDATE_CHECK = "updates.lastCheck"
     const val UPDATE_RETRY_AT = "updates.retryAt"
+    const val EXPERIMENTAL_LAST_UPDATE_CHECK = "updates.experimental.lastCheck"
+    const val EXPERIMENTAL_UPDATE_RETRY_AT = "updates.experimental.retryAt"
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"
@@ -53,6 +57,7 @@ object AppPrefs {
     const val DEFAULT_FULLSCREEN = true
     const val DEFAULT_KEEP_SCREEN_ON = false
     const val DEFAULT_AUTO_UPDATE = true
+    const val DEFAULT_EXPERIMENTAL_UPDATES = false
     const val DEFAULT_LIST_VIEW = false
     val DEFAULT_MISTAKE_PAPER = Paper.MATH_GRID
     const val DEFAULT_PAGE_COVER_ENABLED = true
@@ -81,6 +86,12 @@ object AppPrefs {
     const val DEFAULT_UI_TEXT_SCALE = 1f
     const val UI_TEXT_SCALE_MIN = 0.85f
     const val UI_TEXT_SCALE_MAX = 1.4f
+
+    fun lastUpdateCheckKey(experimental: Boolean): String =
+        if (experimental) EXPERIMENTAL_LAST_UPDATE_CHECK else LAST_UPDATE_CHECK
+
+    fun updateRetryAtKey(experimental: Boolean): String =
+        if (experimental) EXPERIMENTAL_UPDATE_RETRY_AT else UPDATE_RETRY_AT
 
     fun backupExcludedNotebookIds(raw: Set<String>?): Set<String> =
         (raw ?: DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS).filter { it.length in 1..64 && it.matches(Regex("[a-zA-Z0-9-]+")) }.toSet()

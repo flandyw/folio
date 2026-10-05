@@ -34,6 +34,11 @@ Folio is a native Android notebook built with Kotlin and Jetpack Compose. Write 
 
 Download the latest APK from [GitHub Releases](https://github.com/flandyw/folio/releases/latest).
 
+Experimental builds are available from the [Folio server](https://folio.flandolf.me/releases/).
+In **Settings → Account & updates**, enable **Experimental builds** to check that
+server; leave it off for stable GitHub releases. Server setup and publishing are
+documented in [release-server/README.md](release-server/README.md).
+
 ## Build
 
 Requires JDK 17 and Android SDK 36.
@@ -47,3 +52,9 @@ Run the full CI checks with:
 ```sh
 ./gradlew :app:assembleDebug :app:lintDebug
 ```
+
+On the configured VPS, run `bash ./build.sh` to make a signed experimental build,
+then answer `y` to publish it. Each run gets a new version code even without a new
+commit (`commitCount × 10000 + localBuildNumber`) and a name such as `2.1.7-exp.2`.
+Stable Gradle/CI builds use `commitCount × 10000`; the next stable commit therefore
+supersedes the preceding experimental builds.

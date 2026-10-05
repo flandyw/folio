@@ -1371,63 +1371,64 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     namedPage?.let { target ->
-        AlertDialog(onDismissRequest = { namedPage = null }, modifier = Modifier.guardUiTouches(),
-            icon = { Icon(Icons.Rounded.Edit, null) },
-            title = { Text("Name page") }, text = {
-                OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
-                    placeholder = { Text("e.g. Quadratics homework") },
-                    supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
-                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
-            }, dismissButton = { TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
-            confirmButton = { Button({ model.renamePage(target.id, pageTitle); namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Save") } })
+        FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
+            TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+            Button({ model.renamePage(target.id, pageTitle); namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Save") }
+        }) {
+            OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
+                placeholder = { Text("e.g. Quadratics homework") },
+                supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
+                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
+        }
     }
     movingPage?.let { pageId ->
         val destination = destinationPage.toIntOrNull()
-        AlertDialog(onDismissRequest = { movingPage = null }, modifier = Modifier.guardUiTouches(),
-            icon = { Icon(Icons.Rounded.LowPriority, null) },
-            title = { Text("Move page") }, text = {
-                OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
-                    label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = {
-                        val from = note.pages.indexOfFirst { it.id == pageId }
-                        if (from >= 0 && destination != null) model.movePage(from, destination - 1)
-                        movingPage = null
-                    }),
-                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
-            }, dismissButton = { TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
-            confirmButton = { Button({
-                val from = note.pages.indexOfFirst { it.id == pageId }
-                if (from >= 0 && destination != null) model.movePage(from, destination - 1)
-                movingPage = null
-            }, enabled = destination != null && destination in 1..note.pages.size,
-                shapes = ButtonDefaults.shapes()) { Text("Move") } })
+        fun commit() {
+            val from = note.pages.indexOfFirst { it.id == pageId }
+            if (from >= 0 && destination != null && destination in 1..note.pages.size) model.movePage(from, destination - 1)
+            movingPage = null
+        }
+        FolioPopover("Move page", Icons.Rounded.LowPriority, onDismiss = { movingPage = null }, actions = {
+            TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+            Button(::commit, enabled = destination != null && destination in 1..note.pages.size, shapes = ButtonDefaults.shapes()) { Text("Move") }
+        }) {
+            OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
+                label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { commit() }),
+                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
+        }
     }
     deletingPage?.let { pageId ->
         val index = note.pages.indexOfFirst { it.id == pageId }
-        AlertDialog(onDismissRequest = { deletingPage = null }, modifier = Modifier.guardUiTouches(),
-            icon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?") },
-            text = { Text("This removes the page and its content. This cannot be undone.") },
-            dismissButton = { TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
-            confirmButton = { Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                shapes = ButtonDefaults.shapes()) { Text("Delete") } })
+        FolioPopover("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?", Icons.Rounded.DeleteOutline,
+            onDismiss = { deletingPage = null }, actions = {
+                TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
+            }) { Text("This removes the page and its content. This cannot be undone.", style = MaterialTheme.typography.bodyMedium) }
     }
-    if (rename) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { rename = false },
-        icon = { Icon(Icons.Rounded.Edit, null) }, title = { Text("Rename notebook") }, text = {
+    if (rename) FolioPopover("Rename notebook", Icons.Rounded.Edit, onDismiss = { rename = false }, actions = {
+        TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
+    }) {
         OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { if (renameTitle.isNotBlank()) { model.rename(note, renameTitle); rename = false } }),
             shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
-    }, dismissButton = { TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = {
-        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
-    })
-    if (paperMenu) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { paperMenu = false },
-        icon = { Icon(Icons.Rounded.GridOn, null) }, title = { Text(if (nextPaperMenu) "Next page paper" else "Change paper") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+    }
+    if (paperMenu) FolioPopover(if (nextPaperMenu) "Next page paper" else "Change paper", Icons.Rounded.GridOn, onDismiss = { paperMenu = false }, actions = {
+        TextButton({ paperMenu = false }) { Text("Cancel") }
+        TextButton({
+            if (nextPaperMenu) nextPagePaper = chosenPaper else model.setPaper(chosenPaper)
+            if (savePaperDefault) model.setDefaultPaper(chosenPaper)
+            paperMenu = false
+        }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
+    }) {
+        Column {
             Text(if (nextPaperMenu) "Choose the style for the next blank page." else "Choose the style for this page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = FolioSpacing.dp8))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1464,13 +1465,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
         }
-    }, dismissButton = { TextButton({ paperMenu = false }) { Text("Cancel") } }, confirmButton = { TextButton({
-        if (nextPaperMenu) nextPagePaper = chosenPaper else model.setPaper(chosenPaper)
-        if (savePaperDefault) model.setDefaultPaper(chosenPaper)
-        paperMenu = false
-    }, shapes = ButtonDefaults.shapes()) { Text("Apply") } })
-    if (clear) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { clear = false },
-        icon = { Icon(Icons.Rounded.LayersClear, null) }, title = { Text("Clear this page?") }, text = { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.") }, dismissButton = { TextButton({ clear = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ model.clearPage(); selectedImage = null; clear = false }, shapes = ButtonDefaults.shapes()) { Text("Clear page") } })
+    }
+    if (clear) FolioPopover("Clear this page?", Icons.Rounded.LayersClear, onDismiss = { clear = false }, actions = {
+        TextButton({ clear = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+        Button({ model.clearPage(); selectedImage = null; clear = false }, shapes = ButtonDefaults.shapes()) { Text("Clear page") }
+    }) { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.", style = MaterialTheme.typography.bodyMedium) }
     if (timerPanel) TimingPanel(
         timer = state.timer,
         stopwatch = state.stopwatch,

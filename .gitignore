@@ -15,6 +15,7 @@ local.properties
 *.keystore
 *.p12
 .signing/
+__pycache__/
 *.tgz
 
 # Local environment and OS metadata
