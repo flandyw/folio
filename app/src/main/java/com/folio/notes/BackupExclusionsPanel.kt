@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
                 items(visible, key = { it.id }) { note ->
                     val excluded = note.id in excludedIds
                     Row(
-                        Modifier.fillMaxWidth().toggleable(excluded, role = Role.Checkbox,
+                        Modifier.fillMaxWidth().heightIn(min = 64.dp).toggleable(excluded, role = Role.Checkbox,
                             onValueChange = { onExcluded(setOf(note.id), it) }).padding(vertical = FolioSpacing.dp8),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
                     ) {
