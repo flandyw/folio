@@ -101,9 +101,8 @@ internal val EditorFloatingGroupHeight = 46.dp
         val leftNatural = 40.dp * 5 + FolioSpacing.dp8
         val rightNatural = 40.dp * 2 + FolioSpacing.dp8 + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
         val sideWidth = maxOf(leftNatural, rightNatural)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
+        @Composable fun NavigationControls() {
+            Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                     DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
@@ -115,8 +114,9 @@ internal val EditorFloatingGroupHeight = 46.dp
                     }
                 }
             } }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-            Row(Modifier.width(sideWidth), verticalAlignment = Alignment.CenterVertically,
+        }
+        @Composable fun DocumentControls() {
+            Row(Modifier, verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.End)) {
                 if (!compact) EditorGlassSurface {
                     Row(Modifier.padding(horizontal = FolioSpacing.dp6),
@@ -173,7 +173,24 @@ internal val EditorFloatingGroupHeight = 46.dp
                         }
                     }
                 }
+            }        }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            if (maxWidth < 720.dp) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    NavigationControls()
+                    DocumentControls()
+                }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { mainTools() }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                    Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { NavigationControls() }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+                    Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterEnd) { DocumentControls() }
+                }
             }
+
         }
     }
 }
