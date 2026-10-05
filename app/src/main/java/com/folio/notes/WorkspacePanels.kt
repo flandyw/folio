@@ -209,16 +209,15 @@ import androidx.compose.ui.unit.dp
             }
         }
 
-        Row(
+        FlowRow(
             Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, top = FolioSpacing.dp8, bottom = FolioSpacing.dp16),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
         ) {
             OutlinedButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text("Browse library")
             }
-            Spacer(Modifier.width(FolioSpacing.dp8))
             TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
         }
     }
