@@ -181,6 +181,13 @@ internal val EditorFloatingGroupHeight = 46.dp
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
             }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
+                TextButton(onPages) { Text("${pageIndex + 1} / $pageCount") }
+                IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
+                TextButton(onFit) { Text("$zoomPercent%") }
+                if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
+            }
             if (maxWidth < 720.dp) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
