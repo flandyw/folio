@@ -127,6 +127,7 @@ import androidx.compose.ui.unit.dp
                                 rangeError = null
                             }
                         },
+                        enabled = rangeText.isNotBlank() && note.pages.isNotEmpty(),
                         shapes = ButtonDefaults.shapes()
                     ) { Text("Apply") }
                 }
