@@ -200,7 +200,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         }
     }
     if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard exam changes?") },
-        text = { Text("Your changes have not been saved.") }, confirmButton = { TextButton(onDismiss) { Text("Discard") } },
+        text = { Text("Your changes have not been saved.") }, confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
         dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
@@ -251,5 +251,5 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(16.dp)) { Text(if (busy) "Saving…" else "Save mistake") }
     }
     if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard mistake changes?") },
-        confirmButton = { TextButton(onDismiss) { Text("Discard") } }, dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } }, dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
