@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,7 +60,9 @@ import androidx.compose.ui.unit.dp
     onJump: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var query by remember { mutableStateOf(search.query) }
+    var query by rememberSaveable { mutableStateOf(search.query) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    fun submit() { if (query.isNotBlank()) { keyboard?.hide(); onQuery(query.trim()) } }
     FolioPanel(title = "Search this PDF", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -71,7 +75,7 @@ import androidx.compose.ui.unit.dp
                 shape = FolioShapes.large,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onQuery(query) }),
+                keyboardActions = KeyboardActions(onSearch = { submit() }),
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton({ query = ""; onQuery("") }, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Clear, "Clear search")
@@ -79,7 +83,7 @@ import androidx.compose.ui.unit.dp
                 }
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Button({ onQuery(query) }, enabled = query.isNotBlank(), modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                Button(::submit, enabled = query.isNotBlank() && !search.searching, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
                 }
                 val pages = remember(search.results) { PdfReference.hitPages(search.results) }
@@ -97,6 +101,8 @@ import androidx.compose.ui.unit.dp
                     LoadingIndicator(Modifier.size(24.dp).semantics { contentDescription = "Searching PDF" })
                     Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                search.query.trim() != query.trim() -> Text("Press Search to find “${query.trim().take(80)}”.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 search.searched && search.query.isNotBlank() && search.results.isEmpty() -> Column(
                     Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
