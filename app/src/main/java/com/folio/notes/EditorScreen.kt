@@ -2905,10 +2905,12 @@ private enum class ToolSub { PRESETS, TOOL }
         opacity = opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
         color = color, bold = bold, italic = italic, align = align, underline = underline
     )
+    var discard by rememberSaveable(box.id) { mutableStateOf(false) }
+    fun dismiss() { if (edited() != box) discard = true else onDismiss() }
     AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         icon = { Icon(Icons.Rounded.TextFields, null) },
         title = { Text(if (isNew) "Add text" else "Edit text") },
         text = {
@@ -2988,7 +2990,7 @@ private enum class ToolSub { PRESETS, TOOL }
                     TextButton({ onDuplicate(edited()) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
                     TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
                 }
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton(::dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
             }
         },
         confirmButton = {
@@ -2997,6 +2999,10 @@ private enum class ToolSub { PRESETS, TOOL }
             }
         }
     )
+    if (discard) AlertDialog(onDismissRequest = { discard = false },
+        title = { Text("Discard text changes?") }, text = { Text("Your text and formatting changes have not been applied.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 /** One gesture recognizer owns both actions, so holding never also adds a page. */
