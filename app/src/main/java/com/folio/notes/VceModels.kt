@@ -60,7 +60,10 @@ enum class VceSubject(
 
 /** The kind of assessment a notebook holds, shown on the cover and used in the score roll-up. */
 enum class ExamType(val label: String) {
-    EXAM_1("Exam 1"), EXAM_2("Exam 2"), SAC("SAC"), TOPIC_TEST("Topic test"), NOTES("Notes");
+    EXAM_1("Exam 1"), EXAM_2("Exam 2"), EXAM("Exam"), SAC("SAC"), TOPIC_TEST("Topic test"), NOTES("Notes");
+
+    /** Only real papers feed the exam log, results and upcoming-exam lists; SACs, topic tests and notes do not. */
+    val isExam: Boolean get() = this == EXAM_1 || this == EXAM_2 || this == EXAM
 
     companion object { fun safeValueOf(name: String?): ExamType? = name?.let { runCatching { valueOf(it) }.getOrNull() } }
 }

@@ -49,7 +49,7 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
-private const val ALL_SUBJECTS = "All subjects"
+internal const val ALL_SUBJECTS = "All subjects"
 
 /** Full-width grid item: headers, banners and anything that should not sit beside a card. */
 internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridItemScope.() -> Unit) =
@@ -77,12 +77,16 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var showAccount by rememberSaveable { mutableStateOf(false) }
     var showPlan by rememberSaveable { mutableStateOf(false) }
+    var showResults by rememberSaveable { mutableStateOf(false) }
     var showDifficulty by rememberSaveable { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val local = remember(notes) { notebookExams(notes) }
-    val exams = remember(state.cache.rows, local) {
-        (state.cache.exams + local.filterNot { "attempts:${it.id}" in state.cache.rows }).sortedByDescending { it.completedAt }
+    // A result logged earlier from a notebook later relabelled SAC (or topic test, notes) is no longer an exam.
+    val notExamNotebooks = remember(notes) { notes.filterNot { it.countsAsExam }.map { it.id }.toSet() }
+    val exams = remember(state.cache.rows, local, notExamNotebooks) {
+        (state.cache.exams.filterNot { it.notebookId in notExamNotebooks } + local.filterNot { "attempts:${it.id}" in state.cache.rows })
+            .sortedByDescending { it.completedAt }
     }
     val subjects = remember(exams, notes, state.catalog, state.cache.rows) { (exams.map { it.subject } + state.catalog.exams.map { it.subject } +
         state.catalog.references.map { it.subject } + notes.filter { it.exam.isTagged }.map(::focalNotebookSubject) +
@@ -130,9 +134,17 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             finally { busy = false }
         }
     }
-    fun logNotebookResults() {
-        val owner = state.userId; val batch = local.filterNot { "attempts:${it.id}" in state.cache.rows }; busy = true
-        scope.launch { try { for (exam in batch) if (!manager.save("attempts", exam.id, exam.json, owner)) break } finally { busy = false } }
+    /** Keep the notebook mark consistent when its Progress log entry is saved or corrected. */
+    fun mirrorToNotebook(id: String) {
+        manager.state.value.cache.exams.find { it.id == id }?.let { saved ->
+            val note = notes.find { it.id == saved.notebookId }
+            val original = note?.attempts?.find { it.id == id }
+            if (original != null && saved.rawScore % 1 == 0.0 && saved.rawMax % 1 == 0.0 && saved.rawMax <= Int.MAX_VALUE) {
+                val date = runCatching { java.time.Instant.parse(saved.completedAt).toEpochMilli() }.getOrNull()
+                    ?: saved.date?.atStartOfDay(java.time.ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: original.date
+                model.updateAttempt(note.id, original.copy(score = saved.rawScore.toInt(), total = saved.rawMax.toInt(), date = date))
+            }
+        }
     }
     fun copyDeviceLogs() {
         val owner = state.userId ?: return; busy = true
@@ -152,7 +164,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             val study = VceSubject.match(exam.subject)
             model.create("${exam.provider} ${exam.year} ${exam.subject} · ${exam.paper}", 0, study?.paper ?: Paper.RULED,
                 ExamTags(subjectText = exam.subject, year = exam.year, company = exam.provider,
-                    type = when (exam.paper) { "Exam 1" -> ExamType.EXAM_1; "Exam 2" -> ExamType.EXAM_2; else -> null }, marksTotal = preset.optInt("rawMax")), infinite = true)
+                    type = when (exam.paper) { "Exam 1" -> ExamType.EXAM_1; "Exam 2" -> ExamType.EXAM_2; else -> ExamType.EXAM }, marksTotal = preset.optInt("rawMax")), infinite = true)
         }
         val number = Regex("\\d+").find(exam.paper)?.value?.toIntOrNull()
         val writing = when (comparisonName(exam.subject)) { "mathematical methods", "specialist mathematics" -> if (number == 1) 60 else 120
@@ -195,7 +207,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                     "Overview" -> overviewItems(exams, mistakes, local, notes, state, enabled,
                         onLog = { draft = "{}" }, onDetail = { detailId = it }, onLogMistake = { mistakeId = it }, onMistakes = onMistakes,
                         onDestination = { destination = it }, onSubject = { subject = it; destination = "Insights" },
-                        onOpenNotebook = onOpenNotebook, onLogNotebooks = ::logNotebookResults, onCopyLogs = ::copyDeviceLogs)
+                        onOpenNotebook = onOpenNotebook, onLogNotebooks = { showResults = true }, onCopyLogs = ::copyDeviceLogs)
                     "Exams" -> {
                         wide("exam-filters") {
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -264,7 +276,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                                 }
                             }
                             else -> {
-                                val notebookList = notes.filter { it.exam.isTagged && (subject == ALL_SUBJECTS || comparisonName(focalNotebookSubject(it)) == comparisonName(subject)) &&
+                                val notebookList = notes.filter { it.exam.isTagged && it.countsAsExam && (subject == ALL_SUBJECTS || comparisonName(focalNotebookSubject(it)) == comparisonName(subject)) &&
                                     "${it.title} ${it.exam.summaryLine()}".contains(query, true) }.sortedByDescending { it.exam.year ?: 0 }
                                 items(notebookList, key = { "note:${it.id}" }) { note -> NotebookRow(note) { onOpenNotebook(note.id) } }
                                 if (notebookList.isEmpty()) wide("notebooks-empty") {
@@ -296,18 +308,14 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         }
     }
     if (showAccount) FocalAccountPanel({ showAccount = false }, onMistakes, onStudy)
-    if (showPlan) ProgressionDialog(state.cache.progression?.toString(), state.catalog, manager, state.userId, { showPlan = false })
+    if (showPlan) ProgressionDialog(state.cache.progression?.toString(), state.catalog, exams, manager, state.userId, { showPlan = false })
+    if (showResults) {
+        val pending = remember(local, state.cache.rows) { local.filterNot { "attempts:${it.id}" in state.cache.rows } }
+        NotebookResultsDialog(pending, state.cache.exams, subjects, manager, state.userId, { showResults = false }) { ids -> ids.forEach(::mirrorToNotebook) }
+    }
     if (showDifficulty) DifficultyDialog(state.cache.difficulty, manager, state.userId, { showDifficulty = false })
     draft?.let { raw -> LogExamDialog(raw, state.catalog, state.userId, manager, { draft = null }) { id, addMistake ->
-        manager.state.value.cache.exams.find { it.id == id }?.let { saved ->
-            val note = notes.find { it.id == saved.notebookId }
-            val original = note?.attempts?.find { it.id == id }
-            if (original != null && saved.rawScore % 1 == 0.0 && saved.rawMax % 1 == 0.0 && saved.rawMax <= Int.MAX_VALUE) {
-                val date = runCatching { java.time.Instant.parse(saved.completedAt).toEpochMilli() }.getOrNull()
-                    ?: saved.date?.atStartOfDay(java.time.ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: original.date
-                model.updateAttempt(note.id, original.copy(score = saved.rawScore.toInt(), total = saved.rawMax.toInt(), date = date))
-            }
-        }
+        mirrorToNotebook(id)
         draft = null; if (addMistake) mistakeId = id else detailId = id
     } }
     exams.find { it.id == detailId }?.let { exam -> ExamDetailDialog(exam, state.catalog, mistakes.filter { it.attemptId == exam.id },
@@ -419,7 +427,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     }
     item("activity") { ActivityCard(exams) }
     val today = LocalDate.now()
-    val upcoming = notes.filter { (it.exam.examDate ?: 0) >= System.currentTimeMillis() }.sortedBy { it.exam.examDate }
+    val upcoming = notes.filter { it.countsAsExam && (it.exam.examDate ?: 0) >= System.currentTimeMillis() }.sortedBy { it.exam.examDate }
     if (upcoming.isNotEmpty()) item("upcoming") {
         ProgressCard("Upcoming exams", icon = Icons.Rounded.Event) {
             upcoming.take(6).forEach { note ->
@@ -445,13 +453,16 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
             }
         }
     }
-    val ready = local.count { "attempts:${it.id}" !in state.cache.rows }
+    val pending = local.filter { "attempts:${it.id}" !in state.cache.rows }
+    val ready = pending.size
+    val likelyLogged = pending.count { LoggedMatcher.best(ResultFacts.of(it), state.cache.exams)?.level == MatchLevel.LIKELY }
     if (ready > 0 || state.userId != null) item("notebook-results") {
         ProgressCard("Notebook results", "Notebook marks show here straight away. Add them to the exam log to sync them with Focal.", Icons.Rounded.CloudSync) {
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 StatusPill("${local.size} recorded"); StatusPill("$ready ready to add", strong = ready > 0)
+                if (likelyLogged > 0) StatusPill("$likelyLogged likely logged", Icons.Rounded.ContentCopy)
             }
-            FilledTonalButton(onLogNotebooks, enabled = enabled && ready > 0, shapes = ButtonDefaults.shapes()) { Text("Add notebook results to log") }
+            FilledTonalButton(onLogNotebooks, enabled = enabled && ready > 0, shapes = ButtonDefaults.shapes()) { Text("Review and add to log") }
             if (state.userId != null) TextButton(onCopyLogs, enabled = enabled) { Text("Copy device logs to this account") }
         }
     }

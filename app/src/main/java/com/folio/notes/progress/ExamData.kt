@@ -179,7 +179,10 @@ fun focalNotebookSubject(note: Notebook): String = when (note.exam.subject) {
     else -> note.exam.subjectLabel.ifBlank { "Other" }
 }
 
-fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.flatMap { note -> note.attempts.mapNotNull { a ->
+/** A notebook feeds the exam log unless it is labelled as something that is not a paper (SAC, topic test, notes). */
+val Notebook.countsAsExam: Boolean get() = exam.type?.isExam != false
+
+fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.filter { it.countsAsExam }.flatMap { note -> note.attempts.mapNotNull { a ->
     val max = a.total ?: note.exam.marksTotal ?: return@mapNotNull null
     val subject = focalNotebookSubject(note)
     val raw = JSONObject().put("id", a.id).put("subject", subject).put("provider", note.exam.company)
