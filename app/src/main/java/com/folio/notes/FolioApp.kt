@@ -614,6 +614,7 @@ import java.io.File
     var template by rememberSaveable { mutableStateOf<String?>(null) }
     var pageCount by rememberSaveable { mutableIntStateOf(1) }
     var infinite by rememberSaveable { mutableStateOf(false) }
+    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
     var pageCover by rememberSaveable { mutableStateOf(dialogPrefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
     fun chooseTemplate(item: NotebookTemplate) {
         infinite = false
@@ -629,7 +630,8 @@ import java.io.File
     FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
+            Text("Choose a starting page and begin writing. You can change the cover and paper later.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 FilterChip(template == null && !infinite, { template = null; pageCount = 1; infinite = false }, { Text("Blank") })
@@ -647,6 +649,12 @@ import java.io.File
                 label = { Text("Name (optional)") }, placeholder = { Text("Name it now or rename it later") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { createNotebook() }))
+            TextButton({ appearanceExpanded = !appearanceExpanded }, shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(if (appearanceExpanded) "Hide cover options" else "Cover options")
+                Icon(if (appearanceExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+            }
+            if (appearanceExpanded) {
             CoverPicker(cover, { cover = it }, title)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -658,7 +666,8 @@ import java.io.File
                 }
                 Switch(pageCover, { pageCover = it })
             }
-            Text("Paper style — pick for maths", style = MaterialTheme.typography.labelLarge)
+            }
+            Text("Paper style", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 // Maths papers first so an exam student sees them without scrolling.
                 listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.SPLIT_RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).filter { !infinite || it != Paper.MC_SHEET }.forEach { item ->
