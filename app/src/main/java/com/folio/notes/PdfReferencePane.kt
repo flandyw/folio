@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Clear
@@ -84,7 +85,7 @@ import androidx.compose.ui.unit.dp
                 val pages = remember(search.results) { PdfReference.hitPages(search.results) }
                 if (pages.size > 1) {
                     OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = false)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Previous match", Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous match", Modifier.size(18.dp))
                     }
                     OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = true)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next match", Modifier.size(18.dp))

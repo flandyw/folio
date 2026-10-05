@@ -1685,67 +1685,12 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (responseAttempts) LongResponseAttemptsPanel(note, page.id, model) { responseAttempts = false }
-    if (pdfSearchOpen) FolioPanel(title = "Search this PDF", onDismissRequest = { pdfSearchOpen = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            OutlinedTextField(
-                pdfQuery, { pdfQuery = it },
-                Modifier.fillMaxWidth(),
-                label = { Text("Find in this PDF") },
-                placeholder = { Text("e.g. quadratic formula") },
-                singleLine = true,
-                shape = FolioShapes.large,
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { model.searchPdf(pdfQuery) }),
-                trailingIcon = {
-                    if (pdfQuery.isNotEmpty()) IconButton({ pdfQuery = ""; model.searchPdf("") }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Clear, "Clear search")
-                    }
-                }
-            )
-            Button({ model.searchPdf(pdfQuery) }, enabled = pdfQuery.isNotBlank(), modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
-            }
-            val search = state.pdfSearch
-            if (search.searching) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching PDF"))
-                    Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else if (search.searched && search.query.isNotBlank()) {
-                if (search.results.isEmpty()) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                        Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            "No matches for “${search.query.trim().take(80)}”.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text("Scanned or locked PDFs have no searchable text.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    Text(
-                        "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 368.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        items(search.results, key = { it.pageIndex }) { hit ->
-                            Surface(onClick = { jumpTo(hit.pageIndex); pdfSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
-                                        Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${hit.pageIndex + 1}")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    if (pdfSearchOpen) ReferenceSearchPanel(
+        search = state.pdfSearch, currentIndex = state.pageIndex,
+        onQuery = model::searchPdf,
+        onJump = { jumpTo(it); pdfSearchOpen = false },
+        onDismiss = { pdfSearchOpen = false }
+    )
     if (pdfContentsOpen) FolioPanel(title = "Contents", onDismissRequest = { pdfContentsOpen = false }) {
         val outline = pdfOutline
         if (outline == null) {
