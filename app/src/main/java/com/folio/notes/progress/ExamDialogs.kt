@@ -148,7 +148,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 } else null
             }
             preview?.let { Text("Estimated grade ${it.grade ?: "—"} · ${it.percentile?.display() ?: "—"} percentile", color = MaterialTheme.colorScheme.primary) }
-            OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text("Comments and reflection") }, minLines = 2)
+            OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text("Comments and reflection") }, minLines = 2, maxLines = 5)
             TextButton({ showQuestions = !showQuestions }) { Text("${if (showQuestions) "Hide" else "Show"} question marking (${questions.size})") }
             if (showQuestions) {
                 questions.forEachIndexed { index, question ->
