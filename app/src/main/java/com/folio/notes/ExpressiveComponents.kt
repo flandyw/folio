@@ -64,13 +64,13 @@ import androidx.compose.ui.unit.dp
     onLongClick: (() -> Unit)? = null,
 ) {
     val hold = rememberLongPressGuard()
-    Box(Modifier.size(44.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier), contentAlignment = Alignment.Center) {
         FilledTonalIconToggleButton(
             checked = selected,
             // Tapping the active pen still opens its options rather than deselecting the tool.
             onCheckedChange = { hold.click(onClick)() },
             shapes = IconButtonDefaults.toggleableShapes(),
-            modifier = Modifier.size(44.dp).folioSelected(selected),
+            modifier = Modifier.size(40.dp).folioSelected(selected),
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -80,7 +80,7 @@ import androidx.compose.ui.unit.dp
         ) { Icon(icon, label, Modifier.size(20.dp)) }
         if (indicatorColor != null) {
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp6, bottom = FolioSpacing.dp6).size(10.dp)
+                Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp4, bottom = FolioSpacing.dp4).size(9.dp)
                     .background(indicatorColor, CircleShape)
                     .border(1.5.dp, if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
             )

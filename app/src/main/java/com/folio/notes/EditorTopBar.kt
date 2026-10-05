@@ -22,7 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-internal val EditorFloatingGroupHeight = 56.dp
+internal val EditorFloatingGroupHeight = 46.dp
 
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(
@@ -77,6 +77,7 @@ internal val EditorFloatingGroupHeight = 56.dp
     onFit: () -> Unit,
     onFitAll: (() -> Unit)? = null,
     onAdd: () -> Unit,
+    onSearch: () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
@@ -86,61 +87,39 @@ internal val EditorFloatingGroupHeight = 56.dp
 ) {
     var overflow by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Size against this editor pane, including the narrower mistake-review split.
-        // Only the tool tray scrolls; Back and overflow always remain on screen.
-        // Hide the title first, then move timing controls into the notebook menu. The timer is
-        // measured at its natural width so a chip is never clipped or scrolled: it either fits
-        // beside the title, fits once the title is hidden, or lives in the menu.
+        // Size against this editor pane. Only the tool tray scrolls; the left and right pills
+        // always remain on screen. The timer is measured at its natural width so a chip is never
+        // clipped: it either fits beside the tools or lives in the notebook menu.
         val timerWidth = remember { mutableStateOf(0.dp) }
         MeasureNaturalWidth(timerWidth) { timer() }
         val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
-        val actionsWidth = 48.dp * 2 + FolioSpacing.dp2 * 2
-        val sideWidth = ((maxWidth - 480.dp) / 2).coerceAtLeast(0.dp)
-        val collapsedTitle = maxWidth < 840.dp || timerNeed > sideWidth - actionsWidth
-        val collapsedRoom = maxWidth - 480.dp - 48.dp - actionsWidth - FolioSpacing.dp2 * 2
-        val compact = collapsedTitle && timerNeed > collapsedRoom
+        val compact = maxWidth - 760.dp < timerNeed
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            Row(if (collapsedTitle) Modifier else Modifier.width(sideWidth),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                EditorGlassSurface(Modifier.width(48.dp)) {
-                    IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", Modifier.size(20.dp)) }
-                }
-                if (!collapsedTitle) EditorGlassSurface(Modifier.weight(1f, fill = false)) {
-                    Row(Modifier.clickable(role = Role.Button, onClickLabel = "Notebook actions") { overflow = true }
-                        .padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp))
-                    }
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            EditorGlassSurface {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                    DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
+                    DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
+                    DockButton(Icons.Rounded.AddBox, "Add page at end", onAdd)
+                    DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
+                    DockButton(Icons.Rounded.Layers, "Page options", onPageOptions)
                 }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-            Row(if (collapsedTitle) Modifier else Modifier.width(sideWidth),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.End)) {
-                if (!compact) Box(
-                    if (collapsedTitle) Modifier else Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    EditorGlassSurface {
-                        Row(Modifier.padding(horizontal = FolioSpacing.dp6),
-                            verticalAlignment = Alignment.CenterVertically) { timer() }
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.End)) {
+                if (!compact) EditorGlassSurface {
+                    Row(Modifier.padding(horizontal = FolioSpacing.dp6),
+                        verticalAlignment = Alignment.CenterVertically) { timer() }
                 }
-                EditorGlassSurface(Modifier.width(48.dp)) {
-                    IconButton(onExport) { Icon(Icons.Rounded.IosShare, "Share or export", Modifier.size(20.dp)) }
-                }
-                Box {
-                    EditorGlassSurface(Modifier.width(48.dp)) {
-                        IconButton({ overflow = true }) {
-                            Icon(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
+                EditorGlassSurface {
+                    Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                        DockButton(Icons.Rounded.IosShare, "Share or export", onExport)
+                        Box {
+                            DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
-                                modifier = Modifier.size(20.dp),
+                                { overflow = true },
                                 tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
-                        }
-                    }
                     DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
                         Text(title, Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                             style = MaterialTheme.typography.titleSmall)
@@ -177,9 +156,18 @@ internal val EditorFloatingGroupHeight = 56.dp
                             if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { overflow = false; onFitAll() })
                     }
                     additionalMenus()
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/** One compact 40dp icon button shared by the dock pills. */
+@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick, modifier = Modifier.size(40.dp)) { Icon(icon, label, Modifier.size(20.dp), tint = tint) }
     }
 }
 

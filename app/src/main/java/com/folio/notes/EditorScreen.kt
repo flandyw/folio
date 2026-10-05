@@ -1214,6 +1214,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
+                    actions = listOf(
+                        ToolbarAction(Icons.Rounded.Image, "Insert image") { imagePicker.launch(arrayOf("image/*")) },
+                        ToolbarAction(Icons.Rounded.AddReaction, "Insert element") { stampPicker = true },
+                        ToolbarAction(Icons.Rounded.RateReview, "Marking and feedback") { markingPanel = true },
+                        ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
+                    ),
                     header = { mainTools ->
                         EditorTopBar(
                             title = note.title,
@@ -1249,6 +1255,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onFit = ::resetZoom,
                             onFitAll = if (page.infinite) ::fitAllContent else null,
                             onAdd = ::addPage,
+                            onSearch = { noteQuery = ""; noteSearchOpen = true },
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = onExport,
@@ -2157,6 +2164,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
     toolbarLayoutState: ToolbarLayoutState? = null,
+    actions: List<ToolbarAction> = emptyList(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
     var shapes by remember { mutableStateOf(false) }
@@ -2164,6 +2172,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     var showWidth by remember { mutableStateOf(false) }
     var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
+    var quickBarOpen by rememberSaveable { mutableStateOf(true) }
     // The strip's own long-press opens Edit toolbar. A tool or pinned preset claims the
     // gesture first (and cancels the strip menu again if the strip handler ran first), so
     // a hold over a button only ever opens that button's own action.
@@ -2183,7 +2192,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val isShape = tool in ShapePickerTools
     val isDrawing = tool in DrawingTools
     // Text quick controls change the colour used for new text boxes.
-    val showQuickBar = isDrawing || tool == Tool.ERASER || (tool == Tool.TEXT && onTextColor != null)
+    val showQuickBar = quickBarOpen && (isDrawing || tool == Tool.ERASER || (tool == Tool.TEXT && onTextColor != null))
     val feedback = LocalHapticFeedback.current
     /** A light tick on real tool changes; tapping the active tool stays silent. */
     fun pick(next: Tool) {
@@ -2214,16 +2223,35 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
         }
     }
+    @Composable fun WidthPresets() {
+        val presets = when (tool) {
+            Tool.PEN -> listOf(1.4f, 2.2f, 3.5f)
+            Tool.HIGHLIGHTER -> listOf(12f, 18f, 28f)
+            Tool.ERASER -> listOf(14f, 26f, 42f)
+            else -> listOf(1.2f, 2f, 3.5f)
+        }
+        val nearest = presets.indices.minByOrNull { kotlin.math.abs(presets[it] - options.width) } ?: 0
+        val exact = kotlin.math.abs(presets[nearest] - options.width) < presets[nearest] * 0.15f
+        presets.forEachIndexed { index, w ->
+            val selected = exact && index == nearest
+            Box(
+                Modifier.size(width = 40.dp, height = 40.dp).clip(CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(width = w)) }
+                    .semanticsLabel("Width ${String.format(java.util.Locale.ROOT, "%.1f", w)}${if (selected) ", selected" else ""}"),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.width(24.dp).height((1.5f + index * 1.5f).dp).background(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
+                if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp4).size(4.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+            }
+        }
+    }
     @Composable fun WidthControl() {
         val hold = rememberLongPressGuard()
         Box {
             // Long-press jumps past the width slider straight to the tool's full settings.
-            AssistChip(
-                onClick = hold.click { showWidth = true },
-                label = { Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelSmall) },
-                leadingIcon = { Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp)) },
-                modifier = Modifier.height(32.dp).longPressAction(hold) { onPalette(true) }
-            )
+            IconButton(hold.click { showWidth = true }, modifier = Modifier.size(40.dp).longPressAction(hold) { onPalette(true) }) {
+                Icon(Icons.Rounded.Tune, "Width, opacity and more", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
                 Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     Text("Stroke width", style = MaterialTheme.typography.titleSmall)
@@ -2333,13 +2361,26 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     }
                 }
             }
+            if (actions.isNotEmpty()) {
+                ToolbarDivider()
+                actions.forEach { action ->
+                    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(action.label) } }, state = rememberTooltipState()) {
+                        IconButton(stripGuard.click(action.onClick), modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(action.icon, action.label, Modifier.size(20.dp)) }
+                    }
+                }
+            }
         }
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
             var toolSub by remember { mutableStateOf<ToolSub?>(null) }
             val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
-            IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
+                IconButton(stripGuard.click { quickBarOpen = !quickBarOpen }, modifier = Modifier.size(40.dp)) {
+                    Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
+                }
+            }
             DropdownMenu(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches()) {
                 if (compactTools) {
                     DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
@@ -2430,6 +2471,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         } else {
+                            WidthPresets()
+                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             if (tool != Tool.ERASER) QuickColors()
                             if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             WidthControl()
@@ -2488,6 +2531,9 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         )
     }
 }
+
+/** A one-tap action shown beside the tools in the dock. */
+internal class ToolbarAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)
 
 private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
     ToolbarSlot.PEN -> "Pen"
