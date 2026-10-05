@@ -1,7 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -49,7 +50,7 @@ import androidx.compose.ui.unit.dp
                 Surface(
                     shape = FolioShapes.medium,
                     color = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth().clip(FolioShapes.medium).clickable { model.setActiveLayer(page.id, layer.id) }
+                    modifier = Modifier.fillMaxWidth().clip(FolioShapes.medium).selectable(isActive, role = Role.RadioButton) { model.setActiveLayer(page.id, layer.id) }
                 ) {
                     Column(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
