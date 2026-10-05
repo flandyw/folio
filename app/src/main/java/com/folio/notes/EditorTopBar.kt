@@ -104,6 +104,7 @@ internal val EditorFloatingGroupHeight = 46.dp
         MeasureNaturalWidth(timerWidth) { timer() }
         val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
         val compact = maxWidth - 760.dp < timerNeed
+        val narrow = maxWidth < 720.dp
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
         val leftNatural = 40.dp * 5 + FolioSpacing.dp8
@@ -215,7 +216,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                         tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 }
             }
-            if (maxWidth < 720.dp) {
+            if (narrow) {
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     NavigationControls()
