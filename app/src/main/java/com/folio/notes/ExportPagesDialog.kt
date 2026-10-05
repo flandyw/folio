@@ -141,6 +141,7 @@ import androidx.compose.ui.unit.dp
             ) {
                 TextButton(
                     onClick = { selected = note.pages.indices.toSet(); rangeError = null },
+                    enabled = selected.size < note.pages.size,
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Select all") }
                 TextButton(
