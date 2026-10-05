@@ -2,6 +2,7 @@
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -79,6 +80,8 @@ internal val EditorFloatingGroupHeight = 46.dp
     onAdd: () -> Unit,
     onSearch: () -> Unit,
     onLayers: () -> Unit,
+    bookmarked: Boolean,
+    onBookmark: () -> Unit,
     layersPopover: @Composable () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
@@ -189,12 +192,18 @@ internal val EditorFloatingGroupHeight = 46.dp
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center) {
                 IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
                 TextButton(onPages) { Text("${pageIndex + 1} / $pageCount") }
                 IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
                 TextButton(onFit) { Text("$zoomPercent%") }
                 if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
+                IconButton(onBookmark) {
+                    Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                        if (bookmarked) "Remove page bookmark" else "Bookmark this page",
+                        tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                }
             }
             if (maxWidth < 720.dp) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,

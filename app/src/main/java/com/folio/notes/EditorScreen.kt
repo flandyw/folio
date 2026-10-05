@@ -1226,6 +1226,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onAdd = ::addPage,
                             onSearch = { noteQuery = ""; noteSearchOpen = true },
                             onLayers = { layersPopover = true },
+                            bookmarked = page.bookmarked,
+                            onBookmark = { model.togglePageBookmark(page.id) },
                             layersPopover = {
                                 if (layersPopover) LayersPopover(page, model.activeLayerOf(page), selected.size, model,
                                     onMoveSelection = { layer -> model.moveSelectionToLayer(selected, layer) },
