@@ -146,6 +146,7 @@ import androidx.compose.ui.unit.dp
                 ) { Text("Select all") }
                 TextButton(
                     onClick = { selected = emptySet(); rangeError = null },
+                    enabled = selected.isNotEmpty(),
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Clear") }
                 Spacer(Modifier.weight(1f))
