@@ -1605,6 +1605,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             onDismiss = { pageMenu = null })
     }
     if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
+        val searchFocus = remember { FocusRequester() }
+        val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        LaunchedEffect(Unit) { searchFocus.requestFocus() }
         // Search runs off the main thread with a debounce so typing never janks composition.
         var debouncedQuery by remember { mutableStateOf(noteQuery) }
         LaunchedEffect(noteQuery) {
@@ -1628,13 +1631,14 @@ private fun paperLabel(p: Paper): String = when (p) {
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
                 noteQuery, { noteQuery = it },
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().focusRequester(searchFocus),
                 label = { Text("Find typed text") },
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
                 shape = FolioShapes.large,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { debouncedQuery = noteQuery; keyboard?.hide() }),
                 trailingIcon = {
                     if (noteQuery.isNotEmpty()) IconButton({ noteQuery = "" }, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Clear, "Clear search")
