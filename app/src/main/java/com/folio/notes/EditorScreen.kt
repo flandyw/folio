@@ -1301,11 +1301,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
             Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton({
-                model.duplicatePage()?.let { pages.requestScrollToItem(it) }
-                pageBrowser = false
-            },
-                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Duplicate ${state.pageIndex + 1}") }
         }
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
@@ -1360,6 +1355,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             OutlinedButton({ revealNewPage(model.insertPage(state.pageIndex + 1)); pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
                 Text("Insert after ${state.pageIndex + 1}")
+            }
+            TextButton({ model.duplicatePage()?.let { revealNewPage(it) }; pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Duplicate")
             }
             TextButton({ pageBrowser = false; openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) { Text("Choose paper") }
         }
