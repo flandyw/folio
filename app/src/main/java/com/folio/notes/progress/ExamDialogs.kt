@@ -192,7 +192,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         }
         FlowRow(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             TextButton(::dismiss, enabled = !busy) { Text("Cancel") }
-            OutlinedButton({ submit(true) }, enabled = !busy) { Text("Save + mistake") }
+            OutlinedButton({ submit(true) }, enabled = !busy) { Text("Save & add mistake") }
             Button({ submit(false) }, enabled = !busy) { Text(if (busy) "Saving…" else "Save") }
         }
     }
