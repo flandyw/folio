@@ -154,7 +154,8 @@ import kotlinx.coroutines.withContext
 @Composable private fun SettingsSearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
     OutlinedTextField(
         value = query, onValueChange = onQuery, modifier = modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.extraLarge,
-        placeholder = { Text("Search settings") },
+        label = { Text("Search settings") },
+        placeholder = { Text("Theme, backup, pencil or timer") },
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
         trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
     )
