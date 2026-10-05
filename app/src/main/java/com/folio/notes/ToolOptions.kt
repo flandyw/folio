@@ -8,8 +8,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,122 +64,102 @@ object EditorQuickPrefs {
     const val MULTI_TOUCH_UNDO = "multiTouchUndo"
 }
 
+/** A titled, collapsible group inside the tool popover, so the rarely used controls stay one tap away. */
+@Composable private fun PopoverSection(title: String, initiallyOpen: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var open by rememberSaveable(title) { mutableStateOf(initiallyOpen) }
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().clip(FolioShapes.small).clickable(role = androidx.compose.ui.semantics.Role.Button) { open = !open }.padding(vertical = FolioSpacing.dp8),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            Icon(Icons.Rounded.ExpandMore, if (open) "Collapse $title" else "Expand $title", Modifier.size(20.dp).folioDisclosure(open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        FolioExpand(open) { Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), content = content) }
+    }
+}
+
+@Composable private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, hint: String? = null, enabled: Boolean = true) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Switch(checked, onChange, enabled = enabled)
+        }
+        if (hint != null) Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * The tool's settings, laid out for a popover: the live sample, width and opacity first, then
+ * colours, and everything else in collapsible sections. Each tool remembers its own values.
+ */
 @Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, presets: ToolPresetState? = null) {
     val label = tool.name.lowercase().replaceFirstChar(Char::uppercase)
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Text("$label settings", style = MaterialTheme.typography.headlineSmall)
-        if (tool == Tool.HAND) {
-            Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.")
-        } else if (tool == Tool.LASSO) {
-            Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.")
-        } else if (tool == Tool.TEXT) {
-            Text("Tap the page to write a heading or a label. Tap a box to edit it or drag it to move it. Text sits on top of your ink and travels with the page.")
-        } else {
-            Text("Saved independently for this tool.", style = MaterialTheme.typography.bodySmall)
-            if (tool != Tool.ERASER) InkColorsSection(options, onChange, quick, InkColors.groupOf(tool))
-            val range = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; in ShapePickerTools -> 0.7f..10f; else -> 0.7f..12f }
-            Text("${if (tool == Tool.ERASER) "Eraser diameter" else "Stroke width"}: ${String.format(Locale.ROOT, "%.1f", options.width)} pt")
-            Slider(options.width.coerceIn(range), { onChange(options.copy(width = it)) }, valueRange = range)
-            if (tool != Tool.ERASER) {
-                Text("Opacity: ${(options.opacity * 100).roundToInt()}%")
-                Slider(options.opacity, { onChange(options.copy(opacity = it)) }, valueRange = 0.05f..1f)
-                // Preview uses the same width, color and opacity as the selected tool.
-                Box(Modifier.fillMaxWidth().height(72.dp).background(MaterialTheme.colorScheme.surfaceContainerLow), contentAlignment = Alignment.Center) {
-                    Box(Modifier.fillMaxWidth(0.8f).height(options.width.dp).background(Color(options.color).copy(alpha = options.opacity), CircleShape))
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (tool in ShapePickerTools) "Shape settings" else "$label settings", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            if (tool != Tool.HAND && tool != Tool.LASSO && tool != Tool.TEXT) TextButton({ onChange(ToolOptions.defaults(tool)) }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
+        }
+        when (tool) {
+            Tool.HAND -> Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.", style = MaterialTheme.typography.bodyMedium)
+            Tool.LASSO -> Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.", style = MaterialTheme.typography.bodyMedium)
+            Tool.TEXT -> Text("Tap the page to write a heading or a label. Tap a box to edit it or drag it to move it. Text sits on top of your ink and travels with the page.", style = MaterialTheme.typography.bodyMedium)
+            else -> {
+                val range = WidthPresets.range(WidthPresets.group(tool))
+                val ink = Color(options.color).copy(alpha = options.opacity)
+                if (tool == Tool.ERASER) StrokeSample(options.width.coerceAtMost(24f), MaterialTheme.colorScheme.outline)
+                else StrokeSample(options.width, ink)
+                PopoverSlider(if (tool == Tool.ERASER) "Eraser diameter" else "Stroke width", String.format(Locale.ROOT, "%.1f pt", options.width), options.width, range,
+                    { onChange(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
+                if (tool != Tool.ERASER) {
+                    PopoverSlider("Opacity", "${(options.opacity * 100).roundToInt()}%", options.opacity, 0.05f..1f, { onChange(options.copy(opacity = it)) })
+                    PopoverSection("Colour", initiallyOpen = true) { InkColorsSection(options, onChange, quick, InkColors.groupOf(tool)) }
                 }
-            } else {
-                Text("Cuts only the ink it touches, including shape outlines. Enable Whole-stroke eraser to remove an entire stroke or shape.", style = MaterialTheme.typography.bodySmall)
-                var eraserPressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pressure-sensitive size", Modifier.weight(1f))
-                    Switch(eraserPressure, {
-                        eraserPressure = it
+                if (tool == Tool.PEN) PopoverSection("Pressure") {
+                    SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
+                    PopoverSlider("Sensitivity", String.format(Locale.ROOT, "%.2f×", options.pressureSensitivity), PenPressure.sensitivity(options.pressureSensitivity),
+                        PenPressure.sensitivityRange, { onChange(options.copy(pressureSensitivity = it)) }, enabled = options.pressure, description = "Pen pressure sensitivity")
+                    PopoverSlider("Width variation", "${(options.pressureVariation * 100).roundToInt()}%", PenPressure.variation(options.pressureVariation),
+                        PenPressure.variationRange, { onChange(options.copy(pressureVariation = it)) }, enabled = options.pressure, description = "Pen pressure width variation")
+                    Text("Higher sensitivity needs less pressure for thicker ink. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, shapes = ButtonDefaults.shapes()) { Text("Reset pen pressure") }
+                }
+                if (tool in ShapePickerTools) {
+                    PopoverSection("Line style", initiallyOpen = true) {
+                        // M3e button group: these three are one choice, so they read as connected toggles.
+                        FolioButtonGroup {
+                            toggleableItem(options.style == StrokeStyle.SOLID, "Solid", { onChange(options.copy(style = StrokeStyle.SOLID)) })
+                            toggleableItem(options.style == StrokeStyle.DASHED, "Dashed", { onChange(options.copy(style = StrokeStyle.DASHED)) })
+                            toggleableItem(options.style == StrokeStyle.DOTTED, "Dotted", { onChange(options.copy(style = StrokeStyle.DOTTED)) })
+                        }
+                        var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
+                        SwitchRow("Live measurements", measurements, {
+                            measurements = it
+                            prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply()
+                        }, "Shows length/angle or width×height while drawing. Lines snap to 15° and to the grid on Maths/Grid/Graph paper.")
+                    }
+                    if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
+                }
+                if (tool == Tool.ERASER) {
+                    var pressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
+                    SwitchRow("Pressure-sensitive size", pressure, {
+                        pressure = it
                         prefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, it).apply()
-                    })
-                }
-                Text("Slightly grows with stronger pressure (about ±12%).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (tool == Tool.PEN) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pressure-sensitive width", Modifier.weight(1f))
-                    Switch(options.pressure, { onChange(options.copy(pressure = it)) })
-                }
-                Text("Sensitivity: ${String.format(Locale.ROOT, "%.2f", options.pressureSensitivity)}×")
-                Slider(PenPressure.sensitivity(options.pressureSensitivity), { onChange(options.copy(pressureSensitivity = it)) },
-                    enabled = options.pressure, valueRange = PenPressure.sensitivityRange,
-                    modifier = Modifier.semanticsLabel("Pen pressure sensitivity"))
-                Text("Higher sensitivity needs less pressure for thicker ink.", style = MaterialTheme.typography.bodySmall)
-                Text("Width variation: ${(options.pressureVariation * 100).roundToInt()}%")
-                Slider(PenPressure.variation(options.pressureVariation), { onChange(options.copy(pressureVariation = it)) },
-                    enabled = options.pressure, valueRange = PenPressure.variationRange,
-                    modifier = Modifier.semanticsLabel("Pen pressure width variation"))
-                Text("0% keeps pressure width constant; 100% is the original response. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall)
-                TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, shapes = ButtonDefaults.shapes()) {
-                    Text("Reset pen pressure")
-                }
-                // Thin “exam” preset — one tap to get a crisp 1.4 pt pen used for workings.
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                    AssistChip({ onChange(options.copy(width = 1.4f, pressure = false)) }, { Text("Exam fine (1.4)") })
-                    AssistChip({ onChange(options.copy(width = 2.2f, pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, { Text("Default (2.2)") })
-                    AssistChip({ onChange(options.copy(width = 4f, pressure = false)) }, { Text("Bold (4.0)") })
-                }
-            }
-            if (tool in ShapePickerTools) {
-                if (tool == Tool.GRAPH) GraphStyleSection(options)
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    AssistChip({ onChange(options.copy(width = 1.2f)) }, { Text("Hairline") })
-                    AssistChip({ onChange(options.copy(width = 2f)) }, { Text("Regular") })
-                    AssistChip({ onChange(options.copy(width = 3.5f)) }, { Text("Heavy") })
-                }
-                Text("Line style", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                // M3e button group: these three are one choice, so they read as connected toggles.
-                FolioButtonGroup {
-                    toggleableItem(options.style == StrokeStyle.SOLID, "Solid", { onChange(options.copy(style = StrokeStyle.SOLID)) })
-                    toggleableItem(options.style == StrokeStyle.DASHED, "Dashed", { onChange(options.copy(style = StrokeStyle.DASHED)) })
-                    toggleableItem(options.style == StrokeStyle.DOTTED, "Dotted", { onChange(options.copy(style = StrokeStyle.DOTTED)) })
-                }
-                Text("Dashed and dotted lines suit diagrams and maths sketches. Freehand pen stays solid.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Lines snap to 15° and to grid on Maths/Grid/Graph paper. Toggle snap in the editor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (presets != null && tool in DrawingTools) {
-                ToolPresetSection(tool, options, presets)
-            }
-            if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) {
-                ScribbleSettingsSection(showPracticeInitially = false)
-            }
-            if (tool == Tool.ERASER) {
-                var single by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Single-stroke eraser", Modifier.weight(1f))
-                    Switch(single, {
+                    }, "Slightly grows with stronger pressure (about ±12%).")
+                    var single by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
+                    SwitchRow("Single-stroke eraser", single, {
                         single = it
                         prefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, it).apply()
-                    })
-                }
-                Text("When on, one eraser stroke then returns to the previous tool.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                var whole by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Whole-stroke eraser", Modifier.weight(1f))
-                    Switch(whole, {
+                    }, "One eraser stroke, then back to the previous tool.")
+                    var whole by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
+                    SwitchRow("Whole-stroke eraser", whole, {
                         whole = it
                         prefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, it).apply()
-                    })
+                    }, "Removes the entire stroke or shape you touch instead of cutting it.")
                 }
-                Text("When on, touching any part of a stroke removes the entire stroke instead of cutting it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) PopoverSection("Scribble to erase") { ScribbleSettingsSection(showPracticeInitially = false) }
+                if (presets != null && tool in DrawingTools) PopoverSection("Tool presets") { ToolPresetSection(tool, options, presets) }
             }
-            if (tool in ShapePickerTools) {
-                var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Live measurements", Modifier.weight(1f))
-                    Switch(measurements, {
-                        measurements = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply()
-                    })
-                }
-                Text("Shows length/angle or width×height while drawing the shape.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            TextButton({ onChange(ToolOptions.defaults(tool)) }, shapes = ButtonDefaults.shapes()) { Text("Reset $label settings") }
         }
     }
 }
@@ -396,7 +378,6 @@ object EditorQuickPrefs {
     var naming by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
     val saved = presets.presets
-    HorizontalDivider()
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Tool presets", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS, shapes = ButtonDefaults.shapes()) { Text("Save current") }

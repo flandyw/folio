@@ -2214,14 +2214,39 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
     val penDot = if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt())
     val highlighterDot = if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt())
-    val widthRange = when (tool) { Tool.ERASER -> 4f..72f; Tool.HIGHLIGHTER -> 4f..48f; in ShapePickerTools -> 0.7f..10f; else -> 0.7f..12f }
+    val widthRange = WidthPresets.range(WidthPresets.group(tool))
+    val widthPresetState = remember(toolPrefs) { WidthPresetState(toolPrefs) }
+    // Which control hosts the open popover: the tool's own button, or the overflow button when the tool is hidden there.
+    val paletteSlot = toolbarLayout.primary.firstOrNull { tool in it.tools }
+    var colorSlotEditing by remember { mutableStateOf<Int?>(null) }
+    var widthSlotEditing by remember { mutableStateOf<Int?>(null) }
+    @Composable fun ToolSettingsPopover() {
+        if (palette) FolioPopover(onDismiss = { onPalette(false) }, width = 344.dp) {
+            ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
+        }
+    }
     @Composable fun ToolbarDivider() {
         Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
     }
     @Composable fun QuickColors() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2), modifier = Modifier.padding(horizontal = FolioSpacing.dp2)) {
             quick.colors(colorGroup).forEachIndexed { index, c ->
-                InkColorDot(c, options.color == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(color = c)) }, label = "Quick colour ${index + 1}", onLongClick = { onPalette(true) })
+                // Tapping the colour in use, or holding any dot, edits that slot in a popover.
+                Box {
+                    InkColorDot(c, options.color == c, {
+                        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (options.color == c) colorSlotEditing = index else onOptions(options.copy(color = c))
+                    }, label = "Quick colour ${index + 1}", onLongClick = { colorSlotEditing = index })
+                    if (colorSlotEditing == index) ColorSlotPopover(
+                        group = colorGroup, slot = index, color = c,
+                        onPick = { picked -> quick.setSlot(colorGroup, index, picked); onOptions(options.copy(color = picked)) },
+                        onReset = {
+                            val original = InkColors.defaultQuick(colorGroup)[index]
+                            quick.setSlot(colorGroup, index, original); onOptions(options.copy(color = original))
+                        },
+                        onDismiss = { colorSlotEditing = null }
+                    )
+                }
             }
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
                 IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
@@ -2230,25 +2255,40 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             }
         }
     }
-    @Composable fun WidthPresets() {
-        val presets = when (tool) {
-            Tool.PEN -> listOf(1.4f, 2.2f, 3.5f)
-            Tool.HIGHLIGHTER -> listOf(12f, 18f, 28f)
-            Tool.ERASER -> listOf(14f, 26f, 42f)
-            else -> listOf(1.2f, 2f, 3.5f)
-        }
-        val nearest = presets.indices.minByOrNull { kotlin.math.abs(presets[it] - options.width) } ?: 0
-        val exact = kotlin.math.abs(presets[nearest] - options.width) < presets[nearest] * 0.15f
+    @Composable fun WidthDots() {
+        val presets = widthPresetState.widths(tool)
+        val selectedIndex = WidthPresets.selectedIndex(presets, options.width)
         presets.forEachIndexed { index, w ->
-            val selected = exact && index == nearest
-            Box(
-                Modifier.size(width = 40.dp, height = 40.dp).clip(CircleShape)
-                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOptions(options.copy(width = w)) }
-                    .semanticsLabel("Width ${String.format(java.util.Locale.ROOT, "%.1f", w)}${if (selected) ", selected" else ""}"),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(Modifier.width(24.dp).height((1.5f + index * 1.5f).dp).background(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
-                if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp4).size(4.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+            val selected = index == selectedIndex
+            // Tapping the width in use, or holding any dot, edits that slot in a popover.
+            Box {
+                Box(
+                    Modifier.size(width = 40.dp, height = 40.dp).clip(CircleShape)
+                        .combinedClickable(
+                            role = androidx.compose.ui.semantics.Role.RadioButton,
+                            onClick = {
+                                feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (selected) widthSlotEditing = index else onOptions(options.copy(width = w))
+                            },
+                            onLongClick = { feedback.performHapticFeedback(HapticFeedbackType.LongPress); widthSlotEditing = index }
+                        )
+                        .semanticsLabel("Width ${String.format(java.util.Locale.ROOT, "%.1f", w)}${if (selected) ", selected" else ""}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // The stroke sample grows with the stored width, so a customised slot still reads in order.
+                    val thickness = (1.5f + 4.5f * ((w - widthRange.start) / (widthRange.endInclusive - widthRange.start)).coerceIn(0f, 1f).let { kotlin.math.sqrt(it) }).dp
+                    Box(Modifier.width(24.dp).height(thickness).background(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
+                    if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp4).size(4.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                }
+                if (widthSlotEditing == index) WidthSlotPopover(
+                    tool = tool, slot = index, width = if (selected) options.width else w, color = Color(options.color).copy(alpha = options.opacity),
+                    onPick = { picked -> widthPresetState.set(tool, index, picked); onOptions(options.copy(width = picked)) },
+                    onReset = {
+                        widthPresetState.reset(tool, index)
+                        onOptions(options.copy(width = WidthPresets.defaults(WidthPresets.group(tool))[index]))
+                    },
+                    onDismiss = { widthSlotEditing = null }
+                )
             }
         }
     }
@@ -2259,47 +2299,15 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             IconButton(hold.click { showWidth = true }, modifier = Modifier.size(40.dp).longPressAction(hold) { onPalette(true) }) {
                 Icon(Icons.Rounded.Tune, "Width, opacity and more", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            DropdownMenu(expanded = showWidth, onDismissRequest = { showWidth = false }, modifier = Modifier.guardUiTouches()) {
-                Column(Modifier.widthIn(min = 260.dp, max = 300.dp).padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                    Text("Stroke width", style = MaterialTheme.typography.titleSmall)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.Rounded.LineWeight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Slider(value = options.width.coerceIn(widthRange), onValueChange = { onOptions(options.copy(width = it)) }, valueRange = widthRange, modifier = Modifier.weight(1f))
-                        Text(String.format(java.util.Locale.ROOT, "%.1f", options.width), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        when (tool) {
-                            Tool.PEN -> {
-                                AssistChip({ onOptions(options.copy(width = 1.4f)); showWidth = false }, { Text("Fine") })
-                                AssistChip({ onOptions(options.copy(width = 2.2f)); showWidth = false }, { Text("Regular") })
-                                AssistChip({ onOptions(options.copy(width = 3.5f)); showWidth = false }, { Text("Bold") })
-                            }
-                            Tool.HIGHLIGHTER -> {
-                                AssistChip({ onOptions(options.copy(width = 12f)); showWidth = false }, { Text("Thin") })
-                                AssistChip({ onOptions(options.copy(width = 18f)); showWidth = false }, { Text("Regular") })
-                                AssistChip({ onOptions(options.copy(width = 28f)); showWidth = false }, { Text("Wide") })
-                            }
-                            Tool.ERASER -> {
-                                AssistChip({ onOptions(options.copy(width = 14f)); showWidth = false }, { Text("Small") })
-                                AssistChip({ onOptions(options.copy(width = 26f)); showWidth = false }, { Text("Medium") })
-                                AssistChip({ onOptions(options.copy(width = 42f)); showWidth = false }, { Text("Large") })
-                            }
-                            else -> {
-                                AssistChip({ onOptions(options.copy(width = 1.2f)); showWidth = false }, { Text("Hairline") })
-                                AssistChip({ onOptions(options.copy(width = 2f)); showWidth = false }, { Text("Regular") })
-                                AssistChip({ onOptions(options.copy(width = 3.5f)); showWidth = false }, { Text("Heavy") })
-                            }
-                        }
-                    }
-                    if (tool != Tool.ERASER && tool != Tool.HAND && tool != Tool.LASSO) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Text("Opacity", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
-                            Slider(value = options.opacity, onValueChange = { onOptions(options.copy(opacity = it)) }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f))
-                            Text("${(options.opacity * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(36.dp))
-                        }
-                    }
-                    TextButton({ onPalette(true); showWidth = false }, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("More settings") }
+            if (showWidth) FolioPopover(onDismiss = { showWidth = false }, width = 300.dp) {
+                Text(if (tool == Tool.ERASER) "Eraser size" else "Stroke width", style = MaterialTheme.typography.titleMedium)
+                StrokeSample(if (tool == Tool.ERASER) 4f else options.width, if (tool == Tool.ERASER) MaterialTheme.colorScheme.outline else Color(options.color).copy(alpha = options.opacity))
+                PopoverSlider(if (tool == Tool.ERASER) "Diameter" else "Width", String.format(java.util.Locale.ROOT, "%.1f pt", options.width), options.width, widthRange,
+                    { onOptions(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
+                if (tool != Tool.ERASER && tool != Tool.HAND && tool != Tool.LASSO) {
+                    PopoverSlider("Opacity", "${(options.opacity * 100).toInt()}%", options.opacity, 0.15f..1f, { onOptions(options.copy(opacity = it)) })
                 }
+                TextButton({ onPalette(true); showWidth = false }, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("More settings") }
             }
         }
     }
@@ -2326,6 +2334,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         }
     }
     @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
+      Box {
+        if (slot == paletteSlot) ToolSettingsPopover()
         when (slot) {
             ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot), onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.SHAPES -> ShapesSlot()
@@ -2335,6 +2345,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
         }
+      }
     }
     val controls: @Composable RowScope.(Boolean) -> Unit = { compactTools ->
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
@@ -2380,6 +2391,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         ToolbarDivider()
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
+            if (paletteSlot == null) ToolSettingsPopover()
             var toolSub by remember { mutableStateOf<ToolSub?>(null) }
             val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2478,7 +2490,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         } else {
-                            WidthPresets()
+                            WidthDots()
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             if (tool != Tool.ERASER) QuickColors()
                             if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
@@ -2526,9 +2538,6 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
             }
         }
-    }
-    if (palette) FolioPanel(title = "Tool settings", onDismissRequest = { onPalette(false) }) {
-        ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
     }
     if (editToolbar && toolbarLayoutState != null) {
         ToolbarEditPanel(
