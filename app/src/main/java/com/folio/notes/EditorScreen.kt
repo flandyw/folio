@@ -2365,7 +2365,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             pinnedPresets.forEach { preset ->
                 Box {
                     FilterChip(
-                        selected = tool == preset.tool && options.color == preset.color && options.width == preset.width,
+                        selected = tool == preset.tool && options.color == preset.color && options.width == preset.width &&
+                            options.opacity == preset.opacity && options.style == preset.style,
                         onClick = stripGuard.click { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
                         label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
                         leadingIcon = {
