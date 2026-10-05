@@ -66,7 +66,7 @@ import java.util.Date
 }
 
 /** A small writing shelf outside the ink surface, shared by every page of a response. */
-@Composable internal fun LongResponseBar(note: Notebook, page: NotePage, model: FolioViewModel, onAttempts: () -> Unit, onFeedback: () -> Unit) {
+@Composable internal fun LongResponseBar(note: Notebook, page: NotePage, model: FolioViewModel, onAttempts: () -> Unit) {
     val response = note.longResponse ?: return
     val attempt = response.attemptFor(page.id)
     var expanded by rememberSaveable(note.id) { mutableStateOf(false) }
@@ -81,14 +81,10 @@ import java.util.Date
             attempt?.let {
                 Text(listOfNotNull(it.title, response.marks?.let { marks -> "$marks marks" }, response.targetMinutes?.let { minutes -> "$minutes min target" }).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall)
-                note.feedbackActions.find { action -> action.id == it.sourceActionId }?.let { action ->
-                    Text("Focus: ${action.text}", style = MaterialTheme.typography.bodySmall)
-                }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 TextButton(onAttempts) { Text("Attempts · ${response.attempts.size}") }
                 if (attempt != null) TextButton({ planning = !planning }) { Text(if (planning) "Hide plan" else "Plan") }
-                TextButton(onFeedback) { Text("Actions · ${note.feedbackActions.count { !it.done }}") }
                 if (attempt != null) TextButton({ model.addPage(Paper.RULED); model.openAt(note.id, model.state.value.pageIndex) }) { Text("Continue on new page") }
             }
             if (planning && attempt != null) key(note.id, attempt.id) {

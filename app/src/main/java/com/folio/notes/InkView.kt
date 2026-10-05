@@ -104,6 +104,12 @@ class InkView(context: Context) : View(context) {
     var imageBitmaps: Map<String, Bitmap> = emptyMap()
     /** The picture showing resize handles, or null when none is selected. */
     var selectedImageId: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            // The editor can select a picture itself (a fresh insert); re-announce the frame so its menu appears.
+            post { lastReportedSelectionBounds = null; reportSelectionViewBounds() }
+        }
     var onImagesChanged: (List<PageImage>) -> Unit = {}
     /** A tap on a picture with the hand tool, so the editor can offer delete and layering. */
     var onImageSelected: (PageImage?) -> Unit = {}
@@ -567,6 +573,7 @@ class InkView(context: Context) : View(context) {
         object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
                 suspendWritingFollow()
+                reportNavigating(true)
                 camera.scaleBy(detector.scaleFactor, detector.focusX, detector.focusY)
                 reportCanvasViewport(); invalidate(); return true
             }
@@ -1087,7 +1094,8 @@ class InkView(context: Context) : View(context) {
                 else if (!navigating && !ignored) beginStroke(event, 0)
                 // Pen-only mode is where a finger means "navigate", so a hand that has not travelled
                 // yet is left where it is. The pen takes the gesture over the moment its tip lands.
-                if (cropImageId == null) tapOff = !readOnly && tool == Tool.HAND && !ignored && selectedImageId != null && movingImage == null
+                if (cropImageId == null) tapOff = !readOnly && !ignored &&
+                    ((tool == Tool.HAND && selectedImageId != null && movingImage == null) || (tool == Tool.LASSO && hasSelection() && navigating))
                 panGate.arm(navigating && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -1150,7 +1158,12 @@ class InkView(context: Context) : View(context) {
                     val current = movingImage!!
                     if (resizingImage) {
                         val right = imageCorner == 1 || imageCorner == 2
-                        val resized = InkGeometry.resizeImage(current, if (right) at.x - imageAnchorX else imageAnchorX - at.x)
+                        // Follow the finger along the frame's diagonal, so dragging straight up or down shrinks too.
+                        val sx = if (right) 1f else -1f
+                        val sy = if (imageCorner <= 1) -1f else 1f
+                        val along = ((at.x - imageAnchorX) * sx * current.width + (at.y - imageAnchorY) * sy * current.height) /
+                            (current.width * current.width + current.height * current.height)
+                        val resized = InkGeometry.resizeImage(current, along * current.width)
                         val placed = resized.copy(
                             x = if (right) imageAnchorX else imageAnchorX - resized.width,
                             y = if (imageCorner <= 1) imageAnchorY - resized.height else imageAnchorY)
@@ -1205,6 +1218,7 @@ class InkView(context: Context) : View(context) {
                     panVelocity.addPosition(event.eventTime, Offset(x, y))
                     // Held back until the contact reads as a drag, so a settling hand moves nothing.
                     if (panGate.moved(x, y)) {
+                        reportNavigating(true)
                         if (page.infinite || readOnly) { camera.pan(x - lastX, y - lastY); reportCanvasViewport() } else onDocumentPan(x - lastX, y - lastY)
                     }
                     lastX = x; lastY = y
@@ -1326,12 +1340,13 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
+                reportNavigating(false)
                 removeCallbacks(longPressRunnable)
                 cropEdges = 0
                 if (tapOff) {
                     tapOff = false
                     if (hypot(event.x - tapOffX, event.y - tapOffY) <= ViewConfiguration.get(context).scaledTouchSlop) {
-                        if (cropImageId != null) endImageCrop(true) else clearImageSelection()
+                        if (cropImageId != null) endImageCrop(true) else { clearImageSelection(); clearSelection() }
                     }
                 }
                 val chord = touchChord.finish(event.eventTime)
@@ -1380,7 +1395,7 @@ class InkView(context: Context) : View(context) {
                 }
                 performClick()
             }
-            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPressRunnable); tapOff = false; touchChord.reset(); cancelGesture() }
+            MotionEvent.ACTION_CANCEL -> { reportNavigating(false); removeCallbacks(longPressRunnable); tapOff = false; touchChord.reset(); cancelGesture() }
         }
         reportSelectionViewBounds()
         if (!dirtyInvalidated) invalidate()
@@ -1637,7 +1652,7 @@ class InkView(context: Context) : View(context) {
                 180 -> { l += ir * cw; r -= il * cw; t += ib * ch; b -= it * ch }
                 else -> { r -= it * cw; b -= ir * ch; l += ib * cw; t += il * ch }
             }
-            val cropped = image.withCrop(l, t, r, b)
+            val cropped = image.withCrop(l.coerceIn(0f, 1f), t.coerceIn(0f, 1f), r.coerceIn(0f, 1f), b.coerceIn(0f, 1f))
             if (cropped != image) {
                 // Keep the kept part where it was instead of shrinking about the centre.
                 val placed = cropped.copy(x = image.x + il * image.width, y = image.y + it * image.height)
@@ -1666,13 +1681,32 @@ class InkView(context: Context) : View(context) {
         return edges != 0
     }
 
+    /**
+     * How far past the picture's current edge the photo still reaches, as a share of the displayed
+     * frame (0 when that edge already shows the photo's own edge). Insets may go negative by this
+     * much, so a crop is undone by dragging the same handles back out.
+     */
+    private fun cropRoom(image: PageImage, edge: Int): Float {
+        val cw = image.cropWidth().coerceAtLeast(0.01f); val ch = image.cropHeight().coerceAtLeast(0.01f)
+        val left = image.cropLeft / cw; val right = (1f - image.cropRight) / cw
+        val top = image.cropTop / ch; val bottom = (1f - image.cropBottom) / ch
+        // Displayed edges (0 left, 1 top, 2 right, 3 bottom) map to photo edges by rotation.
+        return when (image.normalizedRotation()) {
+            0 -> floatArrayOf(left, top, right, bottom)
+            90 -> floatArrayOf((1f - image.cropBottom) / ch, image.cropLeft / cw, image.cropTop / ch, (1f - image.cropRight) / cw)
+            180 -> floatArrayOf(right, bottom, left, top)
+            else -> floatArrayOf(image.cropTop / ch, (1f - image.cropRight) / cw, (1f - image.cropBottom) / ch, image.cropLeft / cw)
+        }[edge]
+    }
+
     private fun dragCrop(at: InkPoint) {
         val image = cropImage() ?: return
         val min = cropMinShare(image)
-        if (cropEdges and 1 != 0) cropInset[0] = ((at.x - image.x) / image.width).coerceIn(0f, 1f - cropInset[2] - min)
-        if (cropEdges and 4 != 0) cropInset[2] = ((image.x + image.width - at.x) / image.width).coerceIn(0f, 1f - cropInset[0] - min)
-        if (cropEdges and 2 != 0) cropInset[1] = ((at.y - image.y) / image.height).coerceIn(0f, 1f - cropInset[3] - min)
-        if (cropEdges and 8 != 0) cropInset[3] = ((image.y + image.height - at.y) / image.height).coerceIn(0f, 1f - cropInset[1] - min)
+        fun clamp(value: Float, edge: Int, opposite: Float) = value.coerceIn(-cropRoom(image, edge), (1f - opposite - min).coerceAtLeast(-cropRoom(image, edge)))
+        if (cropEdges and 1 != 0) cropInset[0] = clamp((at.x - image.x) / image.width, 0, cropInset[2])
+        if (cropEdges and 4 != 0) cropInset[2] = clamp((image.x + image.width - at.x) / image.width, 2, cropInset[0])
+        if (cropEdges and 2 != 0) cropInset[1] = clamp((at.y - image.y) / image.height, 1, cropInset[3])
+        if (cropEdges and 8 != 0) cropInset[3] = clamp((image.y + image.height - at.y) / image.height, 3, cropInset[1])
     }
 
     private fun drawCropOverlay(canvas: Canvas, image: PageImage) {
@@ -1680,10 +1714,12 @@ class InkView(context: Context) : View(context) {
         val l = image.x + cropInset[0] * image.width; val r = image.x + (1f - cropInset[2]) * image.width
         val t = image.y + cropInset[1] * image.height; val b = image.y + (1f - cropInset[3]) * image.height
         val x2 = image.x + image.width; val y2 = image.y + image.height
-        canvas.drawRect(image.x, image.y, x2, t, cropScrimPaint)
-        canvas.drawRect(image.x, b, x2, y2, cropScrimPaint)
-        canvas.drawRect(image.x, t, l, b, cropScrimPaint)
-        canvas.drawRect(r, t, x2, b, cropScrimPaint)
+        // Dim only what lies inside the picture; a frame dragged outwards (restoring the photo) extends past it.
+        val ct = t.coerceAtLeast(image.y); val cb = b.coerceAtMost(y2)
+        canvas.drawRect(image.x, image.y, x2, ct, cropScrimPaint)
+        canvas.drawRect(image.x, cb, x2, y2, cropScrimPaint)
+        canvas.drawRect(image.x, ct, l.coerceAtLeast(image.x), cb, cropScrimPaint)
+        canvas.drawRect(r.coerceAtMost(x2), ct, x2, cb, cropScrimPaint)
         cropFramePaint.strokeWidth = 1.5f * unit
         canvas.drawRect(l, t, r, b, cropFramePaint)
         val mx = (l + r) / 2f; val my = (t + b) / 2f
@@ -1698,15 +1734,24 @@ class InkView(context: Context) : View(context) {
     // ---- Finger long-press: the editor offers a page context menu (paste, select all, ...). ----
     /** Window position of the press and the page point under it. */
     var onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> }
+    /** True while a pan or pinch is moving the view, so the editor can hide its floating menus. */
+    var onNavigating: (Boolean) -> Unit = {}
+    private var navigatingReported = false
+    private fun reportNavigating(on: Boolean) {
+        if (navigatingReported == on) return
+        navigatingReported = on
+        onNavigating(on)
+    }
     private var longPressFired = false
     private var longPressX = 0f; private var longPressY = 0f
     private val longPressRunnable = Runnable {
-        if (stylus || ignored || readOnly || movingSelection || resizingSelection || rotatingSelection || resizingImage || imageMoved || cropEdges != 0) return@Runnable
+        if (stylus || ignored || readOnly || movingSelection || resizingSelection || rotatingSelection || movingImage != null || cropEdges != 0) return@Runnable
         longPressFired = true
         // The held finger may have started a dot, an eraser pass or a lasso: drop them, it was a hold.
         cancelGesture()
         performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         val at = IntArray(2); getLocationInWindow(at)
+        reportSelectionViewBounds()
         onLongPress(at[0] + longPressX, at[1] + longPressY, InkPoint((longPressX - originX) / scale, (longPressY - originY) / scale))
         invalidate()
     }

@@ -1041,6 +1041,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (folderId != null && _state.value.folders.none { it.id == folderId }) return
         updateNotes(setOf(note.id)) { it.copy(folderId = folderId) }
     }
+    /** Gives one notebook a new decorative cover; [cover] is the packed colour + design int. */
+    fun setCover(note: Notebook, cover: Int) {
+        if (note.cover != cover) updateNotes(setOf(note.id)) { it.copy(cover = cover) }
+    }
     /** Switches one notebook between its first page and the decorative default cover. */
     fun setPageCover(note: Notebook, pageCover: Boolean) {
         updateNotes(setOf(note.id)) { it.copy(pageCover = pageCover) }
@@ -1920,14 +1924,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * Inserts a reusable diagram element (arrow, star, checkbox…) as ordinary editable ink,
      * centred on the open page like GoodNotes' Elements. One undoable step.
      */
-    fun insertStamp(kind: InkStamps.Kind, color: Int? = null, width: Float? = null) {
+    fun insertStamp(kind: InkStamps.Kind, color: Int? = null, width: Float? = null, opacity: Float = 1f) {
         val page = _state.value.page ?: return
         if (!page.loaded) return
+        val layer = activeLayerOf(page)
+        if (!PageLayers.editable(page.layers, layer)) return
         val cx = if (page.infinite) 0f else page.width / 2f
         val cy = if (page.infinite) 0f else page.height / 2f
         val inkColor = color ?: 0xFF303431.toInt()
         val inkWidth = width ?: 2.2f
-        val stamp = InkStamps.make(kind, cx, cy, color = inkColor, width = inkWidth)
+        val stamp = InkStamps.make(kind, cx, cy, color = inkColor, width = inkWidth, opacity = opacity)
+            .map { it.copy(layer = layer) }
         // Nudge stamps stacked on the same centre so repeated inserts never hide under each other.
         val offset = (page.strokes.size % 5) * 14f
         val placed = if (offset == 0f) stamp else stamp.map { InkGeometry.translate(it, offset, offset) }

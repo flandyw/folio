@@ -377,35 +377,13 @@ private fun paperLabel(p: Paper): String = when (p) {
     // Notebook-wide typed-text search and reusable diagram elements.
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by remember { mutableStateOf("") }
-    var stampPicker by remember { mutableStateOf(false) }
     var layersPopover by remember { mutableStateOf(false) }
-    // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
-    var markingPanel by remember { mutableStateOf(false) }
-    var markingDock by rememberSaveable { mutableStateOf(false) }
-    var markingTotal by remember(note.id) { mutableStateOf<Float?>(null) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
-    var feedbackActions by rememberSaveable { mutableStateOf(false) }
-    var armedMarking by remember { mutableStateOf<MarkingAction?>(null) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
-    var markingBank by remember { mutableStateOf(Marking.loadBank(appPrefs.getString(Marking.PREF_COMMENTS, null))) }
     var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
     var markScanStatus by remember(note.id) { mutableStateOf<String?>(null) }
     var markScanBusy by remember(note.id) { mutableStateOf(false) }
     var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
-    var markingAutoPlace by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_AUTO_PLACE, false)) }
-    // A handwritten note switches to the pen to be written, so it stays armed through that switch.
-    LaunchedEffect(tool) { if (tool != Tool.TEXT && !(tool == Tool.PEN && armedMarking == MarkingAction.Note(true))) armedMarking = null }
-    // Live total for the dock: re-added whenever the marks on this page or the page count change.
-    val pageMarkSum = page.texts.mapNotNull { Marking.markValue(it.text) }.sum()
-    // Same scope as the sheet's tally: a long response counts only its own attempt's pages and marks.
-    val dockAttempt = note.longResponse?.attemptFor(page.id)
-    val markingAvailable = if (dockAttempt != null) note.longResponse?.marks ?: note.exam.marksTotal else note.exam.marksTotal
-    LaunchedEffect(markingDock, note.id, note.pages.size, pageMarkSum, dockAttempt?.pageIds) {
-        if (markingDock) markingTotal = model.pagesForMarking().let { all ->
-            val scoped = if (dockAttempt == null) all else all.filter { it.id in dockAttempt.pageIds }
-            if (scoped.any { p -> !p.loaded }) null else Marking.tally(scoped).sumOf { it.marks.toDouble() }.toFloat()
-        }
-    }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
@@ -413,6 +391,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(page.id) { if (selectedImage?.first != page.id) selectedImage = null }
     // The picture being cropped; separate from the selection so the panel stays put underneath.
     var cropActive by remember { mutableStateOf(false) }
+    var inkNavigating by remember { mutableStateOf(false) }
     LaunchedEffect(page.id) { cropActive = false }
     var pageMenu by remember { mutableStateOf<Triple<Float, Float, InkPoint>?>(null) }
     LaunchedEffect(page.id) { pageMenu = null }
@@ -432,20 +411,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
     fun placeTextBox(at: InkPoint) {
-        armedMarking?.let { action ->
-            if (action is MarkingAction.Note) {
-                model.placeFeedbackNote(at, action.handwritten, markingColor)?.let { plan ->
-                    val typed = plan.box
-                    if (typed != null) { textEditor = typed; textEditorNew = true }
-                    else { selectTool(Tool.PEN); changeOptions(options.copy(color = markingColor)) }
-                }
-                return
-            }
-            model.applyMarking(action, at, markingColor)
-            // Comments, marks and flags keep stamping; a gap is a single deliberate act.
-            if (action is MarkingAction.MakeRoom || action is MarkingAction.RemoveRoom) armedMarking = null
-            return
-        }
         val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
         textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline, opacity = textOpacity)
         textEditorNew = true
@@ -701,7 +666,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
-        LongResponseBar(note, page, model, onAttempts = { responseAttempts = true }, onFeedback = { feedbackActions = true })
+        LongResponseBar(note, page, model, onAttempts = { responseAttempts = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
         var floatingToolbarTop by remember { mutableStateOf(120.dp) }
@@ -784,7 +749,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
-                    onCropMode = { cropActive = it }, onLongPress = { x, y, at -> pageMenu = Triple(x, y, at) },
+                    onCropMode = { cropActive = it }, onNavigating = { inkNavigating = it }, onLongPress = { x, y, at -> pageMenu = Triple(x, y, at) },
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
@@ -795,7 +760,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
-                    selectionMenu = if (pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
+                    selectionMenu = if (inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -896,7 +861,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 velocity.addPosition(event.changes.first().uptimeMillis, travel)
                             }
                             if (transforming) event.changes.forEach { it.consume() }
+                            inkNavigating = transforming
                         } while (event.changes.any { it.pressed })
+                        inkNavigating = false
                         if (transforming) motion.release(velocity.calculateVelocity().y)
                         else if (motion.stretch != 0f) motion.release(0f)
                     }
@@ -917,7 +884,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onTextCreate = ::placeTextBox,
                                 onLoad = { model.loadPage(item.id) }, activeLayer = model.activeLayerOf(item),
                                 selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
-                                onCropMode = { if (item.id == page.id) cropActive = it },
+                                onCropMode = { if (item.id == page.id) cropActive = it }, onNavigating = { inkNavigating = it },
                                 onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
                                 onImageSelected = { image ->
                                     selectedImage = image?.let { item.id to it }
@@ -953,7 +920,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                                 selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                                 selectionMenuViewport = selectionViewport,
-                                selectionMenu = if (item.id != page.id || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
+                                selectionMenu = if (item.id != page.id || inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
                             // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
                             // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
                             Box {
@@ -1171,36 +1138,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
-            if (markingDock) MarkingDock(
-                armed = armedMarking, color = markingColor,
-                onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
-                bank = markingBank, total = markingTotal, available = markingAvailable,
-                onArm = { action -> armedMarking = action; if (action != null) tool = Tool.TEXT },
-                onMore = { markingPanel = true },
-                onClose = { markingDock = false; armedMarking = null },
-                modifier = Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = FolioSpacing.dp16)
-            ) else armedMarking?.let { action ->
-                Surface(
-                    Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = FolioSpacing.dp24),
-                    shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    shadowElevation = 6.dp
-                ) {
-                    Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Text(when (action) {
-                            is MarkingAction.Comment -> "Tap to place “${action.text.take(28)}”"
-                            is MarkingAction.Mark -> "Tap to stamp ${action.label}"
-                            is MarkingAction.Note -> "Tap the spot this feedback is about"
-                            MarkingAction.Flag -> "Tap to drop a numbered flag"
-                            is MarkingAction.MakeRoom -> "Tap the line to open space below it"
-                            is MarkingAction.RemoveRoom -> "Tap the top of an empty gap to remove it"
-                        }, style = MaterialTheme.typography.labelLarge)
-                        TextButton({ armedMarking = null }, shapes = ButtonDefaults.shapes()) {
-                            Text("Done", color = MaterialTheme.colorScheme.inversePrimary)
-                        }
-                    }
-                }
-            }
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
@@ -1238,10 +1175,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
+                    onInsertShape = { model.insertStamp(it, color = options.color, width = options.width, opacity = options.opacity) },
                     actions = listOf(
                         ToolbarAction(Icons.Rounded.Image, "Insert image") { imagePicker.launch(arrayOf("image/*")) },
-                        ToolbarAction(Icons.Rounded.AddReaction, "Insert element") { stampPicker = true },
-                        ToolbarAction(Icons.Rounded.RateReview, "Marking and feedback") { markingPanel = true },
                         ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
                     ),
                     header = { mainTools ->
@@ -1291,17 +1227,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onExport = onExport,
                             onPageOptions = { more = true },
                             additionalMenus = {
-                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed, true,
+                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed,
                                         onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { openPaperMenu(false) },
-                                        onPaste = { pasteInView() },
                                         onClear = { clear = true }, onRetry = model::retrySave,
                                         onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                                         onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                         onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                         onContents = { pdfContentsOpen = true; loadOutline() },
                                         onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                        onInsertElement = { stampPicker = true },
-                                        onMarking = { markingDock = !markingDock; if (!markingDock) armedMarking = null },
                                         onOrganize = { pageBrowser = true },
                                         onBookmark = { model.togglePageBookmark(page.id) },
                                         onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
@@ -1523,6 +1456,16 @@ private fun paperLabel(p: Paper): String = when (p) {
     if (markDialog) ScoreDialog(
         total = note.exam.marksTotal,
         defaultSeconds = state.lastTimedSeconds,
+        showDetection = note.pages.any { it.pdfIndex != null },
+        loadPages = model::pagesForMarking,
+        markAssist = markAssist,
+        markScanBusy = markScanBusy,
+        markScanStatus = markScanStatus,
+        markZoneCount = markZones.size,
+        markZoneTotal = MarkZones.total(markZones),
+        onMarkAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
+        markColor = markingColor,
+        onMarkColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
         onDismiss = { markDialog = false },
         onRecord = { score, total, seconds, timed ->
             model.recordAttempt(note.id, ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
@@ -1571,7 +1514,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         )
     }
-    pageMenu?.let { (wx, wy, at) ->
+    pageMenu?.takeIf { !inkNavigating }?.let { (wx, wy, at) ->
         PageContextMenu(wx, wy,
             onPaste = { model.pasteClipboard(at) },
             onSelectAll = ::selectAllInk,
@@ -1642,48 +1585,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     if (responseAttempts) LongResponseAttemptsPanel(note, page.id, model) { responseAttempts = false }
-    if (feedbackActions) FeedbackActionsPanel(state.notes, model, { feedbackActions = false }, note, page)
-    if (markingPanel) MarkingPanel(
-        note = note, page = page,
-        color = markingColor, onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() },
-        bank = markingBank, onBank = { markingBank = it; appPrefs.edit().putString(Marking.PREF_COMMENTS, Marking.encodeBank(it)).apply() },
-        markAssist = markAssist, onMarkAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
-        zoneCount = markZones.size, zoneTotal = MarkZones.total(markZones),
-        scanStatus = markScanStatus, scanComplete = !markScanBusy && markScanStatus == null,
-        autoPlace = markingAutoPlace, onAutoPlace = { markingAutoPlace = it; appPrefs.edit().putBoolean(Marking.PREF_AUTO_PLACE, it).apply() },
-        onArm = { action -> armedMarking = action; tool = Tool.TEXT; markingPanel = false; markingDock = true },
-        onPlaceNow = { action -> model.placeInFreeSpace(action, markingColor) },
-        loadPages = { model.pagesForMarking() },
-        onOpenSheet = { index -> markingPanel = false; if (index >= 0) jumpTo(index) },
-        onRecord = { attempt -> model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id) },
-        onFeedbackActions = { markingPanel = false; feedbackActions = true },
-        onDismiss = { markingPanel = false }
-    )
-    if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-            Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            InkStamps.kinds.forEach { kind ->
-                FilledTonalButton({
-                    model.insertStamp(kind, color = options.color, width = options.width)
-                    stampPicker = false
-                }, modifier = Modifier.fillMaxWidth(),
-                    shapes = ButtonDefaults.shapes()) {
-                    Icon(
-                        when (kind) {
-                            InkStamps.Kind.ARROW -> Icons.AutoMirrored.Rounded.ArrowForward
-                            InkStamps.Kind.DOUBLE_ARROW -> Icons.Rounded.SwapHoriz
-                            InkStamps.Kind.STAR -> Icons.Rounded.Star
-                            InkStamps.Kind.CHECKBOX -> Icons.Rounded.CheckBoxOutlineBlank
-                            InkStamps.Kind.CALLOUT -> Icons.Rounded.ChatBubbleOutline
-                            InkStamps.Kind.UNDERLINE -> Icons.Rounded.FormatUnderlined
-                        }, null, Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(InkStamps.label(kind))
-                }
-            }
-        }
-    }
     if (pdfSearchOpen) FolioPanel(title = "Search this PDF", onDismissRequest = { pdfSearchOpen = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
@@ -1952,7 +1853,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     onSelectionAnchor: (Rect?) -> Unit = {},
     markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR,
     onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
-    onCropMode: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
+    onCropMode: (Boolean) -> Unit = {}, onNavigating: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
     DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
@@ -2091,7 +1992,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
                 view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
                 view.onImageSelected = onImageSelected
-                view.onCropMode = onCropMode; view.onLongPress = onLongPress
+                view.onCropMode = onCropMode; view.onNavigating = onNavigating; view.onLongPress = onLongPress
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
@@ -2115,7 +2016,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         }
         if (page.loaded && ready && !readOnly && shapeMeasurements) ShapeMeasurementTooltip(shapeMeasurement)
         offeredZone?.takeIf { page.loaded && !readOnly }?.let { (zone, rect) ->
-            MarkChip(zone, rect, page, offerStamp, markColor,
+            MarkChip(zone, rect, page, offerStamp,
                 onAward = { value -> model.awardMark(page.id, zone, value, markColor); offeredZone = null },
                 onClear = { model.clearMark(page.id, zone); offeredZone = null },
                 onDismiss = { offeredZone = null })
@@ -2142,6 +2043,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
     toolbarLayoutState: ToolbarLayoutState? = null,
+    onInsertShape: (InkStamps.Kind) -> Unit,
     actions: List<ToolbarAction> = emptyList(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
@@ -2286,22 +2188,16 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Box(contentAlignment = Alignment.Center) {
             val shapeIcon = shapeIcon(if (isShape) tool else lastShape)
             Box {
-                FolioToolToggle(isShape, { if (isShape) shapePicker = true else pick(lastShape) }, shapeIcon,
+                FolioToolToggle(isShape, { onPalette(false); shapePicker = true }, shapeIcon,
                     if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes",
                     onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
                 Icon(Icons.Rounded.ArrowDropDown, null,
                     Modifier.align(Alignment.BottomEnd).size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            DropdownMenu(shapePicker, { shapePicker = false }, modifier = Modifier.guardUiTouches()) {
-                ShapePickerTools.forEach { value ->
-                    val label = shapeLabel(value)
-                    val icon = shapeIcon(value)
-                    DropdownMenuItem({ Text(label) }, { lastShape = value; pick(value); shapePicker = false },
-                        leadingIcon = { Icon(icon, null) },
-                        trailingIcon = { if (tool == value) Icon(Icons.Rounded.Check, "Selected") })
-                }
-            }
+            if (shapePicker) ShapePickerPopover(tool, onPick = { value ->
+                lastShape = value; pick(value); shapePicker = false
+            }, onInsert = { kind -> onInsertShape(kind); shapePicker = false }, onDismiss = { shapePicker = false })
         }
     }
     @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
@@ -2371,6 +2267,10 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
                 }
             }
+            if (shapePicker && ToolbarSlot.SHAPES in toolbarLayout.overflow) {
+                ShapePickerPopover(tool, onPick = { value -> lastShape = value; pick(value); shapePicker = false },
+                    onInsert = { kind -> onInsertShape(kind); shapePicker = false }, onDismiss = { shapePicker = false })
+            }
             DropdownMenu(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches()) {
                 if (compactTools) {
                     DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
@@ -2380,13 +2280,9 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 if (toolbarLayout.overflow.isNotEmpty()) MenuSectionHeader("Tools")
                 toolbarLayout.overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
-                        ShapePickerTools.forEach { value ->
-                            val label = shapeLabel(value)
-                            val icon = shapeIcon(value)
-                            DropdownMenuItem({ Text(label) }, { lastShape = value; pick(value); shapes = false },
-                                leadingIcon = { Icon(icon, null) },
-                                trailingIcon = { if (tool == value) Icon(Icons.Rounded.Check, "Selected") })
-                        }
+                        DropdownMenuItem({ Text("Shapes") }, { shapes = false; onPalette(false); shapePicker = true },
+                            leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) },
+                            trailingIcon = { Icon(Icons.Rounded.ChevronRight, null) })
                     } else {
                         val first = slot.tools.first()
                         DropdownMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
@@ -2407,26 +2303,20 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                         }
                     }
                 }
-                if (onSelectAll != null) {
-                    DropdownMenuItem({ Text("Select all") }, { onSelectAll(); shapes = false }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
-                }
-                MenuSectionHeader("Tool behaviour")
-                if (!isDrawing && tool != Tool.ERASER) {
-                    DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
-                    if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
-                }
-                // Pen, highlighter and eraser share these four; one row beats four toggles in the open menu.
-                if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                    val label = if (tool == Tool.ERASER) "Eraser options…" else if (tool == Tool.HIGHLIGHTER) "Highlighter options…" else "Pen options…"
-                    SubmenuItem(label, toolbarSlotIcon(ToolbarSlot.ERASER, tool, lastShape), toolSub == ToolSub.TOOL, { openSub(ToolSub.TOOL) }) {
+                // Everything that tunes how a tool behaves lives in one submenu; select all is on the page's long-press menu.
+                SubmenuItem("Behaviour…", Icons.Rounded.Tune, toolSub == ToolSub.TOOL, { openSub(ToolSub.TOOL) }) {
+                    if (!isDrawing && tool != Tool.ERASER) {
+                        DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
+                        if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
+                    }
+                    if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
                         if (onEraserSingleStroke != null) DropdownMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
                         if (onEraserPressure != null) DropdownMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
                         if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
                         if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
                     }
+                    if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 }
-                HorizontalDivider()
-                if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             }
         }
@@ -2673,51 +2563,38 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
 @Composable private fun PageOptionsMenu(
     expanded: Boolean, onDismiss: () -> Unit, page: NotePage, saveFailed: Boolean,
-    canPaste: Boolean, onResetZoom: () -> Unit, onPaper: () -> Unit,
-    onPaste: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
+    onResetZoom: () -> Unit, onPaper: () -> Unit,
+    onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
-    onContents: () -> Unit, onSearchNotes: () -> Unit = {}, onInsertElement: () -> Unit = {}, onMarking: () -> Unit = {},
+    onContents: () -> Unit, onSearchNotes: () -> Unit = {},
     onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
-    /** Non-null on infinite canvas pages: the minimap's fit lives here instead. */
     onFitAll: (() -> Unit)? = null
 ) {
-    var submenu by remember { mutableStateOf<Submenu?>(null) }
-    val open: (Submenu) -> Unit = { submenu = if (submenu == it) null else it }
     DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
-        DropdownMenuItem({ Text("Paste") }, { onDismiss(); onPaste() }, enabled = canPaste, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
         MenuSectionHeader("Page")
         DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
-        DropdownMenuItem({ Text("Marking bar") }, { onDismiss(); onMarking() }, leadingIcon = { Icon(Icons.Rounded.RateReview, null) })
         DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
         DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
-        SubmenuItem("Study tools", Icons.Rounded.School, submenu == Submenu.STUDY, { open(Submenu.STUDY) }) {
-            DropdownMenuItem(
-                { Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") },
-                { onDismiss(); onRedo() },
-                leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) }
-            )
-            DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
-            DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
-            DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
+        HorizontalDivider()
+        DropdownMenuItem({ Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") }, { onDismiss(); onRedo() },
+            leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) })
+        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
+        DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
+        DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
+        HorizontalDivider()
+        DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
+        DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
+        DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+        HorizontalDivider()
+        if (onFitAll != null) {
+            DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+            DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
+        } else {
+            DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
         }
-        SubmenuItem("Insert & find", Icons.Rounded.AddPhotoAlternate, submenu == Submenu.INSERT, { open(Submenu.INSERT) }) {
-            DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
-            DropdownMenuItem({ Text("Insert element") }, { onDismiss(); onInsertElement() }, leadingIcon = { Icon(Icons.Rounded.Category, null) })
-            DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
-            DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-            DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-        }
-        SubmenuItem("Page & view", Icons.Rounded.FitScreen, submenu == Submenu.VIEW, { open(Submenu.VIEW) }) {
-            if (onFitAll != null) {
-                DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
-            } else {
-                DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-            }
-            DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
-            HorizontalDivider()
-            DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
-        }
+        DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
+        DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
         if (saveFailed) {
             HorizontalDivider()
             DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
@@ -2726,9 +2603,6 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         DropdownMenuItem({ Text("App settings…") }, { onDismiss(); onSettings() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
     }
 }
-
-/** The second-level menus under [PageOptionsMenu]. */
-private enum class Submenu { STUDY, INSERT, VIEW }
 
 /** The second-level menus under the toolbar's ⋯ menu. */
 private enum class ToolSub { PRESETS, TOOL }
@@ -2745,19 +2619,52 @@ private enum class ToolSub { PRESETS, TOOL }
     onMoveUp: () -> Unit, onMoveDown: () -> Unit, onInsert: () -> Unit, onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
+    if (!expanded) return
     val run: (() -> Unit) -> Unit = { onDismiss(); it() }
-    DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
-        DropdownMenuItem({ Text("Name page") }, { run(onName) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-        DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { run(onBookmark) }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
-        DropdownMenuItem({ Text(if (page.redoFlag) "Clear redo flag" else "Flag to redo") }, { run(onRedoFlag) }, leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) })
+    FolioPopover(onDismiss, width = 280.dp) {
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            PageQuickAction(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onName) }
+            PageQuickAction(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                if (page.bookmarked) "Bookmarked" else "Bookmark", Modifier.weight(1f), active = page.bookmarked) { run(onBookmark) }
+            PageQuickAction(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+                if (page.redoFlag) "Clear redo" else "Redo", Modifier.weight(1f), active = page.redoFlag) { run(onRedoFlag) }
+        }
+        Column {
+            PageMenuRow(Icons.Rounded.LowPriority, "Move to position…") { run(onMoveTo) }
+            PageMenuRow(Icons.Rounded.KeyboardArrowUp, "Move up", enabled = canMoveUp) { run(onMoveUp) }
+            PageMenuRow(Icons.Rounded.KeyboardArrowDown, "Move down", enabled = canMoveDown) { run(onMoveDown) }
+            PageMenuRow(Icons.Rounded.Add, "Insert blank page after") { run(onInsert) }
+            PageMenuRow(Icons.Rounded.ContentCopy, "Duplicate page") { run(onDuplicate) }
+        }
         HorizontalDivider()
-        DropdownMenuItem({ Text("Move to position…") }, { run(onMoveTo) }, leadingIcon = { Icon(Icons.Rounded.LowPriority, null) })
-        DropdownMenuItem({ Text("Move up") }, { run(onMoveUp) }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) })
-        DropdownMenuItem({ Text("Move down") }, { run(onMoveDown) }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) })
-        DropdownMenuItem({ Text("Insert blank page after") }, { run(onInsert) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-        DropdownMenuItem({ Text("Duplicate page") }, { run(onDuplicate) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-        HorizontalDivider()
-        DropdownMenuItem({ Text("Delete page") }, { run(onDelete) }, enabled = canDelete, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+        PageMenuRow(Icons.Rounded.DeleteOutline, "Delete page", enabled = canDelete, destructive = true) { run(onDelete) }
+    }
+}
+
+/** A tile for the three everyday page toggles at the top of the page popover. */
+@Composable private fun PageQuickAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, active: Boolean = false, onClick: () -> Unit) {
+    Surface(onClick, modifier, shape = FolioShapes.large,
+        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.padding(vertical = FolioSpacing.dp10), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Icon(icon, null, Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean = true, destructive: Boolean = false, onClick: () -> Unit) {
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Surface(onClick, enabled = enabled, shape = FolioShapes.medium, color = Color.Transparent, contentColor = tint) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp8),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Icon(icon, null, Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }
 
@@ -3047,7 +2954,7 @@ private enum class FollowSub { AREAS }
  * away by itself — a pen touching the page dismisses it, and so does a few seconds of nothing.
  */
 @Composable private fun MarkChip(
-    zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long, color: Int,
+    zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long,
     onAward: (Int) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit
 ) {
     val existing = remember(zone, page.texts) { MarkZones.awarded(zone, page)?.roundToInt() }
@@ -3061,23 +2968,29 @@ private enum class FollowSub { AREAS }
         var size by remember { mutableStateOf(IntSize.Zero) }
         val gap = with(LocalDensity.current) { 8.dp.toPx() }
         Surface(
-            Modifier.onSizeChanged { size = it }.offset {
+            Modifier.onSizeChanged { size = it }.pointerInput(onDismiss) {
+                awaitPointerEventScope {
+                    while (true) {
+                        if (awaitPointerEvent().type == PointerEventType.Exit) onDismiss()
+                    }
+                }
+            }.offset {
                 val x = (rect.centerX() - size.width / 2f).coerceIn(0f, (maxWidthPx - size.width).coerceAtLeast(0f))
                 val above = rect.top - size.height - gap
                 IntOffset(x.roundToInt(), (if (above >= 0f) above else rect.bottom + gap).roundToInt())
             },
             shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp,
-            border = BorderStroke(1.dp, Color(color).copy(alpha = .6f))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!adjusting) {
                     Text(if (existing != null) "+$existing / ${zone.marks}" else "${zone.marks} ${if (zone.marks == 1) "mark" else "marks"}",
                         Modifier.padding(start = 10.dp, end = 4.dp), style = MaterialTheme.typography.labelLarge)
                     IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(zone.marks) }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Check, "Award all ${zone.marks}", tint = Color(0xFF2E7D32))
+                        Icon(Icons.Rounded.Check, "Award all ${zone.marks}", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton({ adjusting = true }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Close, "Award fewer marks", tint = Color(0xFFC62828))
+                        Icon(Icons.Rounded.Close, "Award fewer marks", tint = MaterialTheme.colorScheme.error)
                     }
                     if (existing != null) IconButton(onClear, Modifier.size(44.dp)) {
                         Icon(Icons.Rounded.Delete, "Remove this mark")
@@ -3087,7 +3000,7 @@ private enum class FollowSub { AREAS }
                     Text("$value / ${zone.marks}", style = MaterialTheme.typography.titleSmall)
                     IconButton({ value = (value + 1).coerceAtMost(zone.marks) }, Modifier.size(44.dp), enabled = value < zone.marks) { Icon(Icons.Rounded.Add, "One more mark") }
                     IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(value) }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Check, "Confirm $value marks", tint = Color(0xFF2E7D32))
+                        Icon(Icons.Rounded.Check, "Confirm $value marks", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

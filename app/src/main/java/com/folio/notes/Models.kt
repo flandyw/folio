@@ -210,7 +210,7 @@ data class PageImage(
     /** The full photo again, growing the frame back about its centre. */
     fun withResetCrop(): PageImage = withCrop(0f, 0f, 1f, 1f)
     companion object {
-        const val MIN_SIZE = 40f
+        const val MIN_SIZE = 16f
         const val MAX_SIZE = 2400f
         /** Half-size of the bottom-right resize handle, in page units. */
         const val HANDLE_HALF = 22f

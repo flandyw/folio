@@ -19,6 +19,16 @@ import androidx.compose.ui.unit.sp
 val BuiltInCoverColors = listOf(Color(0xFFE5AD91), Color(0xFFC6CEB8), Color(0xFFCFC5E1), Color(0xFFBCD2DD), Color(0xFFE8D59E), Color(0xFFD7B9BF))
 
 /**
+ * Ready-made colours offered in Settings to add after the built-ins. They live outside
+ * [BuiltInCoverColors] on purpose: a notebook stores a colour *index*, so growing the built-in
+ * list would shift every custom colour already saved. Adding one copies it to the user's own colours.
+ */
+val SuggestedCoverColors = listOf(
+    Color(0xFFEE9F8F), Color(0xFFF0C48A), Color(0xFFB9DCCB), Color(0xFF8CC3C0), Color(0xFF9DAF7C), Color(0xFFA9B8E8),
+    Color(0xFFA98BB5), Color(0xFFF3CFCF), Color(0xFFEFE7D6), Color(0xFF8FA3B0), Color(0xFF2F3E5C), Color(0xFF3E4440),
+)
+
+/**
  * Every cover a notebook may use: the built-ins first, then the colours the user added.
  * Keeping the user's colours at the end is what lets an older notebook keep its cover after
  * someone adds or removes a colour.

@@ -242,7 +242,6 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
     val cover by rememberPref(p, AppPrefs.DEFAULT_COVER) { AppPrefs.defaultCover(it.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { _ -> it.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX) }
     val pageCover by rememberPref(p, AppPrefs.DEFAULT_PAGE_COVER) { it.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) }
-    val palette = coverColors(rememberCustomCoverColors())
     SettingsGroup("Shelf", footer = "These are also saved whenever you change sorting or view on the shelf itself.") {
         SettingsChipRow("Sort by", LibrarySort.entries.map { it to it.label }, sort, { p.write { putString(AppPrefs.LIB_SORT, it.name) } })
         SettingsDivider()
@@ -254,8 +253,8 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
         SettingsChipRow("Paper", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.DEFAULT_PAPER, it.name) } })
         SettingsDivider()
         SettingsBlock {
-            SettingsBlockTitle("Cover colour")
-            CoverSwatches(palette, cover) { p.write { putInt(AppPrefs.DEFAULT_COVER, it) } }
+            SettingsBlockTitle("Cover design and colour")
+            CoverPicker(cover, { p.write { putInt(AppPrefs.DEFAULT_COVER, AppPrefs.defaultCover(it)) } }, "Your next idea")
         }
         SettingsDivider()
         SettingsSwitchRow("First page as cover", "New notebooks show their first page on the shelf. Off uses the decorative cover.", pageCover,
@@ -263,21 +262,6 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
             onReset = if (pageCover != AppPrefs.DEFAULT_PAGE_COVER_ENABLED) ({ p.write { putBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) } }) else null)
     }
     CustomCoverGroup()
-}
-
-@Composable private fun CoverSwatches(colors: List<Color>, selected: Int, onSelect: (Int) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        colors.forEachIndexed { index, color ->
-            val on = index == selected
-            Surface(
-                onClick = { onSelect(index) }, shape = FolioShapes.medium, color = color,
-                border = if (on) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null,
-                modifier = Modifier.size(40.dp).semanticsLabel(if (on) "Cover ${index + 1}, selected" else "Cover ${index + 1}"),
-            ) {
-                if (on) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
-            }
-        }
-    }
 }
 
 /** Add, remove and preview the cover colours that sit after the built-in covers. */
@@ -303,6 +287,19 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
             }
             OutlinedButton({ picking = true }, enabled = !full, shapes = ButtonDefaults.shapes()) {
                 Text(if (full) "Maximum ${CoverPalette.MAX} colours reached" else "Add a cover colour")
+            }
+        }
+        // A colour already in the list is hidden: re-adding it would move it to the end and hand
+        // its notebooks a different colour.
+        val suggestions = SuggestedCoverColors.filter { s -> custom.none { AccentTones.colorToArgb(it) == AccentTones.colorToArgb(s) } }
+        if (suggestions.isNotEmpty() && !full) {
+            SettingsDivider()
+            SettingsBlock {
+                SettingsBlockTitle("Suggested colours")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    suggestions.forEach { color -> ColorSwatch(color, false, "Add cover colour ${AccentTones.hex(color)}", { palette.add(color) }) }
+                }
+                SettingsBlockHint("Tap to add one to your cover colours.")
             }
         }
     }

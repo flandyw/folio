@@ -65,8 +65,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
-    var feedbackActions by rememberSaveable { mutableStateOf(false) }
-    if (feedbackActions) FeedbackActionsPanel(state.notes, model, { feedbackActions = false })
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     // Debounced query drives the O(N) filter so typing never blocks the text field.
@@ -101,6 +99,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     var bulkDelete by remember { mutableStateOf(false) }
     var bulkTags by remember { mutableStateOf(false) }
     var bulkCover by remember { mutableStateOf(false) }
+    var coverFor by remember { mutableStateOf<String?>(null) }
     var rename by remember { mutableStateOf<Notebook?>(null) }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
@@ -286,7 +285,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         DropdownMenuItem({ Text("Remove folder") }, { menuFolder = null; deleteFolder = folder }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
                                     }
                                 } }
-                                AssistChip({ feedbackActions = true }, { Text("Feedback actions · ${state.notes.sumOf { note -> note.feedbackActions.count { !it.done } }}") })
                                 AssistChip(onFolder, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                             }
                             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
@@ -453,7 +451,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     }
                                     if (!selecting) {
                                         IconButton({ model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
-                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) })
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id })
                                     }
                                 }
                             } else NotebookCard(
@@ -462,6 +460,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 selecting, note.pages.count { it.redoFlag },
                                 selected = note.id in selection, onLongPress = longPress,
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
+                                onChangeCover = { coverFor = note.id },
                                 duplicate = { model.duplicateNotebook(note) },
                                 backupExcluded = note.id in state.backupExcludedNotebookIds,
                                 onBackupToggle = { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) },
@@ -544,6 +543,28 @@ enum class LibrarySection { LIBRARY, PROGRESS }
             selectedIds = emptyList()
         }
     )
+    state.notes.find { it.id == coverFor }?.let { note ->
+        AlertDialog(
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+            modifier = Modifier.guardUiTouches(),
+            onDismissRequest = { coverFor = null },
+            title = { Text("Notebook cover") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    CoverPicker(note.cover, { model.setCover(note, it) }, note.title, document = note.pages.any { it.pdfIndex != null })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("First page as cover", style = MaterialTheme.typography.titleSmall)
+                            Text(if (note.pageCover) "The shelf shows the first page itself" else "The shelf shows this cover",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(note.pageCover, { model.setPageCover(note, it) })
+                    }
+                }
+            },
+            confirmButton = { TextButton({ coverFor = null }, shapes = ButtonDefaults.shapes()) { Text("Done") } }
+        )
+    }
     if (bulkCover) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
@@ -589,7 +610,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         alwaysShowLabel = true)
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, modifier: Modifier = Modifier) {
+@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -622,14 +643,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: "Unfiled"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover)
         }
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ExamBadges(note, modifier = Modifier.padding(top = FolioSpacing.dp4), redoCount = redoCount)
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
@@ -638,6 +659,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
             DropdownMenuItem({ Text("Duplicate") }, { menu = false; duplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Record a mark") }, { menu = false; recordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
+            DropdownMenuItem({ Text("Change cover") }, { menu = false; onChangeCover() }, leadingIcon = { Icon(Icons.Rounded.Palette, null) })
             DropdownMenuItem(
                 { Text(if (pageCover) "Use default cover" else "Use first page as cover") },
                 { menu = false; onCoverToggle() },
@@ -710,26 +732,5 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 }
 
 @Composable fun NotebookCover(note: Notebook, modifier: Modifier = Modifier, compact: Boolean = false) {
-    val covers = coverColors(rememberCustomCoverColors())
-    val color = covers[note.cover.mod(covers.size)]
-    Box(modifier.clip(RoundedCornerShape(FolioShapes.smallRadius, FolioShapes.extraLargeRadius, FolioShapes.extraLargeRadius, FolioShapes.smallRadius)).background(color)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(Color.Black.copy(alpha = .06f), size = size.copy(width = size.width * .065f))
-            drawLine(Color.White.copy(alpha = .25f), Offset(size.width * .073f, 0f), Offset(size.width * .073f, size.height), 2f)
-            val path = Path().apply {
-                moveTo(size.width * .1f, size.height * .82f)
-                cubicTo(size.width * .3f, size.height * .48f, size.width * .68f, size.height * 1.05f, size.width * .93f, size.height * .66f)
-                cubicTo(size.width * 1.1f, size.height * .38f, size.width * .36f, size.height * .54f, size.width * .52f, size.height * .83f)
-            }
-            drawPath(path, Color(0xFF343931).copy(alpha = .28f), style = Stroke(width = 2.5f))
-            drawCircle(Color.White.copy(alpha = .25f), size.width * .21f, Offset(size.width * .83f, size.height * .88f))
-        }
-        Column(Modifier.fillMaxSize().padding(start = if (compact) 14.dp else 24.dp, top = if (compact) 14.dp else 24.dp, end = if (compact) 14.dp else 24.dp, bottom = if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                Text(if (note.pages.any { it.pdfIndex != null }) "DOCUMENT" else "NOTEBOOK", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, letterSpacing = 2.sp, color = Color(0xFF343931).copy(alpha = .7f))
-                Text(note.title, fontFamily = FontFamily.Serif, fontSize = if (compact) 18.sp else 23.sp, lineHeight = if (compact) 22.sp else 28.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis, color = Color(0xFF343931))
-            }
-            if (!compact) Text("f.", fontFamily = FontFamily.Serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 23.sp, color = Color(0xFF343931).copy(alpha = .7f))
-        }
-    }
+    CoverFace(note.title, note.pages.any { it.pdfIndex != null }, note.cover, modifier, compact)
 }

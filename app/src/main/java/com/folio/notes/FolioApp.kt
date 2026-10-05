@@ -126,7 +126,6 @@ import java.io.File
     }
     var settings by rememberSaveable { mutableStateOf(false) }
     var newNote by rememberSaveable { mutableStateOf(false) }
-    var newResponse by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
     var folderDialog by remember { mutableStateOf(false) }
@@ -446,13 +445,7 @@ import java.io.File
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
             PdfImportDialog(state, model::cancelPdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
-        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onLongResponse = { newNote = false; newResponse = true }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
-        if (newResponse) LongResponseSetupPanel(onDismiss = { newResponse = false }, onSave = { title, subject, response, mode ->
-            val exam = ExamTags(subject = VceSubject.entries.find { it.label == subject }, subjectText = subject, type = ExamType.TOPIC_TEST)
-            model.create(title, AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
-                Paper.RULED, exam, response = response, responseMode = mode)
-            newResponse = false
-        })
+        if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { model.createFolder(it); folderDialog = false }
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize().guardUiTouches()) {
@@ -592,11 +585,9 @@ import java.io.File
     }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = text.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
-@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onLongResponse: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
+@Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
     val context = LocalContext.current
     val dialogPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
-    // Colours the user added join the built-in covers here, so a new notebook can wear one.
-    val covers = coverColors(rememberCustomCoverColors())
     var title by rememberSaveable { mutableStateOf("") }
     var cover by rememberSaveable { mutableIntStateOf(AppPrefs.defaultCover(dialogPrefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { dialogPrefs.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX)) }
     var paper by rememberSaveable { mutableStateOf(AppPrefs.defaultPaper(dialogPrefs.getString(AppPrefs.DEFAULT_PAPER, null))) }
@@ -616,30 +607,19 @@ import java.io.File
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                AssistChip(onLongResponse, { Text("Long response") })
                 FilterChip(template == null && !infinite, { template = null; pageCount = 1; infinite = false }, { Text("Blank") })
                 FilterChip(infinite, {
                     template = null; pageCount = 1; infinite = true
                     if (paper == Paper.MC_SHEET) paper = Paper.DOTS
                 }, { Text("Infinite canvas") })
                 NotebookTemplate.ALL.forEach { item ->
-                    FilterChip(template == item.id, { if (item.id == "essays") onLongResponse() else chooseTemplate(item) }, { Text(item.title) })
+                    FilterChip(template == item.id, { chooseTemplate(item) }, { Text(item.title) })
                 }
             }
             if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, placeholder = { Text("e.g. Calculus — exam practice") }, singleLine = true)
-            Text("Cover color", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                covers.forEachIndexed { index, color ->
-                    IconButton({ cover = index }, shapes = IconButtonDefaults.shapes()) {
-                        Surface(Modifier.size(34.dp), shape = FolioShapes.medium, color = color, border = if (index == cover) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {
-                            if (index == cover) Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Cover ${index + 1}, selected", Modifier.size(18.dp), tint = Color(0xFF2E302B)) }
-                            else Box(Modifier.semanticsLabel("Cover ${index + 1}"))
-                        }
-                    }
-                }
-            }
+            CoverPicker(cover, { cover = it }, title)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("First page as cover", style = MaterialTheme.typography.titleSmall)

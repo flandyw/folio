@@ -43,7 +43,7 @@ private const val ACCENT_L_MAX = 0.72f
  * Encoding is a plain JSON array; decoding drops anything unparseable and never fails.
  */
 object CoverPalette {
-    const val MAX = 12
+    const val MAX = 18
 
     fun encode(colors: List<Color>): String = JSONArray().apply {
         colors.forEach { put(AccentTones.colorToArgb(it)) }

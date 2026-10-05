@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -58,7 +58,11 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
     Popup(popupPositionProvider = provider,
         properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = false)) {
-        Box(Modifier.widthIn(max = availableWidth)) { content(availableWidth) }
+        // A popup that appears while the pen has just lifted can sit undrawn until its window sees input
+        // (a hover). A few state-driven frames make it paint on its own.
+        var paint by remember(selection) { mutableIntStateOf(0) }
+        LaunchedEffect(selection) { repeat(4) { withFrameNanos { }; paint++ } }
+        Box(Modifier.widthIn(max = availableWidth).drawBehind { paint }) { content(availableWidth) }
     }
 }
 
@@ -78,25 +82,26 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showCopy) SelectionAction(Icons.Rounded.ContentCopy, "Copy selection") { run(onCopy) }
             if (showStyle) SelectionAction(Icons.Rounded.Palette, "Style selection") { run(onStyle) }
             if (showDelete) SelectionAction(Icons.Rounded.DeleteOutline, "Delete selection", destructive = true) { run(onDelete) }
-            Box {
-                SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
-                DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                    if (!showCopy) DropdownMenuItem({ Text("Copy") }, { run(onCopy) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                    DropdownMenuItem({ Text("Cut") }, { run(onCut) }, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
-                    DropdownMenuItem({ Text("Paste") }, { run(onPaste) }, leadingIcon = { Icon(Icons.Rounded.ContentPaste, null) })
-                    DropdownMenuItem({ Text("Move to page…") }, { run(onMove) }, enabled = canMove, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
-                    DropdownMenuItem({ Text("Duplicate") }, { run(onDuplicate) }, leadingIcon = { Icon(Icons.Rounded.DynamicFeed, null) })
-                    if (canRestyle && !showStyle) DropdownMenuItem({ Text("Style") }, { run(onStyle) }, leadingIcon = { Icon(Icons.Rounded.Palette, null) })
-                    if (!showDelete) DropdownMenuItem({ Text("Delete") }, { run(onDelete) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
-                    HorizontalDivider()
-                    DropdownMenuItem({ Text("Select all") }, { run(onSelectAll) }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
-                    DropdownMenuItem({ Text("Deselect") }, { run(onDeselect) }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                }
-            }
+            SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
+        }
+        // Inline, not a DropdownMenu: a dropdown inside this non-focusable popup is placed against the wrong window.
+        if (overflow) Column(Modifier.width(200.dp).padding(bottom = 4.dp)) {
+            if (!showCopy) PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
+            PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
+            PageMenuRow(Icons.Rounded.ContentPaste, "Paste", true) { run(onPaste) }
+            PageMenuRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move to page…", canMove) { run(onMove) }
+            PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
+            if (canRestyle && !showStyle) PageMenuRow(Icons.Rounded.Palette, "Style", true) { run(onStyle) }
+            if (!showDelete) PageMenuRow(Icons.Rounded.DeleteOutline, "Delete", true) { run(onDelete) }
+            HorizontalDivider()
+            PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
+            PageMenuRow(Icons.Rounded.Close, "Deselect", true) { run(onDeselect) }
+        }
         }
     }
 }
@@ -122,7 +127,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
-        Column(Modifier.padding(horizontal = 4.dp).animateContentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
                 SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)

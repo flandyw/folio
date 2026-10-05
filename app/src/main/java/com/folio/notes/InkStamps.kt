@@ -36,78 +36,60 @@ object InkStamps {
         width: Float = 2.2f,
         opacity: Float = 1f
     ): List<Stroke> {
-        val half = (size / 2f).coerceIn(40f, 600f)
-        fun line(ax: Float, ay: Float, bx: Float, by: Float, style: StrokeStyle = StrokeStyle.SOLID) =
-            Stroke(Tool.LINE, color, width, listOf(InkPoint(ax, ay), InkPoint(bx, by)), opacity, style)
+        val half = (size / 2f).coerceIn(8f, 600f)
+        fun point(x: Float, y: Float) = InkPoint(centerX + x * half, centerY + y * half)
+        // LINE supports explicit polylines: uniform width, exact corners and no pen taper.
+        fun outline(points: List<InkPoint>) = Stroke(Tool.LINE, color, width, points, opacity)
+        fun path(vararg xy: Pair<Float, Float>) = outline(xy.map { point(it.first, it.second) })
+        fun arc(cx: Float, cy: Float, radius: Float, start: Double): List<InkPoint> =
+            (0..8).map { i ->
+                val angle = start + i * PI / 16
+                point(cx + radius * cos(angle).toFloat(), cy + radius * sin(angle).toFloat())
+            }
+        fun roundedBox(left: Float, top: Float, right: Float, bottom: Float, radius: Float,
+            tail: Boolean = false): Stroke {
+            val points = buildList {
+                addAll(arc(right - radius, top + radius, radius, -PI / 2))
+                addAll(arc(right - radius, bottom - radius, radius, 0.0))
+                if (tail) {
+                    // A real speech-bubble tail replaces part of the bottom edge.
+                    add(point(.42f, bottom)); add(point(.16f, .78f)); add(point(.08f, bottom))
+                }
+                addAll(arc(left + radius, bottom - radius, radius, PI / 2))
+                addAll(arc(left + radius, top + radius, radius, PI))
+                add(first())
+            }
+            return outline(points)
+        }
         return when (kind) {
-            Kind.ARROW -> {
-                val tail = line(centerX - half, centerY, centerX + half * 0.72f, centerY)
-                val tipX = centerX + half
-                val tipY = centerY
-                val head = half * 0.22f
-                listOf(tail,
-                    line(tipX, tipY, tipX - head, tipY - head * 0.7f),
-                    line(tipX, tipY, tipX - head, tipY + head * 0.7f))
-            }
-            Kind.DOUBLE_ARROW -> {
-                val leftX = centerX - half
-                val rightX = centerX + half
-                val head = half * 0.22f
-                listOf(
-                    line(leftX + head, centerY, rightX - head, centerY),
-                    line(leftX + head, centerY, leftX + head + head, centerY - head * 0.7f),
-                    line(leftX + head, centerY, leftX + head + head, centerY + head * 0.7f),
-                    line(rightX - head, centerY, rightX - head - head, centerY - head * 0.7f),
-                    line(rightX - head, centerY, rightX - head - head, centerY + head * 0.7f)
-                )
-            }
+            Kind.ARROW -> listOf(
+                path(-1f to 0f, 1f to 0f),
+                path(.68f to -.25f, 1f to 0f, .68f to .25f)
+            )
+            Kind.DOUBLE_ARROW -> listOf(
+                path(-1f to 0f, 1f to 0f),
+                path(-.68f to -.25f, -1f to 0f, -.68f to .25f),
+                path(.68f to -.25f, 1f to 0f, .68f to .25f)
+            )
             Kind.STAR -> {
-                // A five-pointed star as five pen strokes through its outer/inner vertices, so
-                // each edge erases and exports like handwriting.
-                val outer = half
-                val inner = half * 0.45f
+                // Regular five-point outline, with a golden-ratio inner radius.
                 val vertices = (0 until 10).map { i ->
-                    val radius = if (i % 2 == 0) outer else inner
+                    val radius = if (i % 2 == 0) 1f else .381966f
                     val angle = -PI / 2 + i * PI / 5
-                    InkPoint(centerX + radius * cos(angle).toFloat(), centerY + radius * sin(angle).toFloat())
+                    point(radius * cos(angle).toFloat(), radius * sin(angle).toFloat() + .095492f)
                 }
-                vertices.indices.map { i ->
-                    Stroke(Tool.PEN, color, width,
-                        listOf(vertices[i], vertices[(i + 1) % vertices.size]), opacity)
-                }
+                listOf(outline(vertices + vertices.first()))
             }
-            Kind.CHECKBOX -> {
-                val boxHalf = half * 0.45f
-                val box = Stroke(Tool.RECTANGLE, color, width,
-                    listOf(InkPoint(centerX - boxHalf, centerY - boxHalf), InkPoint(centerX + boxHalf, centerY + boxHalf)),
-                    opacity)
-                // A tick inside, slightly oversized so it reads at a glance.
-                val check = listOf(
-                    InkPoint(centerX - boxHalf * 0.45f, centerY + boxHalf * 0.05f),
-                    InkPoint(centerX - boxHalf * 0.05f, centerY + boxHalf * 0.45f),
-                    InkPoint(centerX + boxHalf * 0.55f, centerY - boxHalf * 0.45f)
-                )
-                listOf(box, Stroke(Tool.PEN, color, width, check, opacity))
-            }
-            Kind.CALLOUT -> {
-                val w = half
-                val h = half * 0.6f
-                val rect = Stroke(Tool.RECTANGLE, color, width,
-                    listOf(InkPoint(centerX - w, centerY - h), InkPoint(centerX + w, centerY + h)),
-                    opacity)
-                val tail = line(centerX + w * 0.3f, centerY + h, centerX + w * 0.55f, centerY + h + half * 0.5f)
-                listOf(rect, tail)
-            }
-            Kind.UNDERLINE -> {
-                // A slightly wavy emphasis line with tapered-feel short ticks, like a hand-drawn rule.
-                val y = centerY
-                val main = Stroke(Tool.PEN, color, width,
-                    (0..16).map { i ->
-                        val t = i / 16f
-                        InkPoint(centerX - half + t * half * 2f, y + sin(t * PI).toFloat() * half * 0.06f)
-                    }, opacity)
-                listOf(main)
-            }
+            Kind.CHECKBOX -> listOf(
+                roundedBox(-.7f, -.7f, .7f, .7f, .12f),
+                path(-.39f to .01f, -.1f to .30f, .40f to -.32f)
+            )
+            Kind.CALLOUT -> listOf(roundedBox(-1f, -.78f, 1f, .42f, .18f, tail = true))
+            Kind.UNDERLINE -> listOf(outline((0..48).map { i ->
+                val t = i / 48f
+                // Subtle, symmetric bow with level ends; clean at any scale.
+                point(-1f + 2f * t, .10f * sin(t * PI).toFloat())
+            }))
         }
     }
 }

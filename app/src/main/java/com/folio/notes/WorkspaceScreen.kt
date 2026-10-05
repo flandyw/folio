@@ -30,7 +30,6 @@ import kotlin.math.roundToInt
 ) {
     var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
-    var responseSetup by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
         val boxDensity = LocalDensity.current
@@ -46,11 +45,6 @@ import kotlin.math.roundToInt
                 key(state.activeId) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         notebookActions = { dismiss ->
-                            DropdownMenuItem({ Text(if (state.active?.longResponse == null) "Set up long response" else "Question details") },
-                                { dismiss(); responseSetup = true }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
-                            HorizontalDivider()
-                            Text("Workspace", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             DropdownMenuItem({ Text("Open beside the editor") }, { dismiss(); picker = PickerPurpose.COMPANION },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
                             DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = PickerPurpose.TABS },
@@ -109,12 +103,6 @@ import kotlin.math.roundToInt
                 )
                 Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
             }
-        }
-    }
-    if (responseSetup) state.active?.let { active ->
-        LongResponseSetupPanel(active.longResponse ?: LongResponse(""), active.title, active.exam.subjectLabel,
-            { responseSetup = false }) { _, subject, response, _ ->
-            model.configureResponse(active.id, response, subject); responseSetup = false
         }
     }
     // Both workspace dialogs share one host: the picker and the divider's options, never together.

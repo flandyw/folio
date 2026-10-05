@@ -27,6 +27,10 @@ titled `Feedback`, found by title, whose numbered lines decide the next flag num
   whole thing is switchable in the panel (`marking.assist`). The summed allocations feed "of N" in the tally
   when exam details have no total and the scan completes without errors. Unverified against real exam PDFs: positions assume PDFBox text coordinates
   are relative to the crop box.
+- **Record a mark dialog** (`ScoreDialog`, PDF notebooks) leads with the detection card: switch, live scan
+  status/progress, award colour. Once the scan finishes cleanly, the summed allocations prefill "Out of" (unless
+  exam details give a total) and the marks already stamped (`Marking.tally`) prefill the score, each until typed
+  over. Unreadable pages are reported instead of counted as zero.
 - **Quick comments** — a saved bank (`marking.comments` pref, 24 max, editable). Tap one, then tap the page;
   the tool stays armed so several can be placed. With *Place in free space* on, it drops into the clearest
   spot instead (`Marking.freeSlot`: occupancy grid + summed-area table over the page's own ink/text/pictures;

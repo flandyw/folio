@@ -116,9 +116,9 @@ object AppPrefs {
     fun libraryKind(raw: String?): LibraryKind =
         runCatching { LibraryKind.valueOf(raw ?: "") }.getOrDefault(LibraryKind.ALL)
 
-    /** The default cover always points into the built-in covers, never a removable custom one. */
-    fun defaultCover(index: Int): Int =
-        if (BuiltInCoverColors.isEmpty()) 0 else index.coerceIn(0, BuiltInCoverColors.lastIndex)
+    /** The default cover keeps its design but its colour always points into the built-in covers, never a removable custom one. */
+    fun defaultCover(cover: Int): Int =
+        CoverStyle.withColor(cover, CoverStyle.colorIndex(cover).coerceIn(0, BuiltInCoverColors.lastIndex))
 
     fun palmMs(value: Long?): Long =
         (value ?: DEFAULT_PALM_MS).coerceIn(PALM_MIN_MS, PALM_MAX_MS)

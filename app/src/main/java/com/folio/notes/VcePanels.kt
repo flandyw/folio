@@ -518,16 +518,43 @@ private fun BatchSection(
     }
 }
 
-/** One mark entry: score out of a total, optional time taken and a timed flag. */
+/**
+ * One mark entry: score out of a total, optional time taken and a timed flag. In the editor, printed mark
+ * detection feeds it: the marks already stamped on the paper ([loadPages], totalled by [Marking.tally])
+ * prefill the score and the printed allocations ([markZoneTotal]) prefill the total, until either field is
+ * typed into. A page that cannot be read is reported rather than counted as zero.
+ */
 @Composable
 fun ScoreDialog(
     total: Int?, defaultSeconds: Int?, onDismiss: () -> Unit,
+    markAssist: Boolean = false, markScanBusy: Boolean = false, markScanStatus: String? = null,
+    markZoneCount: Int = 0, markZoneTotal: Int = 0, onMarkAssist: (Boolean) -> Unit = {},
+    markColor: Int = Marking.DEFAULT_COLOR, onMarkColor: (Int) -> Unit = {},
+    showDetection: Boolean = false, loadPages: (suspend () -> List<NotePage>)? = null,
     onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit
 ) {
     var score by rememberSaveable { mutableStateOf("") }
+    var scoreEdited by rememberSaveable { mutableStateOf(false) }
     var totalText by rememberSaveable(total) { mutableStateOf(total?.toString() ?: "") }
+    var totalEdited by rememberSaveable(total) { mutableStateOf(total != null) }
     var minutes by rememberSaveable { mutableStateOf(defaultSeconds?.let { (it / 60).coerceAtLeast(1) }?.toString() ?: "") }
     var timed by rememberSaveable { mutableStateOf(defaultSeconds != null) }
+
+    // Marks stamped so far, re-read whenever detection finishes so a freshly awarded label is counted.
+    var stamped by remember { mutableStateOf<Float?>(null) }
+    var unread by remember { mutableIntStateOf(0) }
+    LaunchedEffect(loadPages, markScanBusy) {
+        if (loadPages == null) return@LaunchedEffect
+        val pages = loadPages()
+        stamped = Marking.tally(pages).sumOf { it.marks.toDouble() }.toFloat()
+        unread = pages.count { !it.loaded }
+    }
+    val scanComplete = markAssist && !markScanBusy && markScanStatus == null
+    val printed = markZoneTotal.takeIf { it > 0 && scanComplete }
+    val stampedScore = stamped?.takeIf { unread == 0 && it > 0f }?.roundToInt()
+    LaunchedEffect(stampedScore) { if (!scoreEdited && stampedScore != null) score = stampedScore.toString() }
+    LaunchedEffect(printed) { if (!totalEdited && printed != null) totalText = printed.toString() }
+
     val parsedScore = score.toIntOrNull()
     val parsedTotal = totalText.toIntOrNull()
     val scoreFocus = remember { FocusRequester() }
@@ -541,10 +568,59 @@ fun ScoreDialog(
         icon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) },
         title = { Text("Record a mark") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                if (showDetection) {
+                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Printed mark detection", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        when {
+                                            !markAssist -> "Off. Turn on to tap a printed “[4 marks]” on the page and award it."
+                                            markScanBusy -> markScanStatus ?: "Looking for printed marks…"
+                                            markScanStatus != null -> markScanStatus
+                                            markZoneCount == 0 -> "No printed allocations found. Use manual stamps instead."
+                                            else -> "$markZoneCount allocations found, $markZoneTotal marks in all."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (markScanStatus != null && !markScanBusy) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (markScanBusy) CircularProgressIndicator(Modifier.size(20.dp).padding(end = FolioSpacing.dp4), strokeWidth = 2.dp)
+                                Switch(markAssist, onMarkAssist)
+                            }
+                            if (markAssist) {
+                                Text("Tick awards the full value, cross lets you adjust. Awards are totalled below.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                    Text("Award colour", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                    Marking.COLORS.forEach { swatch ->
+                                        Surface(onClick = { onMarkColor(swatch) }, shape = CircleShape,
+                                            color = Color(swatch), modifier = Modifier.size(26.dp),
+                                            border = if (swatch == markColor) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (loadPages != null && stamped != null) {
+                        val s = stamped ?: 0f
+                        Text(
+                            when {
+                                unread > 0 -> "$unread ${if (unread == 1) "page" else "pages"} couldn't be read, so the stamped total may be short."
+                                s <= 0f -> "No marks stamped on the paper yet."
+                                else -> "Stamped on the paper: ${Marking.format(s)}" + (printed?.let { " of $it printed" } ?: "") + "."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (unread > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     OutlinedTextField(
-                        score, { score = it.filter(Char::isDigit).take(4) },
+                        score, { score = it.filter(Char::isDigit).take(4); scoreEdited = true },
                         Modifier.weight(1f).focusRequester(scoreFocus),
                         label = { Text("Score") }, placeholder = { Text("32") },
                         singleLine = true,
@@ -552,18 +628,22 @@ fun ScoreDialog(
                         isError = scoreTooHigh,
                         supportingText = {
                             if (scoreTooHigh) Text("Can't exceed the total.")
+                            else if (!scoreEdited && stampedScore != null) Text("From stamped marks")
                             else if (parsedTotal != null && parsedTotal > 0) Text("0–$parsedTotal")
                         }
                     )
                     OutlinedTextField(
-                        totalText, { totalText = it.filter(Char::isDigit).take(4) },
+                        totalText, { totalText = it.filter(Char::isDigit).take(4); totalEdited = true },
                         Modifier.weight(1f), label = { Text("Out of") }, placeholder = { Text("40") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = {
                             if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed)
                         }),
-                        supportingText = { if (total != null) Text("From exam details") }
+                        supportingText = {
+                            if (total != null) Text("From exam details")
+                            else if (!totalEdited && printed != null) Text("From printed marks")
+                        }
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

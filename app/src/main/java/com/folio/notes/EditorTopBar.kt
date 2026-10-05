@@ -88,6 +88,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     additionalMenus: @Composable () -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
+    var sub by remember { mutableStateOf<TopSub?>(null) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. Only the tool tray scrolls; the left and right pills
         // always remain on screen. The timer is measured at its natural width so a chip is never
@@ -136,34 +137,34 @@ internal val EditorFloatingGroupHeight = 46.dp
                         DropdownMenuItem({ Text("Page options") }, { overflow = false; onPageOptions() },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()
-                    Text("Notebook", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    DropdownMenuItem({ Text("Rename notebook") }, { overflow = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                    DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { overflow = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
-                    HorizontalDivider()
-                    Box(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10)) {
-                        SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
-                    }
-                    notebookActions { overflow = false }
-                        if (compact) {
-                            HorizontalDivider()
-                            Box(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) { timer() }
+                        Box(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10)) {
+                            SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
                         }
+                        if (compact) Box(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) { timer() }
                         HorizontalDivider()
-                            Text("Pages", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            run {
-                                DropdownMenuItem({ Text("Previous page") }, { overflow = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
-                                DropdownMenuItem({ Text("Next page") }, { overflow = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
-                            }
+                        SubmenuItem("Notebook", Icons.AutoMirrored.Rounded.MenuBook, sub == TopSub.NOTEBOOK, { sub = if (sub == TopSub.NOTEBOOK) null else TopSub.NOTEBOOK }) {
+                            DropdownMenuItem({ Text("Rename notebook") }, { overflow = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                            DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { overflow = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
+                        }
+                        SubmenuItem("Pages", Icons.Rounded.Dashboard, sub == TopSub.PAGES, { sub = if (sub == TopSub.PAGES) null else TopSub.PAGES }) {
                             DropdownMenuItem({ Text("Browse pages") }, { overflow = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
+                            DropdownMenuItem({ Text("Previous page") }, { overflow = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
+                            DropdownMenuItem({ Text("Next page") }, { overflow = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
                             DropdownMenuItem({ Text("First page") }, { overflow = false; onFirstPage() }, enabled = pageIndex > 0)
                             DropdownMenuItem({ Text("Last page") }, { overflow = false; onLastPage() }, enabled = pageIndex < pageCount - 1)
-                            HorizontalDivider()
+                        }
+                        SubmenuItem("Add page", Icons.Rounded.Add, sub == TopSub.ADD, { sub = if (sub == TopSub.ADD) null else TopSub.ADD }) {
                             DropdownMenuItem({ Text("Add page at end") }, { overflow = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
                             DropdownMenuItem({ Text("Insert after this page") }, { overflow = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                             DropdownMenuItem({ Text("Duplicate this page") }, { overflow = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                            HorizontalDivider()
+                        }
+                        SubmenuItem("View", Icons.Rounded.FitScreen, sub == TopSub.VIEW, { sub = if (sub == TopSub.VIEW) null else TopSub.VIEW }) {
                             DropdownMenuItem({ Text("Reset zoom · $zoomPercent%") }, { overflow = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
                             if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { overflow = false; onFitAll() })
+                        }
+                        SubmenuItem("Workspace", Icons.AutoMirrored.Rounded.ChromeReaderMode, sub == TopSub.WORKSPACE, { sub = if (sub == TopSub.WORKSPACE) null else TopSub.WORKSPACE }) {
+                            notebookActions { overflow = false }
+                        }
                     }
                     additionalMenus()
                         }
@@ -258,3 +259,5 @@ internal val EditorFloatingGroupHeight = 46.dp
         }
     )
 }
+
+private enum class TopSub { NOTEBOOK, PAGES, ADD, VIEW, WORKSPACE }
