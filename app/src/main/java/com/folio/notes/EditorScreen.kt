@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -377,8 +378,12 @@ private fun paperLabel(p: Paper): String = when (p) {
     var textAlign by rememberSaveable { mutableStateOf(try { TextAlignMode.valueOf(appPrefs.getString("text.align", "LEFT") ?: "LEFT") } catch (_: Exception) { TextAlignMode.LEFT }) }
     var textUnderline by rememberSaveable { mutableStateOf(appPrefs.getBoolean("text.underline", false)) }
     var textOpacity by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.opacity", TextBox.DEFAULT_OPACITY)) }
-    var textEditor by remember { mutableStateOf<TextBox?>(null) }
-    var textEditorNew by remember { mutableStateOf(false) }
+    val textDraftSaver = remember { Saver<TextBox?, String>(
+        save = { draft -> draft?.let { InkCodec.encodeTexts(listOf(it)).toString() } ?: "" },
+        restore = { raw -> runCatching { InkCodec.decodeTexts(org.json.JSONArray(raw)).firstOrNull() }.getOrNull() }
+    ) }
+    var textEditor by rememberSaveable(note.id, page.id, stateSaver = textDraftSaver) { mutableStateOf<TextBox?>(null) }
+    var textEditorNew by rememberSaveable(note.id, page.id) { mutableStateOf(false) }
     // Notebook-wide typed-text search and reusable diagram elements.
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by remember { mutableStateOf("") }
