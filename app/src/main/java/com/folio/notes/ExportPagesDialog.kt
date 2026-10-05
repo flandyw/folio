@@ -4,6 +4,7 @@ package com.folio.notes
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -67,7 +68,7 @@ import androidx.compose.ui.unit.dp
                 "Choose which pages to save or share. A PDF keeps them in order; one PNG saves to your gallery, several PNGs make one .zip. Long-press a page to pick only that one.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 FilterChip(
                     selected = format == PageExportFormat.PDF,
                     onClick = { format = PageExportFormat.PDF },
