@@ -2890,15 +2890,15 @@ private enum class ToolSub { PRESETS, TOOL }
     onDuplicate: (TextBox) -> Unit, onMove: (TextBox) -> Unit, canMove: Boolean
 ) {
     val textFocus = remember(box.id) { FocusRequester() }
-    var text by remember(box.id) { mutableStateOf(box.text) }
-    var size by remember(box.id) { mutableFloatStateOf(box.size) }
-    var width by remember(box.id) { mutableFloatStateOf(box.width) }
-    var opacity by remember(box.id) { mutableFloatStateOf(box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY)) }
-    var color by remember(box.id) { mutableIntStateOf(box.color) }
-    var bold by remember(box.id) { mutableStateOf(box.bold) }
-    var italic by remember(box.id) { mutableStateOf(box.italic) }
-    var align by remember(box.id) { mutableStateOf(box.align) }
-    var underline by remember(box.id) { mutableStateOf(box.underline) }
+    var text by rememberSaveable(box.id) { mutableStateOf(box.text) }
+    var size by rememberSaveable(box.id) { mutableFloatStateOf(box.size) }
+    var width by rememberSaveable(box.id) { mutableFloatStateOf(box.width) }
+    var opacity by rememberSaveable(box.id) { mutableFloatStateOf(box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY)) }
+    var color by rememberSaveable(box.id) { mutableIntStateOf(box.color) }
+    var bold by rememberSaveable(box.id) { mutableStateOf(box.bold) }
+    var italic by rememberSaveable(box.id) { mutableStateOf(box.italic) }
+    var align by rememberSaveable(box.id) { mutableStateOf(box.align) }
+    var underline by rememberSaveable(box.id) { mutableStateOf(box.underline) }
     fun edited() = box.copy(
         text = text.trimEnd(), size = size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
         width = width.coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
