@@ -89,7 +89,7 @@ import androidx.compose.ui.unit.dp
                     Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
                 }
                 val pages = remember(search.results) { PdfReference.hitPages(search.results) }
-                if (pages.size > 1) {
+                if (pages.size > 1 && !search.searching && search.query.trim() == query.trim()) {
                     OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = false)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous match", Modifier.size(18.dp))
                     }
@@ -103,6 +103,8 @@ import androidx.compose.ui.unit.dp
                     LoadingIndicator(Modifier.size(24.dp).semantics { contentDescription = "Searching PDF" })
                     Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                query.isBlank() -> Text("Type a word or phrase to search this PDF.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 search.query.trim() != query.trim() -> Text("Press Search to find “${query.trim().take(80)}”.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 search.searched && search.query.isNotBlank() && search.results.isEmpty() -> Column(
