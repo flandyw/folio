@@ -224,8 +224,8 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), label = { Text("Correction") }, minLines = 2)
             OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), label = { Text("Area of study") })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                OutlinedTextField(total, { total = it }, Modifier.weight(1f), label = { Text("Total marks") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(total, { total = it }, Modifier.weight(1f), label = { Text("Total marks") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
