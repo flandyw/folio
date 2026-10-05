@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -253,5 +255,5 @@ private fun Modifier.clickableRow(enabled: Boolean, onClick: () -> Unit): Modifi
 @Composable internal fun SettingsBlockTitle(title: String, subtitle: String? = null) = RowText(title, subtitle)
 
 @Composable internal fun SettingsBlockHint(text: String, error: Boolean = false) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(text, modifier = if (error) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier, style = MaterialTheme.typography.bodySmall, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 }
