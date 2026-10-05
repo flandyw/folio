@@ -6,8 +6,8 @@ Native Android notebook app. Single module `:app`, Kotlin + Jetpack Compose + Ma
 
 - Toolchain: AGP 9.4.0 with built-in KGP 2.2.10; Compose compiler plugin `org.jetbrains.kotlin.plugin.compose` must match it. `jvmTarget` is intentionally unset (defaults from `compileOptions` Java 17).
 - Canonical local check (CI only publishes signed R8 releases via `.github/workflows/release.yml`):
-  `./gradlew :app:assembleDebug :app:lintDebug`
-- Windows-only shortcut: `.\build.ps1` (uses ignored `.tooling/` JDK/SDK; same default tasks). No `local.properties` / `.tooling/` needed on macOS/Linux with JDK 25 + SDK 36.
+  `./build.sh -p` (signed experimental build, published to the Folio server without prompting). Do **not** run `:app:lintDebug` or plain `./gradlew :app:assembleDebug` as the check — lint takes far too long; only run it if explicitly asked.
+- Windows-only shortcut: `.\build.ps1` (uses ignored `.tooling/` JDK/SDK; its default tasks still include `lintDebug`, so pass `-Tasks ':app:assembleDebug'`). No `local.properties` / `.tooling/` needed on macOS/Linux with JDK 25 + SDK 36.
 - Offline KaTeX check (run locally): `node tools/katex-smoke.cjs`
 
 ## Architecture entrypoints
