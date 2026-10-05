@@ -251,9 +251,9 @@ import androidx.compose.ui.unit.dp
                 headlineContent = { Text("Link pages") },
                 supportingContent = { Text("Turning a page in the editor also turns the companion.") },
                 leadingContent = { Icon(if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff, null) },
-                trailingContent = { Switch(state.companionLinked, model::setCompanionLinked) },
+                trailingContent = { Switch(state.companionLinked, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().toggleable(state.companionLinked, role = Role.Switch, onValueChange = model::setCompanionLinked)
             )
             HorizontalDivider()
             FolioButtonGroup(Modifier.fillMaxWidth(), menuItems = listOf(
