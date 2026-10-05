@@ -28,6 +28,8 @@ import androidx.compose.material3.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -119,7 +121,7 @@ import kotlinx.coroutines.withContext
         contentWindowInsets = WindowInsets(0),
         topBar = {
             LargeTopAppBar(
-                title = { Text(title) },
+                title = { Text(title, Modifier.semantics { heading() }) },
                 navigationIcon = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
                 scrollBehavior = scroll,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surface),
