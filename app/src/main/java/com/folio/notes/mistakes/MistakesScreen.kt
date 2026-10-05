@@ -3,6 +3,7 @@
 package com.folio.notes.mistakes
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -95,7 +96,7 @@ internal fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): Str
 fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: FolioState,
     finger: Boolean, haptics: Boolean, shapes: Boolean, onBack: () -> Unit,
     onSettings: () -> Unit, onExport: () -> Unit,
-    onReviewMode: (Boolean) -> Unit = {},
+    onReviewMode: (Boolean) -> Unit = {}, onAccount: () -> Unit = {},
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -119,7 +120,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var shuffle by rememberSaveable { mutableStateOf(false) }
     var reviewQueue by rememberSaveable { mutableStateOf(listOf<String>()) }
     var destination by rememberSaveable { mutableStateOf("Today") }
-    var showAccount by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
     var newestDueFirst by rememberSaveable { mutableStateOf(false) }
@@ -221,6 +221,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     fun leaveReview() { activeReview = null; reviewQueue = emptyList(); folio.close() }
+    // Signing out happens in the shared account panel, so drop any review that belonged to the account.
+    LaunchedEffect(state.userId) { if (state.userId == null && activeReview != null) leaveReview() }
     suspend fun openReview(mistake: ExamTrackMistake, user: String): LocalMistakeReviewAttempt {
         val attempt = unfinishedAttempt(folioState.notes, user, mistake.id)
             ?: folio.createMistakePractice(user, mistake, openWhenReady = false)
@@ -479,9 +481,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         }
                     },
                     actions = {
-                        if (state.userId != null) IconButton({ showAccount = true }, shapes = IconButtonDefaults.shapes()) {
-                            Icon(if (isSyncTrouble(state.status)) Icons.Rounded.CloudOff else Icons.Rounded.AccountCircle, "Account and sync")
-                        }
+                        FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
                     }
                 )
             },
@@ -520,7 +520,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem { OfflineNoteCard() }
                         } else {
                             if (isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()) fullWidthItem {
-                                Surface(onClick = { showAccount = true }, shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Surface(onClick = onAccount, shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                                     Row(
                                         Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
                                         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
@@ -656,12 +656,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             )
         }
     }
-    if (showAccount && state.userId != null) FolioSideSheet("Account and sync", onDismissRequest = { showAccount = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            FocalAccountContent(model, onBeforeSignOut = { showAccount = false; leaveReview() })
-            OfflineNoteCard()
-        }
-    }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Focus your library", style = MaterialTheme.typography.headlineSmall)
@@ -743,22 +737,31 @@ private fun MistakesDestinationToolbar(
 internal fun FocalAccountContent(
     model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onBeforeSignOut: () -> Unit = {},
+    inlineSync: Boolean = true,
+    extra: @Composable ColumnScope.() -> Unit = {},
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     var confirmSignOut by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
         if (state.userId == null) {
             FocalLoginCard(state, model::signIn, model::signUp, model::resetPassword, model::clearAuthFeedback)
+            extra()
         } else {
-            Text("Focal account", style = MaterialTheme.typography.headlineSmall)
             AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
-                { model.requestSync(force = true) }, { confirmSignOut = true })
-            Text("One sign-in connects study sessions and mistake review. Handwriting stays in Folio.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                inlineSync) { model.requestSync(force = true) }
+            extra()
+            OutlinedButton(onClick = { confirmSignOut = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .4f))) {
+                Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text("Sign out")
+            }
         }
     }
     if (confirmSignOut) AlertDialog(
         onDismissRequest = { confirmSignOut = false },
+        icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
         title = { Text("Sign out of Focal?") },
         text = { Text("This disconnects both study sessions and mistake sync. Saved sessions, handwriting and the offline cache stay on this device.") },
         dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
@@ -766,7 +769,7 @@ internal fun FocalAccountContent(
             confirmSignOut = false
             onBeforeSignOut()
             model.signOut()
-        }) { Text("Sign out") } },
+        }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Sign out") } },
     )
 }
 
@@ -786,44 +789,80 @@ private fun OfflineNoteCard() {
     }
 }
 
+/** The signed-in hero: who you are, whether Focal has everything, and what is still waiting. */
 @Composable
 private fun AccountCard(
     email: String?, status: String, lastSyncedAt: String?, pending: Int,
-    syncing: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
+    syncing: Boolean, inlineSync: Boolean, onSync: () -> Unit,
 ) {
-    ElevatedCard(shape = FolioShapes.extraLarge) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                    Text(
-                        (email?.trim()?.firstOrNull()?.uppercase() ?: "F"),
-                        Modifier.padding(FolioSpacing.dp12), style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold
-                    )
+    val scheme = MaterialTheme.colorScheme
+    Surface(shape = FolioShapes.panel, color = Color.Transparent, contentColor = scheme.onPrimaryContainer) {
+        Box(Modifier.background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(scheme.primaryContainer, scheme.tertiaryContainer)))) {
+            // A soft halo in the corner; decoration only.
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 48.dp, y = (-56).dp).size(180.dp)
+                .background(scheme.primary.copy(alpha = .10f), CircleShape))
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    Box(Modifier.size(68.dp).background(scheme.surface.copy(alpha = .55f), CircleShape).padding(4.dp)) {
+                        Surface(shape = CircleShape, color = scheme.primary, modifier = Modifier.fillMaxSize()) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    (email?.trim()?.firstOrNull()?.uppercase() ?: "F"),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = scheme.onPrimary, fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Signed in to Focal", style = MaterialTheme.typography.labelLarge,
+                            color = scheme.onPrimaryContainer.copy(alpha = .75f))
+                        Text(email ?: "Focal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (inlineSync) FocalSyncButton(syncing, onSync)
                 }
-                Column(Modifier.weight(1f)) {
-                    Text(email ?: "Focal", style = MaterialTheme.typography.titleMedium, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        formatSyncedAt(lastSyncedAt),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                SyncStatusRow(status, pending)
+                if (syncing) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                    AccountStat(Icons.Rounded.Schedule, "Last sync",
+                        formatSyncedAt(lastSyncedAt).removePrefix("Last synced "), Modifier.weight(1f).fillMaxHeight())
+                    AccountStat(Icons.Rounded.CloudUpload, "Waiting to upload",
+                        if (pending == 0) "Nothing" else "$pending ${if (pending == 1) "review" else "reviews"}", Modifier.weight(1f).fillMaxHeight())
                 }
-                if (syncing) LoadingIndicator(Modifier.size(22.dp))
-            }
-            SyncStatusRow(status, pending)
-            if (syncing) LinearProgressIndicator(Modifier.fillMaxWidth())
-            FilledTonalButton(onSync, enabled = !syncing, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Sync, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text(if (syncing) "Syncing…" else "Sync now")
-            }
-            OutlinedButton(onSignOut, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text("Sign out")
             }
         }
     }
+}
+
+@Composable
+private fun AccountStat(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surface.copy(alpha = .6f),
+        contentColor = MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(value, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Icon-only "sync now" used in the account panel header (and inline where there is no header). */
+@Composable
+internal fun FocalSyncButton(syncing: Boolean, onSync: () -> Unit) {
+    IconButton(onSync, enabled = !syncing, shapes = IconButtonDefaults.shapes()) {
+        if (syncing) LoadingIndicator(Modifier.size(22.dp)) else Icon(Icons.Rounded.Sync, "Sync now")
+    }
+}
+
+/** Signed-in sync state for the account panel header; null when signed out. */
+@Composable
+internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
+    val state by model.state.collectAsStateWithLifecycle()
+    if (state.userId != null) FocalSyncButton(state.status == "Syncing…") { model.requestSync(force = true) }
 }
 
 @Composable
@@ -836,8 +875,8 @@ private fun SyncStatusRow(status: String, pending: Int) {
         status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Surface(shape = FolioShapes.large, color = container, contentColor = content) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+    Surface(shape = CircleShape, color = container, contentColor = content) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(icon, null, Modifier.size(18.dp))
             Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             if (pending > 0) Text("$pending queued", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)

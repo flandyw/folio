@@ -201,7 +201,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
                         RailItem("Progress", Icons.Rounded.Insights, !showMistakes && !showStudy && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
                     }
-                    RailItem("Favorites", Icons.Rounded.StarOutline, !showMistakes && !showStudy && section == LibrarySection.LIBRARY && starred) { section = LibrarySection.LIBRARY; starred = true; unfiled = false; model.folder(null); onLibrary() }
                     // Folders live in the shelf's filter row, as they already did on narrow screens:
                     // a rail is icon-only, so folder names have no room here.
                     Spacer(Modifier.height(FolioSpacing.dp4))

@@ -329,7 +329,7 @@ internal fun FocalStudyContent(
                             TextButton({ manager.retry() }, enabled = !state.syncing) {
                                 Text(if (state.syncing) "Retrying…" else "Retry")
                             }
-                        } else if (dedicated && state.userId == null) {
+                        } else if (state.userId == null) {
                             TextButton(onAccount) { Text("Connect Focal") }
                         }
                     }
@@ -382,7 +382,6 @@ internal fun FocalStudyContent(
                 }
             }
         }
-        if (!dedicated) item(key = "account") { com.folio.notes.mistakes.FocalAccountContent() }
         item(key = "history-heading") {
             Text(if (dedicated) "Session history" else "Recent sessions", style = MaterialTheme.typography.titleMedium)
         }

@@ -429,7 +429,6 @@ private fun paperLabel(p: Paper): String = when (p) {
     var pageNumber by remember { mutableStateOf("") }
     var rename by remember { mutableStateOf(false) }
     var renameTitle by remember { mutableStateOf(note.title) }
-    var more by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
@@ -1225,19 +1224,18 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = onExport,
-                            onPageOptions = { more = true },
-                            additionalMenus = {
-                                    PageOptionsMenu(more, { more = false }, page, state.saveFailed,
-                                        onResetZoom = ::resetZoom, onFitAll = if (page.infinite) ::fitAllContent else null, onPaper = { openPaperMenu(false) },
-                                        onClear = { clear = true }, onRetry = model::retrySave,
-                                        onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                                        onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                                        onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
-                                        onContents = { pdfContentsOpen = true; loadOutline() },
-                                        onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
-                                        onOrganize = { pageBrowser = true },
-                                        onBookmark = { model.togglePageBookmark(page.id) },
-                                        onNamePage = { namedPage = page; pageTitle = page.title }, onSettings = onSettings)
+                            onSettings = onSettings,
+                            pageActions = { dismiss ->
+                                PageOptionsContent(dismiss, page, state.saveFailed,
+                                    onPaper = { openPaperMenu(false) }, onClear = { clear = true }, onRetry = model::retrySave,
+                                    onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                                    onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                    onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
+                                    onContents = { pdfContentsOpen = true; loadOutline() },
+                                    onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
+                                    onOrganize = { pageBrowser = true },
+                                    onBookmark = { model.togglePageBookmark(page.id) },
+                                    onNamePage = { namedPage = page; pageTitle = page.title })
                             }
                         )
                     }
@@ -2561,47 +2559,37 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
 }
 
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
-@Composable private fun PageOptionsMenu(
-    expanded: Boolean, onDismiss: () -> Unit, page: NotePage, saveFailed: Boolean,
-    onResetZoom: () -> Unit, onPaper: () -> Unit,
-    onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit = {}, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
-    onContents: () -> Unit, onSearchNotes: () -> Unit = {},
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit, onSettings: () -> Unit,
-    onFitAll: (() -> Unit)? = null
+@Composable private fun PageOptionsContent(
+    dismiss: () -> Unit, page: NotePage, saveFailed: Boolean,
+    onPaper: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
+    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onContents: () -> Unit, onSearchNotes: () -> Unit,
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
 ) {
-    DropdownMenu(expanded, onDismiss, modifier = Modifier.guardUiTouches()) {
-        MenuSectionHeader("Page")
-        DropdownMenuItem({ Text("Organise pages") }, { onDismiss(); onOrganize() }, leadingIcon = { Icon(Icons.Rounded.AutoStories, null) })
-        DropdownMenuItem({ Text("Name page") }, { onDismiss(); onNamePage() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-        DropdownMenuItem({ Text(if (page.bookmarked) "Remove bookmark" else "Bookmark page") }, { onDismiss(); onBookmark() }, leadingIcon = { Icon(Icons.Rounded.Bookmark, null) })
-        HorizontalDivider()
-        DropdownMenuItem({ Text(if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") }, { onDismiss(); onRedo() },
-            leadingIcon = { Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, null) })
-        DropdownMenuItem({ Text("Exam details") }, { onDismiss(); onExam() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
-        DropdownMenuItem({ Text("Record a mark") }, { onDismiss(); onRecordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
-        DropdownMenuItem({ Text("Timer & stopwatch") }, { onDismiss(); onTimer() }, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
-        HorizontalDivider()
-        DropdownMenuItem({ Text("Insert picture") }, { onDismiss(); onInsertImage() }, leadingIcon = { Icon(Icons.Rounded.AddPhotoAlternate, null) })
-        DropdownMenuItem({ Text("Find in notes") }, { onDismiss(); onSearchNotes() }, leadingIcon = { Icon(Icons.Rounded.FindInPage, null) })
-        DropdownMenuItem({ Text("Search PDF text") }, { onDismiss(); onSearchPdf() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-        DropdownMenuItem({ Text("Contents") }, { onDismiss(); onContents() }, enabled = page.pdfIndex != null, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-        HorizontalDivider()
-        if (onFitAll != null) {
-            DropdownMenuItem({ Text("Fit all content") }, { onDismiss(); onFitAll() }, enabled = page.loaded, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-            DropdownMenuItem({ Text("Return to origin") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.Home, null) })
-        } else {
-            DropdownMenuItem({ Text("Reset document zoom") }, { onDismiss(); onResetZoom() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-        }
-        DropdownMenuItem({ Text("Paper style: ${paperLabel(page.paper)}") }, { onDismiss(); onPaper() }, enabled = page.pdfIndex == null, leadingIcon = { Icon(Icons.Rounded.GridOn, null) })
-        DropdownMenuItem({ Text("Clear page") }, { onDismiss(); onClear() }, enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.LayersClear, null) })
-        if (saveFailed) {
-            HorizontalDivider()
-            DropdownMenuItem({ Text("Retry save") }, { onDismiss(); onRetry() }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
-        }
-        HorizontalDivider()
-        DropdownMenuItem({ Text("App settings…") }, { onDismiss(); onSettings() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+    val run: (() -> Unit) -> Unit = { dismiss(); it() }
+    PopoverGroup("This page") {
+        PopoverRow(Icons.Rounded.AutoStories, "Organise pages") { run(onOrganize) }
+        PopoverRow(Icons.Rounded.Edit, "Name page") { run(onNamePage) }
+        PopoverRow(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+            if (page.bookmarked) "Remove bookmark" else "Bookmark page") { run(onBookmark) }
+        PopoverRow(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+            if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") { run(onRedo) }
+        PopoverRow(Icons.Rounded.GridOn, "Paper style: ${paperLabel(page.paper)}", enabled = page.pdfIndex == null) { run(onPaper) }
+        PopoverRow(Icons.Rounded.LayersClear, "Clear page",
+            enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) { run(onClear) }
     }
+    PopoverGroup("Study") {
+        PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(onExam) }
+        PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(onRecordMark) }
+        PopoverRow(Icons.Rounded.Timer, "Timer & stopwatch") { run(onTimer) }
+    }
+    PopoverGroup("Insert & find") {
+        PopoverRow(Icons.Rounded.AddPhotoAlternate, "Insert picture") { run(onInsertImage) }
+        PopoverRow(Icons.Rounded.FindInPage, "Find in notes") { run(onSearchNotes) }
+        PopoverRow(Icons.Rounded.Search, "Search PDF text", enabled = page.pdfIndex != null) { run(onSearchPdf) }
+        PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents", enabled = page.pdfIndex != null) { run(onContents) }
+    }
+    if (saveFailed) PopoverRow(Icons.Rounded.Save, "Retry save") { run(onRetry) }
 }
 
 /** The second-level menus under the toolbar's ⋯ menu. */
@@ -2623,48 +2611,21 @@ private enum class ToolSub { PRESETS, TOOL }
     val run: (() -> Unit) -> Unit = { onDismiss(); it() }
     FolioPopover(onDismiss, width = 280.dp) {
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            PageQuickAction(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onName) }
-            PageQuickAction(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+            PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onName) }
+            PopoverTile(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                 if (page.bookmarked) "Bookmarked" else "Bookmark", Modifier.weight(1f), active = page.bookmarked) { run(onBookmark) }
-            PageQuickAction(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+            PopoverTile(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
                 if (page.redoFlag) "Clear redo" else "Redo", Modifier.weight(1f), active = page.redoFlag) { run(onRedoFlag) }
         }
         Column {
-            PageMenuRow(Icons.Rounded.LowPriority, "Move to position…") { run(onMoveTo) }
-            PageMenuRow(Icons.Rounded.KeyboardArrowUp, "Move up", enabled = canMoveUp) { run(onMoveUp) }
-            PageMenuRow(Icons.Rounded.KeyboardArrowDown, "Move down", enabled = canMoveDown) { run(onMoveDown) }
-            PageMenuRow(Icons.Rounded.Add, "Insert blank page after") { run(onInsert) }
-            PageMenuRow(Icons.Rounded.ContentCopy, "Duplicate page") { run(onDuplicate) }
+            PopoverRow(Icons.Rounded.LowPriority, "Move to position…") { run(onMoveTo) }
+            PopoverRow(Icons.Rounded.KeyboardArrowUp, "Move up", enabled = canMoveUp) { run(onMoveUp) }
+            PopoverRow(Icons.Rounded.KeyboardArrowDown, "Move down", enabled = canMoveDown) { run(onMoveDown) }
+            PopoverRow(Icons.Rounded.Add, "Insert blank page after") { run(onInsert) }
+            PopoverRow(Icons.Rounded.ContentCopy, "Duplicate page") { run(onDuplicate) }
         }
         HorizontalDivider()
-        PageMenuRow(Icons.Rounded.DeleteOutline, "Delete page", enabled = canDelete, destructive = true) { run(onDelete) }
-    }
-}
-
-/** A tile for the three everyday page toggles at the top of the page popover. */
-@Composable private fun PageQuickAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, active: Boolean = false, onClick: () -> Unit) {
-    Surface(onClick, modifier, shape = FolioShapes.large,
-        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-        contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface) {
-        Column(Modifier.padding(vertical = FolioSpacing.dp10), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Icon(icon, null, Modifier.size(22.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean = true, destructive: Boolean = false, onClick: () -> Unit) {
-    val tint = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Surface(onClick, enabled = enabled, shape = FolioShapes.medium, color = Color.Transparent, contentColor = tint) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp8),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Icon(icon, null, Modifier.size(20.dp))
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-        }
+        PopoverRow(Icons.Rounded.DeleteOutline, "Delete page", enabled = canDelete, destructive = true) { run(onDelete) }
     }
 }
 

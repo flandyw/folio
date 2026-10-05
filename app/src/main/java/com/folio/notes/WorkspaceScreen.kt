@@ -45,21 +45,12 @@ import kotlin.math.roundToInt
                 key(state.activeId) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         notebookActions = { dismiss ->
-                            DropdownMenuItem({ Text("Open beside the editor") }, { dismiss(); picker = PickerPurpose.COMPANION },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ChromeReaderMode, null) })
-                            DropdownMenuItem({ Text("Open documents · ${state.tabs.size}") }, { dismiss(); picker = PickerPurpose.TABS },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null) })
-                            DropdownMenuItem({ Text("Open another document") }, { dismiss(); picker = PickerPurpose.OPEN },
-                                leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { dismiss(); model.swapPaneSides() },
-                                enabled = state.companion != null,
-                                leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
-                            HorizontalDivider()
-                            DropdownMenuItem({ Text("Close this tab") }, { dismiss(); state.activeId?.let(model::closeTab) },
-                                leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                            DropdownMenuItem({ Text("Close other tabs") }, { dismiss(); state.activeId?.let(model::closeOtherTabs) },
-                                enabled = state.tabs.size > 1,
-                                leadingIcon = { Icon(Icons.Rounded.ClearAll, null) })
+                            PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); picker = PickerPurpose.COMPANION }
+                            PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); picker = PickerPurpose.TABS }
+                            PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); picker = PickerPurpose.OPEN }
+                            PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight), enabled = state.companion != null) { dismiss(); model.swapPaneSides() }
+                            PopoverRow(Icons.Rounded.Close, "Close this tab") { dismiss(); state.activeId?.let(model::closeTab) }
+                            PopoverRow(Icons.Rounded.ClearAll, "Close other tabs", enabled = state.tabs.size > 1) { dismiss(); state.activeId?.let(model::closeOtherTabs) }
                         })
                 }
             }

@@ -2,8 +2,6 @@
 package com.folio.notes
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,7 +18,7 @@ fun StudyTimerScreen(notebooks: List<Notebook>, examTimer: ExamTimerState, onAcc
                 title = { Text("Study timer") },
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 actions = {
-                    IconButton(onAccount) { Icon(Icons.Rounded.ManageAccounts, "Focal account") }
+                    FocalAccountButton(onAccount)
                 },
             )
         },

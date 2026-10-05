@@ -428,6 +428,7 @@ import java.io.File
                                     mistakes, model, state, finger, haptics, shapeRecognition,
                                     onBack = { showMistakes = false }, onSettings = { settings = true },
                                     onExport = { exportMenu = true }, onReviewMode = onReviewMode,
+                                    onAccount = { focalAccountOpen = true },
                                 )
                             },
                         )
@@ -461,6 +462,7 @@ import java.io.File
                     },
                     shapeRecognition, { shapeRecognition = it; prefs.edit().putBoolean("shapeRecognition", it).apply() },
                     onCheckForUpdates = { updates.check(experimentalUpdates, manual = true) },
+                    onCheckGitHub = { updates.check(experimental = false, manual = true) },
                     updateChecking = updateState.checking,
                     updateBusy = updateState.busy,
                     updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
@@ -485,8 +487,12 @@ import java.io.File
         )
         if (focalAccountOpen) FocalAccountPanel(
             onDismiss = { focalAccountOpen = false },
-            onMistakes = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMistakes = true },
-            onStudy = { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showStudy = true },
+            onMistakes = if (showMistakes && !settings) null else {
+                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMistakes = true }
+            },
+            onStudy = if (showStudy && !settings) null else {
+                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showStudy = true }
+            },
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

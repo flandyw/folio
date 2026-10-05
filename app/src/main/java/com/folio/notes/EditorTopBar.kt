@@ -84,11 +84,10 @@ internal val EditorFloatingGroupHeight = 46.dp
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
     onExport: () -> Unit,
-    onPageOptions: () -> Unit,
-    additionalMenus: @Composable () -> Unit
+    onSettings: () -> Unit,
+    pageActions: @Composable (() -> Unit) -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
-    var sub by remember { mutableStateOf<TopSub?>(null) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. Only the tool tray scrolls; the left and right pills
         // always remain on screen. The timer is measured at its natural width so a chip is never
@@ -131,42 +130,46 @@ internal val EditorFloatingGroupHeight = 46.dp
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                                 { overflow = true },
                                 tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
-                    DropdownMenu(overflow, { overflow = false }, modifier = Modifier.guardUiTouches()) {
-                        Text(title, Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                            style = MaterialTheme.typography.titleSmall)
-                        DropdownMenuItem({ Text("Page options") }, { overflow = false; onPageOptions() },
-                            leadingIcon = { Icon(Icons.Rounded.Tune, null) })
-                        HorizontalDivider()
-                        Box(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10)) {
-                            SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
-                        }
-                        if (compact) Box(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) { timer() }
-                        HorizontalDivider()
-                        SubmenuItem("Notebook", Icons.AutoMirrored.Rounded.MenuBook, sub == TopSub.NOTEBOOK, { sub = if (sub == TopSub.NOTEBOOK) null else TopSub.NOTEBOOK }) {
-                            DropdownMenuItem({ Text("Rename notebook") }, { overflow = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                            DropdownMenuItem({ Text(if (starred) "Remove from favourites" else "Add to favourites") }, { overflow = false; onStar() }, leadingIcon = { Icon(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) })
-                        }
-                        SubmenuItem("Pages", Icons.Rounded.Dashboard, sub == TopSub.PAGES, { sub = if (sub == TopSub.PAGES) null else TopSub.PAGES }) {
-                            DropdownMenuItem({ Text("Browse pages") }, { overflow = false; onPages() }, leadingIcon = { Icon(Icons.Rounded.Dashboard, null) })
-                            DropdownMenuItem({ Text("Previous page") }, { overflow = false; onPrevious() }, enabled = pageIndex > 0, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null) })
-                            DropdownMenuItem({ Text("Next page") }, { overflow = false; onNext() }, enabled = pageIndex < pageCount - 1, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) })
-                            DropdownMenuItem({ Text("First page") }, { overflow = false; onFirstPage() }, enabled = pageIndex > 0)
-                            DropdownMenuItem({ Text("Last page") }, { overflow = false; onLastPage() }, enabled = pageIndex < pageCount - 1)
-                        }
-                        SubmenuItem("Add page", Icons.Rounded.Add, sub == TopSub.ADD, { sub = if (sub == TopSub.ADD) null else TopSub.ADD }) {
-                            DropdownMenuItem({ Text("Add page at end") }, { overflow = false; onAdd() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Insert after this page") }, { overflow = false; onInsertPage() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            DropdownMenuItem({ Text("Duplicate this page") }, { overflow = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                        }
-                        SubmenuItem("View", Icons.Rounded.FitScreen, sub == TopSub.VIEW, { sub = if (sub == TopSub.VIEW) null else TopSub.VIEW }) {
-                            DropdownMenuItem({ Text("Reset zoom · $zoomPercent%") }, { overflow = false; onFit() }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                            if (onFitAll != null) DropdownMenuItem({ Text("Fit all content") }, { overflow = false; onFitAll() })
-                        }
-                        SubmenuItem("Workspace", Icons.AutoMirrored.Rounded.ChromeReaderMode, sub == TopSub.WORKSPACE, { sub = if (sub == TopSub.WORKSPACE) null else TopSub.WORKSPACE }) {
-                            notebookActions { overflow = false }
-                        }
-                    }
-                    additionalMenus()
+                            if (overflow) FolioPopover({ overflow = false }, width = 320.dp) {
+                                val dismiss = { overflow = false }
+                                val run: (() -> Unit) -> Unit = { dismiss(); it() }
+                                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
+                                if (compact) timer()
+                                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                    PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onRename) }
+                                    PopoverTile(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                        "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
+                                    PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                                    PopoverGroup("Go to page · ${pageIndex + 1} of $pageCount") {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous", Modifier.weight(1f), enabled = pageIndex > 0) { run(onPrevious) }
+                                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next", Modifier.weight(1f), enabled = pageIndex < pageCount - 1) { run(onNext) }
+                                        }
+                                        PopoverRow(Icons.Rounded.FirstPage, "First page", enabled = pageIndex > 0) { run(onFirstPage) }
+                                        PopoverRow(Icons.AutoMirrored.Rounded.LastPage, "Last page", enabled = pageIndex < pageCount - 1) { run(onLastPage) }
+                                    }
+                                    HorizontalDivider()
+                                    PopoverGroup("Add page") {
+                                        PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
+                                        PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
+                                        PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
+                                    }
+                                    HorizontalDivider()
+                                    PopoverGroup("View") {
+                                        PopoverRow(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
+                                        if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
+                                    }
+                                    HorizontalDivider()
+                                    pageActions(dismiss)
+                                    HorizontalDivider()
+                                    PopoverGroup("Workspace") { notebookActions(dismiss) }
+                                    HorizontalDivider()
+                                    PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
+                                }
+                            }
                         }
                     }
                 }
@@ -260,4 +263,3 @@ internal val EditorFloatingGroupHeight = 46.dp
     )
 }
 
-private enum class TopSub { NOTEBOOK, PAGES, ADD, VIEW, WORKSPACE }

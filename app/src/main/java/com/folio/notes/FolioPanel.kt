@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 @Composable internal fun FolioPanel(
     title: String,
     onDismissRequest: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
     FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.graphicsLayer
                 Column {
                     Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                        actions()
                         IconButton(dismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close $title") }
                     }
                     Column(Modifier.weight(1f, fill = false), content = content)
