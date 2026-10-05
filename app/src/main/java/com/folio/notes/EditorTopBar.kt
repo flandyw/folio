@@ -175,6 +175,12 @@ internal val EditorFloatingGroupHeight = 46.dp
                 }
             }        }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f).clip(FolioShapes.small).clickable(role = Role.Button, onClickLabel = "Rename notebook", onClick = onRename)
+                    .padding(vertical = FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
+            }
             if (maxWidth < 720.dp) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
