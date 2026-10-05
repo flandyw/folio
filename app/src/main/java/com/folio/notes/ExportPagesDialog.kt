@@ -167,6 +167,7 @@ import androidx.compose.ui.unit.dp
                     val hold = rememberLongPressGuard()
                     Row(
                         Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null }
+                            .heightIn(min = 56.dp)
                             .toggleable(checked, role = Role.Checkbox, onValueChange = { on ->
                                 hold.click {
                                     selected = if (on) selected + index else selected - index
