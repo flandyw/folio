@@ -106,7 +106,7 @@ import androidx.compose.ui.unit.dp
             onDismissRequest = { renaming = null }, modifier = Modifier.guardUiTouches(),
             title = { Text("Rename layer") },
             text = { OutlinedTextField(name, { name = it.take(PageLayers.MAX_NAME) }, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("Layer name") }) },
-            confirmButton = { TextButton({ model.renameLayer(layer.id, name); renaming = null }) { Text("Rename") } },
+            confirmButton = { TextButton({ model.renameLayer(layer.id, name); renaming = null }, enabled = name.isNotBlank() && name.trim() != layer.name) { Text("Rename") } },
             dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } }
         )
     }
