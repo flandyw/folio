@@ -2903,6 +2903,7 @@ private enum class ToolSub { PRESETS, TOOL }
     var bold by rememberSaveable(box.id) { mutableStateOf(box.bold) }
     var italic by rememberSaveable(box.id) { mutableStateOf(box.italic) }
     var align by rememberSaveable(box.id) { mutableStateOf(box.align) }
+    var formattingExpanded by rememberSaveable(box.id) { mutableStateOf(false) }
     var underline by rememberSaveable(box.id) { mutableStateOf(box.underline) }
     fun edited() = box.copy(
         text = text.trimEnd(), size = size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
@@ -2938,6 +2939,11 @@ private enum class ToolSub { PRESETS, TOOL }
                         }
                     }))
                 LaunchedEffect(box.id) { textFocus.requestFocus() }
+                TextButton({ formattingExpanded = !formattingExpanded }) {
+                    Icon(Icons.Rounded.FormatSize, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text(if (formattingExpanded) "Hide formatting" else "Formatting · ${size.toInt()} pt")
+                }
+                if (formattingExpanded) {
                 // Live preview so size, width, fade and colour choices read before they land on the page.
                 if (text.isNotBlank()) {
                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -2982,11 +2988,12 @@ private enum class ToolSub { PRESETS, TOOL }
                     FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
                     FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
                 }
-                if (!isNew && canMove) OutlinedButton({ onMove(edited()) }, enabled = text.isNotBlank()) { Text("Move to page…") }
                 Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     colors.forEach { option -> InkColorDot(option, option == color, { color = option }, touch = 36.dp, dot = 24.dp, label = "Text colour") }
                 }
+                }
+                if (!isNew && canMove) OutlinedButton({ onMove(edited()) }, enabled = text.isNotBlank()) { Text("Move to page…") }
             }
         },
         dismissButton = {
