@@ -1346,14 +1346,17 @@ private fun paperLabel(p: Paper): String = when (p) {
                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                     noteId = note.id, thumbnails = model.thumbnails)
             }
-            item {
-                AddPageButton(
-                    label = "Add a blank page · ${paperLabel(nextPagePaper ?: note.defaultPaper ?: page.paper)}",
-                    onClick = { addPage(); pageBrowser = false },
-                    onLongClick = { pageBrowser = false; openPaperMenu(true) },
-                    modifier = Modifier.fillMaxWidth()
-                )
+        }
+        HorizontalDivider()
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            FilledTonalButton({ addPage(); pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page")
             }
+            OutlinedButton({ revealNewPage(model.insertPage(state.pageIndex + 1)); pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
+                Text("Insert after ${state.pageIndex + 1}")
+            }
+            TextButton({ pageBrowser = false; openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) { Text("Choose paper") }
         }
     }
     namedPage?.let { target ->
