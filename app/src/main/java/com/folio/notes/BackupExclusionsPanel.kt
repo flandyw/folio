@@ -1,6 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +25,7 @@ import androidx.compose.ui.unit.dp
     notes: List<Notebook>, excludedIds: Set<String>,
     onExcluded: (Set<String>, Boolean) -> Unit, onDismiss: () -> Unit
 ) {
+    val keyboard = LocalSoftwareKeyboardController.current
     var query by rememberSaveable { mutableStateOf("") }
     val visible = remember(notes, query) {
         notes.filter { it.title.contains(query.trim(), ignoreCase = true) }.sortedBy { it.title.lowercase() }
@@ -31,6 +36,8 @@ import androidx.compose.ui.unit.dp
             Text("Select notebooks to exclude from automatic and portable library backups. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
             Text("$count of ${notes.size} notebooks excluded. Older restore points may still contain excluded notebooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
             if (visible.isEmpty()) {
                 Text(if (notes.isEmpty()) "No notebooks yet." else "No notebooks match “${query.trim()}”.", Modifier.padding(vertical = FolioSpacing.dp12))
