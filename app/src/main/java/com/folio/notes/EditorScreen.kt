@@ -1361,7 +1361,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                             Box {
                                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
-                                PageRowMenu(item, menu, { menu = false }, index > 0, index < note.pages.lastIndex, note.pages.size > 1,
+                                PageRowMenu(item, menu, { menu = false },
+                                    canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                                     onName = { namedPage = item; pageTitle = item.title }, onBookmark = { model.togglePageBookmark(item.id) },
                                     onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
                                     onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
