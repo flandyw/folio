@@ -1456,7 +1456,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
                     shapes = ButtonDefaults.shapes()) { Text("Delete") }
-            }) { Text("This removes the page and its content. This cannot be undone.", style = MaterialTheme.typography.bodyMedium) }
+            }) { Text("This removes the page and its content. Use Undo to restore it during this session.", style = MaterialTheme.typography.bodyMedium) }
     }
     if (rename) FolioPopover("Rename notebook", Icons.Rounded.Edit, onDismiss = { rename = false }, actions = {
         TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
