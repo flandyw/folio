@@ -1226,6 +1226,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onAdd = ::addPage,
                             onSearch = { noteQuery = ""; noteSearchOpen = true },
                             onLayers = { layersPopover = true },
+                            paperTitle = paperLabel(page.paper),
+                            onPaper = if (page.pdfIndex == null) ({ openPaperMenu(false) }) else null,
                             bookmarked = page.bookmarked,
                             onBookmark = { model.togglePageBookmark(page.id) },
                             layersPopover = {

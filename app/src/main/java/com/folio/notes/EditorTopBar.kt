@@ -82,6 +82,8 @@ internal val EditorFloatingGroupHeight = 46.dp
     onLayers: () -> Unit,
     bookmarked: Boolean,
     onBookmark: () -> Unit,
+    paperTitle: String,
+    onPaper: (() -> Unit)?,
     layersPopover: @Composable () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
@@ -199,6 +201,9 @@ internal val EditorFloatingGroupHeight = 46.dp
                 IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
                 TextButton(onFit) { Text("$zoomPercent%") }
                 if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
+                if (onPaper != null) TextButton(onPaper) {
+                    Icon(Icons.Rounded.GridOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(paperTitle)
+                }
                 IconButton(onBookmark) {
                     Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                         if (bookmarked) "Remove page bookmark" else "Bookmark this page",
