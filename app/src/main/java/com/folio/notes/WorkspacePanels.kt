@@ -202,7 +202,7 @@ import androidx.compose.ui.unit.dp
                             colors = ListItemDefaults.colors(
                                 containerColor = if (badge == "In this pane") MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
                             ),
-                            modifier = Modifier.fillMaxWidth().clickable { pick(note) }
+                            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${note.title}") { pick(note) }
                         )
                     }
                 }
