@@ -410,6 +410,13 @@ import java.io.File
                             onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = true },
                             studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },
+                            onQuickCanvas = {
+                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false
+                                model.create("Canvas · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
+                                    AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
+                                    Paper.DOTS, infinite = true,
+                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
+                            },
                             onQuickNote = {
                                 workspaceLibraryPurpose = null; showStudy = false; showMistakes = false
                                 model.create("Quick note · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
