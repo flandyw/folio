@@ -88,6 +88,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     pageActions: @Composable (() -> Unit) -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
+    var addMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. Only the tool tray scrolls; the left and right pills
         // always remain on screen. The timer is measured at its natural width so a chip is never
@@ -106,7 +107,14 @@ internal val EditorFloatingGroupHeight = 46.dp
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                     DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
-                    DockButton(Icons.Rounded.AddBox, "Add page at end", onAdd)
+                    Box {
+                        DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
+                        DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
+                            DropdownMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                        }
+                    }
                     DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
                     Box {
                         DockButton(Icons.Rounded.Layers, "Layers", onLayers)
