@@ -209,7 +209,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
                     Spacer(Modifier.weight(1f))
                     Box {
-                        RailItem("Import", Icons.Rounded.FileOpen, false) { sidebarImportMenu = true }
+                        RailItem("Import PDF", Icons.Rounded.PictureAsPdf, false, onImport)
                         DropdownMenu(sidebarImportMenu, { sidebarImportMenu = false }, modifier = Modifier.guardUiTouches()) {
                             DropdownMenuItem({ Text("PDF document") }, { sidebarImportMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
                             DropdownMenuItem({ Text("Folio backup") }, { sidebarImportMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
@@ -255,13 +255,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                         DropdownMenuItem({ Text("New folder") }, { newButtonMenu = false; onFolder() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
                                     }
                                 }
-                                if (!wide) Box {
-                                    var importMenu by remember { mutableStateOf(false) }
-                                    IconButton({ importMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FileOpen, "Import PDF or Folio backup") }
-                                    DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                        DropdownMenuItem({ Text("PDF document") }, { importMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
-                                        DropdownMenuItem({ Text("Folio backup") }, { importMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
-                                    }
+                                if (!wide) IconButton(onImport, shapes = IconButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.PictureAsPdf, "Import PDF")
                                 }
                                 if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                             }
