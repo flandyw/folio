@@ -681,6 +681,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
             Key.Z -> { if (event.isShiftPressed) model.redo() else model.undo(); true }
             Key.Y -> { model.redo(); true }
+            Key.F -> { if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
+            Key.G -> { pageBrowser = true; pageJumpExpanded = true; true }
+            Key.Zero -> { resetZoom(); true }
             else -> false
         } else false
     }) {
@@ -2311,7 +2314,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             ToolbarSlot.SHAPES -> ShapesSlot()
             ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot), onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { pick(it) }
+            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
             ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
