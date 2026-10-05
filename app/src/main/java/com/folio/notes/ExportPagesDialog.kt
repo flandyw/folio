@@ -115,7 +115,8 @@ import androidx.compose.ui.unit.dp
                 shape = FolioShapes.large,
                 supportingText = {
                     rangeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        ?: Text("${selected.size} selected · ${formatExportSelection(selected.sorted())}")
+                        ?: Text(if (selected.isEmpty()) "Select at least one page to save or share."
+                            else "${selected.size} selected · ${formatExportSelection(selected.sorted())}")
                 },
                 trailingIcon = {
                     TextButton(
