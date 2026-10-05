@@ -98,7 +98,7 @@ private val RowPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical 
 @Composable private fun ResetButton(title: String, visible: Boolean, onReset: () -> Unit) {
     if (!visible) return
     val hold = rememberLongPressGuard()
-    IconButton(onClick = { hold.click(onReset)() }, modifier = Modifier.size(40.dp)) {
+    IconButton(onClick = { hold.click(onReset)() }, modifier = Modifier.size(48.dp)) {
         Icon(Icons.Rounded.RestartAlt, "Reset $title to default", Modifier.size(20.dp))
     }
 }
