@@ -29,7 +29,7 @@ import java.util.UUID
     Column {
         if (editable) OutlinedTextField(value, onChange, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             trailingIcon = { if (options.isNotEmpty()) TextButton({ expanded = true }) { Text("Choose") } })
-        else OutlinedButton({ expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("$label: $value") }
+        else OutlinedButton({ expanded = true }, enabled = options.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("$label: ${value.ifBlank { "Choose…" }}") }
         DropdownMenu(expanded, { expanded = false }, modifier = Modifier.heightIn(max = 320.dp)) {
             options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onChange(option); expanded = false }) }
         }
