@@ -2737,6 +2737,11 @@ private enum class ToolSub { PRESETS, TOOL }
                     content,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            IconButton(onRedoFlag, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
+                Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+                    if (page.redoFlag) "Remove practice flag" else "Flag page for practice",
+                    tint = if (page.redoFlag) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             IconButton(onBookmark, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                 if (page.bookmarked) "Remove bookmark" else "Bookmark page",
                 tint = if (page.bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
