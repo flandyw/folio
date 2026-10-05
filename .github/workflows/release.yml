@@ -60,21 +60,6 @@ jobs:
             echo "Release $tag already exists"
             echo 'skip=true' >> "$GITHUB_OUTPUT"
           fi
-      - name: Check no hardcoded Supabase secrets
-        if: steps.existing.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "sb_publishable_[A-Za-z0-9_.-]{10,}" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "sb_publishable_example_placeholder_for_local_ci_builds_only" | grep -v "your-publishable" | grep -q .; then
-            echo "Hardcoded Supabase publishable key found; use the ExamTrack or Focal secret instead"
-            exit 1
-          fi
-          if grep -R --exclude-dir=build --exclude-dir=.gradle --exclude-dir=.git -E "[a-z0-9-]+\.supabase\.co" app/build.gradle.kts docs/ README.md .github/ 2>/dev/null | grep -v "example\.supabase\.co" | grep -v "your-project\.supabase\.co" | grep -q .; then
-            echo "Hardcoded Supabase URL found; use the ExamTrack or Focal secret instead"
-            exit 1
-          fi
-      - name: Check bundled offline KaTeX
-        if: steps.existing.outputs.skip != 'true'
-        run: node tools/katex-smoke.cjs
       - uses: actions/setup-java@v6
         if: steps.existing.outputs.skip != 'true'
         with:

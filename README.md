@@ -7,7 +7,7 @@
 <p align="center">A quiet, local-first notebook for handwriting, sketches, maths, and PDFs.</p>
 
 <p align="center">
-  <a href="https://github.com/flandyw/folio/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/flandyw/folio/release.yml?branch=main&label=checks" alt="Android checks"></a>
+  <a href="https://github.com/flandyw/folio/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/flandyw/folio/release.yml?branch=main&label=release" alt="Android release"></a>
   <a href="https://github.com/flandyw/folio/releases/latest"><img src="https://img.shields.io/github/v/release/flandyw/folio?display_name=tag" alt="Latest release"></a>
   <a href="https://github.com/flandyw/folio/releases"><img src="https://img.shields.io/github/downloads/flandyw/folio/total" alt="GitHub downloads"></a>
   <a href="https://github.com/flandyw/folio"><img src="https://img.shields.io/github/stars/flandyw/folio" alt="GitHub stars"></a>
@@ -51,7 +51,8 @@ For repeated local builds, keep `app/build` and the Gradle caches: avoid `clean`
 unless diagnosing a build problem. On Windows, use
 `.\build.ps1 -Tasks ':app:assembleDebug'` for the same build without lint.
 
-Run the full CI checks with:
+CI builds and publishes signed R8 releases on pushes to `main` or manual dispatch.
+Run local build and lint checks with:
 
 ```sh
 ./gradlew :app:assembleDebug :app:lintDebug

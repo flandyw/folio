@@ -160,7 +160,7 @@ android {
         jniLibs.useLegacyPackaging = true
     }
     lint {
-        // Release lint-vital re-analyses the whole app on every build; CI runs :app:lintDebug instead.
+        // Release lint-vital re-analyses the whole app on every build; run :app:lintDebug locally.
         checkReleaseBuilds = false
         // targetSdk 35 is intentional (see comment above): no new runtime behavior is opted into yet.
         // Dependencies are pinned for Compose 1.8 / SDK 35 compatibility; TrustAllX509TrustManager
