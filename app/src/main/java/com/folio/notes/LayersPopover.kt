@@ -105,7 +105,7 @@ import androidx.compose.ui.unit.dp
         AlertDialog(
             onDismissRequest = { renaming = null }, modifier = Modifier.guardUiTouches(),
             title = { Text("Rename layer") },
-            text = { OutlinedTextField(name, { name = it.take(PageLayers.MAX_NAME) }, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("Layer name") }) },
+            text = { OutlinedTextField(name, { name = it.take(PageLayers.MAX_NAME) }, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("Layer name") }, supportingText = { Text("${name.length}/${PageLayers.MAX_NAME}") }) },
             confirmButton = { TextButton({ model.renameLayer(layer.id, name); renaming = null }, enabled = name.isNotBlank() && name.trim() != layer.name) { Text("Rename") } },
             dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } }
         )
