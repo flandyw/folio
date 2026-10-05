@@ -1186,7 +1186,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                     toolbarLayoutState = toolbarLayouts,
                     onInsertShape = { model.insertStamp(it, color = options.color, width = options.width, opacity = options.opacity) },
                     actions = listOf(
-                        ToolbarAction(Icons.Rounded.Image, "Insert image") { imagePicker.launch(arrayOf("image/*")) },
                         ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
                     ),
                     header = { mainTools ->
@@ -1226,6 +1225,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onAdd = ::addPage,
                             onSearch = { noteQuery = ""; noteSearchOpen = true },
                             onLayers = { layersPopover = true },
+                            onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                             paperTitle = paperLabel(page.paper),
                             onPaper = if (page.pdfIndex == null) ({ openPaperMenu(false) }) else null,
                             bookmarked = page.bookmarked,
