@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
                     ) {
                         Checkbox(excluded, onCheckedChange = null)
                         Column(Modifier.weight(1f)) {
-                            Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(note.title.ifBlank { "Untitled notebook" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(if (excluded) "Excluded from library backups" else "Included in library backups", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
