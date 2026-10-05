@@ -1264,6 +1264,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
         val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
         val canDrag = pageQuery.isBlank() && pageFilter == PageFilter.ALL
+        val browserPages = rememberLazyListState()
+        LaunchedEffect(pageQuery, pageFilter) {
+            val current = visiblePages.indexOfFirst { it.value.id == page.id }
+            browserPages.scrollToItem(current.coerceAtLeast(0))
+        }
+        fun goToPage() {
+            val target = pageNumber.toIntOrNull()?.takeIf { it in 1..note.pages.size } ?: return
+            jumpTo(target - 1); pageBrowser = false; pageNumber = ""
+        }
         OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
             shape = FolioShapes.large,
@@ -1279,9 +1288,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
                 shape = FolioShapes.large,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" }),
+                keyboardActions = KeyboardActions(onGo = { goToPage() }),
                 modifier = Modifier.weight(1f))
-            FilledTonalButton({ pageNumber.toIntOrNull()?.let { jumpTo(it - 1) }; pageBrowser = false; pageNumber = "" },
+            FilledTonalButton(::goToPage,
                 enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true,
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
@@ -1297,7 +1306,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 468.dp), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), state = browserPages, contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (visiblePages.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
