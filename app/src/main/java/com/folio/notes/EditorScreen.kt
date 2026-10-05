@@ -2921,7 +2921,11 @@ private enum class ToolSub { PRESETS, TOOL }
         title = { Text(if (isNew) "Add text" else "Edit text") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus),
+                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus).onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && event.isCtrlPressed && text.isNotBlank()) {
+                            val done = edited(); if (isNew) onCreate(done) else onUpdate(done); true
+                        } else false
+                    },
                     label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") },
                     shape = FolioShapes.large,
                     supportingText = {
@@ -2931,13 +2935,8 @@ private enum class ToolSub { PRESETS, TOOL }
                             style = MaterialTheme.typography.labelSmall
                         )
                     },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = {
-                        if (text.isNotBlank()) {
-                            val done = edited()
-                            if (isNew) onCreate(done) else onUpdate(done)
-                        }
-                    }))
+                    minLines = 3, maxLines = 8,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default))
                 LaunchedEffect(box.id) { textFocus.requestFocus() }
                 TextButton({ formattingExpanded = !formattingExpanded }) {
                     Icon(Icons.Rounded.FormatSize, null); Spacer(Modifier.width(FolioSpacing.dp8))
