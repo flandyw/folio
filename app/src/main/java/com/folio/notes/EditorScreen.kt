@@ -755,6 +755,21 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelectAll = ::selectAllInk
                 )
             }
+            val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
+                val live = page.images.find { it.id == picked.id }
+                if (live == null) null else { _ ->
+                    PictureContextMenu(
+                        cropped = live.isCropped(),
+                        onRotateLeft = { model.rotateImageCounterClockwise(live.id) },
+                        onRotateRight = { model.rotateImageClockwise(live.id) },
+                        onCrop = { croppingImage = live },
+                        onFullPhoto = { model.resetImageCrop(live.id) },
+                        onFront = { model.bringImageToFront(live.id) },
+                        onBack = { model.sendImageToBack(live.id) },
+                        onDelete = { model.removeImage(live.id); selectedImage = null; activeInkView?.clearImageSelection() }
+                    )
+                }
+            }
             if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
@@ -774,7 +789,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
-                    selectionMenu = if (selected.isNotEmpty() && !pages.isScrollInProgress && restyleSelection == null && !peekOpen) selectionMenu else null)
+                    selectionMenu = if (pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
             } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -930,7 +945,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                                 selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                                 selectionMenuViewport = selectionViewport,
-                                selectionMenu = if (item.id == page.id && selected.isNotEmpty() && !pages.isScrollInProgress && restyleSelection == null && !peekOpen) selectionMenu else null)
+                                selectionMenu = if (item.id != page.id || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
                             // Quiet caption keeps the eye oriented in long notebooks without chrome noise.
                             // Long-pressing it opens the page's own menu — name, bookmark, redo, move, delete.
                             Box {
@@ -1543,60 +1558,6 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         )
     }
-    selectedImage?.let { (ownerId, image) ->
-        val live = note.pages.find { it.id == ownerId }?.images?.find { it.id == image.id }
-        if (live != null && ownerId == page.id) {
-            FolioPanel(title = "Picture", onDismissRequest = { selectedImage = null }) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                    Text("Drag with the hand tool to move. Drag the blue dot to resize. Rotating turns the photo itself; cropping keeps only the selected part. Ink draws over the picture.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (live.isCropped() || live.normalizedRotation() != 0) {
-                        Text(
-                            buildString {
-                                if (live.normalizedRotation() != 0) append("Rotated ${live.normalizedRotation()}°")
-                                if (live.isCropped()) {
-                                    if (isNotEmpty()) append(" · ")
-                                    append("Cropped")
-                                }
-                            },
-                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                        OutlinedButton({ model.rotateImageCounterClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.AutoMirrored.Rounded.RotateLeft, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Left 90°")
-                        }
-                        OutlinedButton({ model.rotateImageClockwise(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.AutoMirrored.Rounded.RotateRight, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Right 90°")
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                        FilledTonalButton({ croppingImage = live }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Crop, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Crop")
-                        }
-                        if (live.isCropped()) {
-                            OutlinedButton({ model.resetImageCrop(live.id) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Full photo")
-                            }
-                        }
-                    }
-                    FilledTonalButton({ model.bringImageToFront(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FlipToFront, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Bring to front")
-                    }
-                    OutlinedButton({ model.sendImageToBack(live.id) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FlipToBack, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Send to back")
-                    }
-                    Button(
-                        { model.removeImage(live.id); selectedImage = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                        shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Remove picture")
-                    }
-                }
-            }
-        }
-    }
     croppingImage?.let { target ->
         val live = note.pages.find { it.id == page.id }?.images?.find { it.id == target.id } ?: target
         ImageCropDialog(
@@ -2094,7 +2055,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.canvasBackgroundColor = canvasBackground.toArgb()
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
-                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
+                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
                 view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion

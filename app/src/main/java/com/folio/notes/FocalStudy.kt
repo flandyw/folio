@@ -466,8 +466,8 @@ data class FocalStudyState(
     /** Transient in-app notice for a change received after the first remote load. */
     val remoteNotice: String? = null,
     val remoteNoticeId: Long = 0L,
-    val configured: Boolean = !BuildConfig.FOCAL_SUPABASE_URL.contains("example.supabase.co") &&
-        !BuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
+    val configured: Boolean = !FocalBuildConfig.FOCAL_SUPABASE_URL.contains("example.supabase.co") &&
+        !FocalBuildConfig.FOCAL_SUPABASE_PUBLISHABLE_KEY.contains("example_placeholder")
 ) {
     val visibleEntries get() = entries.filter { !it.deleted && (it.userId == null || it.userId == userId) }
     val visibleFocus get() = focus?.takeIf { current ->

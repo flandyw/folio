@@ -47,6 +47,10 @@ Requires JDK 17 and Android SDK 36.
 ./gradlew :app:assembleDebug
 ```
 
+For repeated local builds, keep `app/build` and the Gradle caches: avoid `clean`
+unless diagnosing a build problem. On Windows, use
+`.\build.ps1 -Tasks ':app:assembleDebug'` for the same build without lint.
+
 Run the full CI checks with:
 
 ```sh
@@ -58,3 +62,10 @@ then answer `y` to publish it. Each run gets a new version code even without a n
 commit (`commitCount × 10000 + localBuildNumber`) and a name such as `2.1.7-exp.2`.
 Stable Gradle/CI builds use `commitCount × 10000`; the next stable commit therefore
 supersedes the preceding experimental builds.
+
+Version numbers are supplied lazily to the APK outputs. Focal connection settings
+are generated separately from version metadata, so changing a commit or
+experimental build number can reuse Kotlin/Java compilation in both debug and
+release builds. Gradle's configuration and build caches remain enabled. To inspect
+local task timings, add `--profile` to either build command; reports are written to
+`build/reports/profile/`.

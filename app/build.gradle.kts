@@ -1,5 +1,9 @@
 import java.util.Properties
 import java.util.Base64
+import java.io.Serializable
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.DefaultTask
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
@@ -28,25 +32,86 @@ abstract class PrintReleaseVersionTask : DefaultTask() {
     }
 }
 
-// Stable builds own the start of each 10,000-code block. build.sh reserves
-// offsets 1..9999 for local experimental builds without requiring a new commit.
+// Connection settings are independent of APK versions. AGP's BuildConfig includes
+// VERSION_CODE/NAME, making every experimental reservation a Kotlin source change.
+@CacheableTask
+abstract class GenerateFocalConfigTask : DefaultTask() {
+    @get:Input abstract val url: Property<String>
+    @get:Input abstract val publishableKey: Property<String>
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val source = outputDirectory.file("com/folio/notes/FocalBuildConfig.java").get().asFile
+        source.parentFile.mkdirs()
+        source.writeText("""
+            package com.folio.notes;
+            public final class FocalBuildConfig {
+                private FocalBuildConfig() {}
+                public static final String FOCAL_SUPABASE_URL = ${url.get()};
+                public static final String FOCAL_SUPABASE_PUBLISHABLE_KEY = ${publishableKey.get()};
+            }
+        """.trimIndent() + "\n")
+    }
+}
+
+// Keep version providers lazy: a new reservation should update APK metadata,
+// without invalidating the configuration cache or generated connection settings.
+data class FolioVersion(val code: Int, val name: String) : Serializable
 val commitCount = providers.exec {
     commandLine("git", "-C", rootProject.projectDir.absolutePath, "rev-list", "--count", "HEAD")
-}.standardOutput.asText.map { it.trim().toInt() }.get()
+}.standardOutput.asText.map { it.trim().toInt() }
+val checkedCommitCount = commitCount.zip(
+    providers.gradleProperty("folioExperimentalCommitCount").orElse("")
+) { count, expected ->
+    require(expected.isEmpty() || expected.toIntOrNull() == count) {
+        "HEAD changed after reserving the experimental build; rerun build.sh"
+    }
+    count
+}
 val experimentalBuild = providers.gradleProperty("folioExperimentalBuild").map {
     it.toIntOrNull() ?: error("folioExperimentalBuild must be an integer")
-}.getOrElse(0)
-require(commitCount in 1..210_000 && experimentalBuild in 0..9999) { "Folio commit count or experimental build number is out of range" }
-providers.gradleProperty("folioExperimentalCommitCount").orNull?.let {
-    require(it.toIntOrNull() == commitCount) { "HEAD changed after reserving the experimental build; rerun build.sh" }
+}.orElse(0)
+val automaticVersion = checkedCommitCount.zip(experimentalBuild) { count, experimental ->
+    require(count in 1..210_000 && experimental in 0..9999) {
+        "Folio commit count or experimental build number is out of range"
+    }
+    val code = count.toLong() * 10_000 + experimental
+    require(code in 1..2_100_000_000L) { "Generated Android versionCode is out of range" }
+    val stableName = "${count / 100}.${(count / 10) % 10}.${count % 10}"
+    FolioVersion(code.toInt(), if (experimental == 0) stableName else "$stableName-exp.$experimental")
 }
-val generatedVersionCode = commitCount.toLong() * 10_000 + experimentalBuild
-require(generatedVersionCode in 1..2_100_000_000L) { "Generated Android versionCode is out of range" }
-val automaticVersionCode = generatedVersionCode.toInt()
-val stableVersionName = "${commitCount / 100}.${(commitCount / 10) % 10}.${commitCount % 10}"
-val automaticVersionName = if (experimentalBuild == 0) stableVersionName else "$stableVersionName-exp.$experimentalBuild"
-// Keep release tags aligned with the version shown in the app and release assets.
-val automaticReleaseTag = "v$automaticVersionName"
+
+val localConfig = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
+fun supabaseConfig(name: String, fallback: String): String {
+    // Treat blank env/property values (e.g. unset GitHub secrets on forks) as missing
+    // so local CI builds fall back to safe placeholders. Real values come from
+    // environment, -P gradle properties, or untracked local.properties, never source.
+    val value = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
+        ?: localConfig.getProperty(name)?.takeIf { it.isNotBlank() } ?: fallback
+    if (name.endsWith("KEY")) {
+        val anonJwt = runCatching {
+            val claims = String(Base64.getUrlDecoder().decode(value.split('.')[1]))
+            Regex("\"role\"\\s*:\\s*\"anon\"").containsMatchIn(claims)
+        }.getOrDefault(false)
+        require(value.startsWith("sb_publishable_") || anonJwt) { "$name requires a publishable or anon client key" }
+    } else require(value.startsWith("https://")) { "$name requires HTTPS" }
+    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+// Safe placeholders for local/CI builds without credentials. Production values are
+// injected via FOCAL_SUPABASE_URL / FOCAL_SUPABASE_PUBLISHABLE_KEY secrets
+// (see .github/workflows/*.yml and docs/focal.md). Mistake review and study sessions
+// share this one project since ExamTrack was merged into Focal. Never commit real keys here.
+tasks.register<GenerateFocalConfigTask>("generateFocalConfig") {
+    url.set(supabaseConfig("FOCAL_SUPABASE_URL", "https://example.supabase.co"))
+    publishableKey.set(supabaseConfig("FOCAL_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/source/focalConfig"))
+}
 
 android {
     namespace = "com.folio.notes"
@@ -56,33 +121,6 @@ android {
         applicationId = "com.folio.notes"
         minSdk = 26
         targetSdk = 35
-        versionCode = automaticVersionCode
-        versionName = automaticVersionName
-        fun supabaseConfig(name: String, fallback: String): String {
-            val local = Properties().apply {
-                rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
-            }
-            // Treat blank env/property values (e.g. unset GitHub secrets on forks) as missing
-            // so local CI builds fall back to safe placeholders. Real values come from
-            // environment, -P gradle properties, or untracked local.properties, never source.
-            val value = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
-                ?: providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
-                ?: local.getProperty(name)?.takeIf { it.isNotBlank() } ?: fallback
-            if (name.endsWith("KEY")) {
-                val anonJwt = runCatching {
-                    val claims = String(Base64.getUrlDecoder().decode(value.split('.')[1]))
-                    Regex("\"role\"\\s*:\\s*\"anon\"").containsMatchIn(claims)
-                }.getOrDefault(false)
-                require(value.startsWith("sb_publishable_") || anonJwt) { "$name requires a publishable or anon client key" }
-            } else require(value.startsWith("https://")) { "$name requires HTTPS" }
-            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-        }
-        // Safe placeholders for local/CI builds without credentials. Production values are
-        // injected via FOCAL_SUPABASE_URL / FOCAL_SUPABASE_PUBLISHABLE_KEY secrets
-        // (see .github/workflows/*.yml and docs/focal.md). Mistake review and study sessions
-        // share this one project since ExamTrack was merged into Focal. Never commit real keys here.
-        buildConfigField("String", "FOCAL_SUPABASE_URL", supabaseConfig("FOCAL_SUPABASE_URL", "https://example.supabase.co"))
-        buildConfigField("String", "FOCAL_SUPABASE_PUBLISHABLE_KEY", supabaseConfig("FOCAL_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example_placeholder_for_local_ci_builds_only"))
     }
     signingConfigs {
         create("release") {
@@ -103,12 +141,14 @@ android {
             isShrinkResources = false
         }
     }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true; buildConfig = false }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     lint {
+        // Release lint-vital re-analyses the whole app on every build; CI runs :app:lintDebug instead.
+        checkReleaseBuilds = false
         // targetSdk 35 is intentional (see comment above): no new runtime behavior is opted into yet.
         // Dependencies are pinned for Compose 1.8 / SDK 35 compatibility; TrustAllX509TrustManager
         // fires on a third-party TLS jar in the Gradle cache, not Folio code.
@@ -120,10 +160,23 @@ android {
     // compileOptions.targetCompatibility (Java 17, see above).
 }
 
+androidComponents {
+    onVariants { variant ->
+        variant.sources.java?.addGeneratedSourceDirectory(
+            tasks.named<GenerateFocalConfigTask>("generateFocalConfig"),
+            GenerateFocalConfigTask::outputDirectory
+        )
+        variant.outputs.forEach { output ->
+            output.versionCode.set(automaticVersion.map { it.code })
+            output.versionName.set(automaticVersion.map { it.name })
+        }
+    }
+}
+
 tasks.register<PrintReleaseVersionTask>("printReleaseVersion") {
-    versionCode.set(automaticVersionCode)
-    versionName.set(automaticVersionName)
-    releaseTag.set(automaticReleaseTag)
+    versionCode.set(automaticVersion.map { it.code })
+    versionName.set(automaticVersion.map { it.name })
+    releaseTag.set(automaticVersion.map { "v${it.name}" })
 }
 
 dependencies {
