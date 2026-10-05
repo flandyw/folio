@@ -1612,10 +1612,18 @@ private fun paperLabel(p: Paper): String = when (p) {
             debouncedQuery = noteQuery
         }
         var hits by remember { mutableStateOf<List<NotebookTextSearch.Hit>>(emptyList()) }
-        val pagesSnapshot = note.pages
-        LaunchedEffect(debouncedQuery, pagesSnapshot) {
-            hits = if (debouncedQuery.isBlank()) emptyList()
-            else withContext(Dispatchers.Default) { NotebookTextSearch.search(pagesSnapshot, debouncedQuery) }
+        val searchPages by produceState<List<NotePage>?>(null, note.id, note.pages, noteQuery.isNotBlank()) {
+            value = null
+            value = if (noteQuery.isBlank()) emptyList() else model.pagesForSearch(note.id)
+        }
+        var searchingText by remember { mutableStateOf(false) }
+        LaunchedEffect(debouncedQuery, searchPages) {
+            hits = emptyList()
+            val snapshot = searchPages ?: return@LaunchedEffect
+            if (debouncedQuery.isBlank()) return@LaunchedEffect
+            searchingText = true
+            try { hits = withContext(Dispatchers.Default) { NotebookTextSearch.search(snapshot, debouncedQuery) } }
+            finally { searchingText = false }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
@@ -1633,11 +1641,18 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             )
+            if (searchPages?.any { !it.loaded } == true) Text("Some pages could not be read. Results may be incomplete.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             if (noteQuery.isBlank()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                     Icon(Icons.Rounded.FindInPage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Searches every typed text box in this notebook. Handwriting is not searched.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (searchPages == null || noteQuery != debouncedQuery || searchingText) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching notebook text"))
+                    Text("Searching all pages…", style = MaterialTheme.typography.bodySmall)
                 }
             } else if (hits.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {

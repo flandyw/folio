@@ -2080,6 +2080,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * Every page of the open notebook with its text read in, for totalling marks. A page that cannot be
      * read stays unloaded so the caller can say the total is incomplete rather than quietly undercount.
      */
+    /** A stable notebook snapshot for search; failed pages remain summaries so the UI can report incomplete results. */
+    suspend fun pagesForSearch(notebookId: String): List<NotePage> {
+        val note = _state.value.notes.find { it.id == notebookId } ?: return emptyList()
+        return note.pages.map { summary ->
+            currentCoroutineContext().ensureActive()
+            if (summary.loaded) summary else try {
+                summary.withLoadedContent(repository.loadPage(note.id, summary))
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { summary }
+        }
+    }
+
     suspend fun pagesForMarking(): List<NotePage> {
         val note = _state.value.active ?: return emptyList()
         return note.pages.map { summary ->
