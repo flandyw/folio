@@ -11,6 +11,9 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -187,7 +190,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                     if (value.isBlank()) remove(key) else put(key, value.toDoubleOrNull() ?: value)
                 }.toString() }, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(4.dp))
         }
         FlowRow(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
@@ -227,7 +230,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 OutlinedTextField(total, { total = it }, Modifier.weight(1f), label = { Text("Total marks") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         }
         Button({
             val l = lost.toDoubleOrNull(); val t = total.toDoubleOrNull()
