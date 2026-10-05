@@ -386,7 +386,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var textEditorNew by rememberSaveable(note.id, page.id) { mutableStateOf(false) }
     // Notebook-wide typed-text search and reusable diagram elements.
     var noteSearchOpen by remember { mutableStateOf(false) }
-    var noteQuery by remember { mutableStateOf("") }
+    var noteQuery by rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
@@ -1237,7 +1237,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onAdd = ::addPage,
                             onSearch = {
                                 if (page.pdfIndex != null) { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true }
-                                else { noteQuery = ""; noteSearchOpen = true }
+                                else { noteSearchOpen = true }
                             },
                             onLayers = { layersPopover = true },
                             onContents = if (page.pdfIndex != null) ({ pdfContentsOpen = true; loadOutline() }) else null,
@@ -1262,7 +1262,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                     onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
-                                    onSearchNotes = { noteQuery = ""; noteSearchOpen = true },
+                                    onSearchNotes = { noteSearchOpen = true },
                                     onOrganize = { pageBrowser = true },
                                     onBookmark = { model.togglePageBookmark(page.id) },
                                     onNamePage = { namedPage = page; pageTitle = page.title })
