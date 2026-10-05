@@ -310,7 +310,8 @@ object InkRenderer {
     }
 
     fun page(canvas: Canvas, page: NotePage, background: Bitmap?, ink: Boolean = true, images: Map<String, Bitmap?>? = null) {
-        pageCached(canvas, page, background, ink, images, ::rawBounds, ::rendered)
+        // Hidden layers do not print, export or preview; the layer order is the draw order.
+        pageCached(canvas, PageLayers.view(page), background, ink, images, ::rawBounds, ::rendered)
     }
 
     /**
@@ -626,7 +627,8 @@ object InkRenderer {
      * with a transparent bitmap; drawing uses source-over blending so highlighter translucency
      * survives compositing over the original PDF in the viewer.
      */
-    fun overlay(canvas: Canvas, page: NotePage, images: Map<String, Bitmap?>? = null) {
+    fun overlay(canvas: Canvas, source: NotePage, images: Map<String, Bitmap?>? = null) {
+        val page = PageLayers.view(source)
         val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
         page.images.forEach { box ->
             if (!rectVisible(box.x, box.y, box.x + box.width, box.y + box.height, clip)) return@forEach
@@ -723,8 +725,9 @@ object InkRenderer {
     }
 
     /** A finite, translated copy for previews and exports; stored coordinates stay untouched. */
-    fun exportPage(page: NotePage): NotePage {
-        if (!page.infinite) return page
+    fun exportPage(source: NotePage): NotePage {
+        val page = PageLayers.view(source)
+        if (!page.infinite) return source
         var left = 0f; var top = 0f; var right = page.width; var bottom = page.height
         page.strokes.forEach { stroke ->
             val pad = stroke.width * 2f + 24f

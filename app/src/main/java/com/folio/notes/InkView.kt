@@ -44,6 +44,10 @@ class InkView(context: Context) : View(context) {
     var inkWidth = 3f
     var fingerDrawing = true
     var inkOpacity = 1f
+    /** The layer new ink, text and pictures land on; the page's [NotePage.layers] says what it is. */
+    var activeLayer = 0
+    /** Told when a stroke is refused because the active layer is hidden or locked. */
+    var onLayerBlocked: () -> Unit = {}
     /** Line pattern for new shape strokes; freehand ink always draws solid. */
     var inkStyle: StrokeStyle = StrokeStyle.SOLID
     var pressureEnabled = true
@@ -727,6 +731,14 @@ class InkView(context: Context) : View(context) {
     private var restCacheKeyImages: List<PageImage>? = null
     private var restCache: NotePage? = null
 
+    /** What is drawn: the page minus hidden layers, in layer order. Memoized so retained rasters keep hitting. */
+    private var layerViewSource: NotePage? = null
+    private var layerViewValue: NotePage? = null
+    private fun layerView(): NotePage {
+        if (layerViewSource !== page) { layerViewValue = PageLayers.view(page); layerViewSource = page }
+        return layerViewValue!!
+    }
+
     private fun drawCommittedPage(canvas: Canvas, content: NotePage) {
         val preview = zoomRenderState.usePreview(scale, navigating || lineAdvance != null,
             SystemClock.uptimeMillis())
@@ -763,7 +775,7 @@ class InkView(context: Context) : View(context) {
 
     /** Starts a finite page's ink raster as soon as the view has a size, ahead of the first frame that needs it. */
     private fun prewarmInk() {
-        val content = page
+        val content = layerView()
         if (content.infinite || width <= 0 || height <= 0) return
         updateStableInkBounds(content)
         committedInk.prewarm(content.strokes, stableInkBounds, scale)
@@ -803,7 +815,8 @@ class InkView(context: Context) : View(context) {
         canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale)
         if (!page.infinite) canvas.drawRect(-1f, -1f, page.width + 2f, page.height + 3f, shadowPaint)
         if (!page.infinite) canvas.clipRect(0f, 0f, page.width, page.height)
-        val visible = if (erasing != null) page.copy(strokes = erasing!!) else page
+        val shown = layerView()
+        val visible = if (erasing != null) shown.copy(strokes = PageLayers.viewStrokes(erasing!!, page.layers)) else shown
         // A text box follows the finger while it is dragged, before the move is committed.
         val dragging = movingText
         val laid = if (dragging == null) visible else visible.copy(texts = visible.texts.map { if (it.id == dragging.id) it.moved(textDx, textDy) else it })
@@ -1193,6 +1206,7 @@ class InkView(context: Context) : View(context) {
                             var removedAt = -1
                             for (i in cutting.indices) {
                                 val hitStroke = cutting[i]
+                                if (!erasable(hitStroke)) continue
                                 val b = boundsOf(hitStroke)
                                 val reach = maxR + hitStroke.width / 2f
                                 if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
@@ -1205,6 +1219,7 @@ class InkView(context: Context) : View(context) {
                             }
                             if (removedAt < 0) cutting
                             else cutting.filterNot { hitStroke ->
+                                if (!erasable(hitStroke)) return@filterNot false
                                 val b = boundsOf(hitStroke)
                                 val reach = maxR + hitStroke.width / 2f
                                 if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
@@ -1344,7 +1359,10 @@ class InkView(context: Context) : View(context) {
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
         val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
-        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })?.let { page.strokes + it } ?: erasing
+        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
+            // Shapes tidied or generated from the drag are new strokes; they join the layer being drawn on.
+            ?.map { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
+            ?.let { page.strokes + it } ?: erasing
         // Shape tidy can straighten an "l" or a crossbar. Short pen lines still carry
         // writing progress; larger underlines are rejected by the follow geometry rules.
         val followableTidy = tidied == null || tidied.singleOrNull()?.tool == Tool.LINE
@@ -1499,9 +1517,12 @@ class InkView(context: Context) : View(context) {
         } else pendingTextBox?.let(onTextCreate)
         pendingTextBox = null; textDx = 0f; textDy = 0f
     }
+    /** Hidden and locked layers cannot be drawn on, erased, selected or moved. */
+    private fun editableLayer(layer: Int) = PageLayers.editable(page.layers, layer)
+    private fun erasable(stroke: Stroke) = editableLayer(stroke.layer)
     /** The box under [at], searching back so the box drawn on top is the one picked up. */
     private fun boxAt(at: InkPoint): TextBox? = page.texts.lastOrNull {
-        at.x >= it.x && at.x <= it.x + it.width && at.y >= it.y && at.y <= it.y + InkRenderer.textHeight(it)
+        editableLayer(it.layer) && at.x >= it.x && at.x <= it.x + it.width && at.y >= it.y && at.y <= it.y + InkRenderer.textHeight(it)
     }
 
     /**
@@ -1519,7 +1540,7 @@ class InkView(context: Context) : View(context) {
             imageFromX = at.x; imageFromY = at.y
             return true
         }
-        val hit = InkGeometry.imageAt(page.images, at) ?: return false
+        val hit = InkGeometry.imageAt(page.images.filter { editableLayer(it.layer) }, at) ?: return false
         movingImage = hit; imageMoved = false
         // A new picture is selected on press so its outline is visible while it is dragged.
         if (selectedImageId != hit.id) {
@@ -1594,6 +1615,7 @@ class InkView(context: Context) : View(context) {
                 result?.add(stroke)
                 continue
             }
+            if (!erasable(stroke)) { result?.add(stroke); continue }
             val out = erase(stroke)
             if (result == null && out.size == 1 && out[0] === stroke) continue
             if (result == null) {
@@ -1660,9 +1682,9 @@ class InkView(context: Context) : View(context) {
             setSelection(if (loop.size >= 3) {
                 val loopBounds = InkGeometry.lassoBounds(loop)
                 CanvasSelection(
-                    strokes = page.strokes.filter { InkGeometry.lassoSelects(loop, loopBounds, it) },
-                    texts = page.texts.filter { InkGeometry.lassoSelectsText(loop, loopBounds, it, InkRenderer.textHeight(it)) },
-                    images = page.images.filter { InkGeometry.lassoSelectsImage(loop, loopBounds, it) }
+                    strokes = page.strokes.filter { editableLayer(it.layer) && InkGeometry.lassoSelects(loop, loopBounds, it) },
+                    texts = page.texts.filter { editableLayer(it.layer) && InkGeometry.lassoSelectsText(loop, loopBounds, it, InkRenderer.textHeight(it)) },
+                    images = page.images.filter { editableLayer(it.layer) && InkGeometry.lassoSelectsImage(loop, loopBounds, it) }
                 )
             } else CanvasSelection())
         }
@@ -1883,7 +1905,9 @@ class InkView(context: Context) : View(context) {
     fun selectAll() {
         if (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty()) return
         tool = Tool.LASSO
-        setSelection(CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList()))
+        setSelection(CanvasSelection(
+            page.strokes.filter { editableLayer(it.layer) }, page.texts.filter { editableLayer(it.layer) },
+            page.images.filter { editableLayer(it.layer) }))
     }
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
@@ -1900,6 +1924,7 @@ class InkView(context: Context) : View(context) {
             val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(start.pressure) else inkWidth / 2f
             erasing = if (eraserWholeStroke) {
                 val hitAt = page.strokes.indexOfFirst {
+                    if (!erasable(it)) return@indexOfFirst false
                     val b = boundsOf(it)
                     val reach = radius + it.width / 2f
                     if (start.x < b[0] - reach || start.x > b[2] + reach ||
@@ -1908,6 +1933,7 @@ class InkView(context: Context) : View(context) {
                 }
                 if (hitAt < 0) page.strokes
                 else page.strokes.filterNot {
+                    if (!erasable(it)) return@filterNot false
                     val b = boundsOf(it)
                     val reach = radius + it.width / 2f
                     if (start.x < b[0] - reach || start.x > b[2] + reach ||
@@ -1920,8 +1946,9 @@ class InkView(context: Context) : View(context) {
             eraserMark = start
             onPenInput(false)
         } else {
+            if (!PageLayers.editable(page.layers, activeLayer)) { ignored = true; onLayerBlocked(); return }
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
-                style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID)
+                style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID, layer = activeLayer)
             onPenInput(true)
         }
     }

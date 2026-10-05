@@ -16,6 +16,7 @@ object InkCodec {
     fun encodeStroke(s: Stroke): JSONObject = JSONObject().apply {
         put("opacity", s.opacity); put("tool", s.tool.name); put("color", s.color); put("width", s.width)
         if (s.style != StrokeStyle.SOLID) put("style", s.style.name)
+        if (s.layer != 0) put("layer", s.layer)
         // No intermediate List per point: a dense page holds hundreds of thousands of
         // samples, and listOf() per sample was pure GC pressure on every save/compact.
         put("points", JSONArray().apply { s.points.forEach { p ->
@@ -42,7 +43,8 @@ object InkCodec {
                 }
             },
             s.optDouble("opacity", if (toolName == "HIGHLIGHTER") 72.0 / 255.0 else 1.0).toFloat(),
-            if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")))
+            if (s.isNull("style")) StrokeStyle.SOLID else StrokeStyle.safeValueOf(s.optString("style", "SOLID")),
+            s.optInt("layer", 0))
     }
 
     fun encodeTexts(texts: List<TextBox>): JSONArray = JSONArray().apply {
@@ -52,6 +54,7 @@ object InkCodec {
             if (t.align != TextAlignMode.LEFT) put("align", t.align.name)
             if (t.underline) put("underline", true)
             if (t.opacity != TextBox.DEFAULT_OPACITY) put("opacity", t.opacity.toDouble())
+            if (t.layer != 0) put("layer", t.layer)
         }) }
     }
 
@@ -65,7 +68,8 @@ object InkCodec {
                 if (t.isNull("align")) TextAlignMode.LEFT else TextAlignMode.safeValueOf(t.optString("align", "LEFT")),
                 t.optBoolean("underline", false),
                 t.optDouble("opacity", TextBox.DEFAULT_OPACITY.toDouble()).toFloat()
-                    .coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
+                    .coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
+                t.optInt("layer", 0))
         }
     }
 
@@ -74,6 +78,7 @@ object InkCodec {
             put("id", image.id); put("x", image.x); put("y", image.y)
             put("w", image.width); put("h", image.height)
             if (image.normalizedRotation() != 0) put("rotation", image.normalizedRotation())
+            if (image.layer != 0) put("layer", image.layer)
             if (image.isCropped()) {
                 put("cropLeft", image.cropLeft.toDouble())
                 put("cropTop", image.cropTop.toDouble())
@@ -97,8 +102,25 @@ object InkCodec {
             else floatArrayOf(0f, 0f, 1f, 1f)
             PageImage(o.getString("id"), o.getDouble("x").toFloat(), o.getDouble("y").toFloat(),
                 o.getDouble("w").toFloat(), o.getDouble("h").toFloat(),
-                rotation, crop[0], crop[1], crop[2], crop[3])
+                rotation, crop[0], crop[1], crop[2], crop[3], o.optInt("layer", 0))
         }
+    }
+
+    fun encodeLayers(layers: List<PageLayer>): JSONArray = JSONArray().apply {
+        layers.forEach { l -> put(JSONObject().apply {
+            put("id", l.id); put("name", l.name)
+            if (!l.visible) put("hidden", true)
+            if (l.locked) put("locked", true)
+        }) }
+    }
+
+    fun decodeLayers(array: JSONArray?): List<PageLayer> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val o = array.optJSONObject(index) ?: return@mapNotNull null
+            PageLayer(o.optInt("id", index), o.optString("name", "Layer ${index + 1}"),
+                visible = !o.optBoolean("hidden", false), locked = o.optBoolean("locked", false))
+        }.distinctBy { it.id }
     }
 }
 
@@ -215,6 +237,7 @@ object NotePageCodec {
         put("strokes", InkCodec.encodeStrokes(page.strokes))
         put("texts", InkCodec.encodeTexts(page.texts))
         put("images", InkCodec.encodeImages(page.images))
+        if (page.layers.isNotEmpty()) put("layers", InkCodec.encodeLayers(page.layers))
         if (journalSeq > 0) put("journalSeq", journalSeq)
         if (page.revision > 0) put("revision", page.revision)
         history?.let { if (it.undo.isNotEmpty() || it.redo.isNotEmpty()) put("history", historyOf(it)) }
@@ -236,6 +259,7 @@ object NotePageCodec {
             strokes = InkCodec.decodeStrokes(o.optJSONArray("strokes")),
             texts = InkCodec.decodeTexts(o.optJSONArray("texts")),
             images = InkCodec.decodeImages(o.optJSONArray("images")),
+            layers = InkCodec.decodeLayers(o.optJSONArray("layers")),
             loaded = true
         )
     }

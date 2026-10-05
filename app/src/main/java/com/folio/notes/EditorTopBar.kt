@@ -78,6 +78,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     onFitAll: (() -> Unit)? = null,
     onAdd: () -> Unit,
     onSearch: () -> Unit,
+    onLayers: () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
@@ -94,19 +95,24 @@ internal val EditorFloatingGroupHeight = 46.dp
         MeasureNaturalWidth(timerWidth) { timer() }
         val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
         val compact = maxWidth - 760.dp < timerNeed
+        // Both side pills take the wider side's width so the tools and the ink bar below them
+        // share the screen's centre line.
+        val leftNatural = 40.dp * 5 + FolioSpacing.dp8
+        val rightNatural = 40.dp * 2 + FolioSpacing.dp8 + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
+        val sideWidth = maxOf(leftNatural, rightNatural)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            EditorGlassSurface {
+            Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                     DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     DockButton(Icons.Rounded.AddBox, "Add page at end", onAdd)
                     DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
-                    DockButton(Icons.Rounded.Layers, "Page options", onPageOptions)
+                    DockButton(Icons.Rounded.Layers, "Layers", onLayers)
                 }
-            }
+            } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-            Row(verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.width(sideWidth), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.End)) {
                 if (!compact) EditorGlassSurface {
                     Row(Modifier.padding(horizontal = FolioSpacing.dp6),

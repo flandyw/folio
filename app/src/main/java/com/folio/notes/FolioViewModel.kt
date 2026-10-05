@@ -77,6 +77,8 @@ data class FolioState(
     val backupProgress: String? = null,
     val backupExcludedNotebookIds: Set<String> = emptySet(),
     val canUndo: Boolean = false, val canRedo: Boolean = false,
+    /** The layer new items land on, per page id; a page with no entry uses its top editable layer. */
+    val activeLayers: Map<String, Int> = emptyMap(),
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
     val timer: ExamTimerState = ExamTimerState(),
     /** Simple count-up stopwatch for the open notebook, driven by [FolioViewModel.tickStopwatch]. */
@@ -165,6 +167,26 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * hands it straight back — and a live mutable stack must never be read from off-thread.
      */
     private val publishedHistory = java.util.concurrent.ConcurrentHashMap<String, PageJournal.History>()
+
+    /**
+     * Notebook-level undo for what a page's ink stacks cannot hold: adding, inserting, duplicating,
+     * deleting and moving pages, and a page's paper, title, bookmark and redo flag. Steps live in
+     * memory for the session (a page the step removes is held whole until it falls off the stack) and
+     * carry a sequence number shared with the ink stacks, so Undo always takes back whichever came
+     * last — a page added after some writing is undone before that writing.
+     */
+    private class StructureStep(val noteId: String, var seq: Long, val undo: () -> Unit, val redo: () -> Unit)
+    private val structureUndo = ArrayList<StructureStep>()
+    private val structureRedo = ArrayList<StructureStep>()
+    private var actionCounter = 0L
+    private val inkSeq = HashMap<String, Long>()
+    private val inkRedoSeq = HashMap<String, Long>()
+    private fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit) {
+        structureUndo.add(StructureStep(noteId, ++actionCounter, undo, redo))
+        while (structureUndo.size > MAX_STRUCTURE_UNDO) structureUndo.removeAt(0)
+        structureRedo.removeAll { it.noteId == noteId }
+        historyState()
+    }
     private var ready = CompletableDeferred<Unit>()
     /** Offsets each paste a little further, so repeated pastes stack instead of hiding each other. */
     private var pasteGeneration = 0
@@ -1258,6 +1280,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val chosen = paper ?: note.defaultPaper ?: _state.value.page?.paper ?: Paper.MATH_GRID
         val page = NotePage(paper = chosen, infinite = _state.value.page?.infinite == true)
         updateNote(note.copy(pages = note.pages + page).linkResponsePage(page.id, _state.value.page?.id)); selectPage(note.pages.size)
+        recordPageInserted(note.id, page.id)
     }
     /**
      * Copies a page, reading its ink from disk first when only its summary is in memory. A copy of a
@@ -1279,6 +1302,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 _state.update { s -> s.copy(notes = s.notes.map { if (it.id == current.id) duplicated else it }, pageIndex = at + 1) }
                 captureTab()
                 enqueue { repository.savePage(duplicated, duplicated.pages[at + 1]) }
+                recordPageInserted(duplicated.id, duplicated.pages[at + 1].id)
             } catch (e: Exception) { reportError("Couldn't duplicate this page: ${e.message.orEmpty()}") }
         }
         return null
@@ -1290,6 +1314,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         captureTab()
         // The copy is a page of its own, so its content has to reach disk along with the index.
         enqueue { repository.savePage(duplicated, duplicated.pages[at]) }
+        recordPageInserted(duplicated.id, duplicated.pages[at].id)
         return at
     }
     /** Inserts a blank page at [index] and opens it, returning where it landed. */
@@ -1303,39 +1328,124 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNote(updated)
         _state.update { it.copy(pageIndex = at) }
         captureTab()
+        recordPageInserted(note.id, page.id)
         return at
     }
     /** Removes a page, keeping the open page in view and leaving at least one page behind. */
     fun deletePage(index: Int) {
+        val note = _state.value.active ?: return
+        val page = note.pages.getOrNull(index) ?: return
+        if (page.loaded) { deleteLoadedPage(note.id, page.id); return }
+        // An undoable delete has to hold the page's content, so a page still on disk is read first.
+        viewModelScope.launch {
+            awaitLoaded(page.id) ?: run { reportError("Couldn't load the page to delete it."); return@launch }
+            deleteLoadedPage(note.id, page.id)
+        }
+    }
+    private fun deleteLoadedPage(noteId: String, pageId: String) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val index = note.pages.indexOfFirst { it.id == pageId }
+        val removed = note.pages.getOrNull(index)?.takeIf { it.loaded } ?: return
+        val history = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
+        val wasOnly = note.pages.size == 1
+        removePageRaw(noteId, pageId)
+        // Deleting the only page leaves a blank one behind; undoing the delete takes that filler away again.
+        val filler = if (wasOnly) _state.value.notes.find { it.id == noteId }?.pages?.singleOrNull()?.id else null
+        recordStructure(noteId,
+            undo = {
+                insertPageRaw(noteId, index, removed, history, select = true)
+                filler?.let { removePageRaw(noteId, it) }
+            },
+            redo = { removePageRaw(noteId, pageId) })
+    }
+    /** Takes a page out of its notebook and off disk, returning it with its undo stacks for a later restore. */
+    private fun removePageRaw(noteId: String, pageId: String): Pair<NotePage, PageJournal.History>? {
         val state = _state.value
-        val note = state.active ?: return
-        if (index !in note.pages.indices) return
-        val removed = note.pages[index]
+        val note = state.notes.find { it.id == noteId } ?: return null
+        val index = note.pages.indexOfFirst { it.id == pageId }
+        val removed = note.pages.getOrNull(index) ?: return null
+        val history = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
         val updated = note.withDeletedPage(index)
         updateNote(updated)
-        undo.remove(removed.id); redo.remove(removed.id); publishedHistory.remove(removed.id)
-        enqueue { repository.deletePage(note.id, removed.id) }
-        val current = if (index < state.pageIndex) state.pageIndex - 1 else state.pageIndex
-        _state.update { it.copy(pageIndex = current.coerceIn(0, updated.pages.lastIndex)) }
-        captureTab()
+        undo.remove(pageId); redo.remove(pageId); publishedHistory.remove(pageId); inkSeq.remove(pageId); inkRedoSeq.remove(pageId)
+        enqueue { repository.deletePage(noteId, pageId) }
+        if (state.activeId == noteId) {
+            val current = if (index < state.pageIndex) state.pageIndex - 1 else state.pageIndex
+            _state.update { it.copy(pageIndex = current.coerceIn(0, updated.pages.lastIndex)) }
+            captureTab()
+        }
         historyState()
+        return removed to history
+    }
+    /** Puts a whole page back at [index] with its undo stacks and writes it out again. */
+    private fun insertPageRaw(noteId: String, index: Int, page: NotePage, history: PageJournal.History?, select: Boolean) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val at = index.coerceIn(0, note.pages.size)
+        val updated = note.withInsertedPage(at, page).copy(updated = System.currentTimeMillis())
+        history?.let {
+            undo[page.id] = it.undo.toMutableList(); redo[page.id] = it.redo.toMutableList()
+            publishedHistory[page.id] = it
+        }
+        _state.update { state ->
+            val moved = state.copy(notes = state.notes.map { if (it.id == noteId) updated else it })
+            if (state.activeId != noteId) moved
+            else moved.copy(pageIndex = if (select) at else if (at <= state.pageIndex) state.pageIndex + 1 else state.pageIndex)
+        }
+        captureTab()
+        enqueue { repository.savePage(updated, page, history ?: PageJournal.History.EMPTY) }
+        historyState()
+    }
+    /** Undo of a page that was just created removes it again, and redo brings back whatever it then held. */
+    private fun recordPageInserted(noteId: String, pageId: String) {
+        var held: Pair<NotePage, PageJournal.History>? = null
+        var heldAt = 0
+        recordStructure(noteId,
+            undo = {
+                heldAt = _state.value.notes.find { it.id == noteId }?.pages?.indexOfFirst { it.id == pageId } ?: 0
+                held = removePageRaw(noteId, pageId)
+            },
+            redo = { held?.let { (page, history) -> insertPageRaw(noteId, heldAt, page, history, select = true) } })
     }
     /** Reorders a page, keeping the page you were reading on screen. */
     fun movePage(from: Int, to: Int) {
+        val note = _state.value.active ?: return
+        val target = to.coerceIn(0, note.pages.lastIndex)
+        if (from !in note.pages.indices || from == target) return
+        movePageRaw(note.id, from, target)
+        recordStructure(note.id, undo = { movePageRaw(note.id, target, from) }, redo = { movePageRaw(note.id, from, target) })
+    }
+    private fun movePageRaw(noteId: String, from: Int, to: Int) {
         val state = _state.value
-        val note = state.active ?: return
+        val note = state.notes.find { it.id == noteId } ?: return
         val updated = note.withMovedPage(from, to)
         if (updated == note) return
         updateNote(updated)
-        _state.update { it.copy(pageIndex = movedPageIndex(state.pageIndex, from, to.coerceIn(0, note.pages.lastIndex))) }
-        captureTab()
+        if (state.activeId == noteId) {
+            _state.update { it.copy(pageIndex = movedPageIndex(state.pageIndex, from, to.coerceIn(0, note.pages.lastIndex))) }
+            captureTab()
+        }
         historyState()
+    }
+    /** A page's own settings, as undone and redone as a unit. */
+    private data class PageMeta(val paper: Paper, val redoFlag: Boolean, val title: String, val bookmarked: Boolean)
+    private fun NotePage.meta() = PageMeta(paper, redoFlag, title, bookmarked)
+    private fun applyPageMeta(noteId: String, pageId: String, meta: PageMeta) {
+        val note = _state.value.notes.find { it.id == noteId } ?: return
+        val page = note.pages.find { it.id == pageId } ?: return
+        updateNote(note.withPage(page.copy(paper = meta.paper, redoFlag = meta.redoFlag, title = meta.title, bookmarked = meta.bookmarked).revised()))
+    }
+    private fun recordPageMeta(noteId: String, before: NotePage, after: NotePage) {
+        val was = before.meta(); val now = after.meta()
+        if (was == now) return
+        recordStructure(noteId, undo = { applyPageMeta(noteId, before.id, was) }, redo = { applyPageMeta(noteId, before.id, now) })
     }
     /** Organisation lives in the index, so even an unloaded page can be named or bookmarked. */
     fun renamePage(pageId: String, title: String) {
         val note = _state.value.active ?: return
         val page = note.pages.find { it.id == pageId } ?: return
-        updateNote(note.withPage(page.copy(title = title.trim().take(120))))
+        val renamed = page.copy(title = title.trim().take(120))
+        updateNote(note.withPage(renamed))
+        recordPageMeta(note.id, page, renamed)
     }
 
     /** Pins (or with null, removes) the notebook's peek view; a view of a page it lacks is ignored. */
@@ -1350,7 +1460,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun togglePageBookmark(pageId: String) {
         val note = _state.value.active ?: return
         val page = note.pages.find { it.id == pageId } ?: return
-        updateNote(note.withPage(page.copy(bookmarked = !page.bookmarked)))
+        val toggled = page.copy(bookmarked = !page.bookmarked)
+        updateNote(note.withPage(toggled))
+        recordPageMeta(note.id, page, toggled)
     }
 
     /** Bookmarks or unbookmarks a page in any notebook — the review lists span the library. */
@@ -1405,8 +1517,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
         if (forward == null) {
             enqueue { beforeSave(); repository.saveMeta(updated) }
+            recordPageMeta(note.id, before, after)
             return
         }
+        inkSeq[after.id] = ++actionCounter
+        structureRedo.removeAll { it.noteId == note.id }
         val inverse = knownEdits?.second ?: PageJournal.invert(forward, beforeContent)
         undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
         redo.remove(after.id)
@@ -1462,7 +1577,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (!page.loaded || page.texts === texts || page.texts == texts) return
         replacePage(page.copy(texts = texts))
     }
-    fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box) }
+    fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box.copy(layer = activeLayerOf(page))) }
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
     fun removeText(id: String) { val page = _state.value.page ?: return; texts(page.id, page.texts.filterNot { it.id == id }) }
     /** Duplicates one typed box nudged along so the copy never hides under its source. */
@@ -1472,6 +1587,59 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val copy = source.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f)
         texts(page.id, page.texts + copy)
     }
+    // ---- Layers ---------------------------------------------------------------------------
+
+    /** The layer new items go to on [page]: the one chosen, or the top editable layer if it is gone. */
+    fun activeLayerOf(page: NotePage): Int {
+        val chosen = _state.value.activeLayers[page.id]
+        return chosen?.takeIf { id -> PageLayers.effective(page.layers).any { it.id == id } } ?: PageLayers.initialActive(page.layers)
+    }
+    fun setActiveLayer(pageId: String, layer: Int) {
+        _state.update { it.copy(activeLayers = it.activeLayers + (pageId to layer)) }
+    }
+    /** Applies one layer change as a single undoable step; [change] returns the page's new content. */
+    private fun editLayers(change: (PageContent) -> PageContent) {
+        val page = _state.value.page ?: return
+        if (!page.loaded) return
+        val before = page.content()
+        val after = change(before)
+        if (after == before) return
+        replacePage(page.copy(strokes = after.strokes, texts = after.texts, images = after.images, layers = after.layers))
+    }
+    fun addLayer() {
+        val page = _state.value.page ?: return
+        val grown = PageLayers.add(page.layers)
+        if (grown === page.layers || grown == page.layers) return
+        editLayers { it.copy(layers = grown) }
+        setActiveLayer(page.id, grown.last().id)
+    }
+    fun renameLayer(id: Int, name: String) = editLayers { it.copy(layers = PageLayers.rename(it.layers, id, name)) }
+    fun setLayerVisible(id: Int, visible: Boolean) = editLayers { it.copy(layers = PageLayers.update(it.layers, id) { l -> l.copy(visible = visible) }) }
+    fun setLayerLocked(id: Int, locked: Boolean) = editLayers { it.copy(layers = PageLayers.update(it.layers, id) { l -> l.copy(locked = locked) }) }
+    fun moveLayer(id: Int, up: Boolean) = editLayers { it.copy(layers = PageLayers.move(it.layers, id, up)) }
+    /** Removes a layer; what was on it joins the layer beneath (or above, for the lowest) rather than being lost. */
+    fun deleteLayer(id: Int) {
+        val page = _state.value.page ?: return
+        val target = PageLayers.mergeTarget(page.layers, id) ?: return
+        editLayers { content ->
+            val moved = PageLayers.reassign(content, id, target)
+            moved.copy(layers = PageLayers.remove(content.layers, id))
+        }
+        if (_state.value.activeLayers[page.id] == id) setActiveLayer(page.id, target)
+    }
+    /** Sends the selected ink, text and pictures to [layer] in one undoable step. */
+    fun moveSelectionToLayer(selection: CanvasSelection, layer: Int) {
+        if (selection.isEmpty()) return
+        val page = _state.value.page ?: return
+        val doomed = identitySet(selection.strokes)
+        val texts = selection.texts.map { it.id }.toHashSet()
+        val images = selection.images.map { it.id }.toHashSet()
+        updateContent(page.id,
+            page.strokes.map { if (it in doomed && it.layer != layer) it.copy(layer = layer) else it },
+            page.texts.map { if (it.id in texts && it.layer != layer) it.copy(layer = layer) else it },
+            page.images.map { if (it.id in images && it.layer != layer) it.copy(layer = layer) else it })
+    }
+
     /** Wipes the open page's ink, text and pictures in one undoable step, leaving its paper or PDF in place. */
     fun clearPage() {
         val page = _state.value.page ?: return
@@ -1494,7 +1662,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = state.notes.find { note -> note.pages.any { it.id == pageId } } ?: return
         val page = note.pages.find { it.id == pageId } ?: return
         if (!page.loaded) return
-        commitEdit(note, page, page.copy(images = page.images + image)) {
+        commitEdit(note, page, page.copy(images = page.images + image.copy(layer = activeLayerOf(page)))) {
             if (bytes != null) repository.saveImage(note.id, image.id, bytes)
         }
     }
@@ -1689,9 +1857,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         val dx = x - bounds.left
         val dy = y - bounds.top
-        return CanvasSelection(clip.strokes.map { InkGeometry.translate(it, dx, dy) },
-            clip.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(dx, dy) },
-            clip.images.map { it.moved(dx, dy) })
+        // Pasted or dropped items land on the layer being worked on, whatever layer they came from.
+        val layer = activeLayerOf(page)
+        return CanvasSelection(clip.strokes.map { InkGeometry.translate(it, dx, dy).copy(layer = layer) },
+            clip.texts.map { it.copy(id = UUID.randomUUID().toString(), layer = layer).moved(dx, dy) },
+            clip.images.map { it.copy(layer = layer).moved(dx, dy) })
     }
 
     /** Destination is loaded before removing anything; both page edits use the usual save queue. */
@@ -1901,8 +2071,46 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
 
-    fun undo() = history(undo, redo)
-    fun redo() = history(redo, undo)
+    /**
+     * Takes back the most recent thing done: a page-level step if it came after the open page's last
+     * ink edit, otherwise that edit. Nothing here crosses notebooks.
+     */
+    fun undo() {
+        val state = _state.value
+        val noteId = state.activeId ?: return
+        val pageId = state.page?.id
+        val step = structureUndo.lastOrNull { it.noteId == noteId }
+        val inkTop = pageId?.takeUnless { undo[it].isNullOrEmpty() }?.let { inkSeq[it] ?: 0L }
+        if (step != null && (inkTop == null || step.seq > inkTop)) {
+            structureUndo.remove(step)
+            touchTimerActivity()
+            step.undo()
+            step.seq = ++actionCounter
+            structureRedo.add(step)
+            historyState()
+            return
+        }
+        if (pageId != null) inkRedoSeq[pageId] = ++actionCounter
+        history(undo, redo)
+    }
+    fun redo() {
+        val state = _state.value
+        val noteId = state.activeId ?: return
+        val pageId = state.page?.id
+        val step = structureRedo.lastOrNull { it.noteId == noteId }
+        val inkTop = pageId?.takeUnless { redo[it].isNullOrEmpty() }?.let { inkRedoSeq[it] ?: 0L }
+        if (step != null && (inkTop == null || step.seq > inkTop)) {
+            structureRedo.remove(step)
+            touchTimerActivity()
+            step.redo()
+            step.seq = ++actionCounter
+            structureUndo.add(step)
+            historyState()
+            return
+        }
+        if (pageId != null) inkSeq[pageId] = ++actionCounter
+        history(redo, undo)
+    }
 
     // ---- Exam timer -----------------------------------------------------------------------
 
@@ -2172,7 +2380,12 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         historyState()
     }
     private fun historyState() {
-        _state.update { it.copy(canUndo = !undo[it.page?.id].isNullOrEmpty(), canRedo = !redo[it.page?.id].isNullOrEmpty()) }
+        _state.update { state ->
+            val noteId = state.activeId
+            state.copy(
+                canUndo = !undo[state.page?.id].isNullOrEmpty() || structureUndo.any { it.noteId == noteId },
+                canRedo = !redo[state.page?.id].isNullOrEmpty() || structureRedo.any { it.noteId == noteId })
+        }
         // Every change to a page's stacks republishes them, so the copy the storage thread reads is
         // never the one being appended to.
         val pageId = _state.value.page?.id ?: return
@@ -2378,6 +2591,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private companion object {
         /** How many per-page undo states are kept before the oldest is dropped. */
         const val MAX_UNDO = PageJournal.HISTORY_LIMIT
+        const val MAX_STRUCTURE_UNDO = 30
         /**
          * How long the writer keeps collecting while page writes are still arriving. Long enough to
          * gather a run of the pen, short enough that a single stroke on an idle page is not delayed.

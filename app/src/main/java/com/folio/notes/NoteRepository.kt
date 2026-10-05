@@ -223,7 +223,7 @@ class NoteRepository(private val context: Context) {
         val journal = storedJournalFile(noteId, summary.id)
         if (!file.exists() && !journal.exists()) return@withContext summary.copy(loaded = true)
         val snapshot = file.takeIf { it.exists() }?.let { readSnapshot(it) }
-        val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images) } ?: PageContent.EMPTY
+        val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images, it.layers) } ?: PageContent.EMPTY
         val baseSeq = snapshot?.journalSeq ?: 0
         val records = readJournal(journal)
         val key = pageKey(noteId, summary.id)
@@ -238,7 +238,7 @@ class NoteRepository(private val context: Context) {
         if (journal.length() > MAX_JOURNAL_BYTES) pendingCompaction += key
         val content = PageJournal.replay(base, baseSeq, records)
         summary.copy(strokes = content.strokes, texts = content.texts, images = content.images,
-            revision = revision, loaded = true)
+            layers = content.layers, revision = revision, loaded = true)
     }
 
     /** Fetches every page still on disk; exports and backups need the whole notebook at once. */
@@ -894,7 +894,7 @@ class NoteRepository(private val context: Context) {
                 job.ensureActive()
                 val snapshot = file("pages/${page.id}.fps")?.let { PageSnapshotBinary.read(it.readBytes()) }
                 val records = file("pages/${page.id}.fjl")?.let { JournalBinary.readAll(it.readBytes()) }.orEmpty()
-                val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images) } ?: PageContent.EMPTY
+                val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images, it.layers) } ?: PageContent.EMPTY
                 val content = PageJournal.replay(base, snapshot?.journalSeq ?: 0, records)
                 require(content.images.all { "images/${it.id}.jpg" in entry.files }) { "Backup is missing an image" }
                 page.copy(revision = maxOf(page.revision, snapshot?.revision ?: 0, records.maxOfOrNull { it.revision } ?: 0))
@@ -1483,7 +1483,7 @@ class NoteRepository(private val context: Context) {
         val raw = jsonFile.takeIf { it.exists() }?.let { readLegacyText(it) }
         val summary = NotePage(id = pageId)
         val base = raw?.let { NotePageCodec.decode(it, summary) }
-            ?.let { PageContent(it.strokes, it.texts, it.images) } ?: PageContent.EMPTY
+            ?.let { PageContent(it.strokes, it.texts, it.images, it.layers) } ?: PageContent.EMPTY
         val baseSeq = raw?.let { NotePageCodec.journalSeq(it) } ?: 0
         val records = readLegacyJournal(journalFile)
         val content = PageJournal.replay(base, baseSeq, records)

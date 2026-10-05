@@ -62,6 +62,15 @@ enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET, TIAN_GR
 data class InkPoint(val x: Float, val y: Float, val pressure: Float = 1f)
 
 /** The colour, drawn width and opacity a restyle starts from. */
+/** One layer of a page. Items point at a layer by [id]; the list order is the draw order. */
+data class PageLayer(
+    val id: Int, val name: String,
+    val visible: Boolean = true, val locked: Boolean = false
+) {
+    companion object { val BASE = PageLayer(0, "Layer 1") }
+}
+
+/** The colour, drawn width and opacity a restyle starts from. */
 data class SelectionStyle(val color: Int, val width: Float, val opacity: Float)
 data class Stroke(
     val tool: Tool, val color: Int, val width: Float, val points: List<InkPoint>,
@@ -70,7 +79,9 @@ data class Stroke(
      * Line pattern for shape tools (line, rectangle, ellipse). Freehand pen and highlighter
      * always draw solid so pressure-varying ink never breaks into uneven dashes.
      */
-    val style: StrokeStyle = StrokeStyle.SOLID
+    val style: StrokeStyle = StrokeStyle.SOLID,
+    /** The [PageLayer.id] this stroke belongs to; 0 is the base layer every page has. */
+    val layer: Int = 0
 )
 
 /**
@@ -86,7 +97,8 @@ data class TextBox(
     val align: TextAlignMode = TextAlignMode.LEFT,
     val underline: Boolean = false,
     /** Faded text for annotations that should sit behind ink; 1 is fully opaque. */
-    val opacity: Float = 1f
+    val opacity: Float = 1f,
+    val layer: Int = 0
 ) {
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
     /** Same wording with a new wrap width, clamped to the limits the dialog and lasso share. */
@@ -123,7 +135,8 @@ data class PageImage(
     val cropLeft: Float = 0f,
     val cropTop: Float = 0f,
     val cropRight: Float = 1f,
-    val cropBottom: Float = 1f
+    val cropBottom: Float = 1f,
+    val layer: Int = 0
 ) {
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
     /** Clockwise content rotation snapped to 0/90/180/270. */
@@ -299,7 +312,13 @@ data class NotePage(
     val redoFlag: Boolean = false,
     val infinite: Boolean = false,
     val title: String = "",
-    val bookmarked: Boolean = false
+    val bookmarked: Boolean = false,
+    /**
+     * The page's layers, bottom first. Empty means the single implicit base layer, so a page that
+     * never used layers stores and loads exactly as it always did. Part of the page's content (not the
+     * index): layer edits travel through the same journal and undo stacks as ink.
+     */
+    val layers: List<PageLayer> = emptyList()
 )
 data class Notebook(
     val id: String = UUID.randomUUID().toString(), val title: String,
@@ -406,7 +425,7 @@ fun Notebook.withPage(page: NotePage): Notebook =
     copy(pages = pages.map { if (it.id == page.id) page else it })
 
 /** This page as the on-disk index holds it: its identity, paper and revision, but none of its ink. */
-fun NotePage.asSummary(): NotePage = copy(strokes = emptyList(), texts = emptyList(), images = emptyList(), loaded = false)
+fun NotePage.asSummary(): NotePage = copy(strokes = emptyList(), texts = emptyList(), images = emptyList(), layers = emptyList(), loaded = false)
 
 /** Marks a content change, so cached previews and exports know their copy is out of date. */
 fun NotePage.revised(): NotePage = copy(revision = revision + 1)
@@ -450,6 +469,7 @@ object NoteCodec {
             put("strokes", InkCodec.encodeStrokes(p.strokes))
             put("texts", InkCodec.encodeTexts(p.texts))
             put("images", InkCodec.encodeImages(p.images))
+            if (p.layers.isNotEmpty()) put("layers", InkCodec.encodeLayers(p.layers))
         }) } })
     }.toString()
 
@@ -465,7 +485,8 @@ object NoteCodec {
                     InkCodec.decodeStrokes(p.optJSONArray("strokes")), InkCodec.decodeTexts(p.optJSONArray("texts")),
                     InkCodec.decodeImages(p.optJSONArray("images")),
                     p.optInt("revision", 0), redoFlag = p.optBoolean("redo", false), infinite = p.optBoolean("infinite", false),
-                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false))
+                    title = p.optString("title", ""), bookmarked = p.optBoolean("bookmarked", false),
+                    layers = InkCodec.decodeLayers(p.optJSONArray("layers")))
             }.also { require(it.isNotEmpty()) { "Notebook has no pages" } },
             ExamTagsCodec.decode(o.optJSONObject("exam")),
             ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),

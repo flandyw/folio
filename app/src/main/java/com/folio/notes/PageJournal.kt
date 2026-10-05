@@ -8,7 +8,8 @@ import java.util.IdentityHashMap
 data class PageContent(
     val strokes: List<Stroke> = emptyList(),
     val texts: List<TextBox> = emptyList(),
-    val images: List<PageImage> = emptyList()
+    val images: List<PageImage> = emptyList(),
+    val layers: List<PageLayer> = emptyList()
 ) {
     companion object { val EMPTY = PageContent() }
 }
@@ -60,9 +61,11 @@ sealed interface StrokesEdit {
 data class PageEdit(
     val strokes: StrokesEdit? = null,
     val texts: List<TextBox>? = null,
-    val images: List<PageImage>? = null
+    val images: List<PageImage>? = null,
+    /** The page's whole layer list; layer changes are small, so a changed list is stored whole. */
+    val layers: List<PageLayer>? = null
 ) {
-    val isEmpty: Boolean get() = strokes == null && texts == null && images == null
+    val isEmpty: Boolean get() = strokes == null && texts == null && images == null && layers == null
 }
 
 /**
@@ -86,7 +89,7 @@ data class PageTransaction(
 )
 
 /** This page's editable content, the shape the journal edits. */
-fun NotePage.content(): PageContent = PageContent(strokes, texts, images)
+fun NotePage.content(): PageContent = PageContent(strokes, texts, images, layers)
 
 /**
  * The pure half of append-only page durability: it turns a before/after pair into the smallest edit
@@ -114,8 +117,9 @@ object PageJournal {
         val strokes = diffStrokes(before.strokes, after.strokes)
         val texts = if (before.texts == after.texts) null else after.texts
         val images = if (before.images == after.images) null else after.images
-        if (strokes == null && texts == null && images == null) return null
-        return PageEdit(strokes, texts, images)
+        val layers = if (before.layers == after.layers) null else after.layers
+        if (strokes == null && texts == null && images == null && layers == null) return null
+        return PageEdit(strokes, texts, images, layers)
     }
 
     /**
@@ -154,7 +158,8 @@ object PageJournal {
             is StrokesEdit.Set -> StrokesEdit.Set(before.strokes)
         },
         texts = if (edit.texts != null) before.texts else null,
-        images = if (edit.images != null) before.images else null
+        images = if (edit.images != null) before.images else null,
+        layers = if (edit.layers != null) before.layers else null
     )
 
     private fun diffStrokes(before: List<Stroke>, after: List<Stroke>): StrokesEdit? {
@@ -234,7 +239,8 @@ object PageJournal {
             is StrokesEdit.Set -> strokes.strokes
         },
         texts = edit.texts ?: content.texts,
-        images = edit.images ?: content.images
+        images = edit.images ?: content.images,
+        layers = edit.layers ?: content.layers
     )
 
     private fun drop(strokes: List<Stroke>, indices: List<Int>): List<Stroke> {
@@ -282,7 +288,7 @@ object PageJournal {
             if (transaction.seq <= baseSeq) continue
             val edit = transaction.forward
             val add = edit.strokes as? StrokesEdit.Add
-            if (add != null && edit.texts == null && edit.images == null) {
+            if (add != null && edit.texts == null && edit.images == null && edit.layers == null) {
                 (appending ?: ArrayList(content.strokes).also { appending = it }).addAll(add.strokes)
             } else {
                 appending?.let { content = content.copy(strokes = it); appending = null }
@@ -380,8 +386,9 @@ object PageJournal {
         }
         val texts = o.optJSONArray("tx")?.let { InkCodec.decodeTexts(it) }
         val images = o.optJSONArray("im")?.let { InkCodec.decodeImages(it) }
-        if (strokes == null && texts == null && images == null) return null
-        return PageEdit(strokes, texts, images)
+        val layers = o.optJSONArray("ly")?.let { InkCodec.decodeLayers(it) }
+        if (strokes == null && texts == null && images == null && layers == null) return null
+        return PageEdit(strokes, texts, images, layers)
     }
 
     private fun encodeInto(o: JSONObject, edit: PageEdit) {
@@ -400,6 +407,7 @@ object PageJournal {
         }) }
         edit.texts?.let { o.put("tx", InkCodec.encodeTexts(it)) }
         edit.images?.let { o.put("im", InkCodec.encodeImages(it)) }
+        edit.layers?.let { o.put("ly", InkCodec.encodeLayers(it)) }
     }
 
     private fun indicesOf(o: JSONObject, key: String): List<Int> {

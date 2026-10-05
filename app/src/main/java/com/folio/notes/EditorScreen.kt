@@ -378,6 +378,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by remember { mutableStateOf("") }
     var stampPicker by remember { mutableStateOf(false) }
+    var layersPanel by remember { mutableStateOf(false) }
     // Marking and feedback: an armed action is applied at each tap on the page until dismissed.
     var markingPanel by remember { mutableStateOf(false) }
     var markingDock by rememberSaveable { mutableStateOf(false) }
@@ -759,7 +760,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
                     onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
-                    onCanvasZoom = { documentZoom = it },
+                    onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(page),
                     initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
                     selectedImageId = selectedImage?.takeIf { it.first == page.id }?.second?.id,
                     onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
@@ -893,7 +894,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
                                 onTextEdit = { box -> textEditor = box; textEditorNew = false },
                                 onTextCreate = ::placeTextBox,
-                                onLoad = { model.loadPage(item.id) },
+                                onLoad = { model.loadPage(item.id) }, activeLayer = model.activeLayerOf(item),
                                 selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                                 onImageSelected = { image ->
                                     selectedImage = image?.let { item.id to it }
@@ -1256,6 +1257,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onFitAll = if (page.infinite) ::fitAllContent else null,
                             onAdd = ::addPage,
                             onSearch = { noteQuery = ""; noteSearchOpen = true },
+                            onLayers = { layersPanel = true },
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = onExport,
@@ -1687,6 +1689,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         onFeedbackActions = { markingPanel = false; feedbackActions = true },
         onDismiss = { markingPanel = false }
     )
+    if (layersPanel) LayersPanel(page, model.activeLayerOf(page), selected.size, model,
+        onMoveSelection = { layer -> model.moveSelectionToLayer(selected, layer) },
+        onDismiss = { layersPanel = false })
     if (stampPicker) FolioPanel(title = "Insert element", onDismissRequest = { stampPicker = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Adds a clean, editable shape as ordinary ink in the middle of this page.",
@@ -1968,7 +1973,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     else -> tool.name.lowercase().replaceFirstChar(Char::uppercase)
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2094,6 +2099,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion
+                view.activeLayer = activeLayer
+                view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
                 view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.onEraserFinished = onEraserFinished
