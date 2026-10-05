@@ -2,6 +2,9 @@
 package com.folio.notes
 
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
@@ -168,6 +171,11 @@ import androidx.compose.ui.unit.dp
                     Row(
                         Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null }
                             .heightIn(min = 56.dp)
+                            .semantics {
+                                customActions = listOf(CustomAccessibilityAction("Select only this page") {
+                                    selected = setOf(index); rangeError = null; true
+                                })
+                            }
                             .toggleable(checked, role = Role.Checkbox, onValueChange = { on ->
                                 hold.click {
                                     selected = if (on) selected + index else selected - index
