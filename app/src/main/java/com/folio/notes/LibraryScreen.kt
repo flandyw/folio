@@ -276,6 +276,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 FilterChip(state.folderId == null && !starred && !unfiled, { model.folder(null); starred = false; unfiled = false }, { Text("All notebooks") }, leadingIcon = { Icon(Icons.Rounded.GridView, null, Modifier.size(16.dp)) })
                                 FilterChip(starred, { model.folder(null); starred = !starred; unfiled = false }, { Text("Favorites") }, leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
+                                FilterChip(unfiled, { starred = false; unfiled = !unfiled; model.folder(null) },
+                                    { Text("Unfiled") }, leadingIcon = { Icon(Icons.Rounded.FolderOff, null, Modifier.size(16.dp)) })
                                 state.folders.forEach { folder -> Box {
                                     FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folder.name) },
                                         leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
@@ -360,7 +362,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                             FolioExpand(filtersExpanded) {
                                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    FilterChip(unfiled, { unfiled = !unfiled; model.folder(null) }, { Text("Unfiled") })
                                     LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
                                 }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
