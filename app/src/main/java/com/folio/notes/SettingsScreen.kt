@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -235,8 +236,8 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
     if (hits.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(Icons.Rounded.Search, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Nothing matches “${query.trim()}”", style = MaterialTheme.typography.titleMedium)
-            Text("Try a word such as theme, backup, pencil or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Nothing matches “${query.trim()}”", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+            Text("Try a word such as theme, backup, pencil or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         return
     }
