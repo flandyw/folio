@@ -245,8 +245,10 @@ import androidx.compose.ui.unit.dp
                     }
                 }
             }
+        }
+        androidx.compose.material3.HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 val count = selected.size
@@ -286,6 +288,5 @@ import androidx.compose.ui.unit.dp
                     )
                 }
             }
-        }
     }
 }
