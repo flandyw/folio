@@ -3,6 +3,10 @@ package com.folio.notes
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -152,10 +156,13 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable private fun SettingsSearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+    val keyboard = LocalSoftwareKeyboardController.current
     OutlinedTextField(
         value = query, onValueChange = onQuery, modifier = modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.extraLarge,
         label = { Text("Search settings") },
         placeholder = { Text("Theme, backup, pencil or timer") },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
         trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
     )
