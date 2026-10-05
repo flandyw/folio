@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,7 +30,8 @@ import androidx.compose.ui.unit.dp
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Select notebooks to exclude from automatic and portable library backups. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
             Text("$count of ${notes.size} notebooks excluded. Older restore points may still contain excluded notebooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") })
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
             if (visible.isEmpty()) {
                 Text(if (notes.isEmpty()) "No notebooks yet." else "No matching notebooks.", Modifier.padding(vertical = FolioSpacing.dp12))
             } else LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
