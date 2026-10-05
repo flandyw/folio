@@ -1312,6 +1312,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No pages match", style = MaterialTheme.typography.titleSmall)
                     Text("Try another name or filter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton({ pageQuery = ""; pageFilter = PageFilter.ALL }) { Text("Show all pages") }
                 }
             }
             items(visiblePages, key = { it.value.id }) { (index, item) ->
