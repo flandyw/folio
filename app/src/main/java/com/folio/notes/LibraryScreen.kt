@@ -339,6 +339,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 } }
                             }
                             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                LibraryKind.entries.forEach { option ->
+                                    FilterChip(kind == option, { kind = option }, { Text(option.label) })
+                                }
                                 FilterChip(filtersExpanded || filtersActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (filtersActive) "Filters • Active" else "Filters") },
                                     modifier = Modifier.longPressAction(shelfHold) { kind = LibraryKind.ALL; unfiled = false; model.setExamFilter(ExamFilter()) },
                                     leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
@@ -362,7 +365,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                             FolioExpand(filtersExpanded) {
                                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    LibraryKind.entries.forEach { option -> FilterChip(kind == option, { kind = option }, { Text(option.label) }) }
                                 }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                     FilterChip(examFilter.incomplete, {
