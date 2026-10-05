@@ -17,12 +17,12 @@ import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,8 +32,8 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -2959,54 +2959,54 @@ private enum class ToolSub { PRESETS, TOOL }
                     Text(if (formattingExpanded) "Hide formatting" else "Formatting · ${size.toInt()} pt")
                 }
                 if (formattingExpanded) {
-                // Live preview so size, width, fade and colour choices read before they land on the page.
-                if (text.isNotBlank()) {
-                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-                        Text(
-                            text.trimEnd().take(220),
-                            Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
-                            color = Color(color).copy(alpha = opacity.coerceIn(0f, 1f)),
-                            fontSize = size.coerceIn(10f, 48f).sp,
-                            fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
-                            fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
-                            textAlign = when (align) { TextAlignMode.CENTER -> TextAlign.Center; TextAlignMode.RIGHT -> TextAlign.End; else -> TextAlign.Start },
-                            textDecoration = if (underline) androidx.compose.ui.text.style.TextDecoration.Underline else null,
-                            maxLines = 4, overflow = TextOverflow.Ellipsis
-                        )
+                    // Live preview so size, width, fade and colour choices read before they land on the page.
+                    if (text.isNotBlank()) {
+                        Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+                            Text(
+                                text.trimEnd().take(220),
+                                Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
+                                color = Color(color).copy(alpha = opacity.coerceIn(0f, 1f)),
+                                fontSize = size.coerceIn(10f, 48f).sp,
+                                fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                                fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
+                                textAlign = when (align) { TextAlignMode.CENTER -> TextAlign.Center; TextAlignMode.RIGHT -> TextAlign.End; else -> TextAlign.Start },
+                                textDecoration = if (underline) androidx.compose.ui.text.style.TextDecoration.Underline else null,
+                                maxLines = 4, overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f).semanticsLabel("Text size, ${size.toInt()} points"))
-                    Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f).semanticsLabel("Text wrap width, ${width.toInt()} points"))
-                    Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-                }
-                Text("Wrap width · the box grows downwards as it wraps.",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f).semanticsLabel("Text opacity, ${(opacity * 100).roundToInt()} percent"))
-                    Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    FilterChip(bold, { bold = !bold }, { Text("Bold") })
-                    FilterChip(italic, { italic = !italic }, { Text("Italic") })
-                    FilterChip(underline, { underline = !underline }, { Text("Underline") })
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    FilterChip(align == TextAlignMode.LEFT, { align = TextAlignMode.LEFT }, { Text("Left") })
-                    FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
-                    FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
-                }
-                Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    colors.forEach { option -> InkColorDot(option, option == color, { color = option }, touch = 36.dp, dot = 24.dp, label = "Text colour") }
-                }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f).semanticsLabel("Text size, ${size.toInt()} points"))
+                        Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f).semanticsLabel("Text wrap width, ${width.toInt()} points"))
+                        Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                    }
+                    Text("Wrap width · the box grows downwards as it wraps.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f).semanticsLabel("Text opacity, ${(opacity * 100).roundToInt()} percent"))
+                        Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        FilterChip(bold, { bold = !bold }, { Text("Bold") })
+                        FilterChip(italic, { italic = !italic }, { Text("Italic") })
+                        FilterChip(underline, { underline = !underline }, { Text("Underline") })
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        FilterChip(align == TextAlignMode.LEFT, { align = TextAlignMode.LEFT }, { Text("Left") })
+                        FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
+                        FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
+                    }
+                    Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        colors.forEach { option -> InkColorDot(option, option == color, { color = option }, touch = 36.dp, dot = 24.dp, label = "Text colour") }
+                    }
                 }
                 if (!isNew && canMove) OutlinedButton({ onMove(edited()) }, enabled = text.isNotBlank()) { Text("Move to page…") }
             }

@@ -11,6 +11,7 @@ data class PickerSection(val label: String, val notes: List<Notebook>)
  * search, grouping and section rules stay JVM-testable.
  */
 object WorkspacePicker {
+    private val queryWords = Regex("[\\s\\p{Z}]+")
     /** The unfiled bucket sits after every folder, under this heading. */
     const val UNFILED_LABEL = "Notebooks"
     const val OPEN_LABEL = "Open documents"
@@ -33,7 +34,7 @@ object WorkspacePicker {
             note.exam.type?.label,
             note.exam.tags.joinToString(" ") { it.label }
         ).joinToString(" ").lowercase()
-        return needle.split(Regex("[\\s\\p{Z}]+")).filter { it.isNotBlank() }.all { haystack.contains(it) }
+        return needle.split(queryWords).filter { it.isNotBlank() }.all { haystack.contains(it) }
     }
 
     /**

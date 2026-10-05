@@ -221,39 +221,39 @@ internal val EditorFloatingGroupHeight = 46.dp
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
                 }
             } else {
-            Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center) {
-                IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
-                TextButton(onPages) { Text("${pageIndex + 1} / $pageCount") }
-                IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
-                TextButton(onFit) { Text("$zoomPercent%") }
-                if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
-                if (onPaper != null) TextButton(onPaper) {
-                    Icon(Icons.Rounded.GridOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(paperTitle)
+                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center) {
+                    IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
+                    TextButton(onPages) { Text("${pageIndex + 1} / $pageCount") }
+                    IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
+                    TextButton(onFit) { Text("$zoomPercent%") }
+                    if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
+                    if (onPaper != null) TextButton(onPaper) {
+                        Icon(Icons.Rounded.GridOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(paperTitle)
+                    }
+                    if (onContents != null) IconButton(onContents) { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "PDF contents") }
+                    IconButton(onInsertImage) { Icon(Icons.Rounded.AddPhotoAlternate, "Insert image") }
+                    IconButton(onBookmark) {
+                        Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                            if (bookmarked) "Remove page bookmark" else "Bookmark this page",
+                            tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                    }
                 }
-                if (onContents != null) IconButton(onContents) { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "PDF contents") }
-                IconButton(onInsertImage) { Icon(Icons.Rounded.AddPhotoAlternate, "Insert image") }
-                IconButton(onBookmark) {
-                    Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                        if (bookmarked) "Remove page bookmark" else "Bookmark this page",
-                        tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                if (narrow) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                        NavigationControls()
+                        DocumentControls()
+                    }
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { mainTools() }
+                } else {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                        Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { NavigationControls() }
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+                        Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterEnd) { DocumentControls() }
+                    }
                 }
-            }
-            if (narrow) {
-                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    NavigationControls()
-                    DocumentControls()
-                }
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { mainTools() }
-            } else {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { NavigationControls() }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-                    Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterEnd) { DocumentControls() }
-                }
-            }
             }
 
         }
