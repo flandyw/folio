@@ -621,7 +621,12 @@ import java.io.File
         paper = item.paper
         pageCount = item.pages
     }
-    FolioPanel(title = "A fresh start", onDismissRequest = onDismiss) {
+    fun createNotebook() {
+        val chosen = NotebookTemplate.byId(template)
+        val name = title.trim().ifBlank { "Notebook · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}" }
+        onCreate(name, cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover)
+    }
+    FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Text("Every good idea begins with a blank page. For maths practice, Maths grid keeps your workings aligned.")
@@ -638,7 +643,10 @@ import java.io.File
             }
             if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, placeholder = { Text("e.g. Calculus — exam practice") }, singleLine = true)
+            OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
+                label = { Text("Name (optional)") }, placeholder = { Text("Name it now or rename it later") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { createNotebook() }))
             CoverPicker(cover, { cover = it }, title)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -670,11 +678,9 @@ import java.io.File
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                val chosen = NotebookTemplate.byId(template)
                 Button(
-                    { onCreate(title.trim(), cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover) },
-                    shapes = ButtonDefaults.shapes(),
-                    enabled = title.isNotBlank()
+                    ::createNotebook,
+                    shapes = ButtonDefaults.shapes()
                 ) { Text("Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
             }
         }
