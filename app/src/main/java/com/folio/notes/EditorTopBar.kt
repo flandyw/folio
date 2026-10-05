@@ -81,6 +81,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     onAdd: () -> Unit,
     onSearch: () -> Unit,
     onLayers: () -> Unit,
+    layerStatus: String?,
     bookmarked: Boolean,
     onBookmark: () -> Unit,
     onInsertImage: () -> Unit,
@@ -205,6 +206,14 @@ internal val EditorFloatingGroupHeight = 46.dp
                 }
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
+            }
+            if (layerStatus != null) Box {
+                TextButton(onLayers) {
+                    Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
+                }
+                if (focused) layersPopover()
             }
             if (focused) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

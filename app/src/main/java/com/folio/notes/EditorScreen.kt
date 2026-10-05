@@ -1244,6 +1244,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 else { noteSearchOpen = true }
                             },
                             onLayers = { layersPopover = true },
+                            layerStatus = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.let { layer ->
+                                when { !layer.visible -> "Hidden layer: ${layer.name}"; layer.locked -> "Locked layer: ${layer.name}"; else -> null }
+                            },
                             onContents = if (page.pdfIndex != null) ({ pdfContentsOpen = true; loadOutline() }) else null,
                             onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                             paperTitle = paperLabel(page.paper),
