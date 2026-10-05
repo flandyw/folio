@@ -131,13 +131,15 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             ChoiceField("Subject", subject, (catalog.references.map { it.subject } + catalog.studies.map { it.subject }).distinct().sorted(), { subject = it }, true)
             ChoiceField("Provider", provider, (listOf("VCAA", "VCAA NHT", "NEAP", "Insight", "TSSM", "MAV", "iTute", "Kilbaha", "Heffernan", "Other")), { provider = it }, true)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(year, { year = it }, Modifier.weight(1f), label = { Text("Exam year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(year, { year = it }, Modifier.weight(1f), label = { Text("Exam year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                 OutlinedTextField(date, { date = it }, Modifier.weight(2f), label = { Text("Date · YYYY-MM-DD") }, singleLine = true)
             }
             ChoiceField("Paper", paper, catalog.references.filter { comparisonName(it.subject) == comparisonName(subject) }.map { it.paper.replace("WRITTEN EXAMINATION", "Exam", true).replace("EXAMINATION", "Exam", true) }.distinct(), { paper = it }, true)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(score, { score = it }, Modifier.weight(1f), label = { Text("Marks awarded") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                OutlinedTextField(max, { max = it }, Modifier.weight(1f), label = { Text("Out of") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(score, { score = it }, Modifier.weight(1f), label = { Text("Marks awarded") }, singleLine = true,
+                    isError = score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true,
+                    supportingText = { if (score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true) Text("More than the total") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
+                OutlinedTextField(max, { max = it }, Modifier.weight(1f), label = { Text("Out of") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             val preview = remember(subject, paper, year, score, max, catalog) {
                 val a = score.toDoubleOrNull(); val m = max.toDoubleOrNull()
@@ -148,23 +150,23 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 } else null
             }
             preview?.let { Text("Estimated grade ${it.grade ?: "—"} · ${it.percentile?.display() ?: "—"} percentile", color = MaterialTheme.colorScheme.primary) }
-            OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text("Comments and reflection") }, minLines = 2, maxLines = 5)
+            OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Comments and reflection") }, minLines = 2, maxLines = 5)
             TextButton({ showQuestions = !showQuestions }) { Text("${if (showQuestions) "Hide" else "Show"} question marking (${questions.size})") }
             if (showQuestions) {
                 questions.forEachIndexed { index, question ->
                     ProgressCard("Question ${index + 1}") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(question.label, { updateQuestion(index, question.copy(label = it)) }, Modifier.weight(1f), label = { Text("Question or section") }, singleLine = true)
+                            OutlinedTextField(question.label, { updateQuestion(index, question.copy(label = it)) }, Modifier.weight(1f), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or section") }, singleLine = true)
                             IconButton({ questionsRaw = JSONArray(JSONArray(questionsRaw).objects().filterIndexed { i, _ -> i != index }).toString() }) { Icon(Icons.Rounded.DeleteOutline, "Remove question ${index + 1}") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(question.awarded, { updateQuestion(index, question.copy(awarded = it)) }, Modifier.weight(1f), label = { Text("Awarded") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-                            OutlinedTextField(question.maximum, { updateQuestion(index, question.copy(maximum = it)) }, Modifier.weight(1f), label = { Text("Maximum") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                            OutlinedTextField(question.awarded, { updateQuestion(index, question.copy(awarded = it)) }, Modifier.weight(1f), label = { Text("Awarded") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next), singleLine = true)
+                            OutlinedTextField(question.maximum, { updateQuestion(index, question.copy(maximum = it)) }, Modifier.weight(1f), label = { Text("Maximum") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next), singleLine = true)
                         }
-                        OutlinedTextField(question.topic, { updateQuestion(index, question.copy(topic = it)) }, Modifier.fillMaxWidth(), label = { Text("Area of study") })
-                        OutlinedTextField(question.criterion, { updateQuestion(index, question.copy(criterion = it)) }, Modifier.fillMaxWidth(), label = { Text("Skill or criterion") })
+                        OutlinedTextField(question.topic, { updateQuestion(index, question.copy(topic = it)) }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Area of study") })
+                        OutlinedTextField(question.criterion, { updateQuestion(index, question.copy(criterion = it)) }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Skill or criterion") })
                         ChoiceField("Confidence", question.confidence, listOf("low", "medium", "high"), { updateQuestion(index, question.copy(confidence = it)) })
-                        OutlinedTextField(question.note, { updateQuestion(index, question.copy(note = it)) }, Modifier.fillMaxWidth(), label = { Text("Examiner note") })
+                        OutlinedTextField(question.note, { updateQuestion(index, question.copy(note = it)) }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Examiner note") })
                     }
                 }
                 OutlinedButton({ questionsRaw = JSONArray(questionsRaw).put(JSONObject().put("id", UUID.randomUUID().toString())
@@ -181,14 +183,14 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 OutlinedTextField(context.optString(key), { value -> contextRaw = JSONObject(contextRaw).apply {
                     if (value.isBlank()) remove(key) else put(key, value.toDoubleOrNull() ?: value)
                 }.toString() }, Modifier.fillMaxWidth(), label = { Text(if (key == "sleepHours") label else "$label · 1–5") },
-                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             TextButton({ showTiming = !showTiming }) { Text("${if (showTiming) "Hide" else "Show"} timing details") }
             if (showTiming) for ((key, label) in listOf("plannedReadingMinutes" to "Reading minutes", "plannedWritingMinutes" to "Writing minutes",
                 "actualWritingSeconds" to "Actual writing seconds", "overtimeSeconds" to "Overtime seconds", "pausedSeconds" to "Paused seconds")) {
                 OutlinedTextField(timing.optString(key), { value -> timingRaw = JSONObject(timingRaw).apply {
                     if (value.isBlank()) remove(key) else put(key, value.toDoubleOrNull() ?: value)
-                }.toString() }, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }.toString() }, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(4.dp))
@@ -223,12 +225,14 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             Text(exam.title)
             OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") })
             ChoiceField("Category", category, listOf("Concept", "Knowledge recall", "Reasoning", "Evidence and analysis", "Written expression", "Process or technique", "Accuracy", "Interpretation", "Time management", "Algebra", "Arithmetic", "Calculator", "Other"), { category = it })
-            OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), label = { Text("What went wrong?") }, minLines = 2)
-            OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), label = { Text("Correction") }, placeholder = { Text("Explain the correct approach for next time.") }, minLines = 2)
-            OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), label = { Text("Area of study") })
+            OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("What went wrong?") }, minLines = 2)
+            OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Correction") }, placeholder = { Text("Explain the correct approach for next time.") }, minLines = 2)
+            OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Area of study") })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                OutlinedTextField(total, { total = it }, Modifier.weight(1f), label = { Text("Total marks") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true,
+                    isError = lost.toDoubleOrNull()?.let { l -> total.toDoubleOrNull()?.let { t -> l > t } } == true,
+                    supportingText = { if (lost.toDoubleOrNull()?.let { l -> total.toDoubleOrNull()?.let { t -> l > t } } == true) Text("More than the total") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
+                OutlinedTextField(total, { total = it }, Modifier.weight(1f), label = { Text("Total marks") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         }

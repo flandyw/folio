@@ -137,6 +137,8 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
     SettingsGroup("Input") {
         SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
         SettingsDivider()
+        SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
+        SettingsDivider()
         SettingsSwitchRow("Tidy up shapes", "A rough line, square, circle or triangle becomes a clean shape when you lift the pen. Undo brings your own drawing back.", s.shapeRecognition, s.onShapeRecognition)
     }
     SettingsGroup("Shapes") {

@@ -1,7 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -11,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 
 /** The same searchable destination chooser for one notebook or a shelf selection. */
@@ -21,11 +26,12 @@ import androidx.compose.ui.unit.dp
     var query by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
     var creating by rememberSaveable { mutableStateOf(false) }
-    val visible = remember(folders, query) { folders.filter { it.name.contains(query.trim(), ignoreCase = true) } }
+    val visible = remember(folders, query) { folders.filter { it.name.contains(query.trim(), ignoreCase = true) }.sortedBy { it.name.lowercase() } }
     FolioPanel(title, onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a folder") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear folder search") } })
             TextButton({ onMove(null) }, enabled = !single || currentFolder != null) {
                 Icon(Icons.Rounded.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "Unfiled · current" else "Unfiled")
@@ -38,7 +44,10 @@ import androidx.compose.ui.unit.dp
                     Modifier.padding(vertical = FolioSpacing.dp12), style = MaterialTheme.typography.bodySmall)
             }
             items(visible, key = { it.id }) { folder ->
-                ListItem(headlineContent = { Text(folder.name) }, leadingContent = { Icon(Icons.Rounded.FolderOpen, null) },
+                val here = single && currentFolder == folder.id
+                ListItem(modifier = Modifier.clickable(enabled = !here, onClickLabel = "Move to ${folder.name}") { onMove(folder.id) },
+                    headlineContent = { Text(folder.name) },
+                    leadingContent = { Icon(if (here) Icons.Rounded.Check else Icons.Rounded.FolderOpen, null, tint = if (here) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     trailingContent = { TextButton({ onMove(folder.id) }, enabled = !single || currentFolder != folder.id) {
                         Text(if (single && currentFolder == folder.id) "Current" else "Move here")
                     } })
@@ -47,7 +56,9 @@ import androidx.compose.ui.unit.dp
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (creating) {
-                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("New folder name") })
+                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("New folder name") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (newFolder.isNotBlank() && onCreateAndMove(newFolder.trim())) onDismiss() }))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                     TextButton({ creating = false }) { Text("Cancel") }
                     Button({ if (onCreateAndMove(newFolder.trim())) onDismiss() }, enabled = newFolder.isNotBlank()) { Text("Create & move") }

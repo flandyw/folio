@@ -138,13 +138,13 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                         if (match != null) MatchNotice(match)
                         AnimatedVisibility(open) {
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                OutlinedTextField(d.title, { v -> update(d.id) { it.copy(title = v) } }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
+                                OutlinedTextField(d.title, { v -> update(d.id) { it.copy(title = v) } }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Title") }, singleLine = true)
                                 ChoiceField("Subject", d.subject, subjects, { v -> update(d.id) { it.copy(subject = v) } }, true)
                                 ChoiceField("Provider", d.provider, defaultProviderOrder, { v -> update(d.id) { it.copy(provider = v) } }, true)
                                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     OutlinedTextField(d.year, { v -> update(d.id) { it.copy(year = v.filter(Char::isDigit).take(4)) } }, Modifier.weight(1f),
                                         label = { Text("Year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                                    OutlinedTextField(d.paper, { v -> update(d.id) { it.copy(paper = v) } }, Modifier.weight(1f), label = { Text("Paper") }, singleLine = true)
+                                    OutlinedTextField(d.paper, { v -> update(d.id) { it.copy(paper = v) } }, Modifier.weight(1f), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Paper") }, singleLine = true)
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     OutlinedTextField(d.score, { v -> update(d.id) { it.copy(score = v) } }, Modifier.weight(1f), label = { Text("Marks") },

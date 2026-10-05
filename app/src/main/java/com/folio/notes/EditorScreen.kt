@@ -46,6 +46,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
@@ -508,6 +510,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     val motionDensity = LocalDensity.current.density
     val motion = remember(pages, note.id, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
     DisposableEffect(motion) { onDispose { motion.reset() } }
+    var pullAdding by remember { mutableStateOf(false) }
+    val pullHaptics = LocalHapticFeedback.current
     var canvasReset by remember { mutableIntStateOf(0) }
     fun resetZoom() {
         activeInkView?.suspendWritingFollow()
@@ -554,6 +558,20 @@ private fun paperLabel(p: Paper): String = when (p) {
             pages.scrollToItem(index)
             model.selectPage(index)
         }
+    }
+    fun pullAddPage() {
+        pullAdding = true
+        scope.launch {
+            // Hold the spinner briefly so the pull reads as a deliberate action, then add and reveal.
+            delay(280)
+            addPage()
+            delay(450)
+            pullAdding = false
+        }
+    }
+    SideEffect {
+        motion.pullEnabled = { !pullAdding && appPrefs.getBoolean(EditorQuickPrefs.PULL_TO_ADD_PAGE, true) && note.pages.lastOrNull()?.infinite == false && peekShown == null }
+        motion.onPullCommit = { pullAddPage() }
     }
     /** Waits for the lazy list to grow, then lands on a page created mid-notebook. */
     fun revealNewPage(index: Int) {
@@ -986,6 +1004,26 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onLongClick = { openPaperMenu(true) },
                             modifier = Modifier.padding(top = FolioSpacing.dp4)
                         )
+                    }
+                }
+                // Pull past the last page: the squiggly loading shape fills as you pull, spins while the page is added.
+                val pullProgress = if (pullAdding) 1f else motion.pullProgress
+                LaunchedEffect(pullProgress >= 1f) { if (pullProgress >= 1f && !pullAdding) pullHaptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                if (pullProgress > 0.04f) Surface(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp24).graphicsLayer {
+                        alpha = if (pullAdding) 1f else (pullProgress * 1.6f).coerceAtMost(1f)
+                        val grow = .7f + .3f * pullProgress
+                        scaleX = grow; scaleY = grow
+                    },
+                    shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer, shadowElevation = 4.dp,
+                ) {
+                    Row(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp16, top = FolioSpacing.dp4, bottom = FolioSpacing.dp4),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        if (pullAdding) LoadingIndicator(Modifier.size(40.dp).semanticsLabel("Adding page"))
+                        else LoadingIndicator(progress = { pullProgress }, modifier = Modifier.size(40.dp))
+                        Text(if (pullAdding) "Adding page…" else if (pullProgress >= 1f) "Release to add page" else "Pull to add page",
+                            style = MaterialTheme.typography.labelLarge, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }
                 }
             }

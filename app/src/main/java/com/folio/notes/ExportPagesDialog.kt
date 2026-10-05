@@ -117,6 +117,14 @@ import androidx.compose.ui.unit.dp
                 label = { Text("Pages, e.g. 1-3, 5") },
                 placeholder = { Text("1–${note.pages.size}") },
                 singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                    if (rangeText.isNotBlank() && note.pages.isNotEmpty()) {
+                        val parsed = parsePageRange(rangeText, note.pages.size)
+                        if (parsed.isEmpty()) rangeError = "Enter page numbers from 1 to ${note.pages.size}, such as 1-3, 5."
+                        else { selected = parsed.toSet(); rangeError = null }
+                    }
+                }),
                 isError = rangeError != null,
                 shape = FolioShapes.large,
                 supportingText = {
@@ -148,6 +156,10 @@ import androidx.compose.ui.unit.dp
                 val bookmarks = remember(note.pages) { note.pages.indices.filter { note.pages[it].bookmarked }.toSet() }
                 FilterChip(selected == bookmarks && bookmarks.isNotEmpty(),
                     { selected = bookmarks; rangeError = null }, { Text("Bookmarks (${bookmarks.size})") }, enabled = bookmarks.isNotEmpty())
+                val odd = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 0 }.toSet() }
+                val even = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 1 }.toSet() }
+                FilterChip(selected == odd && odd.isNotEmpty(), { selected = odd; rangeError = null }, { Text("Odd pages") }, enabled = note.pages.size > 1)
+                FilterChip(selected == even && even.isNotEmpty(), { selected = even; rangeError = null }, { Text("Even pages") }, enabled = even.isNotEmpty())
             }
             Row(
                 Modifier.fillMaxWidth(),
@@ -265,7 +277,7 @@ import androidx.compose.ui.unit.dp
                 Text(
                     when {
                         count == 0 -> "Save"
-                        format == PageExportFormat.PDF -> "Save PDF"
+                        format == PageExportFormat.PDF -> "Save PDF · $count"
                         count == 1 -> "Save to gallery"
                         else -> "Save ZIP"
                     }
@@ -282,7 +294,7 @@ import androidx.compose.ui.unit.dp
                 Text(
                     when {
                         count == 0 -> "Share"
-                        format == PageExportFormat.PDF -> "Share PDF"
+                        format == PageExportFormat.PDF -> "Share PDF · $count"
                         count == 1 -> "Share PNG"
                         else -> "Share PNGs"
                     }

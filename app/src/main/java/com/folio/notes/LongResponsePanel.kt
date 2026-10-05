@@ -32,10 +32,10 @@ import java.util.Date
     FolioPanel(title = if (initial == null) "Long response" else "Question details", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (initial == null) OutlinedTextField(title, { title = it.take(120) }, label = { Text("Notebook name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(subject, { subject = it.take(120) }, label = { Text("Subject") }, placeholder = { Text("e.g. English, Legal Studies") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(topic, { topic = it.take(240) }, label = { Text("Text or topic") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(prompt, { prompt = it.take(8000) }, label = { Text("Question or prompt") }, minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth())
+            if (initial == null) OutlinedTextField(title, { title = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Notebook name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(subject, { subject = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Subject") }, placeholder = { Text("e.g. English, Legal Studies") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(topic, { topic = it.take(240) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Text or topic") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(prompt, { prompt = it.take(8000) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or prompt") }, minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(marks, { marks = it.take(4) }, label = { Text("Marks (optional)") }, singleLine = true,
                     isError = !validMarks, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))

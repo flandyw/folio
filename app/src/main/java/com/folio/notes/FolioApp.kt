@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -590,7 +593,8 @@ import kotlinx.coroutines.withContext
         mutableStateOf(TextFieldValue(initial, selection = TextRange(0, initial.length)))
     }
     val focusRequester = remember { FocusRequester() }
-    fun save() { if (text.text.isNotBlank()) submit(text.text.trim()) }
+    val changed = text.text.isNotBlank() && text.text.trim() != initial.trim()
+    fun save() { if (changed) submit(text.text.trim()) }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
@@ -598,11 +602,12 @@ import kotlinx.coroutines.withContext
             OutlinedTextField(text, { if (it.text.length <= 120) text = it },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 singleLine = true, label = { Text("Name") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
-                supportingText = { Text("${text.text.length}/120") })
+                trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue("") }) { Icon(Icons.Rounded.Close, "Clear name") } },
+                supportingText = { if (text.text.length >= 90) Text("${text.text.length}/120") })
         }
-    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = text.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
+    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = changed, shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
 @Composable private fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
@@ -643,11 +648,17 @@ import kotlinx.coroutines.withContext
                     FilterChip(template == item.id, { chooseTemplate(item) }, { Text(item.title) })
                 }
             }
+            if (template == null && !infinite) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Pages", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                IconButton({ pageCount = (pageCount - 1).coerceAtLeast(1) }, enabled = pageCount > 1, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Fewer pages") }
+                Text("$pageCount", Modifier.widthIn(min = 32.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton({ pageCount = (pageCount + 1).coerceAtMost(40) }, enabled = pageCount < 40, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "More pages") }
+            }
             if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
                 label = { Text("Name (optional)") }, placeholder = { Text("Name it now or rename it later") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { createNotebook() }))
             TextButton({ appearanceExpanded = !appearanceExpanded }, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
@@ -690,7 +701,7 @@ import kotlinx.coroutines.withContext
                 Button(
                     ::createNotebook,
                     shapes = ButtonDefaults.shapes()
-                ) { Text("Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                ) { Text(if (infinite) "Create canvas" else if (pageCount > 1) "Create · $pageCount pages" else "Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
             }
         }
     }
@@ -726,6 +737,7 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                                     if (it.uri == item.uri) it.copy(title = value.take(120)) else it
                                 } }, modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Notebook name") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
                                 trailingIcon = { TextButton({ reviewed = reviewed.map {
                                     if (it.uri == item.uri) it.copy(title = smartImportedNotebookName(tags, item.title)) else it
                                 } }) { Text("Auto") } }
@@ -770,15 +782,15 @@ private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: 
                 }
                 Text("Destination", style = MaterialTheme.typography.titleSmall)
                 (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
-                    Row(Modifier.fillMaxWidth().clickable { destination = id }.padding(vertical = FolioSpacing.dp4),
+                    Row(Modifier.fillMaxWidth().then(Modifier.selectable(validDestination == id, role = androidx.compose.ui.semantics.Role.RadioButton) { destination = id }).padding(vertical = FolioSpacing.dp4),
                         verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = validDestination == id, onClick = { destination = id })
+                        RadioButton(selected = validDestination == id, onClick = null)
                         Text(name, Modifier.weight(1f))
                     }
                 }
             }
         },
-        confirmButton = { Button(onClick = { onImport(validDestination, reviewed) }, shapes = ButtonDefaults.shapes(), enabled = reviewed.all { it.detected && it.title.isNotBlank() }) { Text("Import") } },
+        confirmButton = { Button(onClick = { onImport(validDestination, reviewed) }, shapes = ButtonDefaults.shapes(), enabled = reviewed.all { it.detected && it.title.isNotBlank() }) { Text(if (reviewed.size > 1) "Import ${reviewed.size}" else "Import") } },
         dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
 }

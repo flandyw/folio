@@ -19,6 +19,14 @@ internal class DocumentMotion(private val consumeScroll: (Float) -> Float, priva
         private set
     private var animation: Job? = null
 
+    /** Pulling the document past its last page and letting go commits [onPullCommit]. */
+    var pullEnabled: () -> Boolean = { false }
+    var onPullCommit: () -> Unit = {}
+    val pullThreshold = 72f * density
+
+    /** 0..1 progress of a bottom pull toward the commit threshold (0 when not pulling). */
+    val pullProgress: Float get() = if (stretch < 0f && pullEnabled()) (-stretch / pullThreshold).coerceIn(0f, 1f) else 0f
+
     fun stop() { animation?.cancel(); animation = null }
     fun reset() { stop(); stretch = 0f }
 
@@ -41,6 +49,8 @@ internal class DocumentMotion(private val consumeScroll: (Float) -> Float, priva
     }
 
     fun release(velocityY: Float) {
+        // Only a finger lifting from a deliberate, sufficient pull commits; a fling hitting the end does not.
+        if (stretch <= -pullThreshold && pullEnabled()) onPullCommit()
         stop()
         animation = scope.launch {
             if (abs(stretch) < .5f && abs(velocityY) > 50f * density) {

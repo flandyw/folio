@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -186,6 +187,8 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val gridState = rememberLazyGridState()
             LaunchedEffect(destination, listSection) { gridState.scrollToItem(0) }
+            val focusManager = LocalFocusManager.current
+            LaunchedEffect(gridState) { snapshotFlow { gridState.isScrollInProgress }.collect { if (it) focusManager.clearFocus() } }
             LazyVerticalGrid(GridCells.Adaptive(340.dp), Modifier.fillMaxSize().guardUiTouches(), state = gridState,
                 contentPadding = PaddingValues(start = FolioSpacing.dp16, end = FolioSpacing.dp16, top = FolioSpacing.dp8, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {

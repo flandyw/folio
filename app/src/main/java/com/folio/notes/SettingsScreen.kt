@@ -85,7 +85,7 @@ import kotlinx.coroutines.withContext
                 SettingsPane(
                     title = when { searching -> "Search"; else -> (category ?: SettingsCategory.APPEARANCE).title },
                     onNavigate = onBack, navLabel = "Close settings", modifier = Modifier.weight(1f),
-                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open) }
+                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open, { query = "" }) }
             }
         } else {
             SettingsPane(
@@ -98,7 +98,7 @@ import kotlinx.coroutines.withContext
                     SettingsSearchField(query, { query = it })
                 }
                 if (!searching && category == null) SettingsHome(app, backup, open)
-                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open)
+                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open) { query = "" }
             }
         }
     }
@@ -141,9 +141,9 @@ import kotlinx.coroutines.withContext
 
 @Composable private fun SettingsContent(
     searching: Boolean, query: String, category: SettingsCategory,
-    app: AppSettings, backup: BackupSettings, account: AccountSettings, open: (SettingsCategory) -> Unit,
+    app: AppSettings, backup: BackupSettings, account: AccountSettings, open: (SettingsCategory) -> Unit, onClear: () -> Unit,
 ) {
-    if (searching) { SearchResults(query, open); return }
+    if (searching) { SearchResults(query, open, onClear); return }
     when (category) {
         SettingsCategory.APPEARANCE -> AppearancePage(app)
         SettingsCategory.WRITING -> WritingPage(app)
@@ -233,13 +233,14 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
 
 // ---- Search -------------------------------------------------------------------------------------
 
-@Composable private fun SearchResults(query: String, open: (SettingsCategory) -> Unit) {
+@Composable private fun SearchResults(query: String, open: (SettingsCategory) -> Unit, onClear: () -> Unit) {
     val hits = remember(query) { SettingsIndex.search(query) }
     if (hits.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(Icons.Rounded.Search, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Nothing matches “${query.trim()}”", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text("Try a word such as theme, backup, pencil or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            TextButton(onClear, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
         }
         return
     }

@@ -878,7 +878,12 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                                 OutlinedTextField(
                                     customMinutes, { customMinutes = it.filter(Char::isDigit).take(3) },
                                     Modifier.weight(1f), label = { Text("Writing minutes") }, singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                    supportingText = { Text("1–${AppPrefs.TIMER_CUSTOM_MAX} min, after $defaultReading min reading") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                                        val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())
+                                        onStart(ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60))
+                                    })
                                 )
                                 Button({
                                     val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())

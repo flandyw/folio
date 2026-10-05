@@ -56,6 +56,7 @@ data class ToolOptions(
 /** Quick switches shown in the editor as a row over the page. */
 object EditorQuickPrefs {
     const val ERASER_SINGLE_STROKE = "eraserSingleStroke"
+    const val PULL_TO_ADD_PAGE = "pullToAddPage"
     const val ERASER_PRESSURE = "eraserPressure"
     const val SCRIBBLE_TO_ERASE = "scribbleToErase"
     const val SCRIBBLE_SENSITIVITY = "scribbleSensitivity"

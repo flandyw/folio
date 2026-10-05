@@ -15,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -143,10 +145,13 @@ private fun Modifier.clickableRow(enabled: Boolean, onClick: () -> Unit): Modifi
     onReset: (() -> Unit)? = null,
 ) {
     val hold = rememberLongPressGuard()
+    val haptics = LocalHapticFeedback.current
     Row(
         Modifier.fillMaxWidth()
             .then(if (onReset != null) Modifier.longPressAction(hold, onReset) else Modifier)
-            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { v -> hold.click { onChange(v) }() })
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = { v ->
+                hold.click { haptics.performHapticFeedback(if (v) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff); onChange(v) }()
+            })
             .padding(RowPadding),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16),
     ) {
