@@ -60,6 +60,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
     // Extra top space for panes with no top bar of their own (full screen has no status bar inset).
     topGap: Dp = 0.dp,
+    onQuickNote: () -> Unit = onNew,
 ) {
     val focusManager = LocalFocusManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -262,6 +263,13 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     }
                                 }
                                 if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
+                            }
+                            if (!pickingNotebook && !selecting) FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
+                            ) {
+                                FilledTonalButton(onQuickNote, enabled = !state.loading, shapes = ButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.EditNote, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Quick note")
+                                }
                             }
                             // Narrow devices have no sidebar: destinations live in the short
                             // navigation bar pinned to the bottom instead.

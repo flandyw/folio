@@ -410,6 +410,13 @@ import java.io.File
                             onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = true },
                             studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },
+                            onQuickNote = {
+                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false
+                                model.create("Quick note · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
+                                    AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
+                                    AppPrefs.defaultPaper(prefs.getString(AppPrefs.DEFAULT_PAPER, null)),
+                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
+                            },
                             onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; newNote = true },
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
                             onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
