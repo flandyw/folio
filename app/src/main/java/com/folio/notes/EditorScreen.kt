@@ -341,6 +341,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val pageFrames = remember { mutableMapOf<String, Rect>() }
     var moveSelection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
+    val canPaste = context.getSystemService(android.content.ClipboardManager::class.java)?.hasPrimaryClip() == true
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
     /** Selection frame in view fractions for the context menu; cleared with the page. */
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
@@ -721,7 +722,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onCopy = { model.copyToClipboard(selected) },
                     canMove = note.pages.size > 1,
                     onMove = { moveSelection = page.id to selected },
-                    onPaste = { pasteInView(); dismissSelection() },
+                    onPaste = { pasteInView(); dismissSelection() }, canPaste = canPaste,
                     onCut = { model.cutSelection(selected); dismissSelection() },
                     onDuplicate = {
                         model.duplicateSelection(selected)
@@ -1591,7 +1592,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     pageMenu?.takeIf { !inkNavigating }?.let { (wx, wy, at) ->
         PageContextMenu(wx, wy,
-            onPaste = { model.pasteClipboard(at) },
+            onPaste = { model.pasteClipboard(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
             onText = { placeTextBox(at) },
             onImage = { imagePicker.launch(arrayOf("image/*")) },

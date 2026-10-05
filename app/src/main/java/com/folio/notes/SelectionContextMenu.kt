@@ -70,7 +70,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 @Composable internal fun SelectionContextMenu(
     availableWidth: Dp, canRestyle: Boolean,
     onCopy: () -> Unit, onCut: () -> Unit, onDuplicate: () -> Unit,
-    onMove: () -> Unit, canMove: Boolean, onPaste: () -> Unit,
+    onMove: () -> Unit, canMove: Boolean, onPaste: () -> Unit, canPaste: Boolean = true,
     onStyle: () -> Unit, onDelete: () -> Unit, onDeselect: () -> Unit, onSelectAll: () -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
@@ -95,7 +95,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         if (overflow) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp)).padding(bottom = 4.dp)) {
             if (!showCopy) PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
             PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
-            PageMenuRow(Icons.Rounded.ContentPaste, "Paste", true) { run(onPaste) }
+            PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
             PageMenuRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move to page…", canMove) { run(onMove) }
             if (!showDuplicate) PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
             if (canRestyle && !showStyle) PageMenuRow(Icons.Rounded.Palette, "Style", true) { run(onStyle) }
@@ -171,7 +171,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 /** Finger long-press menu on the page itself; opens above the press, or below when there is no room. */
 @Composable internal fun PageContextMenu(
     windowX: Float, windowY: Float, onPaste: () -> Unit, onSelectAll: () -> Unit, onText: () -> Unit, onImage: () -> Unit,
-    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit
+    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit,
+    canPaste: Boolean = true
 ) {
     val gap = with(LocalDensity.current) { 16.dp.toPx() }
     val provider = remember(windowX, windowY, gap) {
@@ -191,7 +192,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.width(200.dp).semanticsLabel("Page options")) {
             Column(Modifier.padding(vertical = 4.dp)) {
-                PageMenuRow(Icons.Rounded.ContentPaste, "Paste", true) { run(onPaste) }
+                PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
                 PageMenuRow(Icons.Rounded.TextFields, "Add text here", true) { run(onText) }
                 PageMenuRow(Icons.Rounded.Image, "Insert image", true) { run(onImage) }
                 PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
