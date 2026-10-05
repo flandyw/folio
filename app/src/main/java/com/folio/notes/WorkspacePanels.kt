@@ -41,6 +41,8 @@ import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -151,7 +153,7 @@ import androidx.compose.ui.unit.dp
                     item(key = "label-${section.label}") {
                         Text(
                             section.label.uppercase(),
-                            Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4),
+                            Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4).semantics { heading() },
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary
                         )
                     }
