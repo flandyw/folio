@@ -138,6 +138,16 @@ import androidx.compose.ui.unit.dp
                     ) { Text("Apply") }
                 }
             )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FilterChip(selected == setOf(initialIndex) && initialIndex in note.pages.indices,
+                    { selected = setOf(initialIndex).filter { it in note.pages.indices }.toSet(); rangeError = null },
+                    { Text("Current page") }, enabled = initialIndex in note.pages.indices)
+                FilterChip(selected.size == note.pages.size && selected.isNotEmpty(),
+                    { selected = note.pages.indices.toSet(); rangeError = null }, { Text("All pages") }, enabled = note.pages.isNotEmpty())
+                val bookmarks = remember(note.pages) { note.pages.indices.filter { note.pages[it].bookmarked }.toSet() }
+                FilterChip(selected == bookmarks && bookmarks.isNotEmpty(),
+                    { selected = bookmarks; rangeError = null }, { Text("Bookmarks (${bookmarks.size})") }, enabled = bookmarks.isNotEmpty())
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
