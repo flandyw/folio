@@ -53,11 +53,11 @@ import androidx.compose.ui.unit.dp
                 ) {
                     Column(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton({ model.setLayerVisible(layer.id, !layer.visible) }, Modifier.size(40.dp)) {
+                            IconButton({ model.setLayerVisible(layer.id, !layer.visible) }, Modifier.size(48.dp)) {
                                 Icon(if (layer.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
                                     if (layer.visible) "Hide ${layer.name}" else "Show ${layer.name}", Modifier.size(20.dp))
                             }
-                            IconButton({ model.setLayerLocked(layer.id, !layer.locked) }, Modifier.size(40.dp)) {
+                            IconButton({ model.setLayerLocked(layer.id, !layer.locked) }, Modifier.size(48.dp)) {
                                 Icon(if (layer.locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
                                     if (layer.locked) "Unlock ${layer.name}" else "Lock ${layer.name}", Modifier.size(20.dp))
                             }
@@ -72,14 +72,14 @@ import androidx.compose.ui.unit.dp
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.End) {
-                            IconButton({ model.moveLayer(layer.id, up = true) }, Modifier.size(36.dp), enabled = index < layers.lastIndex) {
+                            IconButton({ model.moveLayer(layer.id, up = true) }, Modifier.size(48.dp), enabled = index < layers.lastIndex) {
                                 Icon(Icons.Rounded.KeyboardArrowUp, "Move ${layer.name} up", Modifier.size(20.dp))
                             }
-                            IconButton({ model.moveLayer(layer.id, up = false) }, Modifier.size(36.dp), enabled = index > 0) {
+                            IconButton({ model.moveLayer(layer.id, up = false) }, Modifier.size(48.dp), enabled = index > 0) {
                                 Icon(Icons.Rounded.KeyboardArrowDown, "Move ${layer.name} down", Modifier.size(20.dp))
                             }
-                            IconButton({ renaming = layer }, Modifier.size(36.dp)) { Icon(Icons.Rounded.Edit, "Rename ${layer.name}", Modifier.size(18.dp)) }
-                            IconButton({ model.deleteLayer(layer.id) }, Modifier.size(36.dp), enabled = layers.size > 1) {
+                            IconButton({ renaming = layer }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Edit, "Rename ${layer.name}", Modifier.size(18.dp)) }
+                            IconButton({ model.deleteLayer(layer.id) }, Modifier.size(48.dp), enabled = layers.size > 1) {
                                 Icon(Icons.Rounded.Delete, "Delete ${layer.name}", Modifier.size(18.dp))
                             }
                         }
