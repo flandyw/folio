@@ -160,7 +160,7 @@ import androidx.compose.ui.unit.dp
                         val pdf = note.pages.any { it.pdfIndex != null }
                         ListItem(
                             headlineContent = {
-                                Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(note.title.ifBlank { "Untitled notebook" }, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             },
                             supportingContent = {
                                 Text(WorkspacePicker.subtitle(note), maxLines = 1, overflow = TextOverflow.Ellipsis)
