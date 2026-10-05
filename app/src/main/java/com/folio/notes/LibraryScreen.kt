@@ -496,7 +496,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
-        if (!wide && showNavigation && !pickingNotebook) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
+        if (!wide && showNavigation && !pickingNotebook && !selecting) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
             ShortNavigationBarItem(!showMistakes && !showStudy && section == LibrarySection.LIBRARY && !starred && state.folderId == null,
                 { section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() },
                 icon = { Icon(Icons.Rounded.GridView, "Library") }, label = { Text("Library") })
