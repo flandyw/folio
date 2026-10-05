@@ -1645,6 +1645,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             )
+            if (note.pages.any { it.pdfIndex != null }) TextButton({ noteSearchOpen = false; pdfSearchOpen = true }) {
+                Text("Search PDF text instead")
+            }
             if (searchPages?.any { !it.loaded } == true) Text("Some pages could not be read. Results may be incomplete.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             if (noteQuery.isBlank()) {
@@ -1689,7 +1692,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         search = state.pdfSearch, currentIndex = state.pageIndex,
         onQuery = model::searchPdf,
         onJump = { jumpTo(it); pdfSearchOpen = false },
-        onDismiss = { pdfSearchOpen = false }
+        onDismiss = { pdfSearchOpen = false },
+        onFindNotes = { pdfSearchOpen = false; noteSearchOpen = true }
     )
     if (pdfContentsOpen) FolioPanel(title = "Contents", onDismissRequest = { pdfContentsOpen = false }) {
         val outline = pdfOutline

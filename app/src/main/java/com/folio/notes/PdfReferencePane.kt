@@ -58,7 +58,8 @@ import androidx.compose.ui.unit.dp
     currentIndex: Int,
     onQuery: (String) -> Unit,
     onJump: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onFindNotes: (() -> Unit)? = null
 ) {
     var query by rememberSaveable { mutableStateOf(search.query) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -82,6 +83,7 @@ import androidx.compose.ui.unit.dp
                     }
                 }
             )
+            if (onFindNotes != null) TextButton(onFindNotes) { Text("Search typed notes instead") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Button(::submit, enabled = query.isNotBlank() && !search.searching, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
