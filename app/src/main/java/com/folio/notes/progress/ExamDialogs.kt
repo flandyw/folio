@@ -224,7 +224,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") })
             ChoiceField("Category", category, listOf("Concept", "Knowledge recall", "Reasoning", "Evidence and analysis", "Written expression", "Process or technique", "Accuracy", "Interpretation", "Time management", "Algebra", "Arithmetic", "Calculator", "Other"), { category = it })
             OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), label = { Text("What went wrong?") }, minLines = 2)
-            OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), label = { Text("Correction") }, minLines = 2)
+            OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), label = { Text("Correction") }, placeholder = { Text("Explain the correct approach for next time.") }, minLines = 2)
             OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), label = { Text("Area of study") })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
