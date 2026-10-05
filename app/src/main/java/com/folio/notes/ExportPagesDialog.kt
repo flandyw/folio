@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable internal fun ExportPagesDialog(
@@ -181,7 +182,8 @@ import androidx.compose.ui.unit.dp
                         Column(Modifier.weight(1f)) {
                             Text(
                                 page.displayTitle(index),
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis
                             )
                             if (page.bookmarked || page.redoFlag) {
                                 Row(
