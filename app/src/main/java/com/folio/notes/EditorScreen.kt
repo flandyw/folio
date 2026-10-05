@@ -1625,7 +1625,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             try { hits = withContext(Dispatchers.Default) { NotebookTextSearch.search(snapshot, debouncedQuery) } }
             finally { searchingText = false }
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+        Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
                 noteQuery, { noteQuery = it },
                 Modifier.fillMaxWidth(),
@@ -1663,7 +1663,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             } else {
                 Text("${hits.size} ${if (hits.size == 1) "page matches" else "pages match"} — most matches first.",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 368.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     items(hits, key = { it.pageIndex }) { hit ->
                         Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
