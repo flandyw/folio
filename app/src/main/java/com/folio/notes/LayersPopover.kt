@@ -88,7 +88,7 @@ import androidx.compose.ui.unit.dp
                             }
                         }
                         if (selectionCount > 0) {
-                            TextButton({ onMoveSelection(layer.id) }, shapes = ButtonDefaults.shapes()) {
+                            TextButton({ onMoveSelection(layer.id) }, enabled = layer.id != active, shapes = ButtonDefaults.shapes()) {
                                 Text("Move $selectionCount selected here")
                             }
                         }
