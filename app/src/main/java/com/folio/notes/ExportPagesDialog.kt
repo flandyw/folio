@@ -61,7 +61,7 @@ import androidx.compose.ui.unit.dp
 
     FolioPanel(title = "Export pages", onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
                 .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
