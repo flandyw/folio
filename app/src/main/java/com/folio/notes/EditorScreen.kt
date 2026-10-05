@@ -1922,6 +1922,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     }.guides
                 page.pdfIndex == null && page.paper == Paper.RULED -> WritingGuides.ruled(page.width, page.height)
                 page.pdfIndex == null && page.paper == Paper.SPLIT_RULED -> WritingGuides.ruled(page.width, page.height, split = true)
+                page.pdfIndex == null && page.paper.isHanzi -> WritingGuides.hanzi(page.width, page.height, Paper.HANZI_CELL)
                 else -> emptyList()
             }
         }

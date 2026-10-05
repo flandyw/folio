@@ -39,7 +39,7 @@ object WritingGuides {
                 for (neighbour in neighbours) if (group.add(neighbour)) queue.add(neighbour)
             }
             if (group.size >= 2) result += WritingLane(group.minOf { it.left },
-                (group.minOf { it.y } - 28f).coerceAtLeast(0f), group.maxOf { it.right }, group.maxOf { it.y })
+                (group.minOf { it.y } - if (group.all { it.block == HANZI_BLOCK }) HANZI_STEP else 28f).coerceAtLeast(0f), group.maxOf { it.right }, group.maxOf { it.y })
         }
         return result.sortedWith(compareBy({ it.top }, { it.left }))
     }
@@ -58,7 +58,9 @@ object WritingGuides {
 
     private fun follows(line: WritingGuide, next: WritingGuide): Boolean {
         val overlap = min(line.right, next.right) - max(line.left, next.left)
-        return line.block == next.block && next.y - line.y in 12f..64f &&
+        val gap = next.y - line.y
+        val stepOk = if (line.block == HANZI_BLOCK) abs(gap - HANZI_STEP) < .5f else gap in 12f..64f
+        return line.block == next.block && stepOk &&
             overlap >= min(line.right - line.left, next.right - next.left) * .8f &&
             abs(next.left - line.left) <= 32f && abs(next.right - line.right) <= 32f
     }
@@ -76,6 +78,24 @@ object WritingGuides {
             if (split) sequenceOf(WritingGuide(36f, width / 2f, y, 0), WritingGuide(width / 2f, width - 36f, y, 1))
             else sequenceOf(WritingGuide(36f, width - 36f, y))
         }.toList()
+
+    /** Block id of hanzi-paper rules: one row of squares per line, a full cell apart. */
+    const val HANZI_BLOCK = -1
+
+    /** Distance between hanzi rows; equals `Paper.HANZI_CELL`, kept here so this file stays free of Android models. */
+    private const val HANZI_STEP = 84f
+
+    /**
+     * The printed rows of tian/mi paper: one writing line per row of squares, sitting just above each
+     * row's bottom edge, spanning the centred block of squares exactly as `InkRenderer.drawHanzi` lays it out.
+     */
+    fun hanzi(width: Float, height: Float, cell: Float = HANZI_STEP): List<WritingGuide> {
+        val cols = (width / cell).toInt().coerceAtLeast(1)
+        val rows = (height / cell).toInt().coerceAtLeast(1)
+        val left = (width - cols * cell) / 2f
+        val top = (height - rows * cell) / 2f
+        return (1..rows).map { WritingGuide(left, left + cols * cell, top + it * cell - cell * .14f, HANZI_BLOCK) }
+    }
 
     /**
      * Scan the unannotated PDF raster off the UI thread. Join dots, dashes and antialiasing gaps,
