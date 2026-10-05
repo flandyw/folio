@@ -47,7 +47,7 @@ object NotebookTextSearch {
                 }
                 if (boxCount == 0) return@forEach
                 count += boxCount
-                if (best == null && bestTerm != null && bestAt >= 0 && boxCount > bestScore) {
+                if (bestTerm != null && bestAt >= 0 && boxCount > bestScore) {
                     bestScore = boxCount
                     best = Hit(pageIndex, 0, excerpt(box.text, bestAt, bestTerm.length), box.id)
                 }
