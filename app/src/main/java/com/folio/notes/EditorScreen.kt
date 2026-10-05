@@ -1581,7 +1581,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             onCreate = { created -> model.addText(created); rememberTextLook(created); textEditor = null },
             onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
             onDelete = { model.removeText(box.id); textEditor = null },
-            onDuplicate = { source -> model.duplicateText(source.id); rememberTextLook(source); textEditor = null },
+            onDuplicate = { source -> model.duplicateText(source.id, source); rememberTextLook(source); textEditor = null },
             canMove = note.pages.size > 1,
             onMove = { source ->
                 model.updateText(source)
@@ -2985,7 +2985,7 @@ private enum class ToolSub { PRESETS, TOOL }
         dismissButton = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 if (!isNew) {
-                    TextButton({ onDuplicate(box) }, shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
+                    TextButton({ onDuplicate(edited()) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
                     TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
                 }
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }

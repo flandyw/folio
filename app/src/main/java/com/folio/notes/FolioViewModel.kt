@@ -1587,9 +1587,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
     fun removeText(id: String) { val page = _state.value.page ?: return; texts(page.id, page.texts.filterNot { it.id == id }) }
     /** Duplicates one typed box nudged along so the copy never hides under its source. */
-    fun duplicateText(id: String) {
+    fun duplicateText(id: String, draft: TextBox? = null) {
         val page = _state.value.page ?: return
-        val source = page.texts.find { it.id == id } ?: return
+        val original = page.texts.find { it.id == id } ?: return
+        val source = draft?.takeIf { it.id == id } ?: original
         val copy = source.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f)
         texts(page.id, page.texts + copy)
     }
