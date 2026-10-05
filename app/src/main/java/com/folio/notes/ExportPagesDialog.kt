@@ -219,7 +219,7 @@ import androidx.compose.ui.unit.dp
                         }
                         if (index == initialIndex) {
                             Text(
-                                "Current",
+                                "Current page",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
