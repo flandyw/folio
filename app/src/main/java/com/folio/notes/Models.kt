@@ -18,7 +18,7 @@ object ScribbleSensitivity {
     fun passes(value: Float) = if (normalize(value) < .25f) 3 else 2
 }
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA }
 
 /** Two-corner shapes shared by input, rendering and editing. */
 val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.TRIANGLE,

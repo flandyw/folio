@@ -12,7 +12,7 @@ import androidx.compose.runtime.setValue
  * moving shapes always moves line, rectangle and ellipse together.
  */
 enum class ToolbarSlot {
-    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND;
+    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA;
 
     /** Tools behind this slot; [SHAPES] expands to the last-used shape tool. */
     val tools: List<Tool> get() = when (this) {
@@ -23,6 +23,7 @@ enum class ToolbarSlot {
         TEXT -> listOf(Tool.TEXT)
         LASSO -> listOf(Tool.LASSO)
         HAND -> listOf(Tool.HAND)
+        MARK_AREA -> listOf(Tool.MARK_AREA)
     }
 
     companion object {
@@ -51,7 +52,7 @@ data class ToolbarLayout(
     val visible: List<ToolbarSlot> get() = order.filterNot { it in hidden }
 
     /** Slots leading the strip; the remainder live under "…". */
-    val primary: List<ToolbarSlot> get() = visible.take(maxPrimary.coerceIn(ToolbarLayouts.MIN_PRIMARY, ToolbarLayouts.MAX_PRIMARY))
+    val primary: List<ToolbarSlot> get() = visible.take(maxPrimary.coerceIn(ToolbarLayouts.MIN_PRIMARY, ToolbarLayouts.MAX_PRIMARY + 1))
 
     /** Visible slots pushed into the overflow menu. */
     val overflow: List<ToolbarSlot> get() = visible.drop(primary.size)
@@ -69,7 +70,7 @@ object ToolbarLayouts {
 
     val DEFAULT_ORDER: List<ToolbarSlot> = listOf(
         ToolbarSlot.PEN, ToolbarSlot.SHAPES, ToolbarSlot.HIGHLIGHTER,
-        ToolbarSlot.ERASER, ToolbarSlot.TEXT, ToolbarSlot.LASSO, ToolbarSlot.HAND
+        ToolbarSlot.ERASER, ToolbarSlot.TEXT, ToolbarSlot.LASSO, ToolbarSlot.HAND, ToolbarSlot.MARK_AREA
     )
 
     /** Every slot exactly once, in a sane order even when the stored value is corrupt. */

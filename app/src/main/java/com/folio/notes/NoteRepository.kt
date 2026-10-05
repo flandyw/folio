@@ -1121,6 +1121,22 @@ class NoteRepository(private val context: Context) {
         }
     }
 
+    /** Reads the number inside a hand-boxed area, to prefill its marks; null when nothing legible is there. */
+    suspend fun readMarkRegion(noteId: String, page: NotePage, lane: WritingLane): Int? = withContext(Dispatchers.IO) {
+        if (page.pdfIndex == null) return@withContext null
+        markOcrLock.withLock {
+            val file = sourcePdfFile(noteId) ?: return@withLock null
+            val ocr = MarkOcr(context.cacheDir, file)
+            try {
+                openPdf(noteId)?.use { renderer ->
+                    val bitmap = renderer.render(page, 2200) ?: return@use null
+                    try { ocr.readRegion(page, bitmap, lane) } finally { bitmap.recycle() }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { null } finally { ocr.close() }
+        }
+    }
+
     private fun extractMarkZones(doc: PDDocument, dims: Map<Int, Pair<Float, Float>>): List<MarkZone> {
         val zones = mutableListOf<MarkZone>()
         val line = StringBuilder()

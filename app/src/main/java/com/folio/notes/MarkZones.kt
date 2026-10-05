@@ -11,7 +11,9 @@ import kotlin.math.min
 data class MarkZone(
     val pageIndex: Int,
     val x: Float, val y: Float, val width: Float, val height: Float,
-    val marks: Int
+    val marks: Int,
+    /** Drawn by the marker around an allocation the scan missed, rather than found by it. */
+    val manual: Boolean = false
 ) {
     /** True with a finger-sized margin, so a small label is still easy to tap. */
     fun contains(px: Float, py: Float, slop: Float = SLOP): Boolean =
@@ -33,7 +35,16 @@ object MarkZones {
     private const val STAMP_H = 24f
     private const val STAMP_SIZE = 16f
     private const val PAD = 3f
-    private val allocation = Regex("""(?<![\w.])(?:[\[(]\s*)?(\d{1,2})\s*marks?\b(?:\s*[\])])?""", RegexOption.IGNORE_CASE)
+    // "marks" as OCR tends to misread it: "rn" for "m", a stray space, a trailing 5 for the s.
+    private val allocation = Regex(
+        """(?<![\w.])(?:[\[(]\s*)?(\d{1,2})\s*(?:m|rn)\s?a\s?r\s?k\s?[s5]?(?![a-z])(?:\s*[\])])?""", RegexOption.IGNORE_CASE)
+    private val bareNumber = Regex("""(?<![\d.])(\d{1,2})(?![\d.])""")
+
+    /** A lone number in a small boxed region, for prefilling the marks of a hand-drawn area. */
+    fun numberIn(text: String): Int? {
+        find(text).firstOrNull()?.let { return it.marks }
+        return bareNumber.findAll(text).mapNotNull { it.groupValues[1].toIntOrNull() }.singleOrNull()?.takeIf { it in 1..MAX_MARKS }
+    }
 
     /** Allocations in [line]: "[4 marks]", "(2 marks)", "3 marks", "1 mark". Zero and absurd counts are skipped. */
     fun find(line: String): List<MarkMatch> = allocation.findAll(line).mapNotNull { m ->
@@ -96,6 +107,19 @@ object MarkZones {
     fun withoutAward(zone: MarkZone, page: NotePage): Pair<List<TextBox>, List<Stroke>> {
         val existing = stampFor(zone, page)
         return page.texts.filterNot { it.id == existing?.id } to page.strokes.filterNot { isDecoration(zone, it) }
+    }
+
+    /** Zones drawn by hand, as one preference string: `page,x,y,w,h,marks` joined by `;`. */
+    fun encode(zones: List<MarkZone>): String =
+        zones.joinToString(";") { "${it.pageIndex},${it.x},${it.y},${it.width},${it.height},${it.marks}" }
+
+    fun decode(text: String?): List<MarkZone> = text.orEmpty().split(';').mapNotNull { row ->
+        val f = row.split(',')
+        if (f.size != 6) return@mapNotNull null
+        val page = f[0].toIntOrNull() ?: return@mapNotNull null
+        val n = f.drop(1).take(4).map { it.toFloatOrNull() ?: return@mapNotNull null }
+        val marks = f[5].toIntOrNull()?.takeIf { it in 1..MAX_MARKS } ?: return@mapNotNull null
+        MarkZone(page, n[0], n[1], n[2], n[3], marks, manual = true)
     }
 
     /** Total marks available across the zones — the paper's own total when it prints every allocation. */

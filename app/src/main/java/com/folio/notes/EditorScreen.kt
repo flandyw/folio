@@ -383,7 +383,14 @@ private fun paperLabel(p: Paper): String = when (p) {
     var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
     var markScanStatus by remember(note.id) { mutableStateOf<String?>(null) }
     var markScanBusy by remember(note.id) { mutableStateOf(false) }
-    var markZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
+    var scannedZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
+    // Allocations the marker boxed by hand because the scan missed them; kept per notebook.
+    var manualZones by remember(note.id) { mutableStateOf(MarkZones.decode(appPrefs.getString("marking.zones.${note.id}", null))) }
+    val markZones = scannedZones + manualZones
+    fun saveManualZones(next: List<MarkZone>) {
+        manualZones = next
+        appPrefs.edit().putString("marking.zones.${note.id}", MarkZones.encode(next)).apply()
+    }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
@@ -613,14 +620,14 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     val markPageGeometry = note.pages.map { Triple(it.pdfIndex, it.width, it.height) }
     LaunchedEffect(note.id, markAssist, markPageGeometry) {
-        markZones = emptyList()
+        scannedZones = emptyList()
         markScanStatus = null
         if (markAssist && note.pages.any { it.pdfIndex != null }) {
             markScanBusy = true
             markScanStatus = "Looking for printed marks…"
             try {
-                markZones = model.repository.pdfMarkZones(note.id, note.pages) { zones, status ->
-                    markZones = zones
+                scannedZones = model.repository.pdfMarkZones(note.id, note.pages) { zones, status ->
+                    scannedZones = zones
                     markScanStatus = status
                 }
             } catch (cancelled: CancellationException) {
@@ -890,6 +897,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 },
                                 pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                                 markZones = markZones, markAssist = markAssist, markColor = markingColor,
+                                                onReplaceZone = { old, new -> saveManualZones(manualZones.filterNot { it == old } + listOfNotNull(new)) },
                                 onPageFrame = { id, frame -> if (frame == null) pageFrames.remove(id) else pageFrames[id] = frame },
                                 onSelectionDrop = { sourceId, picked, x, y ->
                                     // A selection let go over another page lands there, centred on the finger.
@@ -1137,6 +1145,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
+            if (tool == Tool.MARK_AREA && page.pdfIndex != null) MarkAreaHint(
+                Modifier.align(Alignment.BottomCenter).zIndex(11f).padding(bottom = FolioSpacing.dp16))
             if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
@@ -1148,7 +1158,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 FloatingInkToolbar(
-                    modifier = Modifier,
+                    modifier = Modifier, markAreaAvailable = note.pages.any { it.pdfIndex != null },
                     onMainHeight = { floatingToolbarTop = with(density) { it.toDp() } + 8.dp },
                     tool = tool,
                     onTool = { selectTool(it) },
@@ -1850,6 +1860,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     selectionMenuViewport: Rect? = null,
     onSelectionAnchor: (Rect?) -> Unit = {},
     markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR,
+    onReplaceZone: (old: MarkZone?, new: MarkZone?) -> Unit = { _, _ -> },
     onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
     onCropMode: (Boolean) -> Unit = {}, onNavigating: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
@@ -1857,9 +1868,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
     var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
+    // A rectangle just drawn (or an existing hand-drawn one being edited) waiting for its marks to be entered.
+    var areaEntry by remember(page.id) { mutableStateOf<AreaEntry?>(null) }
     val pageZones = remember(markZones, page.pdfIndex, markAssist) {
         val target = page.pdfIndex
-        if (!markAssist || target == null) emptyList() else markZones.filter { it.pageIndex == target }
+        if (target == null) emptyList() else markZones.filter { it.pageIndex == target && (markAssist || it.manual) }
     }
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
     val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1995,6 +2008,10 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
                 view.onSelectionDrop = { picked, x, y -> !readOnly && onSelectionDrop(page.id, picked, x, y) }
+                view.onMarkRegion = { lane, rect ->
+                    areaEntry = if (lane == null || rect == null) null
+                    else AreaEntry(null, lane.left, lane.top, lane.right - lane.left, lane.bottom - lane.top, rect)
+                }
                 view.onMarkZone = { zone, rect ->
                     offeredZone = if (zone != null && rect != null) zone to rect else null
                     offerStamp++
@@ -2017,7 +2034,30 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             MarkChip(zone, rect, page, offerStamp,
                 onAward = { value -> model.awardMark(page.id, zone, value, markColor); offeredZone = null },
                 onClear = { model.clearMark(page.id, zone); offeredZone = null },
-                onDismiss = { offeredZone = null })
+                onDismiss = { offeredZone = null },
+                onEdit = if (zone.manual) ({
+                    areaEntry = AreaEntry(zone, zone.x, zone.y, zone.width, zone.height, rect); offeredZone = null
+                }) else null)
+        }
+        areaEntry?.takeIf { page.loaded && !readOnly }?.let { entry ->
+            // A fresh box is read in the background so the stepper opens on the number printed inside it.
+            var guess by remember(entry) { mutableStateOf<Int?>(null) }
+            LaunchedEffect(entry) {
+                if (entry.existing == null) guess = try {
+                    model.repository.readMarkRegion(noteId, page, WritingLane(entry.x, entry.y, entry.x + entry.width, entry.y + entry.height))
+                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+            }
+            MarkAreaPopover(entry.rect, entry.existing?.marks, guess,
+                onConfirm = { marks ->
+                    val zone = MarkZone(page.pdfIndex ?: 0, entry.x, entry.y, entry.width, entry.height, marks, manual = true)
+                    onReplaceZone(entry.existing, zone)
+                    boundInkView?.clearMarkRegion()
+                    areaEntry = null
+                    // Straight on to awarding it, as if the scan had found it.
+                    offeredZone = zone to entry.rect; offerStamp++
+                },
+                onRemove = entry.existing?.let { old -> { model.clearMark(page.id, old); onReplaceZone(old, null); areaEntry = null } },
+                onDismiss = { boundInkView?.clearMarkRegion(); areaEntry = null })
         }
         if (selectionMenu != null && page.loaded && ready) {
             SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, tightGap = selectedImageId != null, content = selectionMenu)
@@ -2036,7 +2076,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     eraserWholeStroke: Boolean = false, onEraserWholeStroke: ((Boolean) -> Unit)? = null,
     shapeMeasurements: Boolean = true, onShapeMeasurements: ((Boolean) -> Unit)? = null,
     multiTouchUndo: Boolean = true, onMultiTouchUndo: ((Boolean) -> Unit)? = null,
-    onSelectAll: (() -> Unit)? = null,
+    onSelectAll: (() -> Unit)? = null, markAreaAvailable: Boolean = false,
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
@@ -2063,7 +2103,12 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         stripGuard.begin()
     }
     var lastShape by rememberSaveable { mutableStateOf(Tool.LINE) }
-    val toolbarLayout = toolbarLayoutState?.layout ?: ToolbarLayouts.default()
+    // Boxing a missed allocation only means something on an imported PDF, so elsewhere the tool stays out of the way;
+    // where it applies it rides on top of the strip rather than pushing another tool into the overflow.
+    val toolbarLayout = (toolbarLayoutState?.layout ?: ToolbarLayouts.default()).let { base ->
+        if (!markAreaAvailable) base.copy(hidden = base.hidden + ToolbarSlot.MARK_AREA)
+        else if (ToolbarSlot.MARK_AREA in base.hidden) base else base.copy(maxPrimary = base.maxPrimary + 1)
+    }
     val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
         toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
     }
@@ -2208,6 +2253,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { pick(it) }
             ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
+            ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
         }
       }
@@ -2423,6 +2469,7 @@ private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
     ToolbarSlot.TEXT -> "Text"
     ToolbarSlot.LASSO -> "Lasso select"
     ToolbarSlot.HAND -> "Hand"
+    ToolbarSlot.MARK_AREA -> "Mark area"
 }
 
 private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
@@ -2433,6 +2480,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     ToolbarSlot.TEXT -> Icons.Rounded.TextFields
     ToolbarSlot.LASSO -> Icons.Rounded.Gesture
     ToolbarSlot.HAND -> Icons.Rounded.PanTool
+    ToolbarSlot.MARK_AREA -> Icons.Rounded.CropFree
 }
 
 /**
@@ -2916,7 +2964,7 @@ private enum class FollowSub { AREAS }
  */
 @Composable private fun MarkChip(
     zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long,
-    onAward: (Int) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit
+    onAward: (Int) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null
 ) {
     val existing = remember(zone, page.texts) { MarkZones.awarded(zone, page)?.roundToInt() }
     var adjusting by remember(zone) { mutableStateOf(false) }
@@ -2956,6 +3004,9 @@ private enum class FollowSub { AREAS }
                     if (existing != null) IconButton(onClear, Modifier.size(44.dp)) {
                         Icon(Icons.Rounded.Delete, "Remove this mark")
                     }
+                    if (onEdit != null) IconButton(onEdit, Modifier.size(44.dp)) {
+                        Icon(Icons.Rounded.Edit, "Change this area's marks or remove it")
+                    }
                 } else {
                     IconButton({ value = (value - 1).coerceAtLeast(0) }, Modifier.size(44.dp), enabled = value > 0) { Icon(Icons.Rounded.Remove, "One fewer mark") }
                     Text("$value / ${zone.marks}", style = MaterialTheme.typography.titleSmall)
@@ -2966,5 +3017,58 @@ private enum class FollowSub { AREAS }
                 }
             }
         }
+    }
+}
+
+/** A boxed allocation awaiting its value: [existing] is the hand-drawn zone being edited, null for a new one. */
+private data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float, val width: Float, val height: Float, val rect: android.graphics.RectF)
+
+/**
+ * Asks how many marks the label the marker just boxed is worth. It sits beside the rectangle, stays until
+ * answered or dismissed (it is a decision, not a hint), and a tick confirms — the box then behaves exactly
+ * like an allocation the scan had found.
+ */
+@Composable private fun MarkAreaPopover(
+    rect: android.graphics.RectF, initial: Int?, guess: Int?, onConfirm: (Int) -> Unit, onRemove: (() -> Unit)?, onDismiss: () -> Unit
+) {
+    var value by remember { mutableIntStateOf(initial ?: 1) }
+    var touched by remember { mutableStateOf(initial != null) }
+    LaunchedEffect(guess) { if (guess != null && !touched) value = guess }
+    val haptics = LocalHapticFeedback.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val maxWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        var size by remember { mutableStateOf(IntSize.Zero) }
+        val gap = with(LocalDensity.current) { 8.dp.toPx() }
+        Surface(
+            Modifier.onSizeChanged { size = it }.offset {
+                val x = (rect.centerX() - size.width / 2f).coerceIn(0f, (maxWidthPx - size.width).coerceAtLeast(0f))
+                val above = rect.top - size.height - gap
+                IntOffset(x.roundToInt(), (if (above >= 0f) above else rect.bottom + gap).roundToInt())
+            },
+            shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Marks", Modifier.padding(start = 12.dp, end = 2.dp), style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton({ touched = true; value = (value - 1).coerceAtLeast(1) }, Modifier.size(44.dp), enabled = value > 1) { Icon(Icons.Rounded.Remove, "One fewer mark") }
+                Text("$value", Modifier.widthIn(min = 24.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                IconButton({ touched = true; value = (value + 1).coerceAtMost(MarkZones.MAX_MARKS) }, Modifier.size(44.dp), enabled = value < MarkZones.MAX_MARKS) { Icon(Icons.Rounded.Add, "One more mark") }
+                IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onConfirm(value) }, Modifier.size(44.dp)) {
+                    Icon(Icons.Rounded.Check, "Set this area to $value ${if (value == 1) "mark" else "marks"}", tint = MaterialTheme.colorScheme.primary)
+                }
+                if (onRemove != null) IconButton(onRemove, Modifier.size(44.dp)) { Icon(Icons.Rounded.Delete, "Remove this area") }
+                IconButton(onDismiss, Modifier.size(44.dp)) { Icon(Icons.Rounded.Close, "Cancel") }
+            }
+        }
+    }
+}
+
+/** Says what the mark-area tool wants while it is selected; non-interactive, so it never steals a drag. */
+@Composable private fun MarkAreaHint(modifier: Modifier = Modifier) {
+    Surface(modifier, shape = CircleShape, shadowElevation = 4.dp, color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface) {
+        Text("Drag a box around a “[n marks]” label the scan missed", Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge)
     }
 }

@@ -38,6 +38,8 @@ class InkView(context: Context) : View(context) {
             // A half-finished text gesture belongs to the text tool.
             if (value != Tool.TEXT) { movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f }
             // A half-dragged picture belongs to the hand tool.
+            // A boxed allocation still waiting for its marks goes with the mark-area tool.
+            if (value != Tool.MARK_AREA && markRegionShown != null) { markRegionShown = null; onMarkRegion(null, null); invalidate() }
             if (value != Tool.HAND) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; endImageCrop(false); clearImageSelection() }
         }
     var inkColor = Color.rgb(47, 49, 47)
@@ -124,6 +126,12 @@ class InkView(context: Context) : View(context) {
     var markZones: List<MarkZone> = emptyList()
     /** The zone being offered (null when none) with its rectangle in this view's pixels. */
     var onMarkZone: (MarkZone?, android.graphics.RectF?) -> Unit = { _, _ -> }
+    /** Drag a rectangle around a printed allocation the scan missed: reported in page units and as view pixels. */
+    var onMarkRegion: (WritingLane?, android.graphics.RectF?) -> Unit = { _, _ -> }
+    private val markRegionMode get() = tool == Tool.MARK_AREA && !readOnly && page.pdfIndex != null
+    private var markRegionStart: InkPoint? = null
+    private var markRegionDraft: WritingLane? = null
+    private var markRegionShown: WritingLane? = null
     private var pendingZone: MarkZone? = null
     private var zoneFromX = 0f
     private var zoneFromY = 0f
@@ -274,6 +282,10 @@ class InkView(context: Context) : View(context) {
     private var pendingReturn: WritingAdvance? = null
     private var resumeFollowAfterMark = false
     private val followBack = FollowBackHistory()
+    /** Forgets the rectangle drawn with the mark-area tool, whether mid-drag or already handed to the editor. */
+    fun clearMarkRegion() {
+        markRegionShown = null; markRegionDraft = null; markRegionStart = null; invalidate()
+    }
     fun selectWritingRegion() {
         suspendWritingFollow(); selectingWritingRegion = true
         reportFollowStatus("Drag an answer area with your pen")
@@ -958,6 +970,18 @@ class InkView(context: Context) : View(context) {
             writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
             areas.distinct().forEach { r -> canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint) }
         }
+        (markRegionDraft ?: markRegionShown)?.let { r ->
+            val unit = selectionUiUnit()
+            writingRegionPaint.color = answerAreaColor
+            writingRegionPaint.style = Paint.Style.FILL
+            writingRegionPaint.alpha = 0x26
+            writingRegionPaint.pathEffect = null
+            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
+            writingRegionPaint.style = Paint.Style.STROKE
+            writingRegionPaint.alpha = 0xFF
+            writingRegionPaint.strokeWidth = 2f * unit
+            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
+        }
         canvas.restore()
     }
     /**
@@ -999,6 +1023,33 @@ class InkView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (inputBlocked) return true
+        if (markRegionMode) {
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) { markRegionDraft = null; markRegionStart = null; invalidate(); return true }
+            val pt = clampToPage(point(event, 0))
+            fun box(from: InkPoint) = WritingLane(min(from.x, pt.x), min(from.y, pt.y), max(from.x, pt.x), max(from.y, pt.y))
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    onActive(); dismissZone()
+                    // Starting again abandons a rectangle still waiting for its marks.
+                    if (markRegionShown != null) { markRegionShown = null; onMarkRegion(null, null) }
+                    markRegionStart = pt; parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> markRegionStart?.let { markRegionDraft = box(it) }
+                MotionEvent.ACTION_UP -> {
+                    markRegionStart?.let { from ->
+                        val r = box(from)
+                        val s = scale
+                        if (r.right - r.left >= 16f && r.bottom - r.top >= 8f) {
+                            markRegionShown = r
+                            onMarkRegion(r, android.graphics.RectF(originX + r.left * s, originY + r.top * s, originX + r.right * s, originY + r.bottom * s))
+                        } else markZones.lastOrNull { it.contains(pt.x, pt.y) }?.let(::offerZone)
+                    }
+                    markRegionDraft = null; markRegionStart = null; parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                MotionEvent.ACTION_CANCEL -> { markRegionDraft = null; markRegionStart = null; parent?.requestDisallowInterceptTouchEvent(false) }
+            }
+            invalidate(); return true
+        }
         if (selectingWritingRegion) {
             if (!isStylus(event, 0) && !fingerDrawing) return true
             val pt = clampToPage(point(event, 0))
