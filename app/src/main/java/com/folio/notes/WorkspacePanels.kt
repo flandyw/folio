@@ -65,7 +65,7 @@ import androidx.compose.ui.unit.dp
     onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
 ) {
     var query by rememberSaveable(purpose) { mutableStateOf("") }
-    var mode by remember { mutableStateOf(state.companionMode) }
+    var mode by rememberSaveable(purpose) { mutableStateOf(state.companionMode) }
     val keyboard = LocalSoftwareKeyboardController.current
     val openIds = remember(state.tabs) { state.tabs.map { it.notebookId }.toSet() }
     val folders = remember(state.folders) { state.folders.associate { it.id to it.name } }

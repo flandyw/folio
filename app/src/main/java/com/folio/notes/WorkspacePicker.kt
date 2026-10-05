@@ -33,7 +33,7 @@ object WorkspacePicker {
             note.exam.type?.label,
             note.exam.tags.joinToString(" ") { it.label }
         ).joinToString(" ").lowercase()
-        return haystack.contains(needle)
+        return needle.split(Regex("[\\s\\p{Z}]+")).filter { it.isNotBlank() }.all { haystack.contains(it) }
     }
 
     /**
