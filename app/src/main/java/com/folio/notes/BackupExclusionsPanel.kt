@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
     val count = notes.count { it.id in excludedIds }
     FolioPanel("Backup exclusions", onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Text("Select notebooks to exclude from automatic and portable library backups. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
+            Text("Select notebooks to exclude from automatic and portable library backups. Changes save immediately. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
             Text("$count of ${notes.size} notebooks excluded. Older restore points may still contain excluded notebooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
