@@ -3,6 +3,8 @@ package com.folio.notes
 
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -233,7 +235,7 @@ import androidx.compose.ui.unit.dp
 ) {
     FolioPanel(title = "Pane options", onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
             Text("Mode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
