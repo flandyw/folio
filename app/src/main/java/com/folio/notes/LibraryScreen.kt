@@ -2,17 +2,16 @@
 package com.folio.notes
 
 import android.graphics.Bitmap
-import androidx.compose.animation.animateColorAsState
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.selected
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -28,12 +27,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -93,7 +93,6 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     val showNavigation = showStudy || !showMistakes || !reviewMode
     val pickingNotebook = selectionCaption != null
     var sortMenu by remember { mutableStateOf(false) }
-    var sidebarImportMenu by remember { mutableStateOf(false) }
     var newButtonMenu by remember { mutableStateOf(false) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -208,13 +207,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     Spacer(Modifier.height(FolioSpacing.dp4))
                     HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
                     Spacer(Modifier.weight(1f))
-                    Box {
-                        RailItem("Import PDF", Icons.Rounded.PictureAsPdf, false, onImport)
-                        DropdownMenu(sidebarImportMenu, { sidebarImportMenu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text("PDF document") }, { sidebarImportMenu = false; onImport() }, leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) })
-                            DropdownMenuItem({ Text("Folio backup") }, { sidebarImportMenu = false; onImportArchive() }, leadingIcon = { Icon(Icons.Rounded.FolderZip, null) })
-                        }
-                    }
+                    RailItem("Import PDF", Icons.Rounded.PictureAsPdf, false, onImport)
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
                 if (showStudy) Box(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
@@ -474,32 +467,31 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         if (selecting && !showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.LIBRARY) {
             Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
-        FolioExpand(selecting) {
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.weight(1f))
-                TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
-                TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
-                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
-                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
-                val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
-                TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
-                    Text(if (allExcluded) "Include in backups" else "Exclude from backups")
+                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            Text("${selection.size} selected", style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.weight(1f))
+                            TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
+                            TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
+                        }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Move") }
+                            TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Exam details") }
+                            TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Cover") }
+                            val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
+                            TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
+                                Text(if (allExcluded) "Include in backups" else "Exclude from backups")
+                            }
+                            val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
+                            TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
+                            TextButton(
+                                { bulkDelete = true },
+                                enabled = selection.isNotEmpty(),
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                shapes = ButtonDefaults.shapes()) { Text("Delete") }
+                        }
+                    }
                 }
-                val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
-                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (allStarred) "Unfavorite" else "Favorite") }
-                TextButton(
-                    { bulkDelete = true },
-                    enabled = selection.isNotEmpty(),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
-            }
-            }
-        }                }
             }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.

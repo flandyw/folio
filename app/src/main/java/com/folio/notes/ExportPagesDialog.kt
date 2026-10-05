@@ -26,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -246,47 +247,47 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }
-        androidx.compose.material3.HorizontalDivider()
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
+        HorizontalDivider()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
+        ) {
+            val count = selected.size
+            val indices = remember(selected, note.pages.size) { normalizeExportIndices(selected, note.pages.size) }
+            Button(
+                onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format, pdfMode)) },
+                enabled = selected.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+                shapes = ButtonDefaults.shapes()
             ) {
-                val count = selected.size
-                val indices = remember(selected, note.pages.size) { normalizeExportIndices(selected, note.pages.size) }
-                Button(
-                    onClick = { if (indices.isNotEmpty()) onExport(PageExportRequest(note, indices, format, pdfMode)) },
-                    enabled = selected.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                    shapes = ButtonDefaults.shapes()
-                ) {
-                    Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(
-                        when {
-                            count == 0 -> "Save"
-                            format == PageExportFormat.PDF -> "Save PDF"
-                            count == 1 -> "Save to gallery"
-                            else -> "Save ZIP"
-                        }
-                    )
-                }
-                FilledTonalButton(
-                    onClick = { if (indices.isNotEmpty()) onShare(PageExportRequest(note, indices, format, pdfMode)) },
-                    enabled = selected.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                    shapes = ButtonDefaults.shapes()
-                ) {
-                    Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(
-                        when {
-                            count == 0 -> "Share"
-                            format == PageExportFormat.PDF -> "Share PDF"
-                            count == 1 -> "Share PNG"
-                            else -> "Share PNGs"
-                        }
-                    )
-                }
+                Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(
+                    when {
+                        count == 0 -> "Save"
+                        format == PageExportFormat.PDF -> "Save PDF"
+                        count == 1 -> "Save to gallery"
+                        else -> "Save ZIP"
+                    }
+                )
             }
+            FilledTonalButton(
+                onClick = { if (indices.isNotEmpty()) onShare(PageExportRequest(note, indices, format, pdfMode)) },
+                enabled = selected.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+                shapes = ButtonDefaults.shapes()
+            ) {
+                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(
+                    when {
+                        count == 0 -> "Share"
+                        format == PageExportFormat.PDF -> "Share PDF"
+                        count == 1 -> "Share PNG"
+                        else -> "Share PNGs"
+                    }
+                )
+            }
+        }
     }
 }

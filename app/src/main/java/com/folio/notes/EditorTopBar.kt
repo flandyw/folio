@@ -2,9 +2,9 @@
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -14,9 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -188,7 +188,8 @@ internal val EditorFloatingGroupHeight = 46.dp
                         }
                     }
                 }
-            }        }
+            }
+        }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f).clip(FolioShapes.small).clickable(role = Role.Button, onClickLabel = "Rename notebook", onClick = onRename)
@@ -215,8 +216,8 @@ internal val EditorFloatingGroupHeight = 46.dp
                 }
             }
             if (maxWidth < 720.dp) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     NavigationControls()
                     DocumentControls()
                 }
