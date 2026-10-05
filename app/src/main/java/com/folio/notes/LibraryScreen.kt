@@ -532,13 +532,10 @@ enum class LibrarySection { LIBRARY, PROGRESS }
             }
         )
     }
-    if (bulkMove) AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { bulkMove = false }, title = { Text("Move ${selection.size} notebooks") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.moveNotebooks(selection, null); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text("Unfiled") }
-            state.folders.forEach { folder -> TextButton({ model.moveNotebooks(selection, folder.id); bulkMove = false; selectedIds = emptyList() }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(folder.name) } }
-            if (state.folders.isEmpty()) Text("Create a folder using New folder, then move notebooks here.")
-        }
-    }, confirmButton = { TextButton({ bulkMove = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } })
+    if (bulkMove) LibraryMovePanel("Move ${selection.size} notebooks", state.folders,
+        onMove = { model.moveNotebooks(selection, it); bulkMove = false; selectedIds = emptyList() },
+        onCreateAndMove = { name -> model.createFolderAndMove(selection, name).also { if (it) selectedIds = emptyList() } },
+        onDismiss = { bulkMove = false })
     if (bulkDelete) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
@@ -608,12 +605,10 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
     renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { model.renameFolder(folder, it); renameFolder = null } }
     deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Your notebooks will stay in All notebooks. Only this folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
-    move?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { move = null }, title = { Text("Move notebook") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton({ model.move(note, null); move = null }, enabled = note.folderId != null, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.GridView, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(if (note.folderId == null) "Unfiled · Current folder" else "Unfiled") }
-            state.folders.forEach { folder -> TextButton({ model.move(note, folder.id); move = null }, enabled = note.folderId != folder.id, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text(if (note.folderId == folder.id) "${folder.name} · Current folder" else folder.name) } }
-        }
-    }, confirmButton = { TextButton({ move = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }) }
+    move?.let { note -> LibraryMovePanel("Move ${note.title}", state.folders, note.folderId, single = true,
+        onMove = { model.move(note, it); move = null },
+        onCreateAndMove = { name -> model.createFolderAndMove(setOf(note.id), name) },
+        onDismiss = { move = null }) }
     delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its pages from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") } }) }
 }
 

@@ -607,6 +607,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val folders = _state.value.folders + Folder(name = name.trim())
         _state.update { it.copy(folders = folders) }; enqueue { repository.saveFolders(folders) }
     }
+    /** Creating a destination and filing notebooks share the existing serialized library writer. */
+    fun createFolderAndMove(ids: Set<String>, name: String): Boolean {
+        val state = _state.value
+        if (name.isBlank() || state.loadFailed || state.loading || ids.none { id -> state.notes.any { it.id == id } }) return false
+        val folder = Folder(name = name.trim().take(120))
+        val folders = state.folders + folder
+        _state.update { it.copy(folders = folders) }
+        enqueue { repository.saveFolders(folders) }
+        moveNotebooks(ids, folder.id)
+        return true
+    }
+
     fun renameFolder(folder: Folder, name: String) {
         if (name.isBlank()) return
         val folders = _state.value.folders.map { if (it.id == folder.id) it.copy(name = name.trim()) else it }
