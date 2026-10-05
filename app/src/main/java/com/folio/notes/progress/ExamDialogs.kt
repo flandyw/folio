@@ -146,7 +146,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             }
             preview?.let { Text("Estimated grade ${it.grade ?: "—"} · ${it.percentile?.display() ?: "—"} percentile", color = MaterialTheme.colorScheme.primary) }
             OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), label = { Text("Comments and reflection") }, minLines = 2)
-            TextButton({ showQuestions = !showQuestions }) { Text("Question marking (${questions.size})") }
+            TextButton({ showQuestions = !showQuestions }) { Text("${if (showQuestions) "Hide" else "Show"} question marking (${questions.size})") }
             if (showQuestions) {
                 questions.forEachIndexed { index, question ->
                     ProgressCard("Question ${index + 1}") {
@@ -173,14 +173,14 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                     else error = "Enter valid question marks first."
                 }) { Text("Use question totals as exam mark") }
             }
-            TextButton({ showContext = !showContext }) { Text("Performance context") }
+            TextButton({ showContext = !showContext }) { Text("${if (showContext) "Hide" else "Show"} performance context") }
             if (showContext) for ((key, label) in listOf("sleepHours" to "Sleep hours", "energy" to "Energy", "focus" to "Focus", "stress" to "Stress", "confidence" to "Confidence", "preparedness" to "Preparedness")) {
                 OutlinedTextField(context.optString(key), { value -> contextRaw = JSONObject(contextRaw).apply {
                     if (value.isBlank()) remove(key) else put(key, value.toDoubleOrNull() ?: value)
                 }.toString() }, Modifier.fillMaxWidth(), label = { Text(if (key == "sleepHours") label else "$label · 1–5") },
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             }
-            TextButton({ showTiming = !showTiming }) { Text("Timing") }
+            TextButton({ showTiming = !showTiming }) { Text("${if (showTiming) "Hide" else "Show"} timing details") }
             if (showTiming) for ((key, label) in listOf("plannedReadingMinutes" to "Reading minutes", "plannedWritingMinutes" to "Writing minutes",
                 "actualWritingSeconds" to "Actual writing seconds", "overtimeSeconds" to "Overtime seconds", "pausedSeconds" to "Paused seconds")) {
                 OutlinedTextField(timing.optString(key), { value -> timingRaw = JSONObject(timingRaw).apply {
