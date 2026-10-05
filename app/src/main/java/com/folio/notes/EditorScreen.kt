@@ -1223,8 +1223,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onFit = ::resetZoom,
                             onFitAll = if (page.infinite) ::fitAllContent else null,
                             onAdd = ::addPage,
-                            onSearch = { noteQuery = ""; noteSearchOpen = true },
+                            onSearch = {
+                                if (page.pdfIndex != null) { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true }
+                                else { noteQuery = ""; noteSearchOpen = true }
+                            },
                             onLayers = { layersPopover = true },
+                            onContents = if (page.pdfIndex != null) ({ pdfContentsOpen = true; loadOutline() }) else null,
                             onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                             paperTitle = paperLabel(page.paper),
                             onPaper = if (page.pdfIndex == null) ({ openPaperMenu(false) }) else null,

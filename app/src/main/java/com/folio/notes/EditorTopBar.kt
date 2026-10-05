@@ -83,6 +83,7 @@ internal val EditorFloatingGroupHeight = 46.dp
     bookmarked: Boolean,
     onBookmark: () -> Unit,
     onInsertImage: () -> Unit,
+    onContents: (() -> Unit)?,
     paperTitle: String,
     onPaper: (() -> Unit)?,
     layersPopover: @Composable () -> Unit,
@@ -205,6 +206,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                 if (onPaper != null) TextButton(onPaper) {
                     Icon(Icons.Rounded.GridOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(paperTitle)
                 }
+                if (onContents != null) IconButton(onContents) { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "PDF contents") }
                 IconButton(onInsertImage) { Icon(Icons.Rounded.AddPhotoAlternate, "Insert image") }
                 IconButton(onBookmark) {
                     Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
