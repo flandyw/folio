@@ -33,7 +33,8 @@ import androidx.compose.ui.unit.dp
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
             if (visible.isEmpty()) {
-                Text(if (notes.isEmpty()) "No notebooks yet." else "No matching notebooks.", Modifier.padding(vertical = FolioSpacing.dp12))
+                Text(if (notes.isEmpty()) "No notebooks yet." else "No notebooks match “${query.trim()}”.", Modifier.padding(vertical = FolioSpacing.dp12))
+                if (query.isNotBlank()) TextButton({ query = "" }) { Text("Show all notebooks") }
             } else LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 items(visible, key = { it.id }) { note ->
                     val excluded = note.id in excludedIds
