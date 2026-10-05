@@ -2818,7 +2818,7 @@ private enum class ToolSub { PRESETS, TOOL }
     Surface(modifier, shape = FolioShapes.small, color = Color.White, shadowElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val bitmap = preview
-            if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             else if (!page.loaded) LoadingIndicator(Modifier.size(20.dp).semanticsLabel("Loading preview"))
         }
     }
