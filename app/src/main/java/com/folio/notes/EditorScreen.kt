@@ -19,6 +19,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -434,6 +438,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     var destinationPage by remember { mutableStateOf("") }
     var deletingPage by remember { mutableStateOf<String?>(null) }
     var pageNumber by rememberSaveable(note.id) { mutableStateOf("") }
+    var pageBrowserGrid by rememberSaveable(note.id) { mutableStateOf(false) }
     var pageJumpExpanded by rememberSaveable(note.id) { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var renameTitle by remember { mutableStateOf(note.title) }
@@ -1264,11 +1269,13 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
         val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
-        val canDrag = pageQuery.isBlank() && pageFilter == PageFilter.ALL
+        val canDrag = !pageBrowserGrid && pageQuery.isBlank() && pageFilter == PageFilter.ALL
         val browserPages = rememberLazyListState()
-        LaunchedEffect(pageQuery, pageFilter) {
+        val browserGrid = rememberLazyGridState()
+        LaunchedEffect(pageQuery, pageFilter, pageBrowserGrid) {
             val current = visiblePages.indexOfFirst { it.value.id == page.id }
-            browserPages.scrollToItem(current.coerceAtLeast(0))
+            if (pageBrowserGrid) browserGrid.scrollToItem(current.coerceAtLeast(0))
+            else browserPages.scrollToItem(current.coerceAtLeast(0))
         }
         fun goToPage() {
             val target = pageNumber.toIntOrNull()?.takeIf { it in 1..note.pages.size } ?: return
@@ -1300,13 +1307,49 @@ private fun paperLabel(p: Paper): String = when (p) {
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages found. Use page options to move a page.", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages · tap to open", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton({ pageBrowserGrid = !pageBrowserGrid }) {
+                Icon(if (pageBrowserGrid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                    if (pageBrowserGrid) "Show page list" else "Show page thumbnails")
+            }
         }
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), state = browserPages, contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        if (pageBrowserGrid && visiblePages.isNotEmpty()) LazyVerticalGrid(
+            columns = GridCells.Adaptive(144.dp), state = browserGrid,
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+            contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
+        ) {
+            gridItems(visiblePages, key = { it.value.id }) { (index, item) ->
+                var menu by remember(item.id) { mutableStateOf(false) }
+                Surface(onClick = { jumpTo(index); pageBrowser = false }, shape = FolioShapes.large,
+                    color = if (index == state.pageIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.padding(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        PageThumbnail(note.id, item, model.thumbnails, Modifier.fillMaxWidth().height(152.dp), previewWidth = 144.dp)
+                        Text(item.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                            IconButton({ model.togglePageBookmark(item.id) }) {
+                                Icon(if (item.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, "Bookmark page ${index + 1}")
+                            }
+                            Box {
+                                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
+                                PageRowMenu(item, menu, { menu = false }, index > 0, index < note.pages.lastIndex, note.pages.size > 1,
+                                    onName = { namedPage = item; pageTitle = item.title }, onBookmark = { model.togglePageBookmark(item.id) },
+                                    onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
+                                    onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
+                                    onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
+                                    onInsert = { model.insertPage(index + 1) }, onDuplicate = { model.duplicatePage(index) },
+                                    onDelete = { deletingPage = item.id })
+                            }
+                        }
+                    }
+                }
+            }
+        } else LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), state = browserPages, contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (visiblePages.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2766,10 +2809,10 @@ private enum class ToolSub { PRESETS, TOOL }
  * simply fetches a new preview, and a preview that was drawn before is shown without reading the
  * page file at all.
  */
-@Composable private fun PageThumbnail(noteId: String, page: NotePage, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
-    val widthPx = with(LocalDensity.current) { 64.dp.roundToPx() }
+@Composable private fun PageThumbnail(noteId: String, page: NotePage, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier, previewWidth: Dp = 64.dp) {
+    val widthPx = with(LocalDensity.current) { previewWidth.roundToPx() }
     var preview by remember(noteId, page.id) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(noteId, page.id, page.revision, page.loaded) {
+    LaunchedEffect(noteId, page.id, page.revision, page.loaded, widthPx) {
         preview = thumbnails.thumbnail(noteId, page, widthPx)
     }
     Surface(modifier, shape = FolioShapes.small, color = Color.White, shadowElevation = 1.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
