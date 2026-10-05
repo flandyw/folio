@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.dp
     val keyboard = LocalSoftwareKeyboardController.current
     fun submit() { if (query.isNotBlank()) { keyboard?.hide(); onQuery(query.trim()) } }
     FolioPanel(title = "Search this PDF", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+        Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             OutlinedTextField(
                 query, { query = it },
@@ -115,7 +115,7 @@ import androidx.compose.ui.unit.dp
                         "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 368.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         items(search.results, key = { it.pageIndex }) { hit ->
                             Surface(onClick = { onJump(hit.pageIndex) }, shape = FolioShapes.large,
                                 color = MaterialTheme.colorScheme.surfaceContainerLow,
