@@ -121,7 +121,7 @@ import androidx.compose.ui.unit.dp
                     TextButton(
                         onClick = {
                             val parsed = parsePageRange(rangeText, note.pages.size)
-                            if (parsed.isEmpty()) rangeError = "No pages match “${rangeText.trim()}”"
+                            if (parsed.isEmpty()) rangeError = "Enter page numbers from 1 to ${note.pages.size}, such as 1-3, 5."
                             else {
                                 selected = parsed.toSet()
                                 rangeError = null
