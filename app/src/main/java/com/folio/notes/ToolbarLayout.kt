@@ -12,7 +12,7 @@ import androidx.compose.runtime.setValue
  * moving shapes always moves line, rectangle and ellipse together.
  */
 enum class ToolbarSlot {
-    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA;
+    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA, STICKY_NOTE;
 
     /** Tools behind this slot; [SHAPES] expands to the last-used shape tool. */
     val tools: List<Tool> get() = when (this) {
@@ -24,6 +24,7 @@ enum class ToolbarSlot {
         LASSO -> listOf(Tool.LASSO)
         HAND -> listOf(Tool.HAND)
         MARK_AREA -> listOf(Tool.MARK_AREA)
+        STICKY_NOTE -> listOf(Tool.STICKY_NOTE)
     }
 
     companion object {
@@ -70,7 +71,7 @@ object ToolbarLayouts {
 
     val DEFAULT_ORDER: List<ToolbarSlot> = listOf(
         ToolbarSlot.PEN, ToolbarSlot.HIGHLIGHTER, ToolbarSlot.ERASER,
-        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.MARK_AREA
+        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA
     )
 
     /** Every slot exactly once, in a sane order even when the stored value is corrupt. */

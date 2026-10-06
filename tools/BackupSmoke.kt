@@ -53,7 +53,37 @@ private fun checkResponseMetadata() {
     println("Response smoke: legacy defaults, portable/index round-trips, continuation, copying, reordering, missing sources and search passed.")
 }
 
+private fun checkStickyNotes() {
+    val ink = Stroke(Tool.PEN, -16777216, 2f, listOf(InkPoint(10f, 12f, .5f), InkPoint(32f, 28f)))
+    val inside = TextBox(id = "sticky-inside", x = 20f, y = 30f, width = 120f,
+        text = "Remember this", stickyHeight = 90f, stickyInk = listOf(ink))
+    val outside = inside.copy(id = "sticky-outside", x = -140f)
+    val ordinary = TextBox(id = "ordinary", x = 4f, y = 5f, text = "Heading")
+    val page = NotePage(id = "sticky-page", texts = listOf(inside, outside, ordinary))
+    check(StickyNotes.exports(inside, page))
+    check(!StickyNotes.exports(outside, page))
+    check(!StickyNotes.exports(inside.copy(x = page.width - 10f), page))
+    check(StickyNotes.exports(outside, page.copy(infinite = true)))
+    check(InkCodec.decodeTexts(InkCodec.encodeTexts(page.texts)) == page.texts)
+    val legacyText = InkCodec.encodeTexts(listOf(ordinary)).getJSONObject(0)
+    check(!legacyText.has("stickyHeight") && !legacyText.has("stickyInk"))
+    val changed = page.copy(texts = listOf(inside.moved(-200f, 0f).copy(text = "Changed"), outside, ordinary))
+    val before = PageContent(texts = page.texts)
+    val edit = PageJournal.diff(before, PageContent(texts = changed.texts))!!
+    val undo = PageJournal.invert(edit, before)
+    check(PageJournal.apply(PageJournal.apply(before, edit), undo).texts == page.texts)
+    val history = PageJournal.History(listOf(undo), listOf(edit))
+    val bytes = ByteArrayOutputStream().also { PageSnapshotBinary.write(it, page, 11, history) }.toByteArray()
+    val snapshot = PageSnapshotBinary.read(bytes)
+    check(snapshot.texts == page.texts && snapshot.journalSeq == 11 && snapshot.history == history)
+    check(NoteCodec.decode(NoteCodec.encode(Notebook(title = "Sticky notes", pages = listOf(page)))).pages.single().texts == page.texts)
+    val scaled = InkGeometry.scaleTexts(listOf(inside), InkPoint(0f, 0f), 2f).single()
+    check(scaled.stickyHeight == 180f && scaled.stickyInk.single().points.first().x == 20f)
+    println("Sticky notes: export placement, local ink, legacy text, snapshot/history and portable round trips passed")
+}
+
 fun main() = runBlocking {
+    checkStickyNotes()
     checkResponseMetadata()
     val root = kotlin.io.path.createTempDirectory("folio-backup-check-").toFile()
     try {

@@ -165,6 +165,8 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
 @Composable internal fun StylusPage(s: AppSettings) {
     val p = rememberPrefs()
     val palmMs by rememberPref(p, AppPrefs.PALM_MS) { AppPrefs.palmMs(it.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { _ -> it.contains(AppPrefs.PALM_MS) }) }
+    val fastPan by rememberPref(p, AppPrefs.FAST_PAN) { it.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN) }
+    val panMultiplier by rememberPref(p, AppPrefs.FAST_PAN_MULTIPLIER) { AppPrefs.fastPanMultiplier(it.getFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER)) }
     SettingsGroup("Pencil double-tap", footer = "Works with a OnePlus or OPPO Pencil. Other styli keep their own system shortcut.") {
         SettingsRadioGroup {
             StylusShortcut.entries.forEach { SettingsRadioRow(it.label, it.description, s.stylus == it) { s.onStylus(it) } }
@@ -185,6 +187,16 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
             subtitle = "How long a finger still counts as a resting palm after stylus activity. 0 turns filtering off.",
             onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
         )
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN, "Fast pan", "Finger and two-finger drags move the page further than your fingers travel, and flings carry faster.")
+        if (fastPan) {
+            SettingsSliderRow(
+                "Pan speed", "%.2g×".format(panMultiplier), panMultiplier, AppPrefs.FAST_PAN_MIN..AppPrefs.FAST_PAN_MAX,
+                { p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.fastPanMultiplier((it * 4).roundToInt() / 4f)) } },
+                subtitle = "Multiplier on pan speed. 1× is normal.",
+                onReset = if (panMultiplier != AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) ({ p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) } }) else null,
+            )
+        }
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Two fingers undo, three redo, on the page canvas. Stylus and palm input never trigger it.")
     }

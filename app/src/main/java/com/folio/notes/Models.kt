@@ -18,7 +18,7 @@ object ScribbleSensitivity {
     fun passes(value: Float) = if (normalize(value) < .25f) 3 else 2
 }
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA }
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA, STICKY_NOTE }
 
 /** Two-corner shapes shared by input, rendering and editing. */
 val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.TRIANGLE,
@@ -98,8 +98,12 @@ data class TextBox(
     val underline: Boolean = false,
     /** Faded text for annotations that should sit behind ink; 1 is fully opaque. */
     val opacity: Float = 1f,
-    val layer: Int = 0
+    val layer: Int = 0,
+    /** A sticky owns its local ink; ordinary text keeps these absent from the codec. */
+    val stickyHeight: Float = 0f,
+    val stickyInk: List<Stroke> = emptyList()
 ) {
+    val isSticky: Boolean get() = stickyHeight > 0f
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
     /** Same wording with a new wrap width, clamped to the limits the dialog and lasso share. */
     fun withWidth(value: Float) = copy(width = value.coerceIn(MIN_WIDTH, MAX_WIDTH))
@@ -705,7 +709,9 @@ object InkGeometry {
                 x = center.x + (box.x - center.x) * factor,
                 y = center.y + (box.y - center.y) * factor,
                 width = (box.width * factor).coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
-                size = (box.size * factor).coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
+                size = (box.size * factor).coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
+                stickyHeight = box.stickyHeight * factor,
+                stickyInk = scale(box.stickyInk, InkPoint(0f, 0f), factor)
             )
         }
 

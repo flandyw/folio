@@ -104,6 +104,7 @@ object EditorQuickPrefs {
         when (tool) {
             Tool.HAND -> Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.", style = MaterialTheme.typography.bodyMedium)
             Tool.LASSO -> Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.", style = MaterialTheme.typography.bodyMedium)
+            Tool.STICKY_NOTE -> Text("Drag diagonally to make a sticky note. Tap it to type, or use your pen to draw inside. Drag it with the sticky note or text tool to move it. Notes outside the page stay out of exports.", style = MaterialTheme.typography.bodyMedium)
             Tool.TEXT -> Text("Tap the page to write a heading or a label. Tap a box to edit it or drag it to move it. Text sits on top of your ink and travels with the page.", style = MaterialTheme.typography.bodyMedium)
             else -> {
                 val range = WidthPresets.range(WidthPresets.group(tool))

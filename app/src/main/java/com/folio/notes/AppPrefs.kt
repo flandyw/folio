@@ -28,6 +28,8 @@ object AppPrefs {
     const val DEFAULT_COVER = "notebook.defaultCover"
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val PALM_MS = "input.palmMs"
+    const val FAST_PAN = "input.fastPan"
+    const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"
     const val TIMER_READING_MIN = "timer.readingMinutes"
     const val TIMER_AUTO_START = "timer.autoStart"
@@ -65,6 +67,10 @@ object AppPrefs {
     const val DEFAULT_PALM_MS = 500L
     const val PALM_MIN_MS = 0L
     const val PALM_MAX_MS = 1500L
+    const val DEFAULT_FAST_PAN = false
+    const val DEFAULT_FAST_PAN_MULTIPLIER = 2f
+    const val FAST_PAN_MIN = 1.25f
+    const val FAST_PAN_MAX = 5f
     const val DEFAULT_TIMER_CUSTOM_MIN = 90
     const val TIMER_CUSTOM_MIN_RANGE = 1
     const val TIMER_CUSTOM_MAX = 480
@@ -122,6 +128,12 @@ object AppPrefs {
 
     fun palmMs(value: Long?): Long =
         (value ?: DEFAULT_PALM_MS).coerceIn(PALM_MIN_MS, PALM_MAX_MS)
+
+    fun fastPanMultiplier(value: Float?): Float =
+        (value ?: DEFAULT_FAST_PAN_MULTIPLIER).coerceIn(FAST_PAN_MIN, FAST_PAN_MAX)
+
+    /** The factor applied to finger/two-finger pan distance: 1 while fast pan is off. */
+    fun panFactor(enabled: Boolean, multiplier: Float?): Float = if (enabled) fastPanMultiplier(multiplier) else 1f
 
     fun timerCustomMinutes(value: Int?): Int =
         (value ?: DEFAULT_TIMER_CUSTOM_MIN).coerceIn(TIMER_CUSTOM_MIN_RANGE, TIMER_CUSTOM_MAX)

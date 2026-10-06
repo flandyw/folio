@@ -766,7 +766,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.notes.find { it.id == attempt.practiceNotebookId } ?: return
         val updated = note.copy(mistakeReviews = note.mistakeReviews.filterNot { it.reviewId == attempt.reviewId } + attempt)
         // Rating an untouched page must not materialise an empty notebook on disk.
-        if (updated.pages.all { it.strokes.isEmpty() && it.images.isEmpty() && it.texts.all { t -> t.text.isBlank() } }) {
+        if (updated.pages.all { it.strokes.isEmpty() && it.images.isEmpty() && it.texts.all { t -> t.text.isBlank() && !t.isSticky } }) {
             delete(updated)
             return
         }

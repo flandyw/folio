@@ -98,7 +98,6 @@ internal val EditorFloatingGroupHeight = 46.dp
     pageActions: @Composable (() -> Unit) -> Unit
 ) {
     var overflow by remember { mutableStateOf(false) }
-    var focused by rememberSaveable { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. Only the tool tray scrolls; the left and right pills
@@ -197,48 +196,14 @@ internal val EditorFloatingGroupHeight = 46.dp
             }
         }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f).clip(FolioShapes.small).clickable(role = Role.Button, onClickLabel = "Rename notebook", onClick = onRename)
-                    .padding(vertical = FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                IconButton({ focused = !focused }) {
-                    Icon(if (focused) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                        if (focused) "Show document controls" else "Focus on writing")
-                }
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
-            }
             if (layerStatus != null) Box {
                 TextButton(onLayers) {
                     Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
                 }
-                if (focused) layersPopover()
             }
-            if (focused) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-                }
-            } else {
-                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center) {
-                    IconButton(onPrevious, enabled = pageIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
-                    TextButton(onPages) { Text("${pageIndex + 1} / $pageCount") }
-                    IconButton(onNext, enabled = pageIndex < pageCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
-                    TextButton(onFit) { Text("$zoomPercent%") }
-                    if (onFitAll != null) IconButton(onFitAll) { Icon(Icons.Rounded.CenterFocusStrong, "Fit all content") }
-                    if (onPaper != null) TextButton(onPaper) {
-                        Icon(Icons.Rounded.GridOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(paperTitle)
-                    }
-                    if (onContents != null) IconButton(onContents) { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "PDF contents") }
-                    IconButton(onInsertImage) { Icon(Icons.Rounded.AddPhotoAlternate, "Insert image") }
-                    IconButton(onBookmark) {
-                        Icon(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                            if (bookmarked) "Remove page bookmark" else "Bookmark this page",
-                            tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                    }
-                }
+            run {
                 if (narrow) {
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {

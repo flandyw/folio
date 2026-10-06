@@ -55,6 +55,10 @@ object InkCodec {
             if (t.underline) put("underline", true)
             if (t.opacity != TextBox.DEFAULT_OPACITY) put("opacity", t.opacity.toDouble())
             if (t.layer != 0) put("layer", t.layer)
+            if (t.isSticky) {
+                put("stickyHeight", t.stickyHeight)
+                if (t.stickyInk.isNotEmpty()) put("stickyInk", encodeStrokes(t.stickyInk))
+            }
         }) }
     }
 
@@ -69,7 +73,9 @@ object InkCodec {
                 t.optBoolean("underline", false),
                 t.optDouble("opacity", TextBox.DEFAULT_OPACITY.toDouble()).toFloat()
                     .coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
-                t.optInt("layer", 0))
+                t.optInt("layer", 0),
+                t.optDouble("stickyHeight", 0.0).toFloat().let { if (it.isFinite()) it.coerceIn(0f, 10000f) else 0f },
+                decodeStrokes(t.optJSONArray("stickyInk")))
         }
     }
 

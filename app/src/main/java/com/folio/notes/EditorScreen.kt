@@ -137,11 +137,13 @@ private fun paperLabel(p: Paper): String = when (p) {
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
     var palmRejectMs by remember { mutableLongStateOf(AppPrefs.palmMs(appPrefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { appPrefs.contains(AppPrefs.PALM_MS) })) }
+    var panMultiplier by remember { mutableFloatStateOf(readPanFactor(appPrefs)) }
     DisposableEffect(appPrefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefsChanged, key ->
             if (key == AppPrefs.PALM_MS) {
                 palmRejectMs = AppPrefs.palmMs(prefsChanged.getLong(key, AppPrefs.DEFAULT_PALM_MS))
             }
+            if (key == AppPrefs.FAST_PAN || key == AppPrefs.FAST_PAN_MULTIPLIER) panMultiplier = readPanFactor(prefsChanged)
         }
         appPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
@@ -803,7 +805,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
                     eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
-                    palmRejectMs = palmRejectMs,
+                    palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
                     followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
@@ -957,7 +959,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 },
                                 eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
                                 eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
-                                palmRejectMs = palmRejectMs,
+                                palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
                                 followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
@@ -1975,7 +1977,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     else -> tool.name.lowercase().replaceFirstChar(Char::uppercase)
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2077,19 +2079,21 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     }
     // Keep the full page frame in window coordinates, including scrolled-off portions.
     // The context menu converts the local selection against this frame and clamps to the pane.
-    Box((if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(page.width / page.height))
+    Box((if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(if (readOnly) page.width / page.height else (page.width + StickyNotes.GUTTER * 2) / (page.height + StickyNotes.GUTTER * 2)))
         .onGloballyPositioned { coordinates ->
             val origin = coordinates.localToWindow(Offset.Zero)
             pageWindowFrame = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
-            onPageFrame(page.id, pageWindowFrame)
+            val inset = if (!fullscreen && !readOnly) StickyNotes.GUTTER * coordinates.size.width / (page.width + StickyNotes.GUTTER * 2) else 0f
+            onPageFrame(page.id, Rect(origin.x + inset, origin.y + inset,
+                origin.x + coordinates.size.width - inset, origin.y + coordinates.size.height - inset))
         }) {
         Surface(
             Modifier.fillMaxSize(),
             shape = if (fullscreen) RectangleShape else FolioShapes.medium,
-            color = if (fullscreen) canvasBackground else Color.White,
-            shadowElevation = if (fullscreen) 0.dp else 3.dp,
+            color = canvasBackground,
+            shadowElevation = 0.dp,
             tonalElevation = 0.dp,
-            border = if (fullscreen) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = null
         ) {
             // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
             // of a blank stand-in and replace the content that is still on disk.
@@ -2111,7 +2115,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-                view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.onEraserFinished = onEraserFinished
+                view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
                 onSelectAllView?.invoke(view)
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
@@ -2296,11 +2300,6 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     )
                 }
             }
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More colours") } }, state = rememberTooltipState()) {
-                IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
         }
     }
     @Composable fun RecentShapes() {
@@ -2392,6 +2391,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             ToolbarSlot.SHAPES -> ShapesSlot()
             ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot), onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.STICKY_NOTE -> ToolButton(Tool.STICKY_NOTE, tool, Icons.AutoMirrored.Rounded.StickyNote2, "Sticky note — drag a rectangle, then type or draw", onLongPress = { claimStripLongPress(); pick(Tool.STICKY_NOTE) }) { pick(it) }
             ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
             ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
@@ -2501,6 +2501,13 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                         if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
                         if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
                     }
+                    if (isShape) DropdownMenuItem({ Text("Line style: ${options.style.name.lowercase()}") }, {
+                        onOptions(options.copy(style = when (options.style) {
+                            StrokeStyle.SOLID -> StrokeStyle.DASHED
+                            StrokeStyle.DASHED -> StrokeStyle.DOTTED
+                            StrokeStyle.DOTTED -> StrokeStyle.SOLID
+                        }))
+                    }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                     if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 }
                 if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
@@ -2543,48 +2550,11 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                             Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         } else {
                             if (isShape) RecentShapes() else WidthDots()
-                            Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                            if (tool != Tool.ERASER) QuickColors()
-                            if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                            if (tool != Tool.ERASER) {
+                                Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                                QuickColors()
+                            }
                             WidthControl()
-                            if (tool == Tool.ERASER && onEraserPressure != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserPressureEnabled) "Eraser pressure on — slight size change" else "Eraser pressure off") } }, state = rememberTooltipState()) {
-                                    FilterChip(selected = eraserPressureEnabled, onClick = { onEraserPressure(!eraserPressureEnabled) }, label = { Text("Pressure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            if (tool == Tool.ERASER && onEraserWholeStroke != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserWholeStroke) "Eraser removes whole strokes" else "Eraser cuts strokes") } }, state = rememberTooltipState()) {
-                                    FilterChip(selected = eraserWholeStroke, onClick = { onEraserWholeStroke(!eraserWholeStroke) }, label = { Text("Whole", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            if ((tool == Tool.PEN || tool == Tool.HIGHLIGHTER) && onScribbleToErase != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") } }, state = rememberTooltipState()) {
-                                    FilterChip(selected = scribbleToErase, onClick = { onScribbleToErase(!scribbleToErase) }, label = { Text("Scribble", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            if (tool == Tool.ERASER && onEraserSingleStroke != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (eraserSingleStroke) "Returns to previous tool after one stroke" else "Stays on eraser") } }, state = rememberTooltipState()) {
-                                    FilterChip(selected = eraserSingleStroke, onClick = { onEraserSingleStroke(!eraserSingleStroke) }, label = { Text("Single", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            if (isShape && onShapeMeasurements != null) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (shapeMeasurements) "Measurements on" else "Measurements off") } }, state = rememberTooltipState()) {
-                                    FilterChip(selected = shapeMeasurements, onClick = { onShapeMeasurements(!shapeMeasurements) }, label = { Text("Measure", style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
-                            if (isShape) {
-                                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Line style: ${options.style.name.lowercase()} — tap to cycle") } }, state = rememberTooltipState()) {
-                                    val styleLabel = when (options.style) { StrokeStyle.SOLID -> "Solid"; StrokeStyle.DASHED -> "Dashed"; StrokeStyle.DOTTED -> "Dotted" }
-                                    FilterChip(selected = options.style != StrokeStyle.SOLID, onClick = {
-                                        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onOptions(options.copy(style = when (options.style) {
-                                            StrokeStyle.SOLID -> StrokeStyle.DASHED
-                                            StrokeStyle.DASHED -> StrokeStyle.DOTTED
-                                            StrokeStyle.DOTTED -> StrokeStyle.SOLID
-                                        }))
-                                    }, label = { Text(styleLabel, style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.height(32.dp))
-                                }
-                            }
                         }
                     }
                 }
@@ -2608,6 +2578,7 @@ private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
     ToolbarSlot.SHAPES -> "Shapes"
     ToolbarSlot.HIGHLIGHTER -> "Highlighter"
     ToolbarSlot.ERASER -> "Eraser"
+    ToolbarSlot.STICKY_NOTE -> "Sticky note"
     ToolbarSlot.TEXT -> "Text"
     ToolbarSlot.LASSO -> "Lasso select"
     ToolbarSlot.HAND -> "Hand"
@@ -2619,6 +2590,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     ToolbarSlot.SHAPES -> shapeIcon(if (tool in ShapePickerTools) tool else lastShape)
     ToolbarSlot.HIGHLIGHTER -> Icons.Rounded.BorderColor
     ToolbarSlot.ERASER -> Icons.Rounded.AutoFixNormal
+    ToolbarSlot.STICKY_NOTE -> Icons.AutoMirrored.Rounded.StickyNote2
     ToolbarSlot.TEXT -> Icons.Rounded.TextFields
     ToolbarSlot.LASSO -> Icons.Rounded.Gesture
     ToolbarSlot.HAND -> Icons.Rounded.PanTool
@@ -3231,3 +3203,8 @@ private data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float
             style = MaterialTheme.typography.labelLarge)
     }
 }
+
+private fun readPanFactor(p: android.content.SharedPreferences): Float = AppPrefs.panFactor(
+    p.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN),
+    p.getFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER),
+)
