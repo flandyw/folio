@@ -94,6 +94,7 @@ internal object MusicParts {
         val mapping = request.pages.withIndex().associate { it.value to it.index }
         return source.copy(id = id, title = request.title.trim(), part = request.instrument.trim(), pages = request.pages.size,
             page = 0, opened = 0, marks = source.marks.mapNotNull { mark -> mapping[mark.page]?.let { mark.copy(page = it) } },
-            ink = source.ink.mapNotNull { stroke -> mapping[stroke.page]?.let { stroke.copy(page = it) } })
+            ink = source.ink.mapNotNull { stroke -> mapping[stroke.page]?.let { stroke.copy(page = it) } },
+            texts = source.texts.mapNotNull { text -> mapping[text.page]?.let { text.copy(page = it) } })
     }
 }

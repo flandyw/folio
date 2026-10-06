@@ -65,15 +65,12 @@ import com.folio.notes.semanticsLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Shelf order; a set list always keeps its own running order instead. */
-internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Composer"), RECENT("Recently played") }
-
 /**
  * Music as a peer pane of the Library shell: the same shelf rhythm (header, continue card, search,
  * chips, covers), with set lists in the place folders take for notebooks. Opening a score swaps
  * the shelf for the reader and asks the shell to hide its navigation ([onReaderMode]).
  */
-@Composable internal fun MusicScreen(topGap: Dp = 0.dp, onReaderMode: (Boolean) -> Unit = {}, onBack: () -> Unit) {
+@Composable internal fun MusicScreen(topGap: Dp = 0.dp, onReaderMode: (Boolean) -> Unit = {}, onSettings: () -> Unit = {}, onBack: () -> Unit) {
     val model: MusicViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by model.state.collectAsStateWithLifecycle()
     val library = state.library
@@ -85,9 +82,10 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
     var setId by rememberSaveable { mutableStateOf<String?>(null) }
     var favorites by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var sort by rememberSaveable { mutableStateOf(MusicSort.TITLE) }
+    var sort by rememberSaveable { mutableStateOf(musicSort(prefs.getString(AppPrefs.MUSIC_SORT, null))) }
     var listView by rememberSaveable { mutableStateOf(prefs.getBoolean(AppPrefs.MUSIC_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
     LaunchedEffect(listView) { prefs.edit().putBoolean(AppPrefs.MUSIC_LIST, listView).apply() }
+    LaunchedEffect(sort) { prefs.edit().putString(AppPrefs.MUSIC_SORT, sort.name).apply() }
     var importMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var setMenu by remember { mutableStateOf<String?>(null) }
@@ -138,20 +136,16 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
                 setLabel = set?.let { "${it.name} · ${position + 1} of ${it.scores.size}" },
                 next = next, onNextScore = { next?.let { open(it, set.id) } },
                 onDetails = { details = active.id }, onExport = { exportScore(active) },
-                onExtract = { model.reviewExisting(active.id) })
+                onExtract = { model.reviewExisting(active.id) }, onSettings = onSettings)
         } else BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
             val wide = maxWidth >= 840.dp
             val selectedSet = library.sets.find { it.id == setId }
             val trimmed = query.trim()
             val shown = remember(library, selectedSet, favorites, trimmed, sort) {
-                val base = if (selectedSet != null) selectedSet.scores.mapNotNull { id -> library.scores.find { it.id == id } }
-                    else library.scores.filter { !favorites || it.starred }.let { scores -> when (sort) {
-                        MusicSort.TITLE -> scores.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                        MusicSort.COMPOSER -> scores.sortedWith(compareBy<MusicScore, String>(String.CASE_INSENSITIVE_ORDER) { it.composer.ifBlank { "￿" } }
-                            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                        MusicSort.RECENT -> scores.sortedByDescending { it.opened }
-                    } }
-                base.filter { score -> trimmed.isEmpty() || listOf(score.title, score.composer, score.part).any { it.contains(trimmed, true) } }
+                // A set list keeps its running order; a plain shelf obeys the chosen sort.
+                if (selectedSet != null) selectedSet.scores.mapNotNull { id -> library.scores.find { it.id == id } }
+                    .filter { it.matchesQuery(trimmed) }
+                else organizeScores(library.scores, trimmed, sort, favorites)
             }
             val scoped = trimmed.isNotEmpty() || favorites || selectedSet != null
             val starredCount = library.scores.count { it.starred }
@@ -209,6 +203,8 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
                                         Text("Continue playing · page ${recent.page + 1} of ${recent.pages} · ${libraryLastEditedLabel(recent.opened)}",
                                             style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (recent.readingProgress() > 0f) LinearProgressIndicator(progress = { recent.readingProgress() },
+                                            modifier = Modifier.fillMaxWidth().padding(top = FolioSpacing.dp6).height(4.dp))
                                     }
                                     Icon(Icons.Rounded.PlayArrow, "Open the score you played last")
                                 }
@@ -216,7 +212,7 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
                         }
                         if (ready) {
                             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(),
-                                placeholder = { Text("Find scores, composers or parts…") },
+                                placeholder = { Text("Find scores, composers, notes or marks…") },
                                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
                                 singleLine = true, shape = FolioShapes.extraLarge,
@@ -253,8 +249,11 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
                                 Text(if (trimmed.isNotEmpty()) "Search results" else if (favorites) "Favorites" else "Your scores", Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
-                                Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.semanticsLabel("${shown.size} scores")) {
-                                    Text("${shown.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelSmall)
+                                val shelfPages = shown.sumOf { it.pages }
+                                Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = Modifier.semanticsLabel("${shown.size} scores, $shelfPages pages")) {
+                                    Text("${shown.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
+                                        style = MaterialTheme.typography.labelSmall)
                                 }
                                 Box {
                                     TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) {
@@ -412,7 +411,13 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
     Column(modifier) {
         Box {
             ScoreFace(score, model, Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${score.title}", onClick = open))
-            IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes()) {
+            // Only scores that have been read carry a track, so a fresh library stays unmarked.
+            if (score.readingProgress() > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().clip(FolioShapes.medium)) {
+                LinearProgressIndicator(progress = { score.readingProgress() }, modifier = Modifier.fillMaxWidth().height(4.dp))
+            }
+            // A soft scrim keeps the star legible over busy engraving on the white cover.
+            IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes(),
+                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = .68f))) {
                 Icon(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites",
                     Modifier.size(21.dp).folioSelected(score.starred),
                     tint = if (score.starred) MaterialTheme.colorScheme.primary else Color(0xFF5F6368))
@@ -431,18 +436,22 @@ internal enum class MusicSort(val label: String) { TITLE("Title"), COMPOSER("Com
 
 @Composable private fun ScoreRow(score: MusicScore, model: MusicViewModel, modifier: Modifier, open: () -> Unit, star: () -> Unit, menu: @Composable () -> Unit) {
     Surface(onClick = open, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
-        Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            ScoreFace(score, model, Modifier.width(38.dp).height(50.dp), small = true)
-            Column(Modifier.weight(1f)) {
-                Text(score.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(scoreMeta(score), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box {
+            Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                ScoreFace(score, model, Modifier.width(38.dp).height(50.dp), small = true)
+                Column(Modifier.weight(1f)) {
+                    Text(score.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(scoreMeta(score), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(star, shapes = IconButtonDefaults.shapes()) {
+                    Icon(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites",
+                        Modifier.folioSelected(score.starred))
+                }
+                menu()
             }
-            IconButton(star, shapes = IconButtonDefaults.shapes()) {
-                Icon(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites",
-                    Modifier.folioSelected(score.starred))
-            }
-            menu()
+            if (score.readingProgress() > 0f) LinearProgressIndicator(progress = { score.readingProgress() },
+                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp))
         }
     }
 }

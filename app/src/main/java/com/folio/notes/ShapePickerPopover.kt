@@ -32,9 +32,14 @@ object ShapeRecents {
     fun push(shapes: List<Tool>, picked: Tool) = (listOf(picked) + shapes.filter { it != picked }).take(COUNT)
 }
 
-/** Shared by the shape button and its overflow entry; previews use the actual ink renderer. */
+/**
+ * Shared by the shape button and its overflow entry; previews use the actual ink renderer.
+ * [shapes] lets a caller drop a shape it has no use for — the music reader leaves out
+ * [Tool.GRAPH], which draws a notebook's axes rather than an annotation.
+ */
 @Composable internal fun ShapePickerPopover(
     tool: Tool,
+    shapes: List<Tool> = ShapePickerTools.toList(),
     onPick: (Tool) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -42,7 +47,7 @@ object ShapeRecents {
         Text("Shapes", style = MaterialTheme.typography.titleMedium)
         Text("Draw · choose a shape, then drag", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ShapeGrid(ShapePickerTools.toList()) { value ->
+        ShapeGrid(shapes) { value ->
             ShapeTile(shapeName(value), selected = tool == value, onClick = { onPick(value) }) { color ->
                 val strokes = remember(value, color) {
                     if (value == Tool.GRAPH) {

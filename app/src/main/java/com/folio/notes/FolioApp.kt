@@ -415,7 +415,7 @@ import kotlinx.coroutines.withContext
                             showMusic = showMusic,
                             onMusic = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = false; showMusic = true },
                             musicContent = { onReaderMode ->
-                                com.folio.notes.music.MusicScreen(topGap, onReaderMode, onBack = { showMusic = false })
+                                com.folio.notes.music.MusicScreen(topGap, onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
                             },
                             studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },

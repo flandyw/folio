@@ -2,9 +2,11 @@
 package com.folio.notes.music
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -32,8 +34,10 @@ import com.folio.notes.guardUiTouches
  */
 @Composable internal fun MusicImportPanel(review: MusicImportReview, model: MusicViewModel, busy: Boolean, message: String?) {
     val source = review.source
+    // The title a part gets until the user writes their own: the PDF's title plus the instrument.
+    fun autoTitle(instrument: String) = if (instrument.isBlank()) source.title else "${source.title} — ${instrument.trim()}"
     var instruments by rememberSaveable(source.id) { mutableStateOf(review.suggestions.map { it.instrument }.ifEmpty { listOf("") }) }
-    var titles by rememberSaveable(source.id) { mutableStateOf(instruments.map { if (it.isBlank()) source.title else "${source.title} — $it" }) }
+    var titles by rememberSaveable(source.id) { mutableStateOf(instruments.map(::autoTitle)) }
     var ranges by rememberSaveable(source.id) { mutableStateOf(review.suggestions.map { MusicParts.pageLabel(it.pages) }.ifEmpty { listOf("") }) }
     var checked by rememberSaveable(source.id) { mutableStateOf(instruments.map { review.suggestions.isEmpty() }) }
     var previewPage by rememberSaveable(source.id) { mutableIntStateOf(0) }
@@ -42,6 +46,10 @@ import com.folio.notes.guardUiTouches
     val valid = selected.isNotEmpty() && selected.all { titles[it].isNotBlank() && parsed[it].isSuccess }
     // Which part the preview page belongs to, so the user can see the boundary they are checking.
     val previewParts = parsed.indices.filter { parsed[it].getOrNull()?.contains(previewPage) == true }
+    val listState = rememberLazyListState()
+    val initialParts = remember(source.id) { instruments.size }
+    // A part added by hand lands below the fold on a phone, so bring it into view.
+    LaunchedEffect(instruments.size) { if (instruments.size > initialParts) listState.animateScrollToItem(instruments.size) }
     fun preview(page: Int) { previewPage = page.coerceIn(0, source.pages - 1) }
     Dialog(onDismissRequest = { if (!busy) model.dismissReview(source.id) },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !busy, dismissOnClickOutside = false)) {
@@ -65,8 +73,9 @@ import com.folio.notes.guardUiTouches
                             Column(Modifier.padding(FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 MusicPage(model.store.pdf(source.id), previewPage, source.pages, model.pageCache,
-                                    source.ink.filter { it.page == previewPage }, pencil = false, performance = false,
-                                    onStroke = {}, onTurn = { forward -> preview(previewPage + if (forward) 1 else -1) },
+                                    strokes = source.ink.filter { it.page == previewPage },
+                                    texts = source.texts.filter { it.page == previewPage },
+                                    onTurn = { forward -> preview(previewPage + if (forward) 1 else -1) },
                                     modifier = Modifier.weight(1f).fillMaxWidth())
                                 EditorGlassSurface {
                                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
@@ -90,10 +99,16 @@ import com.folio.notes.guardUiTouches
                         }
                     }
                     val choices: @Composable (Modifier) -> Unit = { modifier ->
-                        LazyColumn(modifier, contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+                        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    Text("Only keep the parts you play", style = MaterialTheme.typography.headlineSmall)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Only keep the parts you play", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                                        if (instruments.size > 1) {
+                                            val all = checked.all { it }
+                                            TextButton({ checked = checked.map { !all } }, enabled = !busy, shapes = ButtonDefaults.shapes()) { Text(if (all) "Clear" else "Select all") }
+                                        }
+                                    }
                                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                                         Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                             Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -114,7 +129,9 @@ import com.folio.notes.guardUiTouches
                                     border = if (on) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f)) else null) {
                                     Column(Modifier.padding(start = FolioSpacing.dp4, end = FolioSpacing.dp12, top = FolioSpacing.dp4, bottom = FolioSpacing.dp12),
                                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // The whole header toggles the part, not just the checkbox.
+                                        Row(Modifier.clickable(enabled = !busy) { checked = checked.toMutableList().also { it[index] = !on } },
+                                            verticalAlignment = Alignment.CenterVertically) {
                                             Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value } }, enabled = !busy)
                                             Column(Modifier.weight(1f)) {
                                                 Text(instruments[index].ifBlank { "Custom part" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -132,7 +149,11 @@ import com.folio.notes.guardUiTouches
                                         FolioExpand(on) {
                                             Column(Modifier.padding(start = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                                    OutlinedTextField(instruments[index], { value -> instruments = instruments.toMutableList().also { it[index] = value } },
+                                                    OutlinedTextField(instruments[index], { value ->
+                                                        // A title still on its automatic wording follows the instrument as it is typed.
+                                                        if (titles[index] == autoTitle(instruments[index])) titles = titles.toMutableList().also { it[index] = autoTitle(value) }
+                                                        instruments = instruments.toMutableList().also { it[index] = value }
+                                                    },
                                                         Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true, enabled = !busy)
                                                     OutlinedTextField(ranges[index], { value -> ranges = ranges.toMutableList().also { it[index] = value } },
                                                         Modifier.weight(1f), label = { Text("Pages, e.g. 3-6, 9") }, singleLine = true, enabled = !busy,

@@ -48,7 +48,8 @@ try {
   const runtime = [stdlib, json].join(path.delimiter);
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', runtime, '-d', classes,
-    source, path.join(root, 'app/src/main/java/com/folio/notes/music/MusicParts.kt'), path.join(__dirname, 'MusicSmoke.kt')]);
+    source, path.join(root, 'app/src/main/java/com/folio/notes/music/MusicParts.kt'),
+    path.join(root, 'app/src/main/java/com/folio/notes/music/MusicShelf.kt'), path.join(__dirname, 'MusicSmoke.kt')]);
   run(['-cp', [classes, runtime].join(path.delimiter), 'com.folio.notes.music.MusicSmokeKt']);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
