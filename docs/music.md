@@ -8,25 +8,33 @@ be moved or removed after import and scores remain available offline.
 ## Shelf
 
 The shelf follows the notebook shelf: a split **Import** button, a **Continue playing** card for
-the last score opened, the same search field, and chips for **All scores**, **Favorites** and each
-set list, in the place folders take for notebooks. Each set-list chip has its own rename/delete
-menu, and **New set list** sits at the end of the row. Search covers title, composer,
-instrument/part, rehearsal notes and rehearsal-mark names, so a cue written in the notes finds its
-score. Scores show their first page as the cover (a blank manuscript page until it is drawn) and
-can be switched to a list; the choice is remembered separately from the notebook shelf
-(`AppPrefs.MUSIC_LIST`). Sort by **Recently added** (import order), **Title A–Z** / **Z–A**,
-**Composer A–Z**, **Most pages** or **Recently played**; the chosen order is remembered between
-sessions. A score that has been read carries a thin
-progress bar along the bottom of its cover or row (and the Continue playing card), so an unfinished
-piece is visible at a glance; the section's count chip reads out the scores and their page total.
-The score menu holds details and rehearsal notes, **Add to set list**, part extraction, export and
-delete.
+the last score opened, the same search field, and chips for **All scores**, **Favorites**, each
+set list and, once a shelf holds more than one, each composer, in the place folders take for
+notebooks. **Annotated** and **Unfinished** chips narrow to scores that carry pencil marks and to
+ones started but not finished; **Clear filters** appears while any filter is on. Each set-list chip
+has its own rename/duplicate/delete menu, and **New set list** sits at the end of the row. Search
+covers title, composer, instrument/part, rehearsal notes and rehearsal-mark names, and every
+whitespace-separated term must match, so a cue written in the notes finds its score. Scores show
+their first page as the cover (a blank manuscript page until it is drawn) and can be switched to a
+list; the choice is remembered separately from the notebook shelf (`AppPrefs.MUSIC_LIST`). Sort by
+**Recently added** (import order), **Title A–Z** / **Z–A**, **Composer A–Z**, **Instrument A–Z**,
+**Most pages**, **Fewest pages**, **Most rehearsal marks** or **Recently played**; the chosen order
+is remembered between sessions. A score that has been read carries a thin progress bar along the
+bottom of its cover or row (and the Continue playing card, which shows the percentage read), so an
+unfinished piece is visible at a glance; each card and row names the score's rehearsal-mark and
+pencil-note counts, and the section's count chip reads out the scores and their page total (its
+accessibility label adds the pencil marks). The score menu holds details and rehearsal notes,
+**Add to set list**, **Duplicate score** (which copies the PDF and its annotations; the copy starts
+unopened), part extraction, export and delete. Back clears the composer and filter chips before it
+leaves Music.
 
-Selecting a set list shows its header (score and page count, **Play set**, **Add scores**) and
-the running order with numbered positions and **earlier / later** arrows. Reordering is
-disabled while a search narrows the list. Removing a score from a set does not delete it.
-**Play set** opens the first score; **Next: <title>** replaces the next-page button on the
-final page/spread.
+Selecting a set list shows its header (score and page counts, an estimated running time at roughly
+half a minute a page, **Play set**, **Add scores**, **Reverse**, **Shuffle** and **Share**) and the
+running order with numbered positions and **earlier / later** arrows. **Reverse** flips the order,
+**Shuffle** randomises it, and **Share** sends the numbered order as plain text through the system
+share sheet. Reordering is disabled while a search narrows the list. Removing a score from a set
+does not delete it. **Play set** opens the first score; **Next: <title>** replaces the next-page
+button on the final page/spread.
 
 ## Reader
 
@@ -46,21 +54,27 @@ the theme — and each page is clipped to `FolioShapes.medium`, the shape an edi
   closing the bar re-fits the page once rather than every animation frame. It is the same strip
   with the same `ink-tools` preferences: pen, shapes (line, rectangle, ellipse, triangle, diamond,
   pentagon, hexagon, star), highlighter, eraser, text and lasso, shared quick colours,
-  width/opacity popovers, saved presets, undo/redo, the ⋯ overflow and *Edit toolbar*. **Marking**
+  width/opacity popovers, saved presets, undo/redo, the ⋯ overflow and *Edit toolbar*. Score
+  options can hide the whole strip; the page re-fits to the freed desk space and the choice is
+  remembered (`AppPrefs.MUSIC_TOOLBAR`). **Marking**
   and **sticky notes** are left out (they belong to a marked response / a notebook page), graph
   axes are dropped from the shape picker, and the Behaviour menu shows only what applies.
 - **Floating rails** replace the old top pills and bottom dock. A glass rail at the left edge
   holds **Back**, **Rehearsal marks**, the **Metronome** (a tempo button that flashes on the
   downbeat while it runs) and **Previous page**; a rail at the right holds **Score options**
-  (details, favourite, export, rehearsal notes, extract parts, **App settings**, clear
-  annotations on the pages in view, gesture help), **Performance mode**, the page readout (tap for
-  the page grid; a dot marks rehearsal marks, a blue dot pencil notes) and **Next page** — which
-  becomes **Next: <title>** inside a set on the last page. The pages sit between the rails.
+  (details, favourite, export, rehearsal notes, extract parts, **App settings**, hide/show the tool
+  strip, a **Reading light** group that dims the sheet from untouched to 70% (`AppPrefs.MUSIC_DIM`),
+  clear annotations on the pages in view, clear every annotation in the score, gesture help; the
+  options header reports the score's pencil-mark count), **Performance mode**, the page readout
+  (tap for the page grid; a dot marks rehearsal marks, a blue number counts pencil notes) and
+  **Next page** — which becomes **Next: <title>** inside a set on the last page. The grid numbers
+  every page and offers **First**/**Last** jumps and a scrubber for a long score. The pages sit
+  between the rails.
 - **Pages** are one horizontal strip (`LazyRow`) that slides when you turn. Portrait shows one
   page; landscape shows two (never more) unless **Show one page at a time** is chosen in Score options. Turning moves by the number of
   pages shown and the last window ends on the last page. The strip does not scroll by swipe so a
   finger or pen on the sheet is free to draw; turn with the rail buttons, a tap on a page's left/right half,
-  or the keys below.
+  or the keys below. Every real turn ticks the haptics, so a tap or pedal confirms without looking down.
 - Reading position is saved for each score. Rehearsal marks are added inline in their popover and
   jump straight to their page; the popover's arrows step to the previous/next mark without leaving
   the score.
@@ -80,15 +94,21 @@ the theme — and each page is clipped to `FolioShapes.medium`, the shape an edi
   becomes its own stroke, so a phrase can be shortened without losing the line. *Whole-stroke
   eraser* (Behaviour menu) drops a touched mark instead, and a touched shape always goes whole.
 - **Lasso** draws a loop around ink and labels; a stroke is held only when every sample is enclosed.
-  Drag a selection to move it, and use the pill above the dock to duplicate or delete it. A new
-  quick colour restyles the selection, as it does in the editor. The selection belongs to one page,
-  so a spread never mirrors it onto its partner.
+  Drag a selection to move it, and use the pill above the dock to duplicate or delete it, make it
+  dashed or solid, or thicken it. A new quick colour restyles the selection, as it does in the
+  editor. A long press with the hand tool picks up the mark under the finger, so one stroke can be
+  restyled or moved without lassoing it. The selection belongs to one page, so a spread never
+  mirrors it onto its partner.
 - **Text** taps a spot to type a label — rehearsal letters, dynamics, reminders — and taps an
-  existing label to edit it; clearing its text deletes it.
-- The metronome has 30–240 BPM (±1 buttons, slider, tap tempo, and one-tap Largo–Presto
-  presets), 1–12 beats per bar and an opt-in audible click using media volume. While running, its dock button becomes a beat pill
-  (dots and BPM). Tempo and meter are saved per score. Playback stops when leaving the score or
-  backgrounding Folio.
+  existing label to edit it; clearing its text deletes it. Typing offers quick presets (mf, pp, f,
+  rit., A, B, cue) so a common cue needs no keyboard work.
+- The metronome has 30–240 BPM (±1 and ±5 buttons, slider, tap tempo, and one-tap Largo–Presto
+  presets, with the nearest marking named beside the readout), 1–12 beats per bar and an opt-in
+  audible click using media volume. It can accent beat 1, tick a subdivision of 2, 3 or 4 inside
+  the beat, and lead in with one bar of **Count in**. While running, its dock button becomes a beat
+  pill (dots and BPM). Tempo and meter are saved per score; the click, accent, subdivision and
+  count-in are remembered app-wide (`AppPrefs.MUSIC_CLICK`, `MUSIC_ACCENT`, `MUSIC_SUBDIVISION`,
+  `MUSIC_COUNT_IN`). Playback stops when leaving the score or backgrounding Folio.
 - **Performance mode** hides both docks and fits the page, with immediate tap turns and zoom
   disabled to prevent accidental movement. Only a translucent exit button, the page (and beat)
   indicator, and **Next** on the last page remain. The display stays awake while a score is open;
@@ -102,7 +122,11 @@ the theme — and each page is clipped to `FolioShapes.medium`, the shape an edi
 
 After import, each PDF opens a full-window review: the page preview on the left (or top) with a
 page dock and scrubber that names the part the page belongs to, and a card per suggested part
-that expands to its instrument, page range and title once ticked. **Keep the complete PDF
+that expands to its instrument, page range and title once ticked. A filmstrip of page thumbnails
+sits under the preview: tapping a page previews it and adds or removes it from the active part's
+range, so a range can be built by eye rather than counted. **Show** on a card chooses which part
+the strip edits (a header names it), and **Merge selected parts** unions the ticked parts into one,
+keeping every page once in order and joining their instruments. **Keep the complete PDF
 instead** and **Skip PDF** remain available.
 
 ## Storage and scope
@@ -140,8 +164,10 @@ cached Kotlin compiler and `org.json` JVM jar. If that jar is absent, run
 undo and set order persistence, bounds clamping, unsafe IDs, and corrupt/newer indexes.
 It also checks numbered/transposed part headings, ambiguous and scanned input, strict
 page ranges, extracted annotation/bookmark remapping, and shelf ordering, search scope, reading
-progress and rehearsal-mark navigation. The canonical app check is
-`./build.sh -p`.
+progress and rehearsal-mark navigation. Newer coverage includes the shelf sorts, filters and
+multi-term search, the score-state and set-total helpers, tempo names, the selection helpers
+(bounds, stroke hit-test, restyle clamps, normalise) and the filmstrip page-toggle and part-merge
+helpers. The canonical app check is `./build.sh -p`.
 
 Device checks (required before treating performance input as device-validated):
 
@@ -181,3 +207,12 @@ Device checks (required before treating performance input as device-validated):
    and no staves are claimed to have been separated. Skip a PDF in a batch; keep another
    complete. Extract from an annotated existing score and check its originals, set lists,
    copied ink and remapped marks. Interrupt extraction and restart: saved scores must open.
+
+10. Turn on **Reading light** and hide the tool strip, then close and reopen a score: both must be
+    remembered and the page must re-fit to the freed desk. Run the metronome with **Accent beat 1**,
+    a subdivision and **Count in**, then background Folio: the click must stop and the choices must
+    survive a restart.
+11. Duplicate a score and a set list, then **Reverse**, **Shuffle** and **Share** the set: the copy
+    must open unopened, the original and every set place must be untouched, and the shared text must
+    match the running order. In the import review, build a range by tapping the filmstrip, merge two
+    ticked parts, and confirm the union's page count and instruments.

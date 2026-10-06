@@ -118,6 +118,19 @@ internal class MusicStore(private val context: Context) {
         } catch (e: Throwable) { results.forEach { delete(it.id) }; throw e }
     }
 
+    /**
+     * A second copy of a score, PDF and all, so a cleaned-up or shortened edition can sit beside the
+     * original. The index entry starts unopened, so the copy does not steal "Continue playing".
+     */
+    fun duplicate(score: MusicScore): MusicScore {
+        val id = UUID.randomUUID().toString()
+        val target = File(root, "$id.pdf")
+        try {
+            pdf(score.id).inputStream().use { input -> target.outputStream().use { output -> input.copyTo(output); output.fd.sync() } }
+        } catch (e: Throwable) { target.delete(); throw e }
+        return score.copy(id = id, title = "${score.title} (copy)", opened = 0)
+    }
+
     fun keepWhole(id: String) {
         val source = pdf(id)
         val saved = File(root, "$id.pdf")

@@ -65,7 +65,7 @@ fun main() {
     check(organizeScores(shelf, "coda", MusicSort.TITLE).single().id == aria.id) { "Search ignored rehearsal marks" }
     check(organizeScores(shelf, "Encore", MusicSort.TITLE).single().id == second.id) { "Search ignored the title" }
     check(organizeScores(shelf, "nothing here", MusicSort.TITLE).isEmpty()) { "Search matched nothing but returned scores" }
-    check(organizeScores(listOf(second.copy(starred = true), aria), "", MusicSort.TITLE, favoritesOnly = true).single().id == second.id) { "Favourites filter ignored" }
+    check(organizeScores(listOf(second.copy(starred = true), aria), "", MusicSort.TITLE, MusicFilter(favoritesOnly = true)).single().id == second.id) { "Favourites filter ignored" }
     check(aria.readingProgress() > 0f && second.readingProgress() == 0f) { "Reading progress wrong" }
     check(MusicScore("44444444-4444-4444-4444-444444444444", "Fresh", 9).readingProgress() == 0f) { "Unopened score claimed progress" }
     check(nextMark(0, listOf(MusicMark(0, "A"), MusicMark(5, "Coda"))) == MusicMark(5, "Coda")) { "Next mark wrong" }
@@ -138,5 +138,52 @@ fun main() {
     val extractedWithLabels = MusicParts.extracted(annotated, second.id, MusicPartRequest("Part", "", listOf(0, 1)))
     check(extractedWithLabels.texts.single().page == 0 && extractedWithLabels.ink.size == 4) { "Extracted part lost its annotations" }
     check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(extractedWithLabels)))).scores.single() == extractedWithLabels)
-    println("Music smoke passed: persistence, part detection, ambiguous/scanned pages, strict page ranges, extracted annotation mapping, shelf ordering and the annotation tools")
+
+    // ---- Shelf scope added with the filters: new orders, multi-term search and score state. ----
+    check(MusicSort.entries.filter { it in setOf(MusicSort.PART, MusicSort.SHORTEST, MusicSort.MARKS) }.size == 3) { "New shelf orders missing" }
+    check(MusicSort.entries.map { it.label }.distinct().size == MusicSort.entries.size) { "Two shelf orders share a label" }
+    check(!MusicFilter().active && MusicFilter(favoritesOnly = true).active && MusicFilter(composer = "Bach").active) { "Filter activity wrong" }
+    check(MusicFilter(composer = "Handel").withComposer("Handel") == MusicFilter()) { "Re-picking a composer did not clear the filter" }
+    check(MusicFilter().withComposer("Bach") == MusicFilter(composer = "Bach")) { "Picking a composer did not set the filter" }
+    check(organizeScores(shelf, "", MusicSort.PART).last().id == second.id) { "Instrument sort did not put a blank part last" }
+    check(organizeScores(shelf, "", MusicSort.SHORTEST).first().id == second.id) { "Shortest sort wrong" }
+    check(organizeScores(shelf, "", MusicSort.MARKS).first().id == aria.id) { "Rehearsal-mark sort wrong" }
+    check(organizeScores(listOf(annotated, second), "", MusicSort.TITLE, MusicFilter(annotatedOnly = true)).single().id == annotated.id) { "Annotations filter ignored" }
+    check(organizeScores(listOf(aria, aria.copy(page = 29), second), "", MusicSort.TITLE, MusicFilter(unfinishedOnly = true)).single().id == aria.id) { "Unfinished filter wrong" }
+    check(organizeScores(shelf, "", MusicSort.TITLE, MusicFilter(composer = "Handel")).single().id == aria.id) { "Composer filter wrong" }
+    check(composerNames(listOf(aria, aria.copy(composer = "Bach"), second, first.copy(composer = "Bach"))) == listOf("Bach", "Handel")) { "Composer names wrong" }
+    check(aria.matchesQuery("handel violin") && !aria.matchesQuery("handel trumpet")) { "Multi-term search wrong" }
+    check(second.matchesQuery("   ")) { "A blank search must keep every score" }
+    check(!second.isStarted() && aria.isStarted() && aria.isUnfinished() && !aria.isFinished() && aria.copy(page = 29).isFinished()) { "Started / finished flags wrong" }
+    check(second.readingProgressLabel().isEmpty() && aria.readingProgressLabel().endsWith("%")) { "Progress label wrong" }
+    check(second.copy(title = "").displayTitle() == "Untitled score") { "Blank title not replaced" }
+    check(annotated.annotationCount() == annotated.ink.size + annotated.texts.size) { "Annotation count wrong" }
+
+    // ---- Tempo names and set-list totals. ----
+    check(tempoName(130) == "Allegro" && tempoName(40) == "Largo" && tempoName(132) == "Allegro") { "Tempo name wrong" }
+    check((30..240).all { tempoName(it) in MusicTempos.map { tempo -> tempo.label } }) { "Tempo name outside the presets" }
+    val bigLibrary = MusicLibrary(listOf(second, aria))
+    val bigSet = MusicSet("set-1", "Big", listOf(second.id, aria.id, "99999999-9999-9999-9999-999999999999"))
+    check(bigSet.scoresIn(bigLibrary) == listOf(second, aria)) { "Set list kept an id with no score" }
+    check(bigSet.totalPages(bigLibrary) == second.pages + aria.pages) { "Set list page total wrong" }
+    check(bigSet.estimatedMinutes(bigLibrary) > 0 && MusicSet("s2", "Empty", emptyList()).estimatedMinutes(bigLibrary) == 0) { "Set list duration wrong" }
+    check(bigSet.reversedOrder().scores == bigSet.scores.reversed()) { "Set list reversal wrong" }
+    val shuffled = shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1))
+    check(shuffled == shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1)) && shuffled.toSet() == setOf("a", "b", "c", "d", "e")) { "Shuffle was not reproducible" }
+
+    // ---- The selection helpers: bounds, tap-to-select, restyle and clamping. ----
+    val box = MusicInk.bounds(listOf(pen), emptyList())
+    check(box != null && box[0] == .1f && box[1] == .1f && box[2] == .4f && box[3] == .5f) { "Annotation bounds wrong" }
+    check(MusicInk.bounds(emptyList(), emptyList()) == null) { "Empty bounds should be null" }
+    check(MusicInk.strokeAt(listOf(pen, line), MusicPoint(.1f, .1f)) == 0 && MusicInk.strokeAt(listOf(pen), MusicPoint(.99f, .99f)) == null) { "Tap-to-select wrong" }
+    check(MusicInk.restyled(pen, width = 9999f).width == 96f && MusicInk.restyled(pen, opacity = 0f).opacity == 0.05f) { "Restyle clamp wrong" }
+    check(MusicInk.restyled(label, size = 1f).size == 8f) { "Label size clamp wrong" }
+    check(MusicInk.normalized(MusicStroke(0, listOf(MusicPoint(-1f, 2f)))).points.single() == MusicPoint(0f, 1f)) { "Normalize did not clamp onto the page" }
+
+    // ---- Import review helpers: filmstrip toggling and merging ticked parts. ----
+    check(MusicParts.togglePage(listOf(1, 3, 5), 3) == listOf(1, 5) && MusicParts.togglePage(listOf(1, 3, 5), 4) == listOf(1, 3, 4, 5) && MusicParts.togglePage(emptyList(), 2) == listOf(2)) { "Filmstrip page toggle wrong" }
+    check(MusicParts.merged(emptyList()) == null && MusicParts.merged(listOf(MusicPartRequest("A", "", emptyList()))) == null) { "Merging nothing should be null" }
+    val mergedPart = MusicParts.merged(listOf(MusicPartRequest("A", "Flute", listOf(2, 3)), MusicPartRequest("B", "Oboe", listOf(1, 3))))
+    check(mergedPart != null && mergedPart.title == "A" && mergedPart.pages == listOf(1, 2, 3) && mergedPart.instrument == "Flute, Oboe") { "Merged part wrong: $mergedPart" }
+    println("Music smoke passed: persistence, part detection, ambiguous/scanned pages, strict page ranges, extracted annotation mapping, shelf ordering, shelf sorts and filters, set-list totals, tempo names and the new selection and merge helpers")
 }

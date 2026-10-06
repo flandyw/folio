@@ -88,6 +88,24 @@ internal object MusicParts {
         return ranges.joinToString(", ")
     }
 
+    /** Adds or removes one page from a range, keeping it sorted: the filmstrip's tap gesture. */
+    fun togglePage(pages: List<Int>, page: Int): List<Int> =
+        if (page in pages) pages.filterNot { it == page } else (pages + page).sorted()
+
+    /**
+     * Several ticked parts as one, for the review panel's "Merge selected": every page is kept once
+     * in reading order and the instruments travel together, so merging never invents or drops a page.
+     */
+    fun merged(requests: List<MusicPartRequest>): MusicPartRequest? {
+        val chosen = requests.filter { it.pages.isNotEmpty() }
+        if (chosen.isEmpty()) return null
+        val instruments = chosen.mapNotNull { it.instrument.trim().takeIf { name -> name.isNotEmpty() } }.distinct()
+        return MusicPartRequest(
+            title = chosen.first().title.trim(),
+            instrument = instruments.joinToString(", "),
+            pages = chosen.flatMap { it.pages }.distinct().sorted())
+    }
+
     fun extracted(source: MusicScore, id: String, request: MusicPartRequest): MusicScore {
         require(request.title.isNotBlank() && request.pages.isNotEmpty()) { "Give the part a title and select pages" }
         require(request.pages == request.pages.distinct().sorted() && request.pages.all { it in 0 until source.pages }) { "Invalid part pages" }

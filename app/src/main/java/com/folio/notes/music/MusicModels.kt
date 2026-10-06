@@ -179,6 +179,42 @@ internal object MusicInk {
     fun duplicate(text: MusicText) = translated(text, 0.02f, 0.02f)
 
     /**
+     * The box holding every given mark as `[left, top, right, bottom]` in page fractions, or null
+     * when there is nothing to frame. A shape is measured by its drawn outline, so its box is the
+     * box the eye sees rather than the two corners it is stored from.
+     */
+    fun bounds(strokes: List<MusicStroke>, texts: List<MusicText>): FloatArray? {
+        var left = 1f; var top = 1f; var right = 0f; var bottom = 0f; var any = false
+        fun cover(x: Float, y: Float) {
+            any = true; left = min(left, x); top = min(top, y); right = max(right, x); bottom = max(bottom, y)
+        }
+        strokes.forEach { stroke -> outline(stroke).forEach { cover(it.x, it.y) } }
+        texts.forEach { text -> val frame = textBounds(text); cover(frame[0], frame[1]); cover(frame[2], frame[3]) }
+        return if (any) floatArrayOf(left, top, right, bottom) else null
+    }
+
+    /**
+     * The last mark drawn under [at], so a long press picks up the stroke the finger landed on
+     * rather than the one buried under it. Invents no hit: an empty page returns null.
+     */
+    fun strokeAt(strokes: List<MusicStroke>, at: MusicPoint, pad: Float = 0.02f): Int? =
+        strokes.indices.lastOrNull { i -> outline(strokes[i]).any { within(it, at, pad) } }
+
+    /** A stroke with a new look, every field clamped to what the codec can store. */
+    fun restyled(stroke: MusicStroke, color: Int = stroke.color, width: Float = stroke.width,
+        opacity: Float = stroke.opacity, style: String = stroke.style): MusicStroke =
+        stroke.copy(color = color, width = width.coerceIn(0.4f, 96f), opacity = opacity.coerceIn(0.05f, 1f), style = style)
+
+    fun restyled(text: MusicText, color: Int = text.color, size: Float = text.size): MusicText =
+        text.copy(color = color, size = size.coerceIn(8f, 200f))
+
+    /** Clamps a mark back onto the page after a drag that ran off the edge. */
+    fun normalized(stroke: MusicStroke): MusicStroke =
+        stroke.copy(points = stroke.points.map { MusicPoint(it.x.coerceIn(0f, 1f), it.y.coerceIn(0f, 1f)) })
+
+    fun normalized(text: MusicText): MusicText = text.copy(x = text.x.coerceIn(0f, 1f), y = text.y.coerceIn(0f, 1f))
+
+    /**
      * The rubber eraser. [whole] drops a touched mark; otherwise the touched samples are removed and
      * each surviving run becomes its own stroke, so a line can be shortened without vanishing.
      * Shapes have no samples to trim, so a touched corner always drops them.

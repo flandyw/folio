@@ -25,6 +25,16 @@ object AppPrefs {
     const val MUSIC_LIST = "music.listView"
     /** Music shelf order, stored as a `MusicSort` name; music keeps its own choice. */
     const val MUSIC_SORT = "music.sort"
+    /** How far the reader dims the sheet, 0 = off; a pit-light score is easier on the eyes. */
+    const val MUSIC_DIM = "music.dim"
+    /** The reader keeps the ink tool strip visible; hiding it gives a calmer full-page score. */
+    const val MUSIC_TOOLBAR = "music.toolbar"
+    /** Metronome click, accent on the downbeat and subdivision are remembered app-wide. */
+    const val MUSIC_CLICK = "music.click"
+    const val MUSIC_ACCENT = "music.accent"
+    const val MUSIC_SUBDIVISION = "music.subdivision"
+    /** One bar of clicks before the metronome starts, so there is time to join in. */
+    const val MUSIC_COUNT_IN = "music.countIn"
     const val DEFAULT_TOOL = "editor.defaultTool"
     const val DEFAULT_PAPER = "notebook.defaultPaper"
     /** Paper new mistake-practice pages start on; they are always infinite canvases. */
@@ -97,6 +107,14 @@ object AppPrefs {
     const val UI_TEXT_SCALE_MIN = 0.85f
     const val UI_TEXT_SCALE_MAX = 1.4f
 
+    const val DEFAULT_MUSIC_DIM = 0f
+    const val MUSIC_DIM_MAX = 0.7f
+    const val DEFAULT_MUSIC_TOOLBAR = true
+    const val DEFAULT_MUSIC_CLICK = false
+    const val DEFAULT_MUSIC_ACCENT = true
+    const val DEFAULT_MUSIC_SUBDIVISION = 0
+    const val MUSIC_SUBDIVISION_MAX = 4
+
     fun lastUpdateCheckKey(experimental: Boolean): String =
         if (experimental) EXPERIMENTAL_LAST_UPDATE_CHECK else LAST_UPDATE_CHECK
 
@@ -166,4 +184,11 @@ object AppPrefs {
     fun uiTextScale(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_UI_TEXT_SCALE
         else value.coerceIn(UI_TEXT_SCALE_MIN, UI_TEXT_SCALE_MAX)
+
+    /** Reader dimming, from untouched to as dark as a score stays legible (70%). */
+    fun musicDim(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_MUSIC_DIM else value.coerceIn(0f, MUSIC_DIM_MAX)
+
+    /** Metronome subdivision: 0 = off, otherwise the ticks inside each beat. */
+    fun musicSubdivision(value: Int?): Int = (value ?: DEFAULT_MUSIC_SUBDIVISION).coerceIn(0, MUSIC_SUBDIVISION_MAX)
 }

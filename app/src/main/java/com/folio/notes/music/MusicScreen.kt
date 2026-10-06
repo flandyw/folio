@@ -81,6 +81,10 @@ import kotlinx.coroutines.withContext
     var playingSet by rememberSaveable { mutableStateOf<String?>(null) }
     var setId by rememberSaveable { mutableStateOf<String?>(null) }
     var favorites by rememberSaveable { mutableStateOf(false) }
+    // Extra shelf filters: marked-up scores, ones still in progress, and a single composer.
+    var annotatedOnly by rememberSaveable { mutableStateOf(false) }
+    var unfinishedOnly by rememberSaveable { mutableStateOf(false) }
+    var composer by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(musicSort(prefs.getString(AppPrefs.MUSIC_SORT, null))) }
     var listView by rememberSaveable { mutableStateOf(prefs.getBoolean(AppPrefs.MUSIC_LIST, AppPrefs.DEFAULT_LIST_VIEW)) }
@@ -101,7 +105,7 @@ import kotlinx.coroutines.withContext
     val snackbar = remember { SnackbarHostState() }
     // Hoisted above the reader so closing a score returns to the same place on the shelf.
     val gridState = rememberLazyGridState()
-    var shelfInputs by remember { mutableStateOf(listOf<Any?>(setId, favorites, query.trim(), sort)) }
+    var shelfInputs by remember { mutableStateOf(listOf<Any?>(setId, favorites, query.trim(), sort, composer, annotatedOnly, unfinishedOnly)) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), model::import)
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val id = exportId
@@ -111,8 +115,25 @@ import kotlinx.coroutines.withContext
     val ready = !state.loading && !state.failed
     fun importPdfs() { if (ready && !state.busy) picker.launch(arrayOf("application/pdf")) }
     fun exportScore(score: MusicScore) { exportId = score.id; export.launch("${score.title}.pdf") }
+    /** The running order as plain text, so a set list can be sent to the band in one tap. */
+    fun shareSet(set: MusicSet) {
+        val scores = set.scoresIn(library)
+        if (scores.isEmpty()) return
+        val order = scores.mapIndexed { index, score ->
+            buildString {
+                append(index + 1).append(". ").append(score.displayTitle())
+                if (score.composer.isNotBlank()) append(" — ").append(score.composer)
+            }
+        }.joinToString("\n")
+        val share = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_SUBJECT, set.name)
+            putExtra(android.content.Intent.EXTRA_TEXT, "${set.name}\n\n$order")
+        }
+        context.startActivity(android.content.Intent.createChooser(share, "Share running order"))
+    }
     fun open(score: MusicScore, set: String?) { activeId = score.id; playingSet = set; model.opened(score.id) }
-    fun clearScope() { query = ""; favorites = false; setId = null; focusManager.clearFocus() }
+    fun clearScope() { query = ""; favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null; setId = null; focusManager.clearFocus() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); model.clearMessage() } }
     val active = library.scores.find { it.id == activeId }
     LaunchedEffect(active != null) { onReaderMode(active != null) }
@@ -123,6 +144,9 @@ import kotlinx.coroutines.withContext
             query.isNotEmpty() -> { query = ""; focusManager.clearFocus() }
             setId != null -> setId = null
             favorites -> favorites = false
+            composer != null -> composer = null
+            annotatedOnly -> annotatedOnly = false
+            unfinishedOnly -> unfinishedOnly = false
             else -> onBack()
         }
     }
@@ -141,16 +165,19 @@ import kotlinx.coroutines.withContext
             val wide = maxWidth >= 840.dp
             val selectedSet = library.sets.find { it.id == setId }
             val trimmed = query.trim()
-            val shown = remember(library, selectedSet, favorites, trimmed, sort) {
-                // A set list keeps its running order; a plain shelf obeys the chosen sort.
-                if (selectedSet != null) selectedSet.scores.mapNotNull { id -> library.scores.find { it.id == id } }
-                    .filter { it.matchesQuery(trimmed) }
-                else organizeScores(library.scores, trimmed, sort, favorites)
+            val filter = MusicFilter(favoritesOnly = favorites, annotatedOnly = annotatedOnly, unfinishedOnly = unfinishedOnly, composer = composer.orEmpty())
+            val shown = remember(library, selectedSet, trimmed, sort, filter) {
+                // A set list keeps its running order; a plain shelf obeys the chosen sort and filters.
+                if (selectedSet != null) selectedSet.scoresIn(library).filter { it.matchesQuery(trimmed) }
+                else organizeScores(library.scores, trimmed, sort, filter)
             }
-            val scoped = trimmed.isNotEmpty() || favorites || selectedSet != null
+            val scoped = trimmed.isNotEmpty() || filter.active || selectedSet != null
             val starredCount = library.scores.count { it.starred }
+            val shelfPages = shown.sumOf { it.pages }
+            val shelfMarks = shown.sumOf { it.annotationCount() }
+            val composers = composerNames(library.scores)
             val rows = listView || selectedSet != null
-            val inputs = listOf(setId, favorites, trimmed, sort)
+            val inputs = listOf(setId, favorites, trimmed, sort, composer, annotatedOnly, unfinishedOnly)
             LaunchedEffect(inputs) {
                 // Only a new scope starts at the top; returning from a score keeps the position.
                 if (inputs != shelfInputs) { shelfInputs = inputs; gridState.scrollToItem(0) }
@@ -200,7 +227,9 @@ import kotlinx.coroutines.withContext
                                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     ScoreFace(recent, model, Modifier.width(32.dp).height(42.dp), small = true)
                                     Column(Modifier.weight(1f)) {
-                                        Text("Continue playing · page ${recent.page + 1} of ${recent.pages} · ${libraryLastEditedLabel(recent.opened)}",
+                                        Text(listOf("Continue playing", "page ${recent.page + 1} of ${recent.pages}",
+                                            recent.readingProgressLabel().takeIf { it.isNotEmpty() }, libraryLastEditedLabel(recent.opened))
+                                            .filterNotNull().joinToString(" · "),
                                             style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         if (recent.readingProgress() > 0f) LinearProgressIndicator(progress = { recent.readingProgress() },
@@ -226,6 +255,10 @@ import kotlinx.coroutines.withContext
                                 FilterChip(selectedSet == null && favorites, { setId = null; favorites = !favorites },
                                     { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") },
                                     leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
+                                FilterChip(annotatedOnly, { annotatedOnly = !annotatedOnly; setId = null }, { Text("Annotated") },
+                                    leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) })
+                                FilterChip(unfinishedOnly, { unfinishedOnly = !unfinishedOnly; setId = null }, { Text("Unfinished") },
+                                    leadingIcon = { Icon(Icons.Rounded.Pending, null, Modifier.size(16.dp)) })
                                 library.sets.forEach { set -> Box {
                                     FilterChip(set.id == setId, { setId = if (set.id == setId) null else set.id; favorites = false },
                                         { Text("${set.name} · ${set.scores.size}") },
@@ -237,21 +270,32 @@ import kotlinx.coroutines.withContext
                                         })
                                     DropdownMenu(setMenu == set.id, { setMenu = null }, modifier = Modifier.guardUiTouches()) {
                                         DropdownMenuItem({ Text("Rename set list") }, { setMenu = null; renameSet = set.id }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                        DropdownMenuItem({ Text("Duplicate set list") }, { setMenu = null; model.newSet("${set.name} copy", set.scores) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                                         DropdownMenuItem({ Text("Delete set list") }, { setMenu = null; deleteSet = set.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
                                     }
                                 } }
                                 AssistChip({ newSetWith = emptyList() }, { Text("New set list") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
+                                // Composers become their own filters once a shelf holds more than one voice.
+                                if (composers.size > 1) composers.forEach { name ->
+                                    FilterChip(composer.equals(name, true), { setId = null; composer = if (composer.equals(name, true)) null else name },
+                                        { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        leadingIcon = { Icon(Icons.Rounded.Person, null, Modifier.size(16.dp)) })
+                                }
+                                if (filter.active) AssistChip(::clearScope, { Text("Clear filters") },
+                                    leadingIcon = { Icon(Icons.Rounded.FilterAltOff, null, Modifier.size(16.dp)) })
                             }
                             if (selectedSet != null) SetHeader(selectedSet, library,
-                                onPlay = { selectedSet.scores.firstNotNullOfOrNull { id -> library.scores.find { it.id == id } }?.let { open(it, selectedSet.id) } },
-                                onAdd = { addScoresTo = selectedSet.id }, onRename = { renameSet = selectedSet.id }, onDelete = { deleteSet = selectedSet.id })
+                                onPlay = { selectedSet.scoresIn(library).firstOrNull()?.let { open(it, selectedSet.id) } },
+                                onAdd = { addScoresTo = selectedSet.id }, onRename = { renameSet = selectedSet.id }, onDelete = { deleteSet = selectedSet.id },
+                                onReverse = { model.set(selectedSet.id) { it.reversedOrder() } },
+                                onShuffle = { model.set(selectedSet.id) { it.copy(scores = shuffledOrder(it.scores)) } },
+                                onShare = { shareSet(selectedSet) })
                             else Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (trimmed.isNotEmpty()) "Search results" else if (favorites) "Favorites" else "Your scores", Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
-                                val shelfPages = shown.sumOf { it.pages }
                                 Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.semanticsLabel("${shown.size} scores, $shelfPages pages")) {
+                                    modifier = Modifier.semanticsLabel("${shown.size} scores, $shelfPages pages, $shelfMarks pencil marks")) {
                                     Text("${shown.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
                                         style = MaterialTheme.typography.labelSmall)
                                 }
@@ -290,12 +334,14 @@ import kotlinx.coroutines.withContext
                                 ScoreStack(Modifier.size(124.dp, 140.dp))
                                 Text(when {
                                     trimmed.isNotEmpty() -> "No scores match “$trimmed”"
+                                    filter.active -> "No scores match these filters"
                                     selectedSet != null -> "Build the running order"
                                     favorites -> "Keep your go-to pieces close"
                                     else -> "Your repertoire lives here."
                                 }, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
                                 Text(when {
                                     trimmed.isNotEmpty() -> "Try a title, composer or instrument."
+                                    filter.active -> "Clear the filters to see your whole shelf."
                                     selectedSet != null -> "Add scores in the order you'll play them."
                                     favorites -> "Tap the star on a score to find it here."
                                     else -> "Bring in sheet music PDFs. Folio keeps its own copy,\nso every score is ready offline."
@@ -321,6 +367,7 @@ import kotlinx.coroutines.withContext
                             onDown = if (order && index < shown.lastIndex) ({ model.move(selectedSet.id, score.id, 1) }) else null) {
                             ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id },
                                 onExtract = { model.reviewExisting(score.id) }, onExport = { exportScore(score) }, onDelete = { deleteScore = score.id },
+                                onDuplicate = { model.duplicate(score.id) },
                                 onRemoveFromSet = { model.set(selectedSet.id) { it.copy(scores = it.scores - score.id) } })
                         }
                     }
@@ -328,7 +375,8 @@ import kotlinx.coroutines.withContext
                         val star = { model.score(score.id) { it.copy(starred = !it.starred) } }
                         val menu: @Composable () -> Unit = {
                             ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id },
-                                onExtract = { model.reviewExisting(score.id) }, onExport = { exportScore(score) }, onDelete = { deleteScore = score.id })
+                                onExtract = { model.reviewExisting(score.id) }, onExport = { exportScore(score) }, onDelete = { deleteScore = score.id },
+                                onDuplicate = { model.duplicate(score.id) })
                         }
                         val placement = if (wide) Modifier else Modifier.animateItem(placementSpec = com.folio.notes.folioSpring())
                         if (rows) ScoreRow(score, model, placement, { open(score, null) }, star, menu)
@@ -371,8 +419,9 @@ import kotlinx.coroutines.withContext
 }
 
 /** The selected set list as a hero card: what it is, how long it runs, and the way to start it. */
-@Composable private fun SetHeader(set: MusicSet, library: MusicLibrary, onPlay: () -> Unit, onAdd: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
-    val scores = set.scores.mapNotNull { id -> library.scores.find { it.id == id } }
+@Composable private fun SetHeader(set: MusicSet, library: MusicLibrary, onPlay: () -> Unit, onAdd: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit,
+    onReverse: () -> Unit, onShuffle: () -> Unit, onShare: () -> Unit) {
+    val scores = set.scoresIn(library)
     var menu by remember { mutableStateOf(false) }
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -383,7 +432,8 @@ import kotlinx.coroutines.withContext
                 Column(Modifier.weight(1f)) {
                     Text("Set list", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(set.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${scores.size} ${if (scores.size == 1) "score" else "scores"} · ${scores.sumOf { it.pages }} pages",
+                    Text(listOf("${scores.size} ${if (scores.size == 1) "score" else "scores"}", "${scores.sumOf { it.pages }} pages",
+                        if (scores.isEmpty()) null else "≈${set.estimatedMinutes(library)} min").filterNotNull().joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box {
@@ -400,6 +450,16 @@ import kotlinx.coroutines.withContext
                 }
                 OutlinedButton(onAdd, enabled = library.scores.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add scores")
+                }
+                // Reordering the running order without dragging cards one at a time.
+                OutlinedButton(onReverse, enabled = scores.size > 1, shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.SwapVert, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Reverse")
+                }
+                OutlinedButton(onShuffle, enabled = scores.size > 1, shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.Shuffle, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Shuffle")
+                }
+                OutlinedButton(onShare, enabled = scores.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.IosShare, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Share")
                 }
             }
         }
@@ -478,13 +538,14 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable private fun ScoreMenu(score: MusicScore, busy: Boolean, onDetails: () -> Unit, onSets: () -> Unit, onExtract: () -> Unit,
-    onExport: () -> Unit, onDelete: () -> Unit, onRemoveFromSet: (() -> Unit)? = null) {
+    onExport: () -> Unit, onDelete: () -> Unit, onDuplicate: () -> Unit, onRemoveFromSet: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${score.title}") }
         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
             DropdownMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+            DropdownMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
             if (onRemoveFromSet != null) DropdownMenuItem({ Text("Remove from this set list") }, { menu = false; onRemoveFromSet() },
                 leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) })
             DropdownMenuItem({ Text("Extract instrument parts") }, { menu = false; onExtract() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
@@ -494,8 +555,15 @@ import kotlinx.coroutines.withContext
     }
 }
 
-private fun scoreMeta(score: MusicScore) =
-    (listOf(score.composer, score.part).filter { it.isNotBlank() } + "${score.pages} ${if (score.pages == 1) "page" else "pages"}").joinToString(" · ")
+/** Composer, part, size and how marked-up a score is, all on one line for a card or row. */
+private fun scoreMeta(score: MusicScore): String {
+    val bits = mutableListOf<String>()
+    bits += listOf(score.composer, score.part).filter { it.isNotBlank() }
+    bits += "${score.pages} ${if (score.pages == 1) "page" else "pages"}"
+    if (score.marks.isNotEmpty()) bits += "${score.marks.size} ${if (score.marks.size == 1) "mark" else "marks"}"
+    if (score.annotationCount() > 0) bits += "${score.annotationCount()} ${if (score.annotationCount() == 1) "note" else "notes"}"
+    return bits.joinToString(" · ")
+}
 
 /**
  * The first page drawn small, on white like printed paper. Until it arrives (or if the PDF cannot

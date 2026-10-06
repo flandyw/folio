@@ -106,6 +106,17 @@ internal class MusicViewModel(application: Application) : AndroidViewModel(appli
             sets = library.sets.map { it.copy(scores = it.scores.filterNot { score -> score == id }) }) })
         withContext(Dispatchers.IO) { store.delete(id) }
     } }
+    /**
+     * A second copy of a score inside Music: the PDF is copied and its annotations, notes and marks
+     * come with it. The original and every set list that points at it are left exactly as they were.
+     */
+    fun duplicate(id: String) { work.trySend {
+        val score = mutable.value.library.scores.find { it.id == id } ?: return@trySend
+        mutable.value = mutable.value.copy(busy = true)
+        val copy = withContext(Dispatchers.IO) { store.duplicate(score) }
+        commit(mutable.value.library.copy(scores = mutable.value.library.scores + copy))
+        mutable.value = mutable.value.copy(busy = false, message = "Copied “${score.title}”")
+    } }
     /** Stamped when the reader opens a score; drives "Continue playing" and the recent sort. */
     fun opened(id: String) = score(id) { it.copy(opened = System.currentTimeMillis()) }
     fun move(setId: String, scoreId: String, delta: Int) = set(setId) { s ->

@@ -1,12 +1,16 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -16,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,6 +33,8 @@ import com.folio.notes.FolioExpand
 import com.folio.notes.FolioShapes
 import com.folio.notes.FolioSpacing
 import com.folio.notes.guardUiTouches
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Reviewing an imported PDF before it joins Music: the page preview sits on the editor's desk,
@@ -41,6 +49,8 @@ import com.folio.notes.guardUiTouches
     var ranges by rememberSaveable(source.id) { mutableStateOf(review.suggestions.map { MusicParts.pageLabel(it.pages) }.ifEmpty { listOf("") }) }
     var checked by rememberSaveable(source.id) { mutableStateOf(instruments.map { review.suggestions.isEmpty() }) }
     var previewPage by rememberSaveable(source.id) { mutableIntStateOf(0) }
+    // The part the filmstrip edits: tapping a page adds or removes it from this part's range.
+    var activePart by rememberSaveable(source.id) { mutableIntStateOf(0) }
     val parsed = ranges.map { runCatching { MusicParts.parsePages(it, source.pages) } }
     val selected = checked.indices.filter { checked[it] }
     val valid = selected.isNotEmpty() && selected.all { titles[it].isNotBlank() && parsed[it].isSuccess }
@@ -95,6 +105,28 @@ import com.folio.notes.guardUiTouches
                                 }
                                 if (source.pages > 2) Slider(previewPage.toFloat(), { preview(it.roundToIntSafe()) }, valueRange = 0f..(source.pages - 1).toFloat(),
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8))
+                                // A filmstrip of every page, so a range can be built by tapping pages rather
+                                // than counting them: the active part's pages read as included.
+                                instruments.getOrNull(activePart)?.let {
+                                    Text("Pages of ${it.ifBlank { "Custom part" }} — tap a page to add or remove it.",
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                val activePages = parsed.getOrNull(activePart)?.getOrNull().orEmpty()
+                                LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6),
+                                    contentPadding = PaddingValues(horizontal = FolioSpacing.dp4)) {
+                                    items((0 until source.pages).toList(), key = { it }) { index ->
+                                        FilmstripTile(index = index, file = model.store.pdf(source.id), cache = model.pageCache,
+                                            previewed = index == previewPage, included = index in activePages,
+                                            onClick = {
+                                                preview(index)
+                                                if (activePart in ranges.indices && checked.getOrNull(activePart) != false) {
+                                                    val next = MusicParts.togglePage(parsed.getOrNull(activePart)?.getOrNull().orEmpty(), index)
+                                                    ranges = ranges.toMutableList().also { it[activePart] = MusicParts.pageLabel(next) }
+                                                }
+                                            })
+                                    }
+                                }
                             }
                         }
                     }
@@ -138,7 +170,9 @@ import com.folio.notes.guardUiTouches
                                                 Text(parsed[index].getOrNull()?.let { "Pages ${ranges[index]} · ${it.size} ${if (it.size == 1) "page" else "pages"}" } ?: "Choose pages",
                                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
-                                            TextButton({ parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }, enabled = parsed[index].isSuccess, shapes = ButtonDefaults.shapes()) {
+                                            TextButton({
+                                                if (parsed[index].isSuccess) { activePart = index; parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }
+                                            }, enabled = parsed[index].isSuccess, shapes = ButtonDefaults.shapes()) {
                                                 Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Show")
                                             }
                                         }
@@ -179,6 +213,19 @@ import com.folio.notes.guardUiTouches
                                     if (!review.existing) TextButton({ model.keepWhole(source.id) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                                         Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Keep the complete PDF instead")
                                     }
+                                    // Several ticked parts as one: page sets are unioned, never guessed at.
+                                    val mergeable = selected.size >= 2 && selected.all { parsed[it].isSuccess }
+                                    TextButton({
+                                        MusicParts.merged(selected.map { MusicPartRequest(titles[it], instruments[it], parsed[it].getOrThrow()) })?.let { merged ->
+                                            instruments = listOf(merged.instrument.ifBlank { "Merged part" })
+                                            titles = listOf(merged.title.ifBlank { autoTitle(merged.instrument) })
+                                            ranges = listOf(MusicParts.pageLabel(merged.pages))
+                                            checked = listOf(true)
+                                            activePart = 0
+                                        }
+                                    }, enabled = !busy && mergeable, shapes = ButtonDefaults.shapes()) {
+                                        Icon(Icons.Rounded.CallMerge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
+                                    }
                                 }
                             }
                         }
@@ -201,6 +248,31 @@ import com.folio.notes.guardUiTouches
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * One page in the import filmstrip: its rendered thumbnail, the page number, whether the active
+ * part already holds it, and whether it is the page on the big preview.
+ */
+@Composable private fun FilmstripTile(index: Int, file: java.io.File, cache: MusicPageCache,
+    previewed: Boolean, included: Boolean, onClick: () -> Unit) {
+    val widthPx = with(androidx.compose.ui.platform.LocalDensity.current) { 52.dp.roundToPx() }
+    val bitmap by produceState<Bitmap?>(null, file, index, widthPx) {
+        value = withContext(Dispatchers.IO) { runCatching { cache.render(file, index, widthPx) }.getOrNull() }
+    }
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    Surface(onClick = onClick, shape = FolioShapes.medium,
+        color = if (included) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(if (previewed) 2.dp else 1.dp, if (previewed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.size(52.dp, 68.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            if (image != null) Image(image, "PDF page ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .85f),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp)) {
+                Text("${index + 1}", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelSmall)
             }
         }
     }

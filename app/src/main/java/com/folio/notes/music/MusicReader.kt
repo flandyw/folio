@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -63,6 +64,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -175,6 +177,18 @@ private val ReaderTools = ShapeTools
         appPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    // Reader comfort: how far the sheet is dimmed for a dark pit, and whether the tool strip shows.
+    var dim by remember { mutableFloatStateOf(AppPrefs.musicDim(appPrefs.getFloat(AppPrefs.MUSIC_DIM, AppPrefs.DEFAULT_MUSIC_DIM))) }
+    var showToolbar by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.MUSIC_TOOLBAR, AppPrefs.DEFAULT_MUSIC_TOOLBAR)) }
+    fun setDim(value: Float) { dim = AppPrefs.musicDim(value); appPrefs.edit().putFloat(AppPrefs.MUSIC_DIM, dim).apply() }
+    fun setShowToolbar(value: Boolean) { showToolbar = value; appPrefs.edit().putBoolean(AppPrefs.MUSIC_TOOLBAR, value).apply() }
+    // The metronome remembers its click, downbeat accent, subdivision and count-in between scores.
+    var accent by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.MUSIC_ACCENT, AppPrefs.DEFAULT_MUSIC_ACCENT)) }
+    var subdivision by remember { mutableIntStateOf(AppPrefs.musicSubdivision(appPrefs.getInt(AppPrefs.MUSIC_SUBDIVISION, AppPrefs.DEFAULT_MUSIC_SUBDIVISION))) }
+    var countIn by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.MUSIC_COUNT_IN, false)) }
+    fun setAccent(value: Boolean) { accent = value; appPrefs.edit().putBoolean(AppPrefs.MUSIC_ACCENT, value).apply() }
+    fun setSubdivision(value: Int) { subdivision = AppPrefs.musicSubdivision(value); appPrefs.edit().putInt(AppPrefs.MUSIC_SUBDIVISION, subdivision).apply() }
+    fun setCountIn(value: Boolean) { countIn = value; appPrefs.edit().putBoolean(AppPrefs.MUSIC_COUNT_IN, value).apply() }
     var tool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var options by remember(tool) { mutableStateOf(ToolOptions.load(prefs, tool)) }
     fun changeOptions(value: ToolOptions) { options = value; value.save(prefs, tool) }
@@ -215,7 +229,8 @@ private val ReaderTools = ShapeTools
     var twoUp by rememberSaveable { mutableStateOf(true) }
     var popover by remember { mutableStateOf<ReaderPopover?>(null) }
     var running by remember { mutableStateOf(false) }
-    var sound by remember { mutableStateOf(false) }
+    var sound by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.MUSIC_CLICK, AppPrefs.DEFAULT_MUSIC_CLICK)) }
+    fun setSound(value: Boolean) { sound = value; appPrefs.edit().putBoolean(AppPrefs.MUSIC_CLICK, value).apply() }
     var beat by remember { mutableIntStateOf(0) }
     // The label being typed; lasso selection state lives with the tool state above.
     var labelDraft by remember { mutableStateOf<MusicText?>(null) }
@@ -237,18 +252,35 @@ private val ReaderTools = ShapeTools
     LaunchedEffect(score.id) { focus.requestFocus(); running = false }
     LaunchedEffect(page) { selectedStrokes = emptySet(); selectedTexts = emptySet() }
     // Visual beat is always available; audio is explicitly enabled and released on leaving.
-    LaunchedEffect(running, score.bpm, score.beats, sound) {
+    LaunchedEffect(running, score.bpm, score.beats, sound, accent, subdivision, countIn) {
         if (!running) { beat = 0; return@LaunchedEffect }
         val tone = if (sound) runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 65) }.getOrNull() else null
         try {
             val period = 60_000L / score.bpm
+            // Subdivision ticks live inside a beat; they are heard, never counted as a new beat.
+            val steps = if (sound) subdivision.coerceAtLeast(1) else 1
+            val stepMs = period / steps
             var deadline = SystemClock.elapsedRealtime()
+            // One bar of clicks first, so there is time to raise the instrument before the music starts.
+            if (countIn) {
+                for (lead in 1..score.beats) {
+                    beat = lead
+                    tone?.startTone(if (lead == 1 && accent) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP, 45)
+                    deadline += period
+                    delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
+                }
+            }
             var tick = 0
             while (true) {
+                val downbeat = tick % score.beats == 0
                 beat = tick % score.beats + 1
-                tone?.startTone(if (beat == 1) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP, 45)
+                for (step in 0 until steps) {
+                    if (step == 0) tone?.startTone(if (downbeat && accent) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP, 45)
+                    else tone?.startTone(ToneGenerator.TONE_PROP_BEEP, 16)
+                    deadline += stepMs
+                    if (step < steps - 1) delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
+                }
                 tick++
-                deadline += period
                 delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
             }
         } finally { tone?.release() }
@@ -318,9 +350,15 @@ private val ReaderTools = ShapeTools
             val landscape = maxWidth > maxHeight
             val step = if (landscape && twoUp) 2 else 1
             val lastStart = maxOf(0, score.pages - step)
+            // A light tick on every real turn, so a pedal or a tap confirms without looking down.
+            val haptics = LocalHapticFeedback.current
             fun go(target: Int) {
                 val following = target.coerceIn(0, lastStart)
-                if (following != page) { page = following; model.score(score.id) { it.copy(page = following) } }
+                if (following != page) {
+                    page = following
+                    model.score(score.id) { it.copy(page = following) }
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
             }
             // A saved position (or a rotation) can leave the window hanging past the end.
             LaunchedEffect(step) { if (page > lastStart) go(lastStart) }
@@ -344,7 +382,8 @@ private val ReaderTools = ShapeTools
                         if (running) BeatButton(score.bpm, beat) { popover = ReaderPopover.METRONOME }
                         else ReaderButton(Icons.Rounded.Speed, "Metronome") { popover = ReaderPopover.METRONOME }
                         Anchored(ReaderPopover.METRONOME) {
-                            MetronomePopover(score, model, running, { running = it }, sound, { sound = it }, beat)
+                            MetronomePopover(score, model, running, { running = it }, sound, ::setSound, beat,
+                                accent, ::setAccent, subdivision, ::setSubdivision, countIn, ::setCountIn)
                         }
                     }
                     FilledTonalIconButton({ go(page - step) }, modifier = Modifier.size(48.dp), enabled = page > 0, shapes = IconButtonDefaults.shapes()) {
@@ -358,7 +397,8 @@ private val ReaderTools = ShapeTools
                         ReaderButton(Icons.Rounded.MoreVert, "Score options") { popover = ReaderPopover.MORE }
                         Anchored(ReaderPopover.MORE) {
                             Text(score.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(score.composer.ifBlank { null }, score.part.ifBlank { null }, setLabel).joinToString(" · ").ifEmpty { "${score.pages} pages" },
+                            Text(listOfNotNull(score.composer.ifBlank { null }, score.part.ifBlank { null }, setLabel,
+                                "${score.pages} pages", if (score.annotationCount() > 0) "${score.annotationCount()} pencil marks" else null).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 PopoverTile(Icons.Rounded.EditNote, "Details", Modifier.weight(1f)) { close(); onDetails() }
@@ -372,12 +412,21 @@ private val ReaderTools = ShapeTools
                             }
                             Column {
                                 if (landscape) PopoverRow(Icons.Rounded.AutoStories, if (twoUp) "Show one page at a time" else "Show two pages side by side") { twoUp = !twoUp; close() }
+                                PopoverRow(if (showToolbar) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (showToolbar) "Hide the tool strip" else "Show the tool strip") { setShowToolbar(!showToolbar); close() }
                                 PopoverRow(Icons.Rounded.ContentCut, "Extract instrument parts") { close(); onExtract() }
                                 PopoverRow(Icons.Rounded.Tune, "App settings") { close(); onSettings() }
                                 if (annotated) PopoverRow(Icons.Rounded.DeleteSweep, "Clear annotations on these pages") {
                                     close()
                                     visible.forEach { index -> replacePage(index, emptyList(), emptyList()) }
                                 }
+                                if (score.annotationCount() > 0) PopoverRow(Icons.Rounded.DeleteForever, "Clear every annotation in this score", destructive = true) {
+                                    close()
+                                    applyInk(emptyList(), emptyList())
+                                }
+                            }
+                            PopoverGroup("Reading light") {
+                                PopoverRow(if (dim > 0f) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, if (dim > 0f) "Stop dimming the page" else "Dim the page for a dark pit") { setDim(if (dim > 0f) 0f else .35f) }
+                                if (dim > 0f) Slider(dim, ::setDim, valueRange = 0f..AppPrefs.MUSIC_DIM_MAX)
                             }
                             HorizontalDivider()
                             Text("Tap the left or right of a page to turn it, or use the arrows. Pinch to zoom, double-tap to fit. Arrow, Space and Page keys work with page-turn pedals; Home/End jump to the ends. In landscape you can show two pages side by side. The pens, highlighter, eraser, shapes, text and lasso all work on a score.",
@@ -420,7 +469,11 @@ private val ReaderTools = ShapeTools
                 true
             }.focusRequester(focus).focusable()) {
                 LaunchedEffect(Unit) {
-                    snapshotFlow { toolbarFull }.collectLatest { full -> if (full > 0) { delay(160); dockTop = with(density) { toolbarFull.toDp() } + FolioSpacing.dp6 } }
+                    snapshotFlow { toolbarFull }.collectLatest { full ->
+                        // A hidden strip leaves the page the whole desk; a shown one insets it by its height.
+                        if (full > 0) { delay(160); dockTop = with(density) { toolbarFull.toDp() } + FolioSpacing.dp6 }
+                        else dockTop = FolioSpacing.dp6
+                    }
                 }
                 val topInset = if (performance) FolioSpacing.dp8 else dockTop + FolioSpacing.dp4
                 val bottomInset = FolioSpacing.dp8
@@ -461,6 +514,9 @@ private val ReaderTools = ShapeTools
                             onTurn = { forward -> go(page + if (forward) step else -step) }, modifier = Modifier.width(pageWidth).fillMaxHeight())
                     }
                 }
+                // Night reading: a plain scrim over the desk only. It carries no pointer input, so every
+                // tap and stroke still reaches the page underneath.
+                if (dim > 0f) Box(Modifier.matchParentSize().zIndex(10f).background(Color.Black.copy(alpha = dim)))
                 if (!performance) {
                     Box(Modifier.align(Alignment.CenterStart).zIndex(11f).padding(start = FolioSpacing.dp6, top = topInset, bottom = bottomInset)) { LeftRail() }
                     Box(Modifier.align(Alignment.CenterEnd).zIndex(11f).padding(end = FolioSpacing.dp6, top = topInset, bottom = bottomInset)) { RightRail() }
@@ -468,7 +524,7 @@ private val ReaderTools = ShapeTools
                 // The tool strip floats over the desk, flush to the top; the page is inset by its full
                 // measured height. Back, marks, metronome, options and page turns live in two floating
                 // rails at the left and right edges instead of a row above the strip and a dock below.
-                FloatingInkToolbar(
+                if (showToolbar) FloatingInkToolbar(
                         modifier = Modifier.align(Alignment.TopCenter).zIndex(11f).fillMaxWidth()
                             .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6),
                         onFullHeight = { if (!performance) toolbarFull = it },
@@ -528,9 +584,22 @@ private val ReaderTools = ShapeTools
                 if (selectionPage in visible && (selectedStrokes.isNotEmpty() || selectedTexts.isNotEmpty())) {
                     val strokes = score.ink.filter { it.page == selectionPage }
                     val texts = score.texts.filter { it.page == selectionPage }
+                    val chosenStrokes = selectedStrokes.sorted().mapNotNull { strokes.getOrNull(it) }
+                    val allDashed = chosenStrokes.isNotEmpty() && chosenStrokes.all { it.style == StrokeStyle.DASHED.name }
                     SelectionPill(
                         count = selectedStrokes.size + selectedTexts.size,
                         modifier = Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(bottom = bottomInset + FolioSpacing.dp8),
+                        dashed = allDashed,
+                        // A restyle rewrites every selected stroke at once, so the whole selection changes look.
+                        onStyle = {
+                            val style = if (allDashed) StrokeStyle.SOLID.name else StrokeStyle.DASHED.name
+                            replacePage(selectionPage,
+                                strokes.mapIndexed { i, stroke -> if (i in selectedStrokes) MusicInk.restyled(stroke, style = style) else stroke }, texts)
+                        },
+                        onResize = {
+                            replacePage(selectionPage,
+                                strokes.mapIndexed { i, stroke -> if (i in selectedStrokes) MusicInk.restyled(stroke, width = stroke.width * 1.5f) else stroke }, texts)
+                        },
                         onDelete = {
                             replacePage(selectionPage, strokes.filterIndexed { i, _ -> i !in selectedStrokes }, texts.filterIndexed { i, _ -> i !in selectedTexts })
                             dismissSelection()
@@ -578,12 +647,15 @@ private fun toolLabel(tool: Tool): String = when (tool) {
 }
 
 /** Delete, duplicate or dismiss a lasso selection without leaving the page. */
-@Composable private fun SelectionPill(count: Int, modifier: Modifier, onDelete: () -> Unit, onDuplicate: () -> Unit, onDone: () -> Unit) {
+@Composable private fun SelectionPill(count: Int, modifier: Modifier, dashed: Boolean, onStyle: () -> Unit, onResize: () -> Unit,
+    onDelete: () -> Unit, onDuplicate: () -> Unit, onDone: () -> Unit) {
     Surface(modifier = modifier.guardUiTouches(), shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp, shadowElevation = 8.dp) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Text("$count selected", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(end = FolioSpacing.dp4))
+            ReaderButton(if (dashed) Icons.Rounded.LineWeight else Icons.Rounded.HorizontalRule, if (dashed) "Make solid" else "Make dashed", active = dashed, onClick = onStyle)
+            ReaderButton(Icons.Rounded.Add, "Thicker", onClick = onResize)
             ReaderButton(Icons.Rounded.ContentCopy, "Duplicate selection", onClick = onDuplicate)
             ReaderButton(Icons.Rounded.Delete, "Delete selection", onClick = onDelete)
             ReaderButton(Icons.Rounded.Close, "Deselect", onClick = onDone)
@@ -608,6 +680,12 @@ private fun toolLabel(tool: Tool): String = when (tool) {
                 OutlinedTextField(text, { if (it.text.length <= 40) text = it }, modifier = Modifier.fillMaxWidth().focusRequester(field), singleLine = true,
                     label = { Text("Label") }, keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { onDone(draft.copy(text = text.text.trim())) }))
+                // One tap for the marks a player writes most, so a rehearsal cue needs no typing.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                    listOf("mf", "pp", "f", "rit.", "A", "B", "cue").forEach { preset ->
+                        FilterChip(text.text == preset, { text = TextFieldValue(preset, selection = TextRange(preset.length)) }, { Text(preset) })
+                    }
+                }
             }
         },
         confirmButton = { Button({ onDone(draft.copy(text = text.text.trim())) }, shapes = ButtonDefaults.shapes()) { Text("Save") } },
@@ -716,7 +794,9 @@ private fun toolLabel(tool: Tool): String = when (tool) {
 }
 
 @Composable private fun MetronomePopover(score: MusicScore, model: MusicViewModel, running: Boolean, onRunning: (Boolean) -> Unit,
-    sound: Boolean, onSound: (Boolean) -> Unit, beat: Int) {
+    sound: Boolean, onSound: (Boolean) -> Unit, beat: Int,
+    accent: Boolean, onAccent: (Boolean) -> Unit, subdivision: Int, onSubdivision: (Int) -> Unit,
+    countIn: Boolean, onCountIn: (Boolean) -> Unit) {
     var bpm by remember(score.bpm) { mutableFloatStateOf(score.bpm.toFloat()) }
     var lastTap by remember { mutableLongStateOf(0L) }
     fun tempo(value: Int) { val clamped = value.coerceIn(30, 240); bpm = clamped.toFloat(); model.score(score.id) { it.copy(bpm = clamped) } }
@@ -730,15 +810,35 @@ private fun toolLabel(tool: Tool): String = when (tool) {
         FilledTonalIconButton({ tempo(bpm.roundToInt() - 1) }, enabled = bpm > 30, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Slower") }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${bpm.roundToInt()}", style = MaterialTheme.typography.displaySmall)
+            Text(tempoName(bpm.roundToInt()), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("beats per minute", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         FilledTonalIconButton({ tempo(bpm.roundToInt() + 1) }, enabled = bpm < 240, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Faster") }
     }
     Slider(bpm, { bpm = it }, valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
+    // Coarse steps for finding a tempo quickly, then the slider for the exact number.
+    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        OutlinedButton({ tempo(bpm.roundToInt() - 5) }, modifier = Modifier.weight(1f), enabled = bpm > 30, shapes = ButtonDefaults.shapes()) { Text("−5") }
+        OutlinedButton({ tempo(nearestTempo(bpm.roundToInt()).bpm) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) { Text(nearestTempo(bpm.roundToInt()).label) }
+        OutlinedButton({ tempo(bpm.roundToInt() + 5) }, modifier = Modifier.weight(1f), enabled = bpm < 240, shapes = ButtonDefaults.shapes()) { Text("+5") }
+    }
     // One tap to a familiar marking, then fine-tune with the slider.
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         MusicTempos.forEach { preset ->
             FilterChip(bpm.roundToInt() == preset.bpm, { tempo(preset.bpm) }, { Text("${preset.label} · ${preset.bpm}") })
+        }
+    }
+    // Click character: accent the downbeat, tick subdivisions inside the beat, lead in a bar.
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        FilterChip(accent, { onAccent(!accent) }, { Text("Accent beat 1") }, leadingIcon = { Icon(Icons.Rounded.PriorityHigh, null, Modifier.size(16.dp)) })
+        FilterChip(countIn, { onCountIn(!countIn) }, { Text("Count in") }, leadingIcon = { Icon(Icons.Rounded.Timer, null, Modifier.size(16.dp)) })
+    }
+    if (sound) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+        Text("Subdivision", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            listOf(0 to "Off", 2 to "2", 3 to "3", 4 to "4").forEach { (value, label) ->
+                FilterChip(subdivision == value, { onSubdivision(value) }, { Text(label) })
+            }
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -763,13 +863,16 @@ private fun toolLabel(tool: Tool): String = when (tool) {
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** Every page as a tile; pages with a rehearsal mark carry a dot, so codas are easy to find. */
+/** Every page as a tile; a dot marks a rehearsal mark and a blue number counts the pencil notes. */
 @Composable private fun PagesPopover(score: MusicScore, visible: IntRange, go: (Int) -> Unit) {
     val marked = score.marks.map { it.page }.toSet()
-    val annotated = (score.ink.map { it.page } + score.texts.map { it.page }).toSet()
+    val counts = (score.ink.map { it.page } + score.texts.map { it.page }).groupingBy { it }.eachCount()
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Icon(Icons.Rounded.GridView, null, Modifier.size(20.dp))
-        Text("Go to page", style = MaterialTheme.typography.titleMedium)
+        Text("Go to page", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        // Long scores rarely need the middle: jump straight to an end from here.
+        TextButton({ go(0) }, enabled = visible.first > 0, shapes = ButtonDefaults.shapes()) { Text("First") }
+        TextButton({ go(score.pages - 1) }, enabled = visible.last < score.pages - 1, shapes = ButtonDefaults.shapes()) { Text("Last") }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         for (index in 0 until score.pages) {
@@ -780,14 +883,19 @@ private fun toolLabel(tool: Tool): String = when (tool) {
                 Box(contentAlignment = Alignment.Center) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelLarge)
                     if (index in marked) Box(Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp4).size(6.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
-                    if (index in annotated) Box(Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp4).size(6.dp).background(MusicPencil, CircleShape))
+                    (counts[index] ?: 0).takeIf { it > 0 }?.let { count ->
+                        Text("$count", Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp2),
+                            style = MaterialTheme.typography.labelSmall, color = MusicPencil)
+                    }
                 }
             }
         }
     }
-    if (marked.isNotEmpty() || annotated.isNotEmpty()) Text(
+    // A scrubber for a long score: drag straight to a page instead of hunting for its tile.
+    if (score.pages > 1) Slider(visible.first.toFloat(), { go(it.roundToInt()) }, valueRange = 0f..(score.pages - 1).toFloat())
+    if (marked.isNotEmpty() || counts.isNotEmpty()) Text(
         listOfNotNull(if (marked.isNotEmpty()) "a dot marks a rehearsal mark" else null,
-            if (annotated.isNotEmpty()) "a blue dot marks pencil notes" else null).joinToString("; ").replaceFirstChar { it.uppercase() } + ".",
+            if (counts.isNotEmpty()) "a blue number counts pencil notes" else null).joinToString("; ").replaceFirstChar { it.uppercase() } + ".",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -944,6 +1052,15 @@ private data class MusicPageImage(val bitmap: Bitmap? = null, val error: String?
                 else -> Modifier.pointerInput(file, page, tool) {
                     detectTapGestures(
                         onDoubleTap = { scale = 1f; offset = Offset.Zero },
+                        // A long press picks up the mark under the finger, ready for the selection pill.
+                        onLongPress = { position ->
+                            if (tool != Tool.TEXT) {
+                                val at = fraction(position)
+                                val stroke = MusicInk.strokeAt(liveStrokes, at)
+                                val label = MusicInk.textAt(liveTexts, page, at)
+                                if (stroke != null || label != null) select(setOfNotNull(stroke), setOfNotNull(label))
+                            }
+                        },
                         onTap = { position ->
                             val at = fraction(position)
                             val hit = if (tool == Tool.TEXT) MusicInk.textAt(liveTexts, page, at) else null
