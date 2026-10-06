@@ -16,11 +16,26 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
+/** The three shapes drawn most recently, newest first; the first is the one the shape button re-arms. */
+object ShapeRecents {
+    const val KEY = "shape.recent"
+    const val COUNT = 3
+    private val DEFAULT = listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE)
+
+    fun decode(value: String?): List<Tool> {
+        val parsed = value?.split(',')?.mapNotNull { name -> Tool.entries.firstOrNull { it.name == name.trim() }?.takeIf { it in ShapePickerTools } }.orEmpty().distinct()
+        return (parsed + DEFAULT.filter { it !in parsed }).take(COUNT)
+    }
+
+    fun encode(shapes: List<Tool>) = shapes.joinToString(",") { it.name }
+
+    fun push(shapes: List<Tool>, picked: Tool) = (listOf(picked) + shapes.filter { it != picked }).take(COUNT)
+}
+
 /** Shared by the shape button and its overflow entry; previews use the actual ink renderer. */
 @Composable internal fun ShapePickerPopover(
     tool: Tool,
     onPick: (Tool) -> Unit,
-    onInsert: (InkStamps.Kind) -> Unit,
     onDismiss: () -> Unit
 ) {
     FolioPopover(onDismiss, width = 320.dp) {
@@ -38,19 +53,6 @@ import androidx.compose.ui.unit.dp
                     } else listOf(Stroke(value, color.toArgb(), 3f,
                         listOf(InkPoint(-36f, if (value == Tool.LINE) 18f else -30f), InkPoint(36f, 30f))))
                 }
-                ShapePreview(strokes)
-            }
-        }
-        HorizontalDivider()
-        Text("Insert · tap to add to the page", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ShapeGrid(InkStamps.kinds) { kind ->
-            ShapeTile(when (kind) {
-                InkStamps.Kind.CALLOUT -> "Callout"
-                InkStamps.Kind.UNDERLINE -> "Underline"
-                else -> InkStamps.label(kind)
-            }, onClick = { onInsert(kind) }) { color ->
-                val strokes = remember(kind, color) { InkStamps.make(kind, 0f, 0f, 72f, color.toArgb(), 3f) }
                 ShapePreview(strokes)
             }
         }

@@ -1248,7 +1248,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
-                    onInsertShape = { model.insertStamp(it, color = options.color, width = options.width, opacity = options.opacity) },
                     actions = listOf(
                         ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
                     ),
@@ -2209,7 +2208,6 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
     toolbarLayoutState: ToolbarLayoutState? = null,
-    onInsertShape: (InkStamps.Kind) -> Unit,
     actions: List<ToolbarAction> = emptyList(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
@@ -2230,7 +2228,6 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         // The child's own hold stands alone; leave no strip claim to swallow a later tap.
         stripGuard.begin()
     }
-    var lastShape by rememberSaveable { mutableStateOf(Tool.LINE) }
     // Boxing a missed allocation only means something on an imported PDF, so elsewhere the tool stays out of the way;
     // where it applies it rides on top of the strip rather than pushing another tool into the overflow.
     val toolbarLayout = (toolbarLayoutState?.layout ?: ToolbarLayouts.default()).let { base ->
@@ -2240,6 +2237,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
         toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
     }
+    val toolPrefsContext = LocalContext.current
+    val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
     val isShape = tool in ShapePickerTools
     val isDrawing = tool in DrawingTools
     // Text quick controls change the colour used for new text boxes.
@@ -2250,12 +2249,17 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         if (next != tool) feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onTool(next)
     }
+    var recentShapes by remember { mutableStateOf(ShapeRecents.decode(toolPrefs.getString(ShapeRecents.KEY, null))) }
+    val lastShape = recentShapes.first()
+    fun chooseShape(value: Tool) {
+        recentShapes = ShapeRecents.push(recentShapes, value)
+        toolPrefs.edit().putString(ShapeRecents.KEY, ShapeRecents.encode(recentShapes)).apply()
+        pick(value)
+    }
     // The highlighter has its own quick colours and presets; other ink tools share them.
     val colorGroup = InkColors.groupOf(tool)
     // Dots on the pen/highlighter show their own stored colours, not the active tool's, so the
     // inactive button still reads correctly. Reads are in-memory SharedPreferences lookups.
-    val toolPrefsContext = LocalContext.current
-    val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
     val penDot = if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt())
     val highlighterDot = if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt())
     val widthRange = WidthPresets.range(WidthPresets.group(tool))
@@ -2296,6 +2300,15 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 IconButton({ onPalette(true) }, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Palette, "More colours", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        }
+    }
+    @Composable fun RecentShapes() {
+        recentShapes.forEach { shape ->
+            val selected = shape == tool
+            IconButton({ chooseShape(shape) }, modifier = Modifier.size(40.dp).semanticsLabel("${shapeLabel(shape)}${if (selected) ", selected" else ""}"),
+                colors = IconButtonDefaults.iconButtonColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
+                Icon(shapeIcon(shape), null, Modifier.size(20.dp))
             }
         }
     }
@@ -2359,16 +2372,16 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         Box(contentAlignment = Alignment.Center) {
             val shapeIcon = shapeIcon(if (isShape) tool else lastShape)
             Box {
-                FolioToolToggle(isShape, { onPalette(false); shapePicker = true }, shapeIcon,
-                    if (isShape) "Shapes, ${tool.name.lowercase()} — tap to choose shape" else "Shapes",
+                FolioToolToggle(isShape, { onPalette(false); if (isShape) shapePicker = true else chooseShape(lastShape) }, shapeIcon,
+                    if (isShape) "Shapes, ${tool.name.lowercase()} — tap again to choose shape" else "Shapes, ${lastShape.name.lowercase()}",
                     onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
                 Icon(Icons.Rounded.ArrowDropDown, null,
                     Modifier.align(Alignment.BottomEnd).size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (shapePicker) ShapePickerPopover(tool, onPick = { value ->
-                lastShape = value; pick(value); shapePicker = false
-            }, onInsert = { kind -> onInsertShape(kind); shapePicker = false }, onDismiss = { shapePicker = false })
+                chooseShape(value); shapePicker = false
+            }, onDismiss = { shapePicker = false })
         }
     }
     @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
@@ -2441,8 +2454,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 }
             }
             if (shapePicker && ToolbarSlot.SHAPES in toolbarLayout.overflow) {
-                ShapePickerPopover(tool, onPick = { value -> lastShape = value; pick(value); shapePicker = false },
-                    onInsert = { kind -> onInsertShape(kind); shapePicker = false }, onDismiss = { shapePicker = false })
+                ShapePickerPopover(tool, onPick = { value -> chooseShape(value); shapePicker = false },
+                    onDismiss = { shapePicker = false })
             }
             DropdownMenu(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches()) {
                 if (compactTools) {
@@ -2529,7 +2542,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         } else {
-                            WidthDots()
+                            if (isShape) RecentShapes() else WidthDots()
                             Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                             if (tool != Tool.ERASER) QuickColors()
                             if (tool != Tool.ERASER) Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
