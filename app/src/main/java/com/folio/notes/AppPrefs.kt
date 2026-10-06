@@ -21,6 +21,8 @@ object AppPrefs {
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"
+    /** Music shelf shows rows instead of first-page covers; music keeps its own choice. */
+    const val MUSIC_LIST = "music.listView"
     const val DEFAULT_TOOL = "editor.defaultTool"
     const val DEFAULT_PAPER = "notebook.defaultPaper"
     /** Paper new mistake-practice pages start on; they are always infinite canvases. */

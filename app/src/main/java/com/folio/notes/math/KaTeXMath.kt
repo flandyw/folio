@@ -124,12 +124,22 @@ private fun trimDiskCache(dir: File?) {
 }
 
 @Stable
-private class MathRenderState(val key: MathRenderKey, val style: TextStyle, val fallback: DpSize, val description: String) {
+private class MathRenderState(
+    val key: MathRenderKey, val style: TextStyle, val fallback: DpSize, val description: String,
+    /** Last picture this slot showed, kept while a resize or text-size change renders the next one. */
+    val shown: Array<Pair<Bitmap, MathRenderKey>?>,
+) {
+    val stale = shown[0]
     var bitmap by mutableStateOf(images.get(key))
     var session by mutableStateOf<CompletableDeferred<FrameLayout>?>(null)
 
     /** Captures display at their measured size, including the full document height. */
     val size: DpSize get() {
+        if (bitmap == null && stale != null && !key.isDocument) {
+            // A formula keeps its picture, rescaled by the font-size change, rather than reverting to source.
+            val scale = key.fontPx / stale.second.fontPx / stale.second.density
+            return DpSize((stale.first.width * scale).dp, (stale.first.height * scale).dp)
+        }
         val bmp = bitmap ?: return fallback
         val w = bmp.width / key.density
         val h = bmp.height / key.density
@@ -175,7 +185,8 @@ private fun rememberRender(
             DpSize(size.width.toDp(), size.height.toDp())
         }
     }
-    return remember(key, resolved, description) { MathRenderState(key, resolved, fallback, description) }
+    val shown = remember { arrayOfNulls<Pair<Bitmap, MathRenderKey>>(1) }
+    return remember(key, resolved, description) { MathRenderState(key, resolved, fallback, description, shown) }
 }
 
 /** Generic offline math block. Only a cache miss briefly mounts a local WebView. */
@@ -329,9 +340,17 @@ private fun RenderedContent(
     }
     val contentModifier = if (state.key.isDocument && state.bitmap == null) modifier
         else modifier.height(state.size.height.coerceAtLeast(1.dp))
+    SideEffect { state.bitmap?.let { state.shown[0] = it to state.key } }
     Box(contentModifier) {
         val bitmap = state.bitmap
-        if (bitmap == null) {
+        val stale = state.stale
+        if (bitmap == null && stale != null) {
+            // Resizing must not flash the raw source: show the previous render, scaled, until the new one lands.
+            if (state.key.isDocument) Image(stale.first.asImageBitmap(), state.description,
+                Modifier.fillMaxWidth(), alignment = Alignment.TopStart, contentScale = ContentScale.FillWidth)
+            else Image(stale.first.asImageBitmap(), state.description,
+                Modifier.size(state.size.width, state.size.height), contentScale = ContentScale.FillBounds)
+        } else if (bitmap == null) {
             if (fallback != null) fallback() else Text(state.description.ifEmpty { " " }, style = state.style)
         } else {
             Image(bitmap.asImageBitmap(), state.description,

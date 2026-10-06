@@ -54,6 +54,7 @@ import kotlinx.coroutines.withContext
     val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var showMistakes by rememberSaveable { mutableStateOf(false) }
     var showStudy by rememberSaveable { mutableStateOf(false) }
+    var showMusic by rememberSaveable { mutableStateOf(false) }
     // Keep the editor open while the Library temporarily chooses another workspace document.
     var workspaceLibraryPurpose by rememberSaveable { mutableStateOf<PickerPurpose?>(null) }
     var workspaceLibraryMode by rememberSaveable { mutableStateOf(CompanionMode.SPLIT) }
@@ -356,7 +357,7 @@ import kotlinx.coroutines.withContext
     LaunchedEffect(state.loading, state.activeId) {
         if (!state.loading && state.activeId == null) workspaceLibraryPurpose = null
     }
-    BackHandler(state.active != null && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
+    BackHandler(state.active != null && !showMusic && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(showStudy && !exportBusy) { showStudy = false }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale) {
@@ -376,14 +377,14 @@ import kotlinx.coroutines.withContext
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (16.dp - padding.calculateTopPadding()).coerceAtLeast(0.dp)
             Box(Modifier.fillMaxSize().padding(padding).then(
-                if (showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
+                if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
                 val screen = when {
                     state.loading -> "loading"
                     state.loadFailed -> "failed"
                     // Sidebar destinations share one shell; switching panes must not replay
                     // the whole screen's entrance animation (including the sidebar).
-                    showStudy || showMistakes -> "library"
+                    showStudy || showMistakes || showMusic -> "library"
                     workspaceLibraryPurpose != null -> "workspace-library"
                     state.active != null -> "editor"
                     else -> "library"
@@ -397,7 +398,7 @@ import kotlinx.coroutines.withContext
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        state.active != null && !showMistakes && !showStudy && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                        state.active != null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { exportMenu = true },
                             onBrowseLibrary = { purpose, mode ->
@@ -408,31 +409,36 @@ import kotlinx.coroutines.withContext
                         )
                         else -> LibraryScreen(
                             state.copy(notes = remember(state.notes) { state.notes.filterNot { it.mistakePractice } }), model,
-                            onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = true },
+                            onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMusic = false; showMistakes = true },
                             showStudy = showStudy,
-                            onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = true },
+                            onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showMusic = false; showStudy = true },
+                            showMusic = showMusic,
+                            onMusic = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = false; showMusic = true },
+                            musicContent = { onReaderMode ->
+                                com.folio.notes.music.MusicScreen(topGap, onReaderMode, onBack = { showMusic = false })
+                            },
                             studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },
                             onQuickCanvas = {
-                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false
+                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
                                 model.create("Canvas · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     Paper.DOTS, infinite = true,
                                     pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
                             },
                             onQuickNote = {
-                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false
+                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
                                 model.create("Quick note · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     AppPrefs.defaultPaper(prefs.getString(AppPrefs.DEFAULT_PAPER, null)),
                                     pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
                             },
-                            onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; newNote = true },
-                            onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; pdfPicker.launch(arrayOf("application/pdf")) },
-                            onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
+                            onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; newNote = true },
+                            onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
+                            onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                             onFolder = { folderDialog = true }, onSettings = { settings = true },
                             showMistakes = showMistakes, topGap = topGap,
-                            onLibrary = { showStudy = false; showMistakes = false; if (workspaceLibraryPurpose == null) model.close() },
+                            onLibrary = { showStudy = false; showMistakes = false; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
                                 if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)
                                 else model.open(id)
@@ -505,10 +511,10 @@ import kotlinx.coroutines.withContext
         if (focalAccountOpen) FocalAccountPanel(
             onDismiss = { focalAccountOpen = false },
             onMistakes = if (showMistakes && !settings) null else {
-                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMistakes = true }
+                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMusic = false; showMistakes = true }
             },
             onStudy = if (showStudy && !settings) null else {
-                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showStudy = true }
+                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showMusic = false; showStudy = true }
             },
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {

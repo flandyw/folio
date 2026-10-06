@@ -58,7 +58,9 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     onFolder: () -> Unit, onSettings: () -> Unit, onMistakes: () -> Unit = {},
     showMistakes: Boolean = false, onLibrary: () -> Unit = {},
     showStudy: Boolean = false, onStudy: () -> Unit = {},
+    showMusic: Boolean = false, onMusic: () -> Unit = {},
     studyContent: @Composable () -> Unit = {},
+    musicContent: @Composable (onReaderMode: (Boolean) -> Unit) -> Unit = {},
     onOpenNotebook: (String) -> Unit = model::open,
     selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
     mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
@@ -99,8 +101,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         snapshotFlow { libraryGridState.isScrollInProgress }.collect { if (it) focusManager.clearFocus() }
     }
     var reviewMode by remember { mutableStateOf(false) }
+    var musicReading by remember { mutableStateOf(false) }
     val destinationState = rememberSaveableStateHolder()
-    val showNavigation = showStudy || !showMistakes || !reviewMode
+    // Mistakes review and the music reader take the whole window, like the editor does.
+    val showNavigation = (showStudy || !showMistakes || !reviewMode) && !(showMusic && musicReading)
+    // Study, Mistakes and Music are peer panes of the shelf; any of them hides the notebook shelf.
+    val otherPane = showMistakes || showStudy || showMusic
     val pickingNotebook = selectionCaption != null
     var sortMenu by remember { mutableStateOf(false) }
     var newButtonMenu by remember { mutableStateOf(false) }
@@ -157,7 +163,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         model.setExamFilter(ExamFilter())
         focusManager.clearFocus()
     }
-    BackHandler(enabled = !showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.LIBRARY && (selecting || searchActive || filtersExpanded)) {
+    BackHandler(enabled = !otherPane && !pickingNotebook && section == LibrarySection.LIBRARY && (selecting || searchActive || filtersExpanded)) {
         when {
             selecting -> { selecting = false; selectedIds = emptyList() }
             searchActive -> { query = ""; debouncedQuery = ""; focusManager.clearFocus() }
@@ -174,7 +180,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         }
     }
     // Never put the library's palm guard above the native handwriting surface.
-    BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes) Modifier.guardUiTouches() else Modifier)) {
+    BoxWithConstraints(Modifier.fillMaxSize().then(if (!showMistakes && !showMusic) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
         // Sidebar/bottom-bar destinations are peer panes of one layout, so swapping them is a
         // repaint rather than a navigation: no entrance animation on any layout.
@@ -210,11 +216,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         }
                     }
                 ) {
-                    RailItem("Library", Icons.Rounded.GridView, !showMistakes && !showStudy && section == LibrarySection.LIBRARY && !starred && state.folderId == null) { if (!showMistakes && !showStudy && section == LibrarySection.LIBRARY) shelfScope.launch { libraryGridState.animateScrollToItem(0) }; section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() }
+                    RailItem("Library", Icons.Rounded.GridView, !otherPane && section == LibrarySection.LIBRARY && !starred && state.folderId == null) { if (!otherPane && section == LibrarySection.LIBRARY) shelfScope.launch { libraryGridState.animateScrollToItem(0) }; section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() }
                     if (!pickingNotebook) {
                         RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
                         RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
-                        RailItem("Progress", Icons.Rounded.Insights, !showMistakes && !showStudy && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
+                        RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
+                        RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
                     }
                     // Folders live in the shelf's filter row, as they already did on narrow screens:
                     // a rail is icon-only, so folder names have no room here.
@@ -227,12 +234,17 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                 if (showStudy) Box(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
                     destinationState.SaveableStateProvider("study") { studyContent() }
                 }
+                if (showMusic && !showStudy && !showMistakes) Box(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
+                    destinationState.SaveableStateProvider("music") {
+                        musicContent { musicReading = it }
+                    }
+                }
                 if (showMistakes && !showStudy) Box(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
                     destinationState.SaveableStateProvider("mistakes") {
                         mistakesContent { reviewMode = it }
                     }
                 }
-                if (!showMistakes && !showStudy && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().then(entrance),
+                if (!otherPane && (pickingNotebook || section == LibrarySection.LIBRARY)) LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(144.dp), modifier = Modifier.weight(1f).fillMaxHeight().then(entrance),
                     state = libraryGridState,
                     contentPadding = PaddingValues(if (wide) 20.dp else 12.dp).let { PaddingValues(it.calculateLeftPadding(LayoutDirection.Ltr), it.calculateTopPadding() + topGap, it.calculateRightPadding(LayoutDirection.Ltr), it.calculateBottomPadding()) }, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -482,12 +494,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     }
 
                 }
-                if (!showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.PROGRESS) {
+                if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
                     com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().padding(top = topGap).then(entrance),
                         onSettings, onMistakes, onStudy, onOpenNotebook)
                 }
         }
-        if (selecting && !showMistakes && !showStudy && !pickingNotebook && section == LibrarySection.LIBRARY) {
+        if (selecting && !otherPane && !pickingNotebook && section == LibrarySection.LIBRARY) {
             Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
@@ -520,12 +532,13 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
         if (!wide && showNavigation && !pickingNotebook && !selecting) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
-            ShortNavigationBarItem(!showMistakes && !showStudy && section == LibrarySection.LIBRARY && !starred && state.folderId == null,
-                { if (!showMistakes && !showStudy && section == LibrarySection.LIBRARY) shelfScope.launch { libraryGridState.animateScrollToItem(0) }; section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() },
+            ShortNavigationBarItem(!otherPane && section == LibrarySection.LIBRARY && !starred && state.folderId == null,
+                { if (!otherPane && section == LibrarySection.LIBRARY) shelfScope.launch { libraryGridState.animateScrollToItem(0) }; section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() },
                 icon = { Icon(Icons.Rounded.GridView, null) }, label = { Text("Library") })
             ShortNavigationBarItem(showMistakes, onMistakes, icon = { Icon(Icons.Rounded.School, null) }, label = { Text("Mistakes") })
             ShortNavigationBarItem(showStudy, onStudy, icon = { Icon(Icons.Rounded.Timer, null) }, label = { Text("Study") })
-            ShortNavigationBarItem(!showMistakes && !showStudy && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
+            ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
+            ShortNavigationBarItem(!otherPane && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
                 icon = { Icon(Icons.Rounded.Insights, null) }, label = { Text("Progress") })
         }
         }
