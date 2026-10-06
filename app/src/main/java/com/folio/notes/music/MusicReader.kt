@@ -431,7 +431,16 @@ private val ReaderTools = ShapeTools
                 // Every page sits in one horizontal strip; turning slides it, a swipe is left to the pen.
                 val rowState = rememberLazyListState()
                 var placed by remember { mutableStateOf(false) }
-                LaunchedEffect(page) { if (placed) rowState.animateScrollToItem(page) else { rowState.scrollToItem(page); placed = true } }
+                // Page width changes with the layout (one up, two up, rotation), and the list keeps its old pixel
+                // offset through that, which leaves a page off-centre — so a layout change re-seats the strip
+                // exactly, and only a real page turn slides.
+                var seated by remember { mutableStateOf<Pair<Int, androidx.compose.ui.unit.Dp>?>(null) }
+                LaunchedEffect(page, pageWidth) {
+                    val layout = step to pageWidth
+                    if (placed && seated?.second == layout.second) rowState.animateScrollToItem(page)
+                    else { rowState.scrollToItem(page); placed = true }
+                    seated = layout
+                }
                 LazyRow(Modifier.fillMaxSize().padding(start = sideInset, end = sideInset, top = topInset, bottom = bottomInset),
                     state = rowState, userScrollEnabled = false, horizontalArrangement = Arrangement.spacedBy(gap)) {
                     items(score.pages, key = { it }) { index ->
