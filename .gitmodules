@@ -1,0 +1,3 @@
+[submodule "release-server"]
+	path = release-server
+	url = https://github.com/flandyw/release-server.git

@@ -37,7 +37,7 @@ Download the latest APK from [GitHub Releases](https://github.com/flandyw/folio/
 Experimental builds are available from the [Folio server](https://folio.flandolf.me/releases/).
 In **Settings → Account & updates**, enable **Experimental builds** to check that
 server; leave it off for stable GitHub releases. Server setup and publishing are
-documented in [release-server/README.md](release-server/README.md).
+documented in [docs/release-server.md](docs/release-server.md).
 
 ## Build
 

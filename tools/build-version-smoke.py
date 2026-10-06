@@ -4,6 +4,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import hashlib
+import shutil
 import json
 import os
 import pty
@@ -82,9 +83,9 @@ set -eu
 python3 - "$1" <<'CHECK'
 import hashlib, json, os, pathlib, sys
 apk = pathlib.Path(sys.argv[1])
-assert hashlib.sha256(apk.read_bytes()).hexdigest() == os.environ["FOLIO_EXPECTED_APK_SHA256"]
+assert hashlib.sha256(apk.read_bytes()).hexdigest() == os.environ["RELEASE_EXPECTED_APK_SHA256"]
 pathlib.Path("published").write_text(json.dumps({"path": str(apk),
-    "code": os.environ["FOLIO_EXPECTED_VERSION_CODE"], "name": os.environ["FOLIO_EXPECTED_VERSION_NAME"]}))
+    "code": os.environ["RELEASE_EXPECTED_VERSION_CODE"], "name": os.environ["RELEASE_EXPECTED_VERSION_NAME"]}))
 CHECK
 ''')
         (self.root / "app/build/outputs/apk/release").mkdir(parents=True)
@@ -184,12 +185,16 @@ printf "package: name='${BUILD_TEST_PACKAGE:-com.folio.notes}' versionCode='%s' 
 
     def test_publish_wrapper_rechecks_expected_artifact(self):
         env = self.prepare_build()
-        pin = self.root / "certificate-pin"
-        pin.write_text("a" * 64 + "\n")
-        wrapper = (ROOT / "release-server/publish.sh").read_text().replace(
-            "pin=/etc/folio-releases/signing-cert.sha256", "pin=" + str(pin))
+        # The real wrapper and its config loader, with the pin directory redirected.
+        shutil.copytree(ROOT / "release-server/deploy", self.root / "release-server/deploy", dirs_exist_ok=True)
         script = self.root / "release-server/publish.sh"
-        script.write_text(wrapper)
+        shutil.copy(ROOT / "release-server/publish.sh", script)
+        pin_dir = self.root / "pin"
+        pin_dir.mkdir()
+        pin = pin_dir / "signing-cert.sha256"
+        pin.write_text("a" * 64 + "\n")
+        (self.root / "release-server.conf").write_text(
+            (ROOT / "release-server.conf").read_text() + f"CONFIG_DIR={pin_dir}\n")
         # Record the sudo invocation without executing anything privileged, and
         # keep the final public health request off the network.
         fake_bin = self.root / "fake-bin"
@@ -205,22 +210,24 @@ CHECK
         apk = self.root / "app/build/outputs/apk/release/app-release.apk"
         apk.write_text("package: name='com.folio.notes' versionCode='2170001' versionName='2.1.7-exp.1'\n")
         digest = hashlib.sha256(apk.read_bytes()).hexdigest()
-        env.update({"FOLIO_EXPECTED_VERSION_CODE": "2170001", "FOLIO_EXPECTED_VERSION_NAME": "2.1.7-exp.1",
-                    "FOLIO_EXPECTED_APK_SHA256": digest})
+        env.update({"RELEASE_EXPECTED_VERSION_CODE": "2170001", "RELEASE_EXPECTED_VERSION_NAME": "2.1.7-exp.1",
+                    "RELEASE_EXPECTED_APK_SHA256": digest})
         marker = self.root / "published-command"
-        for overrides in [{"FOLIO_EXPECTED_APK_SHA256": "0" * 64}, {"FOLIO_EXPECTED_VERSION_CODE": "2170002"},
-                          {"FOLIO_EXPECTED_VERSION_NAME": "2.1.7-exp.2"}]:
-            result = subprocess.run(["bash", str(script), str(apk)], env={**env, **overrides},
+        for overrides in [{"RELEASE_EXPECTED_APK_SHA256": "0" * 64}, {"RELEASE_EXPECTED_VERSION_CODE": "2170002"},
+                          {"RELEASE_EXPECTED_VERSION_NAME": "2.1.7-exp.2"}]:
+            result = subprocess.run(["bash", str(script), str(apk)], env={**env, **overrides}, cwd=self.root,
                                     text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(marker.exists())
-        result = subprocess.run(["bash", str(script), str(apk)], env=env, text=True, capture_output=True)
+        result = subprocess.run(["bash", str(script), str(apk)], env=env, cwd=self.root, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         invocation = json.loads(marker.read_text())
-        self.assertEqual(invocation[0:2], ["/usr/local/bin/folio-release-server", "publish"])
-        self.assertEqual(invocation[4:], ["-version-name", "2.1.7-exp.1", "-version-code", "2170001",
+        command = invocation.index("/usr/local/bin/folio-release-server")
+        self.assertEqual(invocation[command + 1], "publish")
+        self.assertIn("RELEASE_SLUG=folio", invocation)
+        self.assertEqual(invocation[command + 4:], ["-version-name", "2.1.7-exp.1", "-version-code", "2170001",
                                         "-expected-sha256", digest])
-        self.assertFalse(Path(invocation[3]).exists()) # Wrapper cleaned up its snapshot.
+        self.assertFalse(Path(invocation[command + 3]).exists()) # Wrapper cleaned up its snapshot.
 
     def test_missing_verifier_fails_before_reserving_version(self):
         env = self.prepare_build()

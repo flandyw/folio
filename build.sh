@@ -253,8 +253,8 @@ esac
 if [[ $publish == yes ]]; then step 4 "Publish"; fi
 if ((do_publish)); then
     pub_start=$SECONDS
-    if FOLIO_EXPECTED_VERSION_CODE=$version_code FOLIO_EXPECTED_VERSION_NAME=$expected_version \
-        FOLIO_EXPECTED_APK_SHA256=$sum FOLIO_BUILD_TOOLS=$tools \
+    if RELEASE_EXPECTED_VERSION_CODE=$version_code RELEASE_EXPECTED_VERSION_NAME=$expected_version \
+        RELEASE_EXPECTED_APK_SHA256=$sum RELEASE_BUILD_TOOLS=$tools \
         bash ./release-server/publish.sh "$verified_apk" 9>&-; then
         ok "Published ${B}${stable_name}-exp.${experimental_build}${R} in $(fmt_secs $((SECONDS - pub_start)))"
     else
