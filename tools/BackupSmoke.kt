@@ -64,6 +64,8 @@ private fun checkStickyNotes() {
     check(!StickyNotes.exports(outside, page))
     check(!StickyNotes.exports(inside.copy(x = page.width - 10f), page))
     check(StickyNotes.exports(outside, page.copy(infinite = true)))
+    check(StickyNotes.workspaceSide(listOf(page)) == 1f)
+    check(StickyNotes.workspaceSide(listOf(page, page.copy(texts = listOf(outside.copy(x = -2f * page.width))))) > 2f)
     check(InkCodec.decodeTexts(InkCodec.encodeTexts(page.texts)) == page.texts)
     val legacyText = InkCodec.encodeTexts(listOf(ordinary)).getJSONObject(0)
     check(!legacyText.has("stickyHeight") && !legacyText.has("stickyInk"))
@@ -79,7 +81,7 @@ private fun checkStickyNotes() {
     check(NoteCodec.decode(NoteCodec.encode(Notebook(title = "Sticky notes", pages = listOf(page)))).pages.single().texts == page.texts)
     val scaled = InkGeometry.scaleTexts(listOf(inside), InkPoint(0f, 0f), 2f).single()
     check(scaled.stickyHeight == 180f && scaled.stickyInk.single().points.first().x == 20f)
-    println("Sticky notes: export placement, local ink, legacy text, snapshot/history and portable round trips passed")
+    println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history and portable round trips passed")
 }
 
 fun main() = runBlocking {

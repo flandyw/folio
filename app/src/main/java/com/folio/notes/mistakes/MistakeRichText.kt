@@ -18,6 +18,8 @@ sealed interface RichBlock {
     data class Numbers(val items: List<List<RichInline>>) : RichBlock
     data class Quote(val inlines: List<RichInline>) : RichBlock
     data class Code(val code: String) : RichBlock
+    /** A ```svg fence: one <svg> element, drawn by the offline renderer as a sandboxed image. */
+    data class Svg(val markup: String) : RichBlock
     data class DisplayMath(val latex: String) : RichBlock
     data object Divider : RichBlock
 }
@@ -35,13 +37,15 @@ object RichTextParser {
             when {
                 trimmed.isEmpty() -> i++
                 trimmed.startsWith("```") -> {
+                    val svgFence = trimmed.drop(3).trim().equals("svg", ignoreCase = true)
                     val buf = StringBuilder()
                     i++
                     while (i < lines.size && !lines[i].trim().startsWith("```")) {
                         buf.appendLine(lines[i]); i++
                     }
                     if (i < lines.size) i++ // closing fence
-                    blocks += RichBlock.Code(buf.toString().trimEnd('\n'))
+                    val body = buf.toString().trimEnd('\n')
+                    blocks += if (svgFence && isSvg(body)) RichBlock.Svg(body.trim()) else RichBlock.Code(body)
                 }
                 trimmed == "$$" || trimmed == "\\[" -> {
                     val close = if (trimmed == "$$") "$$" else "\\]"
@@ -109,6 +113,9 @@ object RichTextParser {
         }
         return blocks
     }
+
+    private const val MAX_SVG_CHARS = 100_000
+    private fun isSvg(body: String) = body.length <= MAX_SVG_CHARS && Regex("^<svg[\\s>]", RegexOption.IGNORE_CASE).containsMatchIn(body.trimStart())
 
     private fun isDisplayMathFence(t: String): Boolean {
         if (t.length <= 4) return false
@@ -227,6 +234,7 @@ object RichTextParser {
                 is RichBlock.Bullets -> block.items.flatMap { it + RichInline.Break }
                 is RichBlock.Numbers -> block.items.flatMap { it + RichInline.Break }
                 is RichBlock.Code -> listOf(RichInline.Run(block.code, code = true))
+                is RichBlock.Svg -> listOf(RichInline.Run("[Diagram]"))
                 is RichBlock.DisplayMath -> listOf(RichInline.Math(block.latex))
                 RichBlock.Divider -> emptyList()
             }
@@ -287,6 +295,7 @@ object RichTextParser {
                 is RichBlock.Numbers -> b.items.forEach { inlines(it); sb.append(' ') }
                 is RichBlock.Quote -> inlines(b.inlines)
                 is RichBlock.Code -> sb.append(b.code)
+                is RichBlock.Svg -> sb.append("[Diagram]")
                 is RichBlock.DisplayMath -> sb.append(b.latex)
                 RichBlock.Divider -> Unit
             }
@@ -304,7 +313,8 @@ object RichTextParser {
 
     internal fun containsMath(blocks: List<RichBlock>): Boolean = blocks.any { block ->
         when (block) {
-            is RichBlock.DisplayMath -> true
+            // A diagram needs the WebView document path too, so it counts as rich content.
+            is RichBlock.DisplayMath, is RichBlock.Svg -> true
             is RichBlock.Para -> block.inlines.any { it is RichInline.Math }
             is RichBlock.Heading -> block.inlines.any { it is RichInline.Math }
             is RichBlock.Bullets -> block.items.any { items -> items.any { it is RichInline.Math } }

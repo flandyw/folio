@@ -15,6 +15,7 @@ internal object RichTextDocument {
                     is RichBlock.Bullets -> { put("type", "bullets"); put("items", JSONArray().apply { block.items.forEach { put(inlines(it)) } }) }
                     is RichBlock.Numbers -> { put("type", "numbers"); put("items", JSONArray().apply { block.items.forEach { put(inlines(it)) } }) }
                     is RichBlock.Code -> { put("type", "code"); put("text", block.code) }
+                    is RichBlock.Svg -> { put("type", "svg"); put("markup", block.markup) }
                     is RichBlock.DisplayMath -> { put("type", "math"); put("latex", block.latex) }
                     RichBlock.Divider -> put("type", "divider")
                 }

@@ -21,3 +21,4 @@ body { width: max-content; }
 .document pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; }
 .document code { font-family: monospace; font-size: .92em; }
 .document hr { border: 0; border-top: 1px solid currentColor; opacity: .4; }
+.document img.diagram { display: block; width: 100%; max-width: 480px; height: auto; margin: 6px 0; background: #fff; border-radius: 6px; }

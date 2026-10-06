@@ -105,12 +105,35 @@ class InkView(context: Context) : View(context) {
     var onTextEdit: (TextBox) -> Unit = {}
     var onTextCreate: (InkPoint) -> Unit = {}
     var onTextsChanged: (List<TextBox>) -> Unit = {}
+    /** The focused sticky note, its frame in view fractions (0..1), and whether it is being typed in. */
+    var onStickyFocus: (TextBox?, Rect?, Boolean) -> Unit = { _, _, _ -> }
+    fun typeInSticky() { stickyNotes.focused()?.let { stickyNotes.focus(it, type = true) } }
+    fun finishStickyTyping() { stickyNotes.focused()?.let { stickyNotes.focus(it) } }
+    fun setStickyText(id: String, text: String) = stickyNotes.setText(id, text)
+    fun deleteSticky(id: String) = stickyNotes.delete(id)
+    private var stickyFrameReported: Rect? = null
     private val stickyNotes = StickyNoteInput(this, { page }, { texts ->
         page = page.copy(texts = texts)
         onTextsChanged(texts)
         invalidate()
     }, { box -> RectF(originX + box.x * scale, originY + box.y * scale,
-        originX + (box.x + box.width) * scale, originY + (box.y + box.stickyHeight) * scale) })
+        originX + (box.x + box.width) * scale, originY + (box.y + box.stickyHeight) * scale) },
+        { event -> List(event.historySize) { point(event, 0, it) } + point(event, 0) },
+        { box, typing ->
+            stickyFrameReported = box?.let(::stickyFraction)
+            onStickyFocus(box, stickyFrameReported, typing)
+        })
+    private fun stickyFraction(box: TextBox): Rect {
+        val w = width.coerceAtLeast(1); val h = height.coerceAtLeast(1)
+        return Rect((originX + box.x * scale) / w, (originY + box.y * scale) / h,
+            (originX + (box.x + box.width) * scale) / w, (originY + (box.y + box.stickyHeight) * scale) / h)
+    }
+    /** Keeps the menu and typing field on the note while an infinite canvas pans or the view resizes. */
+    private fun followStickyFrame() {
+        val box = stickyNotes.focused() ?: return
+        val frame = stickyFraction(box)
+        if (frame != stickyFrameReported) post { stickyNotes.refresh() }
+    }
     /** Placed pictures decoded for drawing, keyed by image id. Missing entries simply do not draw. */
     var imageBitmaps: Map<String, Bitmap> = emptyMap()
     /** The picture showing resize handles, or null when none is selected. */
@@ -600,9 +623,18 @@ class InkView(context: Context) : View(context) {
             }
         }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
     private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (readOnly) camera.zoom else 1f)
-    private val pageScale get() = min(width / (page.width + if (!readOnly && !page.infinite) StickyNotes.GUTTER * 2 else 0f), height / (page.height + if (!readOnly && !page.infinite) StickyNotes.GUTTER * 2 else 0f)).coerceAtLeast(.01f)
+    /**
+     * A finite page in the document is drawn at this paper width, centred, inside a view that is
+     * wider (the workspace beside the paper) and starts [documentTop] page units above it. 0 fits
+     * the paper to the view, as reference and peek views do.
+     */
+    var documentPaperWidth = 0f
+    var documentTop = 0f
+    private val pageScale get() = if (!readOnly && !page.infinite && documentPaperWidth > 0f)
+        (documentPaperWidth / page.width).coerceAtLeast(.01f)
+        else min(width / page.width, height / page.height).coerceAtLeast(.01f)
     private val originX get() = if (page.infinite) camera.x else if (readOnly) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
-    private val originY get() = if (page.infinite) camera.y else if (readOnly) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else (height - page.height * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else if (readOnly) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else if (documentPaperWidth > 0f) -documentTop * scale else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -672,6 +704,7 @@ class InkView(context: Context) : View(context) {
             boundsCache.retainAll(keep)
         }
         page = value; background = bitmap; imageBitmaps = images
+        if (stickyNotes.focusedId != null) post { stickyNotes.refresh() }
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection. Identity only:
         // the ViewModel reuses untouched stroke instances, so a deep value walk over every
@@ -857,7 +890,8 @@ class InkView(context: Context) : View(context) {
         val layered = layerView()
         if (paperLayerSource !== layered) {
             paperLayerSource = layered
-            paperLayerValue = if (layered.texts.any { it.isSticky }) layered.copy(texts = emptyList()) else layered
+            // Sticky notes may cross the paper edge, so they draw after the page clip below.
+            paperLayerValue = if (layered.texts.any { it.isSticky }) layered.copy(texts = layered.texts.filterNot { it.isSticky }) else layered
         }
         val shown = paperLayerValue!!
         val visible = if (erasing != null) shown.copy(strokes = PageLayers.viewStrokes(erasing!!, page.layers)) else shown
@@ -929,7 +963,7 @@ class InkView(context: Context) : View(context) {
             selection.forEach { InkRenderer.drawRendered(canvas, it, renderedOf(it)) }
             canvas.restore()
         }
-        if (selectedTexts.isNotEmpty() && layered.texts.none { it.isSticky }) {
+        if (selectedTexts.isNotEmpty()) {
             canvas.save(); canvas.translate(selectionDx, selectionDy)
             selectedTexts.filterNot { it.isSticky }.forEach {
                 InkRenderer.text(canvas, it)
@@ -1001,36 +1035,18 @@ class InkView(context: Context) : View(context) {
             writingRegionPaint.strokeWidth = 2f * unit
             canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
         }
-        canvas.restore() // Page clip: workspace stickies draw on both sides of the edge.
-        if (layered.texts.any { it.isSticky }) {
-            // Keep text layer order even though only sticky rectangles may cross the paper edge.
-            val selectedTextIds = selectedTexts.map { it.id }.toSet()
-            val restingTexts = layered.texts.filterNot { it.id in selectedTextIds }.map { box ->
-                if (box.id == movingText?.id) box.moved(textDx, textDy) else box
-            }
-            drawWorkspaceTexts(canvas, restingTexts)
-            if (selectedTexts.isNotEmpty()) {
-                canvas.save()
-                if (previewing) canvas.concat(selectionPreviewMatrix)
-                canvas.translate(selectionDx, selectionDy)
-                drawWorkspaceTexts(canvas, selectedTexts)
-                selectedTexts.forEach { drawTextBox(canvas, it) }
-                canvas.restore()
-            }
+        canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
+        val selectedStickies = selectedTexts.filter { it.isSticky }
+        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } }, selectionUiUnit())
+        if (selectedStickies.isNotEmpty()) {
+            canvas.save()
+            if (previewing) canvas.concat(selectionPreviewMatrix)
+            canvas.translate(selectionDx, selectionDy)
+            selectedStickies.forEach { InkRenderer.text(canvas, it); drawTextBox(canvas, it) }
+            canvas.restore()
         }
-        stickyNotes.draw(canvas, emptyList())
+        followStickyFrame()
         canvas.restore()
-    }
-    private fun drawWorkspaceTexts(canvas: Canvas, boxes: List<TextBox>) {
-        boxes.forEach { box ->
-            if (box.isSticky) stickyNotes.draw(canvas, listOf(box), draft = false)
-            else {
-                canvas.save()
-                if (!page.infinite) canvas.clipRect(0f, 0f, page.width, page.height)
-                InkRenderer.text(canvas, box)
-                canvas.restore()
-            }
-        }
     }
 
     /**
@@ -1177,7 +1193,7 @@ class InkView(context: Context) : View(context) {
                 // A finger touching while (or just after) the stylus writes is a resting palm: ignore it.
                 ignored = !stylus && isPalm(event, 0)
                 // Typing is a finger job even when finger drawing is off, so the text tool never pans.
-                navigating = !ignored && (tool == Tool.HAND || (tool != Tool.TEXT && !fingerDrawing && !stylus))
+                navigating = !ignored && (tool == Tool.HAND || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
                 if (navigating) suspendWritingFollow()
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()

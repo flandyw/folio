@@ -18,10 +18,12 @@ window.renderMath = async function (request) {
         renderFormula(target, request.latex, request.displayMode, request.color);
     }
     // Even syntactically valid empty/phantom formulas must not silently lose source.
-    if (!target.textContent.trim()) target.textContent = request.latex || ' ';
+    if (!target.textContent.trim() && !target.querySelector('img.diagram')) target.textContent = request.latex || ' ';
     // Force font requests from the new DOM before awaiting their completion.
     target.getBoundingClientRect();
     await document.fonts.ready;
+    // Diagrams size themselves from the SVG viewBox once decoded; a broken one is dropped, not left blank.
+    await Promise.all(Array.from(target.querySelectorAll('img.diagram'), (img) => img.decode().catch(() => img.remove())));
     // A cancelled native caller may already have returned this renderer to the pool.
     if (generation !== activeRequest) return;
     if (request.blocks) fitMath(target, Math.max(1, request.width - 4));
@@ -30,7 +32,7 @@ window.renderMath = async function (request) {
         id: request.id,
         width: Math.ceil(bounds.width),
         height: Math.ceil(bounds.height),
-        rendered: !!target.querySelector('.katex'),
+        rendered: !!target.querySelector('.katex, img.diagram'),
         error: !!target.querySelector('.katex-error'),
         text: target.textContent
     };
@@ -78,6 +80,15 @@ function appendBlocks(target, blocks, color) {
     for (const block of blocks) {
         if (block.type === 'math') {
             target.appendChild(mathNode(block.latex, true, color));
+            continue;
+        }
+        if (block.type === 'svg') {
+            // An <img> never runs scripts or loads anything external, unlike inline SVG.
+            const img = document.createElement('img');
+            img.className = 'diagram';
+            img.alt = 'Diagram';
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(block.markup);
+            target.appendChild(img);
             continue;
         }
         const tag = { paragraph: 'div', heading: 'h' + Math.min(3, Math.max(1, block.level)),

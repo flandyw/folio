@@ -112,6 +112,7 @@ fun RichText(
                         maxLines = maxLines, overflow = overflow
                     )
                 }
+                is RichBlock.Svg -> Unit // containsMath routes any diagram through KaTeXDocument above
                 is RichBlock.DisplayMath -> KaTeXMath(block.latex, displayMode = true, textStyle = style)
                 RichBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }

@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -63,7 +64,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -734,6 +737,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             val viewportWidth = with(density) { maxWidth.toPx() }
             val baseWidth = (maxWidth - 20.dp).coerceAtMost(900.dp)
             val baseWidthPx = with(density) { baseWidth.toPx() }
+            // Sticky notes can live beside the paper, so the document is wider than its pages.
+            val workspaceSide = remember(note.pages) { StickyNotes.workspaceSide(note.pages) }
+            val documentScale = 1f + 2f * workspaceSide
             val stripWidth = 26.dp
             val stripInset = 2.dp
             val trackTop = floatingToolbarTop + FolioSpacing.dp8
@@ -743,12 +749,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             val trackTopPx = with(density) { trackTop.toPx() }
             val trackBottomPx = with(density) { trackBottom.toPx() }
             val minimumThumbPx = with(density) { 24.dp.toPx() }
-            LaunchedEffect(viewportWidth, baseWidthPx) {
-                documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentZoom, viewportWidth)
+            LaunchedEffect(viewportWidth, baseWidthPx, documentScale) {
+                documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentScale * documentZoom, viewportWidth)
             }
             fun panBy(dx: Float, dy: Float) {
                 activeInkView?.suspendWritingFollow()
-                documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
+                documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentScale * documentZoom, viewportWidth)
                 motion.drag(dy)
             }
             /** Deselect without changing the active tool. */
@@ -895,14 +901,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 val oldZoom = documentZoom
                                 val newZoom = (oldZoom * factor).coerceIn(0.5f, 4f)
                                 val ratio = newZoom / oldZoom
-                                documentPan = DocumentViewport.zoomPan(documentPan, centroid.x, viewportWidth, baseWidthPx * newZoom, ratio)
+                                documentPan = DocumentViewport.zoomPan(documentPan, centroid.x, viewportWidth, baseWidthPx * documentScale * newZoom, ratio)
                                 documentZoom = newZoom
                                 val offset = DocumentViewport.zoomScroll(pages.firstVisibleItemScrollOffset, centroid.y - pages.layoutInfo.beforeContentPadding, ratio)
                                 if (kotlin.math.abs(factor - 1f) > .001f) {
                                     motion.reset()
                                     pages.requestScrollToItem(pages.firstVisibleItemIndex, offset - delta.y.roundToInt())
                                 } else motion.drag(delta.y)
-                                documentPan = DocumentViewport.clampPan(documentPan + delta.x, baseWidthPx * newZoom, viewportWidth)
+                                documentPan = DocumentViewport.clampPan(documentPan + delta.x, baseWidthPx * documentScale * newZoom, viewportWidth)
                             }
                             if (transforming && fingers < 2) {
                                 val delta = event.calculatePan()
@@ -923,8 +929,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             }, contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
                     state = pages,
-                    modifier = Modifier.requiredWidth(baseWidth * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
-                    contentPadding = PaddingValues(top = floatingToolbarTop + FolioSpacing.dp8, bottom = FolioSpacing.dp16, start = FolioSpacing.dp8, end = FolioSpacing.dp8),
+                    modifier = Modifier.requiredWidth(baseWidth * documentScale * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
+                    contentPadding = PaddingValues(top = floatingToolbarTop + FolioSpacing.dp8, bottom = FolioSpacing.dp16),
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
@@ -935,6 +941,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 onTextEdit = { box -> textEditor = box; textEditorNew = false },
                                 onTextCreate = ::placeTextBox,
                                 onLoad = { model.loadPage(item.id) }, activeLayer = model.activeLayerOf(item),
+                                paperWidth = baseWidth * documentZoom, onStickyDraw = { selectTool(Tool.PEN) },
                                 selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                                 onCropMode = { if (item.id == page.id) cropActive = it }, onNavigating = { inkNavigating = it },
                                 onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
@@ -966,7 +973,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 autoDetectAnswerAreas = autoDetectAnswerAreas,
                                 inputBlocked = peekOpen, onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
-                                    documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentZoom, viewportWidth)
+                                    documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentScale * documentZoom, viewportWidth)
                                     val movedY = -pages.dispatchRawDelta(-dy)
                                     (documentPan - oldPan) to movedY
                                 },
@@ -1983,6 +1990,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
+    /** The paper's width in a document; the page view is wider by the workspace beside it. Null fits the paper to the view. */
+    paperWidth: Dp? = null, onStickyDraw: () -> Unit = {},
     /** Context menu content, given the available pane width; null on pages without a selection. */
     selectionMenu: (@Composable (Dp) -> Unit)? = null,
     selectionMenuViewport: Rect? = null,
@@ -2002,6 +2011,8 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         val target = page.pdfIndex
         if (target == null) emptyList() else markZones.filter { it.pageIndex == target && (markAssist || it.manual) }
     }
+    var sticky by remember(page.id) { mutableStateOf<StickyFocus?>(null) }
+    var stickyDraft by remember(page.id) { mutableStateOf<StickyDraft?>(null) }
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
     val canvasBackground = MaterialTheme.colorScheme.surfaceContainerLow
     val areaColor = MaterialTheme.colorScheme.primary.toArgb()
@@ -2077,15 +2088,36 @@ private fun shapeLabel(tool: Tool) = when (tool) {
         val target = page.pdfIndex ?: return@remember emptyList<PdfLink>()
         pdfLinks.filter { it.pageIndex == target }
     }
+    /** Puts typed words into the note; the field closes whichever way typing ends. */
+    fun commitStickyDraft() {
+        val draft = stickyDraft ?: return
+        stickyDraft = null
+        boundInkView?.setStickyText(draft.id, draft.value.text)
+    }
+    // A document page spans the workspace beside its paper, and grows above or below the paper
+    // only as far as a note already hangs past it.
+    val pageDensity = LocalDensity.current
+    val documentPage = paperWidth != null && !readOnly && !fullscreen && !page.infinite
+    val notes = if (documentPage) page.texts.filter { it.isSticky } else emptyList()
+    val workspaceTop = minOf(0f, notes.minOfOrNull { it.y } ?: 0f)
+    val workspaceBottom = maxOf(page.height, notes.maxOfOrNull { it.y + it.stickyHeight } ?: 0f)
+    val paperWidthPx = if (documentPage) with(pageDensity) { paperWidth!!.toPx() } else 0f
+    val pageModifier = when {
+        fullscreen -> Modifier.fillMaxSize()
+        documentPage -> Modifier.fillMaxWidth().height(paperWidth!! * ((workspaceBottom - workspaceTop) / page.width))
+        else -> Modifier.fillMaxWidth().aspectRatio(page.width / page.height)
+    }
     // Keep the full page frame in window coordinates, including scrolled-off portions.
-    // The context menu converts the local selection against this frame and clamps to the pane.
-    Box((if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(if (readOnly) page.width / page.height else (page.width + StickyNotes.GUTTER * 2) / (page.height + StickyNotes.GUTTER * 2)))
-        .onGloballyPositioned { coordinates ->
+    // The context menu converts the local selection against this frame and clamps to the pane;
+    // selection drops between pages land against the paper alone.
+    Box(pageModifier.onGloballyPositioned { coordinates ->
             val origin = coordinates.localToWindow(Offset.Zero)
             pageWindowFrame = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
-            val inset = if (!fullscreen && !readOnly) StickyNotes.GUTTER * coordinates.size.width / (page.width + StickyNotes.GUTTER * 2) else 0f
-            onPageFrame(page.id, Rect(origin.x + inset, origin.y + inset,
-                origin.x + coordinates.size.width - inset, origin.y + coordinates.size.height - inset))
+            if (documentPage) {
+                val left = origin.x + (coordinates.size.width - paperWidthPx) / 2
+                val top = origin.y - workspaceTop * paperWidthPx / page.width
+                onPageFrame(page.id, Rect(left, top, left + paperWidthPx, top + page.height * paperWidthPx / page.width))
+            } else onPageFrame(page.id, pageWindowFrame)
         }) {
         Surface(
             Modifier.fillMaxSize(),
@@ -2095,15 +2127,31 @@ private fun shapeLabel(tool: Tool) = when (tool) {
             tonalElevation = 0.dp,
             border = null
         ) {
+            // Placeholders cover the paper only, not the workspace beside it.
+            val placeholderColor = MaterialTheme.colorScheme.surfaceContainerLowest
+            val placeholderPaper = if (!documentPage) Modifier.background(placeholderColor) else Modifier.drawBehind {
+                val unit = paperWidthPx / page.width
+                drawRect(placeholderColor, Offset((size.width - paperWidthPx) / 2, -workspaceTop * unit),
+                    androidx.compose.ui.geometry.Size(paperWidthPx, page.height * unit))
+            }
             // Nothing is drawn on a page until its own ink has arrived, so a stroke can never land on top
             // of a blank stand-in and replace the content that is still on disk.
-            if (!page.loaded) Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+            if (!page.loaded) Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().then(placeholderPaper)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     LoadingIndicator(Modifier.semanticsLabel("Loading page"))
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
+                view.documentPaperWidth = paperWidthPx
+                view.documentTop = workspaceTop
+                view.onStickyFocus = { box, frame, typing ->
+                    val draft = stickyDraft
+                    if (draft != null && (!typing || box?.id != draft.id)) commitStickyDraft()
+                    if (typing && box != null && stickyDraft == null)
+                        stickyDraft = StickyDraft(box.id, TextFieldValue(box.text, TextRange(box.text.length)))
+                    sticky = if (box != null && frame != null) StickyFocus(box, frame, typing) else null
+                }
                 view.canvasBackgroundColor = canvasBackground.toArgb()
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
@@ -2148,7 +2196,7 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                     offerStamp++
                 }
                 if (!active) view.clearSelection()
-            }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+            }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().then(placeholderPaper)) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {
                     Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Couldn't open this PDF page", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
@@ -2189,6 +2237,21 @@ private fun shapeLabel(tool: Tool) = when (tool) {
                 },
                 onRemove = entry.existing?.let { old -> { model.clearMark(page.id, old); onReplaceZone(old, null); areaEntry = null } },
                 onDismiss = { boundInkView?.clearMarkRegion(); areaEntry = null })
+        }
+        val focusedSticky = sticky?.takeIf { active && !readOnly && !inputBlocked && page.loaded && ready }
+        val draft = stickyDraft
+        val frame = pageWindowFrame
+        if (focusedSticky != null && draft != null && draft.id == focusedSticky.box.id && frame != null) {
+            StickyNoteField(focusedSticky.box, focusedSticky.frame, frame.width, frame.height, draft.value,
+                onValue = { stickyDraft = draft.copy(value = it) }, onDone = { boundInkView?.finishStickyTyping() })
+        }
+        if (focusedSticky != null) {
+            SelectionContextPopup(focusedSticky.frame, pageWindowFrame, selectionMenuViewport, tightGap = true) {
+                StickyNoteContextMenu(focusedSticky.typing,
+                    onType = { boundInkView?.typeInSticky() }, onDone = { boundInkView?.finishStickyTyping() },
+                    onDraw = onStickyDraw,
+                    onDelete = { stickyDraft = null; boundInkView?.deleteSticky(focusedSticky.box.id) })
+            }
         }
         if (selectionMenu != null && page.loaded && ready) {
             SelectionContextPopup(selectionAnchor, pageWindowFrame, selectionMenuViewport, tightGap = selectedImageId != null, content = selectionMenu)

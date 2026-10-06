@@ -781,6 +781,9 @@ object InkRenderer {
         return layout
     }
 
+    private val stickyFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.COLOR }
+    private val stickyEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.EDGE; strokeWidth = 1f; style = Paint.Style.STROKE }
+
     /** The box's rendered height, used for hit-testing and for the drag outline. */
     fun textHeight(box: TextBox): Float = if (box.isSticky) box.stickyHeight else textLayout(box).height.toFloat()
 
@@ -788,10 +791,8 @@ object InkRenderer {
         canvas.save()
         canvas.translate(box.x, box.y)
         if (box.isSticky) {
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.COLOR }
-            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, paint)
-            paint.color = 0xFFE0C867.toInt(); paint.strokeWidth = 1f; paint.style = Paint.Style.STROKE
-            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, paint)
+            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyFill)
+            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyEdge)
             canvas.clipRect(0f, 0f, box.width, box.stickyHeight)
             box.stickyInk.forEach { drawRendered(canvas, it, rendered(it)) }
             canvas.translate(StickyNotes.PADDING, StickyNotes.PADDING)

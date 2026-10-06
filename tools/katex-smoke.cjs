@@ -47,7 +47,8 @@ async function checkShellRequestIsolation(oldFinishesFirst) {
   const target = {
     style: {}, textContent: '', replaceChildren() { this.textContent = ''; },
     getBoundingClientRect: () => ({ width: 20.25, height: 40.5 }),
-    querySelector: selector => selector === '.katex' ? {} : null,
+    querySelector: selector => selector.startsWith('.katex') ? {} : null,
+    querySelectorAll: () => [],
   };
   const document = { getElementById: () => target, fonts: { ready: oldFonts } };
   const window = {};
