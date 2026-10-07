@@ -166,7 +166,7 @@ class NoteRepository(private val context: Context) {
         val library = File(context.filesDir, "library.json")
         val folders = if (!library.exists() && !File(context.filesDir, "library.json.bak").exists()) emptyList() else {
             val array = JSONArray(AtomicFile(library).openRead().bufferedReader().use { it.readText() })
-            (0 until array.length()).map { val f = array.getJSONObject(it); Folder(f.getString("id"), f.getString("name")) }
+            (0 until array.length()).map { val f = array.getJSONObject(it); FolderCodec.decode(f) }
         }
         Pair(notes, folders)
     }
@@ -397,7 +397,7 @@ class NoteRepository(private val context: Context) {
 
     suspend fun saveFolders(folders: List<Folder>) = withContext(Dispatchers.IO) {
         lock.withLock { atomicWrite(File(context.filesDir, "library.json"), JSONArray().apply {
-            folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) }
+            folders.forEach { put(FolderCodec.encode(it)) }
         }.toString()) }
     }
 
@@ -837,8 +837,7 @@ class NoteRepository(private val context: Context) {
                     notebookFolders[id] = note.folderId
                 }
             }
-            val folders = info.folders.map { it.copy(id = UUID.randomUUID().toString()) }
-            val folderMap = info.folders.map { it.id }.zip(folders.map { it.id }).toMap()
+            val (folders, folderMap) = LibraryFolders.remap(info.folders)
             info.notebookIds.forEach { id ->
                 val targetFolder = if (info.version == 1) legacyFolders.getValue(id)
                     else notebookFolders.getValue(id)
@@ -938,8 +937,7 @@ class NoteRepository(private val context: Context) {
                 page.copy(revision = maxOf(page.revision, snapshot?.revision ?: 0, records.maxOfOrNull { it.revision } ?: 0))
             })
         }
-        val folders = manifest.folders.map { it.copy(id = UUID.randomUUID().toString()) }
-        val folderMap = manifest.folders.map { it.id }.zip(folders.map { it.id }).toMap()
+        val (folders, folderMap) = LibraryFolders.remap(manifest.folders)
         val added = mutableListOf<Notebook>()
         try {
             notes.zip(manifest.notes).forEach { (original, entry) ->

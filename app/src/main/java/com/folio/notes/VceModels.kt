@@ -346,6 +346,7 @@ fun matchesQuery(note: Notebook, rawQuery: String): Boolean {
 
 private fun buildHaystack(note: Notebook): String = buildString {
     append(note.title.lowercase())
+    note.tags.forEach { append(' '); append(it.lowercase()) }
     note.longResponse?.let { append(' '); append(it.prompt.lowercase()); append(' '); append(it.topic.lowercase()) }
     note.pages.forEach { append(' '); append(it.title.lowercase()) }
     append(' '); append(note.exam.subjectLabel.lowercase())
@@ -358,6 +359,7 @@ private fun buildHaystack(note: Notebook): String = buildString {
 
 private fun haystackContains(note: Notebook, term: String): Boolean {
     if (note.title.lowercase().contains(term)) return true
+    if (note.tags.any { it.lowercase().contains(term) }) return true
     note.longResponse?.let { if (it.prompt.lowercase().contains(term) || it.topic.lowercase().contains(term)) return true }
     if (note.exam.subjectLabel.lowercase().contains(term)) return true
     if (note.exam.company.lowercase().contains(term)) return true

@@ -40,7 +40,7 @@ object LibraryBackup {
     fun manifestV2(folders: List<Folder>, notes: List<NotebookPayload>): String = JSONObject()
         .put("format", "folio-library")
         .put("version", 2)
-        .put("folders", JSONArray().apply { folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) } })
+        .put("folders", JSONArray().apply { folders.forEach { put(FolderCodec.encode(it)) } })
         .put("notebooks", JSONArray().apply {
             notes.forEach { payload ->
                 put(JSONObject()
@@ -57,7 +57,7 @@ object LibraryBackup {
     fun manifest(folders: List<Folder>, notes: List<Notebook>): String = JSONObject()
         .put("format", "folio-library")
         .put("version", 1)
-        .put("folders", JSONArray().apply { folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) } })
+        .put("folders", JSONArray().apply { folders.forEach { put(FolderCodec.encode(it)) } })
         .put("notebooks", JSONArray().apply { notes.forEach { put(it.id) } })
         .toString()
 
@@ -76,8 +76,9 @@ object LibraryBackup {
         val noteArray = obj.getJSONArray("notebooks")
         require(noteArray.length() <= MAX_NOTEBOOKS && folderArray.length() <= MAX_NOTEBOOKS) { "Backup is too large" }
         val folders = (0 until folderArray.length()).map {
-            folderArray.getJSONObject(it).let { f -> Folder(f.getString("id"), f.getString("name")) }
+            folderArray.getJSONObject(it).let { f -> FolderCodec.decode(f) }
         }
+        require(LibraryFolders.valid(folders)) { "Invalid folder hierarchy" }
         val references = linkedMapOf<String, AssetReference>()
         val ids = ArrayList<String>(noteArray.length())
         for (index in 0 until noteArray.length()) {

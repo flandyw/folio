@@ -55,7 +55,7 @@ class NoteExporter(private val repository: NoteRepository) {
         val scoped = request.copy(indices = indices)
         when (scoped.format) {
             PageExportFormat.PDF -> writePdf(output, scoped.note, scoped.indices, scoped.pdfMode, context)
-            PageExportFormat.PNG -> if (scoped.indices.size == 1) writeSinglePng(output, scoped.note, scoped.indices.first(), pngScale)
+            PageExportFormat.PNG -> if (scoped.indices.size == 1) writeSinglePng(output, scoped.note, scoped.indices.first(), pngScale, scoped.tightBounds)
                 else writePngZip(output, scoped.note, scoped.indices, pngScale)
         }
     }
@@ -189,18 +189,18 @@ class NoteExporter(private val repository: NoteRepository) {
         }
     }
 
-    private suspend fun writeSinglePng(output: OutputStream, note: Notebook, pageIndex: Int, pngScale: Float): Unit = withContext(Dispatchers.IO) {
+    private suspend fun writeSinglePng(output: OutputStream, note: Notebook, pageIndex: Int, pngScale: Float, tight: Boolean = false): Unit = withContext(Dispatchers.IO) {
         repository.openPdf(note.id).use { source ->
             val page = note.pages.getOrNull(pageIndex) ?: note.pages.first()
-            val bitmap = renderPng(note, page, source, pngScale)
+            val bitmap = renderPng(note, page, source, pngScale, tight)
             try {
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "Image export failed" }
             } finally { bitmap.recycle() }
         }
     }
 
-    private suspend fun renderPng(note: Notebook, page: NotePage, source: NoteRepository.PdfBackgrounds?, pngScale: Float): Bitmap {
-        val prepared = InkRenderer.exportPage(content(note, page))
+    private suspend fun renderPng(note: Notebook, page: NotePage, source: NoteRepository.PdfBackgrounds?, pngScale: Float, tight: Boolean = false): Bitmap {
+        val prepared = InkRenderer.exportPage(content(note, page), tight)
         val scale = AppPrefs.pngScale(pngScale)
         val factor = minOf(scale, 2800f / prepared.height, 2800f / prepared.width)
         val bitmap = Bitmap.createBitmap((prepared.width * factor).toInt().coerceAtLeast(1), (prepared.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)

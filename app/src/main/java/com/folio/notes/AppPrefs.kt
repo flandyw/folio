@@ -21,6 +21,9 @@ object AppPrefs {
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"
+    /** Only explicitly connected device folders; an empty set is the default. */
+    const val EXPLORER_LOCATIONS = "explorer.locations"
+    fun explorerLocations(value: Set<String>?): Set<String> = value.orEmpty().filter { it.startsWith("content://") }.take(32).toSet()
     /** Music shelf shows rows instead of first-page covers; music keeps its own choice. */
     const val MUSIC_LIST = "music.listView"
     /** Music shelf order, stored as a `MusicSort` name; music keeps its own choice. */

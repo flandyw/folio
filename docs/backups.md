@@ -58,3 +58,7 @@ Backup & restore settings shows when a requested automatic backup is queued by A
 Saving a portable library backup reports pending saves, notebook preparation/capture, file checks, file counts and streamed source bytes, followed by archive finalization. Source bytes are uncompressed and may exceed the final ZIP size. This flow uses the same native v3 binary snapshot/journal writer as notebook exports.
 
 On a device, watch both flows with a large PDF and dense ink, then repeat an unchanged automatic backup. Confirm counts and stages update, controls cannot start overlapping requests, completion returns to the last-checked timestamp, and failures/stopped jobs clear active progress.
+
+## Explorer organization
+
+Backup manifests preserve each folder’s optional `parent` reference; notebook indexes preserve optional user `tags`. Restore assigns new IDs to all folders and remaps parent references and notebook destinations together. Existing backups without these fields remain readable. See [Explorer verification](explorer.md#verification) for the nested-folder/tag device round-trip.

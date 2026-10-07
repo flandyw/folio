@@ -725,11 +725,15 @@ object InkRenderer {
     }
 
     /** A finite, translated copy for previews and exports; stored coordinates stay untouched. */
-    fun exportPage(source: NotePage): NotePage {
+    /** With [tight], an infinite canvas is cropped to its content instead of also reaching back to the origin. */
+    fun exportPage(source: NotePage, tight: Boolean = false): NotePage {
         val exportable = source.copy(texts = source.texts.filter { StickyNotes.exports(it, source) })
         val page = PageLayers.view(exportable)
         if (!page.infinite) return exportable
-        var left = 0f; var top = 0f; var right = page.width; var bottom = page.height
+        val hasContent = page.strokes.any { it.points.isNotEmpty() } || page.texts.isNotEmpty() || page.images.isNotEmpty()
+        val crop = tight && hasContent
+        var left = if (crop) Float.MAX_VALUE else 0f; var top = if (crop) Float.MAX_VALUE else 0f
+        var right = if (crop) -Float.MAX_VALUE else page.width; var bottom = if (crop) -Float.MAX_VALUE else page.height
         page.strokes.forEach { stroke ->
             val pad = stroke.width * 2f + 24f
             stroke.points.forEach {

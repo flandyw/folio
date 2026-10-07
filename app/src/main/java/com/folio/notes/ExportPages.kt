@@ -24,7 +24,9 @@ data class PageExportRequest(
     val note: Notebook,
     val indices: List<Int>,
     val format: PageExportFormat,
-    val pdfMode: PdfExportMode = PdfExportMode.PRESERVE
+    val pdfMode: PdfExportMode = PdfExportMode.PRESERVE,
+    /** Crop infinite canvases to their content rather than including empty space back to the origin. */
+    val tightBounds: Boolean = false
 )
 
 /** True when the notebook holds at least one imported-PDF page. */

@@ -21,12 +21,13 @@ import androidx.compose.ui.unit.dp
 /** The same searchable destination chooser for one notebook or a shelf selection. */
 @Composable internal fun LibraryMovePanel(
     title: String, folders: List<Folder>, currentFolder: String? = null, single: Boolean = false,
-    onMove: (String?) -> Unit, onCreateAndMove: (String) -> Boolean, onDismiss: () -> Unit
+    onMove: (String?) -> Unit, onCreateAndMove: (String) -> Boolean, onDismiss: () -> Unit,
+    rootLabel: String = "Unfiled", allowCreate: Boolean = true, excluded: Set<String> = emptySet()
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
     var creating by rememberSaveable { mutableStateOf(false) }
-    val visible = remember(folders, query) { folders.filter { it.name.contains(query.trim(), ignoreCase = true) }.sortedBy { it.name.lowercase() } }
+    val visible = remember(folders, query, excluded) { folders.filter { it.id !in excluded && LibraryFolders.label(folders, it.id).contains(query.trim(), ignoreCase = true) }.sortedBy { LibraryFolders.label(folders, it.id).lowercase() } }
     FolioPanel(title, onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a folder") },
@@ -34,7 +35,7 @@ import androidx.compose.ui.unit.dp
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear folder search") } })
             TextButton({ onMove(null) }, enabled = !single || currentFolder != null) {
-                Icon(Icons.Rounded.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "Unfiled · current" else "Unfiled")
+                Icon(Icons.Rounded.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "$rootLabel · current" else rootLabel)
             }
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24),
@@ -47,14 +48,15 @@ import androidx.compose.ui.unit.dp
                 val here = single && currentFolder == folder.id
                 ListItem(modifier = Modifier.clickable(enabled = !here, onClickLabel = "Move to ${folder.name}") { onMove(folder.id) },
                     headlineContent = { Text(folder.name) },
+                    supportingContent = { if (folder.parentId != null) Text(LibraryFolders.label(folders, folder.parentId)) },
                     leadingContent = { Icon(if (here) Icons.Rounded.Check else Icons.Rounded.FolderOpen, null, tint = if (here) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     trailingContent = { TextButton({ onMove(folder.id) }, enabled = !single || currentFolder != folder.id) {
                         Text(if (single && currentFolder == folder.id) "Current" else "Move here")
                     } })
             }
         }
-        HorizontalDivider()
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        if (allowCreate) HorizontalDivider()
+        if (allowCreate) Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (creating) {
                 OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("New folder name") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),

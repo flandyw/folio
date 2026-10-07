@@ -370,7 +370,7 @@ private suspend fun renderWorkingPng(context: android.content.Context, folio: Fo
         pruneExportCache(dir)
         java.io.File(dir, uniqueShareFilename("working-out.png")).also { out ->
             out.outputStream().use {
-                NoteExporter(folio.repository).write(it, PageExportRequest(note, listOf(index), PageExportFormat.PNG), scale)
+                NoteExporter(folio.repository).write(it, PageExportRequest(note, listOf(index), PageExportFormat.PNG, tightBounds = true), scale)
             }
         }
     }

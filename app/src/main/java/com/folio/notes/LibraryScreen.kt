@@ -49,8 +49,8 @@ import kotlinx.coroutines.launch
 
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
-/** Top-level destinations in the Library sidebar: notebooks or score progress. */
-enum class LibrarySection { LIBRARY, PROGRESS }
+/** Library-owned destinations alongside the other peer panes. */
+enum class LibrarySection { LIBRARY, EXPLORER, PROGRESS }
 
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
@@ -115,6 +115,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
     var bulkMove by remember { mutableStateOf(false) }
     var bulkDelete by remember { mutableStateOf(false) }
     var bulkTags by remember { mutableStateOf(false) }
+    var notebookTags by remember { mutableStateOf<Set<String>?>(null) }
     var bulkCover by remember { mutableStateOf(false) }
     var coverFor by remember { mutableStateOf<String?>(null) }
     var rename by remember { mutableStateOf<Notebook?>(null) }
@@ -221,6 +222,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
                         RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
                         RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
+                        RailItem("Explorer", Icons.Rounded.FolderOpen, !otherPane && section == LibrarySection.EXPLORER) { selecting = false; selectedIds = emptyList(); section = LibrarySection.EXPLORER; onLibrary() }
                         RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
                     }
                     // Folders live in the shelf's filter row, as they already did on narrow screens:
@@ -285,10 +287,14 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 FilledTonalButton(onQuickNote, enabled = !state.loading, shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.EditNote, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Quick note")
                                 }
+                                FilledTonalButton({ section = LibrarySection.EXPLORER }, shapes = ButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Explorer")
+                                }
                                 OutlinedButton(onQuickCanvas, enabled = !state.loading, shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.AllInclusive, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Canvas")
                                 }
                             }
+                            if (state.folderId != null) ExplorerBreadcrumbs(listOf("Library" to { model.folder(null) }) + LibraryFolders.path(state.folders, state.folderId).map { folder -> folder.name to { model.folder(folder.id) } })
                             // Narrow devices have no sidebar: destinations live in the short
                             // navigation bar pinned to the bottom instead.
                             // Folders are a rail cannot carry, so every width filters them from the shelf.
@@ -297,7 +303,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 FilterChip(starred, { model.folder(null); starred = !starred; unfiled = false }, { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") }, leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
                                 FilterChip(unfiled, { starred = false; unfiled = !unfiled; model.folder(null) },
                                     { Text("Unfiled") }, leadingIcon = { Icon(Icons.Rounded.FolderOff, null, Modifier.size(16.dp)) })
-                                state.folders.forEach { folder -> Box {
+                                state.folders.filter { it.parentId == state.folderId }.forEach { folder -> Box {
                                     FilterChip(state.folderId == folder.id, { starred = false; unfiled = false; model.folder(folder.id) }, { Text(folderCounts[folder.id]?.let { "${folder.name} · $it" } ?: folder.name) },
                                         leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
                                         trailingIcon = {
@@ -330,7 +336,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     }
                                 }
                             }
-                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or exam tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; debouncedQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find notebooks, page names or tags…") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; debouncedQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }, singleLine = true, shape = FolioShapes.extraLarge, colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (query.isNotEmpty()) "Search results" else if (examFilter.incomplete) "Incomplete notebooks" else folderName ?: if (unfiled) "Unfiled" else if (starred) "Favorites" else "Your notebooks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
@@ -453,7 +459,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                     items(notes, key = { it.id }) { note ->
                         val open = { if (pickingNotebook || !selecting) onOpenNotebook(note.id) else toggleSelection(note.id) }
                         val longPress = { if (!pickingNotebook) enterSelecting(note.id) }
-                        val folder = state.folders.find { it.id == note.folderId }?.name
+                        val folder = LibraryFolders.label(state.folders, note.folderId).ifEmpty { null }
                         val selectionColor by animateColorAsState(
                             if (note.id in selection) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f)
                             else MaterialTheme.colorScheme.surfaceContainerLow,
@@ -462,7 +468,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         if (listView) Surface(
                             shape = FolioShapes.large,
                             color = selectionColor,
-                            modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
+                            modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
                         ) {
                                 Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     if (selecting) {
@@ -472,11 +478,12 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                     Column(Modifier.weight(1f)) {
                                         Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                                         Text("${folder ?: "Unfiled"} · ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall)
+                                        if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         if (note.id in state.backupExcludedNotebookIds) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     if (!selecting) {
                                         IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
-                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id })
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) })
                                     }
                                 }
                             } else NotebookCard(
@@ -486,13 +493,19 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 selected = note.id in selection, onLongPress = longPress,
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
                                 onChangeCover = { coverFor = note.id },
+                                onTags = { notebookTags = setOf(note.id) },
                                 duplicate = { model.duplicateNotebook(note) },
                                 backupExcluded = note.id in state.backupExcludedNotebookIds,
                                 onBackupToggle = { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) },
-                                modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) selected = note.id in selection }
+                                modifier = Modifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection }
                             )
                     }
 
+                }
+                if (!otherPane && !pickingNotebook && section == LibrarySection.EXPLORER) {
+                    ExplorerScreen(state, model, { section = LibrarySection.LIBRARY }, onNew, onImport, onImportArchive, onOpenNotebook,
+                        onExamDetails = { examDetails = it }, onRecordMark = { pendingMark = it }, onChangeCover = { coverFor = it.id },
+                        modifier = Modifier.weight(1f).fillMaxHeight().padding(top = topGap))
                 }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
                     com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().padding(top = topGap).then(entrance),
@@ -511,6 +524,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Move") }
+                            TextButton({ notebookTags = selection }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Sell, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Tags") }
                             TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Exam details") }
                             TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Palette, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Cover") }
                             val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
@@ -532,7 +546,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
         if (!wide && showNavigation && !pickingNotebook && !selecting) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
-            ShortNavigationBarItem(!otherPane && section == LibrarySection.LIBRARY && !starred && state.folderId == null,
+            ShortNavigationBarItem(!otherPane && (section == LibrarySection.EXPLORER || (section == LibrarySection.LIBRARY && !starred && state.folderId == null)),
                 { if (!otherPane && section == LibrarySection.LIBRARY) shelfScope.launch { libraryGridState.animateScrollToItem(0) }; section = LibrarySection.LIBRARY; starred = false; unfiled = false; model.folder(null); onLibrary() },
                 icon = { Icon(Icons.Rounded.GridView, null) }, label = { Text("Library") })
             ShortNavigationBarItem(showMistakes, onMistakes, icon = { Icon(Icons.Rounded.School, null) }, label = { Text("Mistakes") })
@@ -568,6 +582,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
             }
         )
     }
+    notebookTags?.let { ids -> NotebookTagsPanel(state.notes.filter { it.id in ids }, NotebookTags.normalize(state.notes.flatMap { it.tags }, Int.MAX_VALUE), { notebookTags = null }) { add, remove -> model.updateNotebookTags(ids, add, remove); notebookTags = null } }
     if (bulkMove) LibraryMovePanel("Move ${selection.size} notebooks", state.folders,
         onMove = { model.moveNotebooks(selection, it); bulkMove = false; selectedIds = emptyList() },
         onCreateAndMove = { name -> model.createFolderAndMove(selection, name).also { if (it) selectedIds = emptyList() } },
@@ -639,8 +654,8 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         confirmButton = { TextButton({ bulkCover = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
-    renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { model.renameFolder(folder, it); renameFolder = null } }
-    deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text(folderCounts[folder.id]?.let { "The $it notebook${if (it == 1) "" else "s"} inside will stay in All notebooks. Only this folder is removed." } ?: "This folder is empty. Only the folder is removed.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
+    renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { if (model.renameFolder(folder, it)) renameFolder = null } }
+    deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Its notebooks and subfolders move to ${LibraryFolders.label(state.folders, folder.parentId).ifEmpty { "Library" }}. Your notebooks will be kept.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> LibraryMovePanel("Move ${note.title}", state.folders, note.folderId, single = true,
         onMove = { model.move(note, it); move = null },
         onCreateAndMove = { name -> model.createFolderAndMove(setOf(note.id), name) },
@@ -661,7 +676,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
         alwaysShowLabel = true)
 }
 
-@Composable private fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, modifier: Modifier = Modifier) {
+@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -694,20 +709,22 @@ enum class LibrarySection { LIBRARY, PROGRESS }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · ${folder ?: "Unfiled"} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags)
         }
+        if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ExamBadges(note, modifier = Modifier.padding(top = FolioSpacing.dp4), redoCount = redoCount)
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Notebook options") }
         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
             DropdownMenuItem({ Text("Rename") }, { menu = false; rename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             DropdownMenuItem({ Text("Duplicate") }, { menu = false; duplicate() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+            DropdownMenuItem({ Text("Tags") }, { menu = false; onTags() }, leadingIcon = { Icon(Icons.Rounded.Sell, null) })
             DropdownMenuItem({ Text("Exam details") }, { menu = false; examDetails() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FactCheck, null) })
             DropdownMenuItem({ Text("Record a mark") }, { menu = false; recordMark() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) })
             DropdownMenuItem({ Text("Change cover") }, { menu = false; onChangeCover() }, leadingIcon = { Icon(Icons.Rounded.Palette, null) })
@@ -761,7 +778,7 @@ enum class LibrarySection { LIBRARY, PROGRESS }
 }
 
 /** A compact list row's small preview, falling back to a type icon before one has been drawn. */
-@Composable private fun NotebookListThumbnail(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
+@Composable internal fun NotebookListThumbnail(note: Notebook, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier) {
     val preview = rememberNotebookPreview(note, thumbnails, with(LocalDensity.current) { 44.dp.roundToPx() })
     val imageBitmap = remember(preview) { preview?.asImageBitmap() }
     val isPdf = note.pages.any { it.pdfIndex != null }

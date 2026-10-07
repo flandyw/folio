@@ -351,12 +351,14 @@ data class Notebook(
     /** Null preserves older notebooks’ current-page inheritance. */
     val defaultPaper: Paper? = null,
     val longResponse: LongResponse? = null,
-    val feedbackActions: List<FeedbackAction> = emptyList()
+    val feedbackActions: List<FeedbackAction> = emptyList(),
+    /** User labels, independent of structured exam metadata. */
+    val tags: List<String> = emptyList()
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
 }
-data class Folder(val id: String = UUID.randomUUID().toString(), val name: String)
+data class Folder(val id: String = UUID.randomUUID().toString(), val name: String, val parentId: String? = null)
 
 /** A new page identity keeps copied ink and PDF backgrounds independent in undo history. */
 /** Appends an attempt, or replaces one with the same id where it sits, keeping the history in order. */
@@ -466,6 +468,7 @@ object NoteCodec {
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
         put("exam", ExamTagsCodec.encode(note.exam))
+        if (note.tags.isNotEmpty()) put("tags", JSONArray(note.tags))
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         if (!note.pageCover) put("pageCover", false)
         note.defaultPaper?.let { put("defaultPaper", it.name) }
@@ -512,7 +515,8 @@ object NoteCodec {
             mistakeReviews = decodeMistakeReviews(o),
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
-            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions"))).let { note ->
+            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions")),
+            tags = NotebookTags.decode(o.optJSONArray("tags"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

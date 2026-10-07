@@ -106,3 +106,7 @@ Limitations: no real-account/password or connected-device end-to-end run was per
 ### Device smoke test
 
 Use an isolated test install. Sign in with an existing ExamTrack account, verify counts and a private image, then enable airplane mode. Restart Folio, review a mistake with several strokes, reveal/rate, and inspect the saved attempt. Restore connectivity and verify the same rating/review ID and due date in ExamTrack. Review again and verify both Folio pages remain. Edit/delete a card in ExamTrack, sync Folio, and verify update/deletion. Sign out, sign in as a second test account, and confirm its cloud list is separate. Export/import a practice `.folio` and verify ink and review references. Never run a device check against a student's signed-in installation.
+
+## Explorer metadata round-trip
+
+Nested library folders and user notebook tags are optional metadata fields. Before releasing changes to these fields, follow the [Explorer device checks](explorer.md#verification), especially restart, single-notebook export, library/automatic restore, fresh parent-ID mapping, and unchanged ink/undo history. JVM codec checks alone do not replace these device checks.

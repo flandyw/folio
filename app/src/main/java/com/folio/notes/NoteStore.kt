@@ -167,6 +167,7 @@ object NoteMetaCodec {
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
         put("exam", ExamTagsCodec.encode(note.exam))
+        if (note.tags.isNotEmpty()) put("tags", JSONArray(note.tags))
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
         put("pageCover", note.pageCover)
         note.defaultPaper?.let { put("defaultPaper", it.name) }
@@ -219,7 +220,8 @@ object NoteMetaCodec {
             mistakeReviews = decodeMistakeReviews(o),
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
-            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions"))).let { note ->
+            feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions")),
+            tags = NotebookTags.decode(o.optJSONArray("tags"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

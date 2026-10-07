@@ -559,33 +559,66 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     fun folder(id: String?) { _state.update { it.copy(folderId = id) } }
-    fun createFolder(name: String) {
-        if (name.isBlank() || _state.value.loadFailed) return
-        val folders = _state.value.folders + Folder(name = name.trim())
-        _state.update { it.copy(folders = folders) }; enqueue { repository.saveFolders(folders) }
-    }
-    /** Creating a destination and filing notebooks share the existing serialized library writer. */
-    fun createFolderAndMove(ids: Set<String>, name: String): Boolean {
+    fun createFolder(name: String, parentId: String? = _state.value.folderId): Boolean {
         val state = _state.value
-        if (name.isBlank() || state.loadFailed || state.loading || ids.none { id -> state.notes.any { it.id == id } }) return false
-        val folder = Folder(name = name.trim().take(120))
+        if (state.loadFailed || state.loading || !validFolderName(name, parentId)) return false
+        val folders = state.folders + Folder(name = name.trim().take(120), parentId = parentId)
+        _state.update { it.copy(folders = folders) }
+        enqueue { repository.saveFolders(folders) }
+        return true
+    }
+    private fun validFolderName(name: String, parentId: String?, except: String? = null): Boolean {
+        val folders = _state.value.folders
+        if (name.isBlank() || (parentId != null && folders.none { it.id == parentId })) return false
+        if (folders.any { it.id != except && it.parentId == parentId && it.name.equals(name.trim().take(120), true) }) {
+            reportError("A folder with that name already exists here")
+            return false
+        }
+        return true
+    }
+    /** Creating a destination and filing notebooks share the serialized library writer. */
+    fun createFolderAndMove(ids: Set<String>, name: String, parentId: String? = null): Boolean {
+        val state = _state.value
+        if (state.loadFailed || state.loading || ids.none { id -> state.notes.any { it.id == id } } || !validFolderName(name, parentId)) return false
+        val folder = Folder(name = name.trim().take(120), parentId = parentId)
         val folders = state.folders + folder
         _state.update { it.copy(folders = folders) }
         enqueue { repository.saveFolders(folders) }
         moveNotebooks(ids, folder.id)
         return true
     }
-
-    fun renameFolder(folder: Folder, name: String) {
-        if (name.isBlank()) return
-        val folders = _state.value.folders.map { if (it.id == folder.id) it.copy(name = name.trim()) else it }
-        _state.update { it.copy(folders = folders) }; enqueue { repository.saveFolders(folders) }
+    fun renameFolder(folder: Folder, name: String): Boolean {
+        val live = _state.value.folders.find { it.id == folder.id } ?: return false
+        if (!validFolderName(name, live.parentId, live.id)) return false
+        val folders = _state.value.folders.map { if (it.id == live.id) it.copy(name = name.trim().take(120)) else it }
+        _state.update { it.copy(folders = folders) }
+        enqueue { repository.saveFolders(folders) }
+        return true
     }
+    fun moveFolder(id: String, parentId: String?): Boolean {
+        val state = _state.value
+        val folder = state.folders.find { it.id == id } ?: return false
+        if (!LibraryFolders.canMove(state.folders, id, parentId) || !validFolderName(folder.name, parentId, id)) return false
+        val folders = state.folders.map { if (it.id == id) it.copy(parentId = parentId) else it }
+        _state.update { it.copy(folders = folders) }
+        enqueue { repository.saveFolders(folders) }
+        return true
+    }
+    /** Removing a folder promotes its contents one level; notebooks and subfolders are kept. */
     fun deleteFolder(folder: Folder) {
-        val affected = _state.value.notes.filter { it.folderId == folder.id }.map { it.id }.toSet()
-        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(folderId = null) }
-        val folders = _state.value.folders.filterNot { it.id == folder.id }
-        _state.update { it.copy(folders = folders, folderId = null) }; enqueue { repository.saveFolders(folders) }
+        val live = _state.value.folders.find { it.id == folder.id } ?: return
+        val affected = _state.value.notes.filter { it.folderId == live.id }.map { it.id }.toSet()
+        if (affected.isNotEmpty()) updateNotes(affected) { it.copy(folderId = live.parentId) }
+        val folders = _state.value.folders.filterNot { it.id == live.id }.map {
+            if (it.parentId == live.id) it.copy(parentId = live.parentId) else it
+        }
+        _state.update { it.copy(folders = folders, folderId = if (it.folderId == live.id) live.parentId else it.folderId) }
+        enqueue { repository.saveFolders(folders) }
+    }
+    fun updateNotebookTags(ids: Set<String>, add: List<String>, remove: List<String> = emptyList()) {
+        val removed = remove.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
+        updateNotes(ids) { note -> note.copy(tags = NotebookTags.normalize(
+            note.tags.filterNot { it.lowercase(java.util.Locale.ROOT) in removed } + add)) }
     }
     fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true, response: LongResponse? = null, responseMode: ResponseMode = ResponseMode.FULL) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return

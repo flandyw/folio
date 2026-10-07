@@ -47,7 +47,7 @@ object NativeBackup {
         .put("format", "folio-library").put("version", VERSION)
         .put("external", manifest.external).put("created", manifest.created)
         .put("folders", JSONArray().apply {
-            manifest.folders.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) }
+            manifest.folders.forEach { put(FolderCodec.encode(it)) }
         })
         .put("notebooks", JSONArray().apply {
             manifest.notes.forEach { note -> put(JSONObject().put("id", note.id)
@@ -65,7 +65,8 @@ object NativeBackup {
         val folderArray = root.getJSONArray("folders")
         val noteArray = root.getJSONArray("notebooks")
         require(folderArray.length() <= LibraryBackup.MAX_NOTEBOOKS && noteArray.length() <= LibraryBackup.MAX_NOTEBOOKS) { "Backup is too large" }
-        val folders = (0 until folderArray.length()).map { folderArray.getJSONObject(it).let { f -> Folder(f.getString("id"), f.getString("name")) } }
+        val folders = (0 until folderArray.length()).map { folderArray.getJSONObject(it).let { f -> FolderCodec.decode(f) } }
+        require(LibraryFolders.valid(folders)) { "Invalid folder hierarchy" }
         var fileCount = 0
         val notes = (0 until noteArray.length()).map { index ->
             val note = noteArray.getJSONObject(index)
