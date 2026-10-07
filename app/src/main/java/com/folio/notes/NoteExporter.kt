@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.Build
+import android.media.MediaScannerConnection
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,6 +164,10 @@ class NoteExporter(private val repository: NoteRepository) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                val now = System.currentTimeMillis()
+                put(MediaStore.Images.Media.DATE_TAKEN, now)
+                put(MediaStore.Images.Media.DATE_ADDED, now / 1000)
+                put(MediaStore.Images.Media.DATE_MODIFIED, now / 1000)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, galleryRelativePath())
                     put(MediaStore.Images.Media.IS_PENDING, 1)
@@ -178,6 +183,14 @@ class NoteExporter(private val repository: NoteRepository) {
                     values.clear()
                     values.put(MediaStore.Images.Media.IS_PENDING, 0)
                     resolver.update(uri, values, null, null)
+                }
+                // Some vendor gallery apps (ColorOS) lag behind the media provider; an explicit scan
+                // makes them index the finished file straight away.
+                runCatching {
+                    resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { c ->
+                        val path = if (c.moveToFirst()) c.getString(0) else null
+                        if (!path.isNullOrBlank()) MediaScannerConnection.scanFile(context.applicationContext, arrayOf(path), arrayOf("image/png"), null)
+                    }
                 }
                 uri
             } catch (e: Exception) {
