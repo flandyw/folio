@@ -339,6 +339,12 @@ data class Notebook(
      */
     val pageCover: Boolean = true,
     val mistakePractice: Boolean = false,
+    /**
+     * The Music score this notebook carries the pencil marks of. Such a notebook is the score's PDF
+     * as ordinary pages, opened in the real editor, and never appears in the Library, Study, pickers
+     * or backups. Optional in `note.json`, so an older app simply ignores it.
+     */
+    val musicScoreId: String? = null,
     val mistakeReviews: List<com.folio.notes.mistakes.LocalMistakeReviewAttempt> = emptyList(),
     /** The view kept for peeking; stored with the notebook, it can frame any of its pages. */
     val peekAnchor: PeekAnchor? = null,
@@ -379,6 +385,9 @@ fun duplicateNotebookTitle(base: String, existingTitles: Set<String>): String {
     return "$first ($n)"
 }
 
+/** Practice pages and score notebooks live behind their own features, not on the Library shelf. */
+val Notebook.hiddenFromLibrary: Boolean get() = mistakePractice || musicScoreId != null
+
 /**
  * A copy of this notebook with a fresh notebook id and fresh page ids, ready to save
  * beside the original. Exam tags, cover, folder and page content travel along; marked
@@ -394,6 +403,7 @@ fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMi
         starred = false,
         attempts = emptyList(),
         mistakeReviews = emptyList(),
+        musicScoreId = null,
         pages = pages.map { page -> page.copy(id = pageIds[page.id] ?: UUID.randomUUID().toString()) },
         peekAnchor = peekAnchor?.let { anchor -> pageIds[anchor.pageId]?.let { anchor.copy(pageId = it) } },
         longResponse = longResponse?.remapPages(pageIds)?.let { response -> response.copy(attempts = response.attempts.map { it.copy(resultId = null) }) },
@@ -462,6 +472,7 @@ object NoteCodec {
         note.longResponse?.let { put("longResponse", LongResponseCodec.encode(it)) }
         if (note.feedbackActions.isNotEmpty()) put("feedbackActions", LongResponseCodec.encodeActions(note.feedbackActions))
         put("mistakePractice", note.mistakePractice)
+        note.musicScoreId?.let { put("musicScoreId", it) }
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
@@ -497,6 +508,7 @@ object NoteCodec {
             // Older backups have no cover choice and default to the first-page cover.
             pageCover = o.optBoolean("pageCover", true),
             mistakePractice = o.optBoolean("mistakePractice", false),
+            musicScoreId = o.optString("musicScoreId", "").takeIf { it.isNotEmpty() },
             mistakeReviews = decodeMistakeReviews(o),
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),

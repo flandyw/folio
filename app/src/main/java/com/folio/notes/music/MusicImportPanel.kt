@@ -83,8 +83,6 @@ import kotlinx.coroutines.withContext
                             Column(Modifier.padding(FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 MusicPage(model.store.pdf(source.id), previewPage, source.pages, model.pageCache,
-                                    strokes = source.ink.filter { it.page == previewPage },
-                                    texts = source.texts.filter { it.page == previewPage },
                                     onTurn = { forward -> preview(previewPage + if (forward) 1 else -1) },
                                     modifier = Modifier.weight(1f).fillMaxWidth())
                                 EditorGlassSurface {

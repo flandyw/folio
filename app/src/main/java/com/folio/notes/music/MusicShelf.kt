@@ -88,7 +88,7 @@ internal fun MusicScore.readingProgressLabel(): String =
 internal fun MusicScore.displayTitle(): String = title.ifBlank { "Untitled score" }
 
 /** Pencil strokes plus typed labels, so the shelf can say how marked up a score is. */
-internal fun MusicScore.annotationCount(): Int = ink.size + texts.size
+internal fun MusicScore.annotationCount(): Int = ink.size + texts.size + pencil.sum()
 
 /** The nearest rehearsal mark strictly after [page]; navigation never returns the current page. */
 internal fun nextMark(page: Int, marks: List<MusicMark>): MusicMark? =

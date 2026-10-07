@@ -38,27 +38,20 @@ button on the final page/spread.
 
 ## Reader
 
-Opening a score hides the shell's navigation, like Mistakes review. The reader uses the
-editor's chrome and the editor's canvas contract, with anchored popovers instead of dialogs.
-`MusicReader.kt` is laid out like `EditorScreen.kt`: the canvas is the editor's desk
-(`surfaceContainerLow`), the sheet is the one bright surface on it, and the glass docks float
-above the desk as real overlays rather than sitting in layout rows of their own. Both docks are
-measured with `onGloballyPositioned` and the page is inset by their heights (the editor's
-`floatingToolbarTop` idea), so a whole page or spread always fits between the docks and no chrome
-ever covers the music. `MusicPaper` is the sheet colour only — a rendered page is white whatever
-the theme — and each page is clipped to `FolioShapes.medium`, the shape an editor page wears.
+Opening a score hides the shell's navigation, like Mistakes review. **The reader is the real editor**
+(`EditorScreen`) in a music layout (`MusicStage.kt`), not a separate viewer. A score is a hidden
+PDF-backed notebook (see Storage): the pens, highlighter, eraser, shapes, text, lasso, layers, undo/redo
+and the crash-safe journal are the editor's own, and the tool strip is the editor's `FloatingInkToolbar`
+with the same `ink-tools` preferences (shared colours, widths, presets, *Edit toolbar*). Only the layout
+and the chrome are music's: the desk is the editor's (`surfaceContainerLow`), the sheet is the one bright
+surface on it, the glass docks float above it, and the sheets are inset by the measured height of the
+tool strip (settled, so opening or closing the quick bar re-fits once) and by the rails' gutters, so a
+whole page or spread always fits between the docks and no chrome ever covers the music.
 
-- **Tool strip**: the editor's own `FloatingInkToolbar` (`InkToolbar.kt`) floats flush to the top on its
-  own, with no row of score pills above it. Its full height (quick colour/width bar included) is
-  measured and the pages are inset by that and a 4dp gutter, applied once it settles so opening or
-  closing the bar re-fits the page once rather than every animation frame. It is the same strip
-  with the same `ink-tools` preferences: pen, shapes (line, rectangle, ellipse, triangle, diamond,
-  pentagon, hexagon, star), highlighter, eraser, text and lasso, shared quick colours,
-  width/opacity popovers, saved presets, undo/redo, the ⋯ overflow and *Edit toolbar*. Score
-  options can hide the whole strip; the page re-fits to the freed desk space and the choice is
-  remembered (`AppPrefs.MUSIC_TOOLBAR`). **Marking**
-  and **sticky notes** are left out (they belong to a marked response / a notebook page), graph
-  axes are dropped from the shape picker, and the Behaviour menu shows only what applies.
+- **Tool strip**: the editor's own, flush to the top, without the editor's title row. Score options can
+  hide it (`AppPrefs.MUSIC_TOOLBAR`); the sheet re-fits to the freed desk. **Marking** and **sticky notes**
+  are left out (they belong to a marked response / a notebook page) and the graph tool is dropped from the
+  shape picker.
 - **Floating rails** replace the old top pills and bottom dock. A glass rail at the left edge
   holds **Back**, **Rehearsal marks**, the **Metronome** (a tempo button that flashes on the
   downbeat while it runs) and **Previous page**; a rail at the right holds **Score options**
@@ -70,38 +63,33 @@ the theme — and each page is clipped to `FolioShapes.medium`, the shape an edi
   **Next page** — which becomes **Next: <title>** inside a set on the last page. The grid numbers
   every page and offers **First**/**Last** jumps and a scrubber for a long score. The pages sit
   between the rails.
-- **Pages** are one horizontal strip (`LazyRow`) that slides when you turn. Portrait shows one
-  page; landscape shows two (never more) unless **Show one page at a time** is chosen in Score options. Turning moves by the number of
-  pages shown and the last window ends on the last page. The strip does not scroll by swipe so a
-  finger or pen on the sheet is free to draw; turn with the rail buttons, a tap on a page's left/right half,
-  or the keys below. Every real turn ticks the haptics, so a tap or pedal confirms without looking down.
+- **Pages** are a window of one or two fitted sheets. Portrait shows one page; landscape shows two
+  (never more) unless **Show one page at a time** is chosen in Score options. Turning moves by the number
+  of pages shown and the last window ends on the last page. Each sheet has its own pinch-zoom camera
+  (`InkView.pageCamera`, 1–4×, kept on the sheet). Turn with the rail buttons, a tap on the left/right half
+  of a page where a tap would not draw (the hand tool, or any tool while *Draw with a finger* is off), or the
+  keys below. Every real turn ticks the haptics, so a tap or pedal confirms without looking down. While
+  zoomed in a tap never turns; a quick second tap fits the sheet again.
 - Reading position is saved for each score. Rehearsal marks are added inline in their popover and
   jump straight to their page; the popover's arrows step to the previous/next mark without leaving
   the score.
-- The sheet clears the whole tool strip, quick colour/width bar included, so it never covers the top staves; the page re-fits once when that bar opens or closes. Tap the left/right half of a page to turn it. Pinch to zoom, drag to pan, and double-tap to
-  reset zoom. Page taps turn only at fit-page scale.
-- **Annotations** live in the music index itself (`MusicModels.kt`) in page-relative coordinates,
-  so they survive closing, rotation and restart and stay aligned between single pages and spreads.
-  A stroke carries the tool that drew it, its colour, width, opacity and line style; a label (the
-  **Text** tool) is a typed mark in the same coordinates. A freehand stroke keeps its samples and a
-  shape keeps only its two drag corners, exactly as the editor stores one, and the outline is built
-  by the pure `MusicInk`. Those fields are optional, so a plain blue pen writes no style keys and an
-  index without labels writes no labels array: `MusicCodec.VERSION` stays 1 and an older Folio still
-  reads (and still draws) the score. **Undo/redo** step through annotation snapshots — a drag that
-  edits frame by frame (moving a selection, erasing) is one undo, not one per frame.
-- **Eraser ring**: as in the editor, a pen hovering over the glass previews the eraser's circle at its real size (pressure-scaled when that is on), and the ring follows the tip while it cuts.
-- **Eraser** rubs out the ink it touches: the touched samples are removed and each surviving run
-  becomes its own stroke, so a phrase can be shortened without losing the line. *Whole-stroke
-  eraser* (Behaviour menu) drops a touched mark instead, and a touched shape always goes whole.
-- **Lasso** draws a loop around ink and labels; a stroke is held only when every sample is enclosed.
-  Drag a selection to move it, and use the pill above the dock to duplicate or delete it, make it
-  dashed or solid, or thicken it. A new quick colour restyles the selection, as it does in the
-  editor. A long press with the hand tool picks up the mark under the finger, so one stroke can be
-  restyled or moved without lassoing it. The selection belongs to one page, so a spread never
-  mirrors it onto its partner.
-- **Text** taps a spot to type a label — rehearsal letters, dynamics, reminders — and taps an
-  existing label to edit it; clearing its text deletes it. Typing offers quick presets (mf, pp, f,
-  rit., A, B, cue) so a common cue needs no keyboard work.
+- The sheet clears the whole tool strip, quick colour/width bar included, so it never covers the top staves; the page re-fits once when that bar opens or closes. Pinch to zoom, drag with two fingers (or the hand tool) to pan, and double-tap to reset zoom. Page taps turn only at fit-page scale.
+- **Annotations** are the editor's own strokes and text boxes on the score's notebook pages, so
+  they carry everything an editor page has (pressure, shape recognition, scribble-to-erase, layers, the
+  lasso's context menu, the text dialog) and survive closing, rotation and restart through the editor's
+  journal. Undo/redo are the editor's: they step the page you last wrote on (a spread's two pages each
+  keep their own history), not one history for the whole score. The music index keeps only a per-page
+  tally (`MusicScore.pencil`) for the shelf's counts, the *Annotated* chip and the page grid, refreshed
+  from the pages as they change.
+- **Older marks carry over.** A score marked up by an earlier Folio kept its pencil in the music index in
+  page fractions (`ink`/`texts`). The first time that score is opened, `MusicNotebook.carryOver` places each
+  stroke and label on its page (widths and sizes rescaled from the 1000-unit scale to the editor's 840-wide
+  pages) and only then empties the index's copy, so an interruption can repeat the carry but never lose it.
+  If the score's notebook already exists (an interruption after it was written), it is simply opened and
+  the index's leftover marks are dropped.
+- **Eraser ring**, rubber and whole-stroke eraser, shapes (dotted and dashed too), lasso move/restyle/
+  duplicate/delete and text labels are the editor's. Typing a label uses the editor's text box and its
+  quick colours rather than the old preset chips.
 - The metronome has 30–240 BPM (±1 and ±5 buttons, slider, tap tempo, and one-tap Largo–Presto
   presets, with the nearest marking named beside the readout), 1–12 beats per bar and an opt-in
   audible click using media volume. It can accent beat 1, tick a subdivision of 2, 3 or 4 inside
@@ -132,23 +120,34 @@ instead** and **Skip PDF** remain available.
 ## Storage and scope
 
 Music owns `files/music/`: UUID-named source PDFs and a version-1 `library.json` index
-containing score metadata, normalized pencil strokes, rehearsal marks and ordered set
-lists, plus each score's optional last-opened time (`opened`, epoch millis; absent reads as
-never, so no version bump). The index uses Android `AtomicFile`; a serialized ViewModel queue saves edits
-before publishing them to the UI. PDF imports are staged in `music/pending/`, fsynced and validated before
+containing score metadata, rehearsal marks, tempo and reading position, ordered set lists, each score's
+optional last-opened time (`opened`, epoch millis; absent reads as never) and, newer and optional, a
+per-page pencil tally (`pencil`) and a one-shot `seed`. `ink`/`texts` remain readable and writable only so
+an older Folio's marks can be carried over (see Reader); a score that has been opened since writes none.
+The index uses Android `AtomicFile`; a serialized ViewModel queue saves edits before publishing them to the
+UI. No version bump: the new keys are optional and an older Folio ignores them (it would show the score
+without its newer pencil). PDF imports are staged in `music/pending/`, fsynced and validated before
 review. Only accepted complete PDFs or extracted parts receive index entries. Extraction
 saves all selected parts in one index update and rolls back outputs on write failure.
 Skipped sources are deleted; abandoned pending imports are cleared on the next successful
 library load. Pending reviews survive rotation, but must be restarted after process death. A failed/corrupt index is reported and never replaced with an
 empty library. Import failures are counted without discarding successful imports.
 
-This collection never goes through `NoteRepository` or the notebook index. Music
-scores do not appear in notebooks, workspace pickers, progress, Focal sync, `.folio`
-exports or notebook automatic/library backups. Existing notebook formats are unchanged.
-**Export original PDF** saves the original source through Android's document picker;
-it does not include Music pencil annotations, notes, set lists or rehearsal marks.
-Music currently has no portable backup/restore or sync. Keep the original PDFs;
-clearing app data or uninstalling removes the local Music collection and its annotations.
+**A score's pencil lives in a hidden notebook.** On first open `FolioViewModel.openMusicScore` creates
+`files/notebooks/<id>/` for it (`Notebook.musicScoreId` = the score id, a copy of the PDF as
+`source.pdf`, one 840-unit-wide page per PDF page) and opens it in the editor. That notebook is hidden:
+it is not on the Library shelf, in Study, in the workspace document pickers, in notebook backups
+(`AppPrefs.notebooksForBackup` drops it) or in Focal sync, and its tab never joins the open documents.
+Leaving the reader (or any other screen finding it open) closes it. Deleting a score deletes its notebook.
+**Duplicate score** and **Extract parts** give the new score a `seed` (the source score and which of its
+pages to take): on the copy's first open its pages and pencil are copied from the source's notebook
+(unless the copy still holds older index marks, which win, so nothing is applied twice). The score's PDF
+is therefore stored twice on device (once as the music file, once inside its notebook). Music scores and
+notebooks otherwise stay separate collections: no score appears among notebooks, `.folio` exports, or
+library backups. **Export original PDF** saves the original source through Android's document picker; it
+does not include pencil annotations, notes, set lists or rehearsal marks. Music has no portable
+backup/restore or sync of its own. Keep the original PDFs; clearing app data or uninstalling removes the
+local Music collection and its annotations.
 
 Pages render off the UI thread through `PdfRenderer`. Shelf covers come from a separate 12 MiB first-page cache, so leaving the reader never blanks
 the shelf. A 32 MiB bitmap cache prefetches
@@ -169,7 +168,9 @@ multi-term search, the score-state and set-total helpers, tempo names, the selec
 (bounds, stroke hit-test, restyle clamps, normalise) and the filmstrip page-toggle and part-merge
 helpers. The canonical app check is `./build.sh -p`.
 
-Device checks (required before treating performance input as device-validated):
+Device checks (required before treating performance input as device-validated). The reader is now the
+real editor on a hidden notebook and its storage path is unverified here (nothing in this repo opens a
+notebook), so check 12 below must be done on a device before release:
 
 1. Import a multipage score and a batch containing one invalid or password-protected PDF.
    Confirm successful PDFs remain and the failure count is visible. Remove the source
@@ -216,3 +217,13 @@ Device checks (required before treating performance input as device-validated):
     must open unopened, the original and every set place must be untouched, and the shared text must
     match the running order. In the import review, build a range by tapping the filmstrip, merge two
     ticked parts, and confirm the union's page count and instruments.
+
+12. **Editor-backed reader and carry-over.** On a build upgraded from one that kept marks in the index,
+    open a score that was annotated (pen, highlighter, a shape, a label): every mark must sit exactly where it
+    was, at the same thickness, and the shelf's pencil count must be unchanged. Close, force-stop and reopen:
+    the marks are still there and the index no longer holds them (`library.json` has no `ink`). Then, on a
+    fresh score, draw with each editor tool, undo/redo on both pages of a landscape spread, pinch-zoom and pan
+    each sheet, double-tap to fit, turn by tap, rail and pedal keys, and rotate mid-stroke. Confirm the score
+    never appears on the Library shelf, in Study, in *Open another document*, or in a library backup, and that
+    deleting it frees its notebook folder. Duplicate an annotated score and extract a part from one: the copy
+    and the part must carry the right pages' marks, and the original must be unchanged.

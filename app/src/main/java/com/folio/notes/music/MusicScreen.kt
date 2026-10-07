@@ -55,6 +55,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.AppPrefs
 import com.folio.notes.FolioExpand
 import com.folio.notes.FolioPanel
+import com.folio.notes.FolioState
+import com.folio.notes.FolioViewModel
 import com.folio.notes.FolioShapes
 import com.folio.notes.FolioSpacing
 import com.folio.notes.NameDialog
@@ -70,7 +72,8 @@ import kotlinx.coroutines.withContext
  * chips, covers), with set lists in the place folders take for notebooks. Opening a score swaps
  * the shelf for the reader and asks the shell to hide its navigation ([onReaderMode]).
  */
-@Composable internal fun MusicScreen(topGap: Dp = 0.dp, onReaderMode: (Boolean) -> Unit = {}, onSettings: () -> Unit = {}, onBack: () -> Unit) {
+@Composable internal fun MusicScreen(folio: FolioViewModel, folioState: FolioState, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean,
+    topGap: Dp = 0.dp, onReaderMode: (Boolean) -> Unit = {}, onSettings: () -> Unit = {}, onBack: () -> Unit) {
     val model: MusicViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by model.state.collectAsStateWithLifecycle()
     val library = state.library
@@ -155,12 +158,12 @@ import kotlinx.coroutines.withContext
             val set = library.sets.find { it.id == playingSet }
             val position = set?.scores?.indexOf(active.id) ?: -1
             val next = set?.scores?.getOrNull(position + 1)?.let { id -> library.scores.find { it.id == id } }
-            MusicReader(active, model,
+            key(active.id) { MusicReader(active, model, folio, folioState, finger, haptics, shapeRecognition,
                 onBack = { activeId = null; playingSet = null },
                 setLabel = set?.let { "${it.name} · ${position + 1} of ${it.scores.size}" },
                 next = next, onNextScore = { next?.let { open(it, set.id) } },
                 onDetails = { details = active.id }, onExport = { exportScore(active) },
-                onExtract = { model.reviewExisting(active.id) }, onSettings = onSettings)
+                onExtract = { model.reviewExisting(active.id) }, onSettings = onSettings) }
         } else BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {
             val wide = maxWidth >= 840.dp
             val selectedSet = library.sets.find { it.id == setId }
@@ -405,7 +408,7 @@ import kotlinx.coroutines.withContext
     }
     library.scores.find { it.id == deleteScore }?.let { score ->
         ConfirmDelete("Delete “${score.title}”?", "Removes Folio's copy of this score, its pencil marks, rehearsal marks and set list places. The original PDF you imported is not touched.",
-            "Delete score", { deleteScore = null }) { model.delete(score.id); deleteScore = null }
+            "Delete score", { deleteScore = null }) { model.delete(score.id); folio.deleteMusicScore(score.id); deleteScore = null }
     }
     library.scores.find { it.id == details }?.let { score ->
         ScoreDetailsPanel(score, { details = null }) { title, composer, part, notes ->

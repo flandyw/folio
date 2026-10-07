@@ -173,6 +173,7 @@ object NoteMetaCodec {
         note.longResponse?.let { put("longResponse", LongResponseCodec.encode(it)) }
         if (note.feedbackActions.isNotEmpty()) put("feedbackActions", LongResponseCodec.encodeActions(note.feedbackActions))
         put("mistakePractice", note.mistakePractice)
+        note.musicScoreId?.let { put("musicScoreId", it) }
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
         put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
@@ -214,6 +215,7 @@ object NoteMetaCodec {
             exam = ExamTagsCodec.decode(o.optJSONObject("exam")),
             attempts = ExamTagsCodec.decodeAttempts(o.optJSONArray("attempts")),
             pageCover = o.optBoolean("pageCover", true), mistakePractice = o.optBoolean("mistakePractice", false),
+            musicScoreId = o.optString("musicScoreId", "").takeIf { it.isNotEmpty() },
             mistakeReviews = decodeMistakeReviews(o),
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),

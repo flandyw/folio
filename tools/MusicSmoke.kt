@@ -98,43 +98,6 @@ fun main() {
     legacyStrokes.getJSONObject(0).put("tool", "NONSENSE").put("width", 9999)
     check(MusicCodec.decode(legacyStyled.toString()).scores.single().ink.first().width == 96f) { "Annotated width not clamped" }
 
-    check(MusicInk.isShape("STAR") && !MusicInk.isShape(MUSIC_PEN) && MusicInk.isFreehand(MUSIC_HIGHLIGHTER))
-    check(MusicInk.shapePoints("LINE", line.points) == line.points) { "A line should keep its two corners" }
-    val rectangle = MusicInk.shapePoints("RECTANGLE", line.points)
-    check(rectangle.size == 5 && rectangle.first() == rectangle.last()) { "Rectangle should close its outline" }
-    check(MusicInk.shapePoints("HEXAGON", line.points).size == 7 && MusicInk.shapePoints("STAR", line.points).size == 11)
-    check(MusicInk.shapePoints("ELLIPSE", line.points).size == 65) { "Ellipse outline wrong" }
-    // The drag box is normalized, so a shape dragged up and left is the same shape.
-    val upLeft = MusicInk.shapePoints("RECTANGLE", listOf(MusicPoint(.6f, .7f), MusicPoint(.2f, .2f)))
-    check(upLeft.all { it.x in .2f..0.6f && it.y in .2f..0.7f }) { "Reversed drag drew outside its box" }
-    check(MusicInk.shapePoints("PENTAGON", listOf(MusicPoint(.6f, .7f), MusicPoint(.2f, .2f)))
-        .all { it.x in .2f..0.6f && it.y in .2f..0.7f }) { "Reversed polygon drag drew outside its box" }
-
-    // Lasso: a stroke is held only when every sample is enclosed.
-    val loop = listOf(MusicPoint(.05f, .05f), MusicPoint(.95f, .05f), MusicPoint(.95f, .95f), MusicPoint(.05f, .95f))
-    check(MusicInk.selects(loop, pen) && MusicInk.selects(loop, line) && MusicInk.selects(loop, label))
-    val half = listOf(MusicPoint(.05f, .05f), MusicPoint(.3f, .05f), MusicPoint(.3f, .95f), MusicPoint(.05f, .95f))
-    check(!MusicInk.selects(half, pen)) { "A half-crossed stroke was selected" }
-    check(!MusicInk.selects(listOf(MusicPoint(.1f, .1f)), pen)) { "A two-point tap selected a stroke" }
-    check(MusicInk.textAt(listOf(label), 0, MusicPoint(.51f, .06f)) == 0 && MusicInk.textAt(listOf(label), 1, MusicPoint(.51f, .06f)) == null)
-    check(MusicInk.textAt(listOf(label), 0, MusicPoint(.9f, .9f)) == null) { "A tap far from a label edited it" }
-
-    check(MusicInk.translated(pen, .1f, .2f).points.first() == MusicPoint(.2f, .3f))
-    check(MusicInk.translated(label, .1f, .2f).x == .6f)
-    check(MusicInk.recolored(highlight, 0xFF000000.toInt()).opacity >= .35f) { "A recoloured highlight lost its translucency" }
-    check(MusicInk.recolored(pen, 0xFF000000.toInt()).color == 0xFF000000.toInt())
-    check(MusicInk.duplicate(pen).points != pen.points) { "A duplicate sat on top of its original" }
-
-    // Erasing: a touched line is shortened, a touched shape or whole-stroke erase removes it.
-    val long = MusicStroke(0, (0..20).map { MusicPoint(it / 20f, .5f) })
-    val trimmed = MusicInk.erased(listOf(long), MusicPoint(.5f, .5f), .08f, whole = false)
-    check(trimmed.size == 2 && trimmed.all { it.points.isNotEmpty() }) { "Rubber eraser did not split the line" }
-    check(trimmed[0].points.last().x < .42f && trimmed[1].points.first().x > .58f) { "Rubber eraser left a hole of the wrong size" }
-    check(trimmed.all { it.tool == MUSIC_PEN && it.page == 0 }) { "Trimmed runs lost their style" }
-    check(MusicInk.erased(listOf(long), MusicPoint(0f, 0f), .05f, whole = false).single().points.size == 21) { "An untouched line was edited" }
-    check(MusicInk.erased(listOf(long), MusicPoint(.5f, .5f), .08f, whole = true).isEmpty()) { "Whole-stroke eraser kept a touched line" }
-    check(MusicInk.erased(listOf(star), MusicPoint(.31f, .31f), .05f, whole = false).isEmpty()) { "A touched shape survived the eraser" }
-
     val extractedWithLabels = MusicParts.extracted(annotated, second.id, MusicPartRequest("Part", "", listOf(0, 1)))
     check(extractedWithLabels.texts.single().page == 0 && extractedWithLabels.ink.size == 4) { "Extracted part lost its annotations" }
     check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(extractedWithLabels)))).scores.single() == extractedWithLabels)
@@ -157,7 +120,7 @@ fun main() {
     check(!second.isStarted() && aria.isStarted() && aria.isUnfinished() && !aria.isFinished() && aria.copy(page = 29).isFinished()) { "Started / finished flags wrong" }
     check(second.readingProgressLabel().isEmpty() && aria.readingProgressLabel().endsWith("%")) { "Progress label wrong" }
     check(second.copy(title = "").displayTitle() == "Untitled score") { "Blank title not replaced" }
-    check(annotated.annotationCount() == annotated.ink.size + annotated.texts.size) { "Annotation count wrong" }
+    check(annotated.annotationCount() == annotated.ink.size + annotated.texts.size + annotated.pencil.sum()) { "Annotation count wrong" }
 
     // ---- Tempo names and set-list totals. ----
     check(tempoName(130) == "Allegro" && tempoName(40) == "Largo" && tempoName(132) == "Allegro") { "Tempo name wrong" }
@@ -171,14 +134,17 @@ fun main() {
     val shuffled = shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1))
     check(shuffled == shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1)) && shuffled.toSet() == setOf("a", "b", "c", "d", "e")) { "Shuffle was not reproducible" }
 
-    // ---- The selection helpers: bounds, tap-to-select, restyle and clamping. ----
-    val box = MusicInk.bounds(listOf(pen), emptyList())
-    check(box != null && box[0] == .1f && box[1] == .1f && box[2] == .4f && box[3] == .5f) { "Annotation bounds wrong" }
-    check(MusicInk.bounds(emptyList(), emptyList()) == null) { "Empty bounds should be null" }
-    check(MusicInk.strokeAt(listOf(pen, line), MusicPoint(.1f, .1f)) == 0 && MusicInk.strokeAt(listOf(pen), MusicPoint(.99f, .99f)) == null) { "Tap-to-select wrong" }
-    check(MusicInk.restyled(pen, width = 9999f).width == 96f && MusicInk.restyled(pen, opacity = 0f).opacity == 0.05f) { "Restyle clamp wrong" }
-    check(MusicInk.restyled(label, size = 1f).size == 8f) { "Label size clamp wrong" }
-    check(MusicInk.normalized(MusicStroke(0, listOf(MusicPoint(-1f, 2f)))).points.single() == MusicPoint(0f, 1f)) { "Normalize did not clamp onto the page" }
+    // ---- Pencil counts and seeds: the marks live in the score's notebook, the index keeps the tally. ----
+    val tallied = annotated.copy(ink = emptyList(), texts = emptyList(), pencil = listOf(3, 0, 2), seed = MusicSeed(first.id, listOf(0, 2, 1)))
+    check(tallied.annotationCount() == 5 && tallied.pencilOn(0) == 3 && tallied.pencilOn(1) == 0 && tallied.pencilOn(9) == 0) { "Pencil tally wrong" }
+    check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(tallied)))).scores.single() == tallied) { "Pencil tally or seed lost on reload" }
+    val untallied = JSONObject(MusicCodec.encode(MusicLibrary(listOf(first)))).getJSONArray("scores").getJSONObject(0)
+    check(!untallied.has("pencil") && !untallied.has("seed")) { "A score with no marks wrote pencil keys" }
+    val badSeed = JSONObject(MusicCodec.encode(MusicLibrary(listOf(tallied))))
+    badSeed.getJSONArray("scores").getJSONObject(0).getJSONObject("seed").put("from", "../../x")
+    check(MusicCodec.decode(badSeed.toString()).scores.single().seed == null) { "An unsafe seed id was accepted" }
+    val part = MusicParts.extracted(tallied, second.id, MusicPartRequest("Part", "", listOf(0, 2)))
+    check(part.pencil == listOf(3, 2) && part.seed == MusicSeed(tallied.id, listOf(0, 2))) { "Extracted part lost its pencil tally or seed" }
 
     // ---- Import review helpers: filmstrip toggling and merging ticked parts. ----
     check(MusicParts.togglePage(listOf(1, 3, 5), 3) == listOf(1, 5) && MusicParts.togglePage(listOf(1, 3, 5), 4) == listOf(1, 3, 4, 5) && MusicParts.togglePage(emptyList(), 2) == listOf(2)) { "Filmstrip page toggle wrong" }

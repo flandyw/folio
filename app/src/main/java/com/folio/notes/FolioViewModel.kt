@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -716,6 +717,53 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(notes = it.notes + note) }
         if (openWhenReady) open(note.id)
         return attempt
+    }
+
+    /**
+     * Opens a Music score in the real editor. The score is a hidden notebook (its PDF as ordinary
+     * pages, never on the Library shelf), created on the first open: pencil marks an older Folio kept
+     * in the music index are carried onto its pages, or a new part or copy takes its pages from the
+     * score it was made from. Returns the notebook id, or null when it could not be opened. The score's
+     * index is only emptied of the carried marks by the caller once this has returned, so an
+     * interruption can at worst repeat the carry, never lose it.
+     */
+    internal suspend fun openMusicScore(score: com.folio.notes.music.MusicScore, pdf: java.io.File): String? {
+        ready.await()
+        val existing = _state.value.notes.find { it.musicScoreId == score.id }
+        if (existing != null) { open(existing.id); return existing.id }
+        return try {
+            val seeded = score.seed?.takeIf { !com.folio.notes.music.MusicNotebook.hasLegacyInk(score) }?.let { seed ->
+                val from = _state.value.notes.find { it.musicScoreId == seed.from } ?: return@let null
+                awaitQueuedWrites()
+                seed to repository.loadPages(_state.value.notes.find { it.id == from.id } ?: from).pages
+            }
+            val note = getApplication<FolioApplication>().storageGate.withLock {
+                repository.createScoreNotebook(score.id, score.title, pdf) { blank ->
+                    when {
+                        com.folio.notes.music.MusicNotebook.hasLegacyInk(score) -> com.folio.notes.music.MusicNotebook.carryOver(score, blank)
+                        seeded != null -> com.folio.notes.music.MusicNotebook.copyPages(seeded.second, seeded.first, blank.size) ?: blank
+                        else -> blank
+                    }
+                }
+            }
+            _state.update { it.copy(notes = it.notes + note) }
+            open(note.id)
+            note.id
+        } catch (e: Exception) {
+            reportError("Couldn't open this score: ${e.message.orEmpty()}")
+            null
+        }
+    }
+
+    /** Leaves a score: back to the shelf, with no trace of its notebook among the open documents. */
+    fun closeMusicScore(notebookId: String) {
+        if (_state.value.activeId == notebookId) close()
+        _state.update { state -> state.copy(tabs = state.tabs.filterNot { it.notebookId == notebookId }) }
+    }
+
+    /** A deleted score takes its notebook, and the PDF copy inside it, with it. */
+    internal fun deleteMusicScore(scoreId: String) {
+        _state.value.notes.find { it.musicScoreId == scoreId }?.let { delete(it) }
     }
 
     fun completeMistakePractice(attempt: com.folio.notes.mistakes.LocalMistakeReviewAttempt) {
@@ -1616,10 +1664,25 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     /** Wipes the open page's ink, text and pictures in one undoable step, leaving its paper or PDF in place. */
-    fun clearPage() {
-        val page = _state.value.page ?: return
+    fun clearPage() { _state.value.page?.let { clearPageContent(it.id) } }
+
+    fun clearPageContent(pageId: String) {
+        val page = findPageContent(pageId) ?: return
         if (!page.loaded || (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty())) return
         replacePage(page.copy(strokes = emptyList(), texts = emptyList(), images = emptyList()))
+    }
+
+    /** Clears the ink of several pages, reading any that are still on disk first. Each page is its own undo step. */
+    fun clearPagesInk(noteId: String, pageIds: List<String>) {
+        viewModelScope.launch {
+            for (id in pageIds) {
+                loadPage(id)
+                kotlinx.coroutines.withTimeoutOrNull(5000) {
+                    _state.first { s -> s.notes.find { it.id == noteId }?.pages?.find { it.id == id }?.loaded == true }
+                } ?: continue
+                clearPageContent(id)
+            }
+        }
     }
 
     // ---- Placed images ------------------------------------------------------------------

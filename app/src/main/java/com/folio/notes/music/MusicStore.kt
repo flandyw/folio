@@ -128,7 +128,7 @@ internal class MusicStore(private val context: Context) {
         try {
             pdf(score.id).inputStream().use { input -> target.outputStream().use { output -> input.copyTo(output); output.fd.sync() } }
         } catch (e: Throwable) { target.delete(); throw e }
-        return score.copy(id = id, title = "${score.title} (copy)", opened = 0)
+        return score.copy(id = id, title = "${score.title} (copy)", opened = 0, seed = MusicSeed(score.id, (0 until score.pages).toList()))
     }
 
     fun keepWhole(id: String) {

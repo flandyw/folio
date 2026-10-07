@@ -113,6 +113,7 @@ internal object MusicParts {
         return source.copy(id = id, title = request.title.trim(), part = request.instrument.trim(), pages = request.pages.size,
             page = 0, opened = 0, marks = source.marks.mapNotNull { mark -> mapping[mark.page]?.let { mark.copy(page = it) } },
             ink = source.ink.mapNotNull { stroke -> mapping[stroke.page]?.let { stroke.copy(page = it) } },
-            texts = source.texts.mapNotNull { text -> mapping[text.page]?.let { text.copy(page = it) } })
+            texts = source.texts.mapNotNull { text -> mapping[text.page]?.let { text.copy(page = it) } },
+            pencil = request.pages.map { source.pencilOn(it) }.takeIf { counts -> counts.any { it > 0 } } ?: emptyList(), seed = MusicSeed(source.id, request.pages))
     }
 }

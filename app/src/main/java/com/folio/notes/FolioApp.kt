@@ -357,6 +357,10 @@ import kotlinx.coroutines.withContext
     LaunchedEffect(state.loading, state.activeId) {
         if (!state.loading && state.activeId == null) workspaceLibraryPurpose = null
     }
+    // A score's notebook is only ever open inside the Music reader; anywhere else it is closed again.
+    LaunchedEffect(showMusic, state.activeId) {
+        state.active?.takeIf { it.musicScoreId != null && !showMusic }?.let { model.closeMusicScore(it.id) }
+    }
     BackHandler(state.active != null && !showMusic && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(showStudy && !exportBusy) { showStudy = false }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
@@ -398,7 +402,7 @@ import kotlinx.coroutines.withContext
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        state.active != null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                        state.active != null && state.active?.musicScoreId == null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { exportMenu = true },
                             onBrowseLibrary = { purpose, mode ->
@@ -408,16 +412,16 @@ import kotlinx.coroutines.withContext
                             },
                         )
                         else -> LibraryScreen(
-                            state.copy(notes = remember(state.notes) { state.notes.filterNot { it.mistakePractice } }), model,
+                            state.copy(notes = remember(state.notes) { state.notes.filterNot { it.hiddenFromLibrary } }), model,
                             onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMusic = false; showMistakes = true },
                             showStudy = showStudy,
                             onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showMusic = false; showStudy = true },
                             showMusic = showMusic,
                             onMusic = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = false; showMusic = true },
                             musicContent = { onReaderMode ->
-                                com.folio.notes.music.MusicScreen(topGap, onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
+                                com.folio.notes.music.MusicScreen(model, state, finger, haptics, shapeRecognition, topGap, onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
                             },
-                            studyContent = { StudyTimerScreen(state.notes.filterNot { it.mistakePractice }, state.timer,
+                            studyContent = { StudyTimerScreen(state.notes.filterNot { it.hiddenFromLibrary }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },
                             onQuickCanvas = {
                                 workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
@@ -503,7 +507,7 @@ import kotlinx.coroutines.withContext
             }
         }
         if (backupExclusionsOpen) BackupExclusionsPanel(
-            notes = state.notes,
+            notes = state.notes.filterNot { it.hiddenFromLibrary },
             excludedIds = state.backupExcludedNotebookIds,
             onExcluded = model::setBackupExcluded,
             onDismiss = { backupExclusionsOpen = false }

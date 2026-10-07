@@ -126,7 +126,8 @@ object AppPrefs {
 
     /** A deliberate single-notebook export includes the chosen notebook even if it is excluded. */
     fun notebooksForBackup(notes: List<Notebook>, excludedIds: Set<String>, includeExcluded: Boolean = false): List<Notebook> =
-        if (includeExcluded) notes else notes.filterNot { it.id in excludedIds }
+        // A score's notebook belongs to Music, which keeps its PDFs out of notebook backups.
+        notes.filterNot { it.musicScoreId != null }.let { kept -> if (includeExcluded) kept else kept.filterNot { it.id in excludedIds } }
 
     fun defaultTool(raw: String?): Tool =
         runCatching { Tool.valueOf(raw ?: "") }.getOrDefault(Tool.PEN)

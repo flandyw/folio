@@ -546,6 +546,18 @@ class InkView(context: Context) : View(context) {
         scheduleFollow()
     }
     var readOnly = false
+    /**
+     * An editable finite page that carries its own fit-to-view camera, so it can be pinched and
+     * panned like a reference page while still being written on. A score on the music stand is one.
+     */
+    var pageCamera = false
+    private val cameraPage get() = readOnly || pageCamera
+    /** Page-turn keys and pedals, for a score: a key this view does not use is offered here first. */
+    var onPageKey: ((android.view.KeyEvent) -> Boolean)? = null
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        onPageKey?.invoke(event) ?: false || super.onKeyDown(keyCode, event)
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        onPageKey?.invoke(event) ?: false || super.onKeyUp(keyCode, event)
     var onWorkspaceCamera: (WorkspaceViewport) -> Unit = {}
     private var workspaceCameraRestored = false
     fun restoreWorkspaceCamera(viewport: WorkspaceViewport?) {
@@ -558,8 +570,27 @@ class InkView(context: Context) : View(context) {
     }
     private val camera = InfiniteViewport()
     var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
+    /** Keeps a zoomed score on its sheet: never smaller than the fit, never panned past an edge. */
+    private fun clampPageCamera() {
+        if (!pageCamera || page.infinite || width <= 0 || height <= 0 || page.width <= 0f || page.height <= 0f) return
+        val zoom = camera.zoom.coerceIn(1f, 4f)
+        val fitted = pageScale
+        val pageW = page.width * fitted * zoom
+        val pageH = page.height * fitted * zoom
+        val baseX = (width - page.width * fitted) / 2 * zoom
+        val baseY = (height - page.height * fitted) / 2 * zoom
+        fun bounded(offset: Float, base: Float, size: Float, view: Float): Float {
+            val left = base + offset
+            val clamped = if (size <= view) left.coerceIn(0f, view - size) else left.coerceIn(view - size, 0f)
+            return clamped - base
+        }
+        val x = bounded(camera.x, baseX, pageW, width.toFloat())
+        val y = bounded(camera.y, baseY, pageH, height.toFloat())
+        if (zoom != camera.zoom || x != camera.x || y != camera.y) camera.restore(x, y, zoom)
+    }
     private fun reportCanvasViewport() {
-        if ((page.infinite || readOnly) && workspaceCameraRestored && width > 0 && height > 0) {
+        clampPageCamera()
+        if ((page.infinite || cameraPage) && workspaceCameraRestored && width > 0 && height > 0) {
             onWorkspaceCamera(WorkspaceViewport(canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom))
             onCanvasZoom(camera.zoom)
             onCanvasViewport(androidx.compose.ui.geometry.Rect(-camera.x / camera.zoom, -camera.y / camera.zoom,
@@ -622,7 +653,7 @@ class InkView(context: Context) : View(context) {
                 reportCanvasViewport(); invalidate(); return true
             }
         }).apply { isQuickScaleEnabled = false; isStylusScaleEnabled = false }
-    private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (readOnly) camera.zoom else 1f)
+    private val scale get() = if (page.infinite) camera.zoom else pageScale * (if (cameraPage) camera.zoom else 1f)
     /**
      * A finite page in the document is drawn at this paper width, centred, inside a view that is
      * wider (the workspace beside the paper) and starts [documentTop] page units above it. 0 fits
@@ -633,8 +664,8 @@ class InkView(context: Context) : View(context) {
     private val pageScale get() = if (!readOnly && !page.infinite && documentPaperWidth > 0f)
         (documentPaperWidth / page.width).coerceAtLeast(.01f)
         else min(width / page.width, height / page.height).coerceAtLeast(.01f)
-    private val originX get() = if (page.infinite) camera.x else if (readOnly) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
-    private val originY get() = if (page.infinite) camera.y else if (readOnly) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else if (documentPaperWidth > 0f) -documentTop * scale else (height - page.height * scale) / 2
+    private val originX get() = if (page.infinite) camera.x else if (cameraPage) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else if (cameraPage) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else if (documentPaperWidth > 0f) -documentTop * scale else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -1169,7 +1200,7 @@ class InkView(context: Context) : View(context) {
                 touchChord.move(event.getPointerId(i), event.getX(i), event.getY(i))
             }
         }
-        if ((page.infinite || readOnly) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
+        if ((page.infinite || cameraPage) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
             zoomDetector.onTouchEvent(event)
         }
         // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
@@ -1239,7 +1270,7 @@ class InkView(context: Context) : View(context) {
                     if (lassoActive()) beginLasso(event, event.actionIndex)
                     else if (tool == Tool.TEXT) beginText(event, event.actionIndex)
                     else if (!navigating) beginStroke(event, event.actionIndex)
-                } else if (!stylus && !ignored) {
+                } else if (!stylus && !ignored && !isPalm(event, event.actionIndex)) {
                     suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     // Two fingers are a deliberate pinch or pan, never a resting hand.
@@ -1252,6 +1283,14 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
+                // A palm often lands as a small contact and spreads: once it is plainly a hand, drop what it started.
+                if (!stylus && !ignored && !readOnly && palmRejectMs > 0 && isLargeContact(event, index)) {
+                    removeCallbacks(longPressRunnable)
+                    draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null
+                    movingImage = null; resizingImage = false; pendingLink = null; pendingZone = null; eraserMark = null
+                    navigating = false; ignored = true; panGate.release()
+                    invalidate(); return true
+                }
                 if (hypot(event.x - longPressX, event.y - longPressY) > ViewConfiguration.get(context).scaledTouchSlop) removeCallbacks(longPressRunnable)
                 // A stroke or eraser still in progress is work, even when the pen never lifts.
                 if (draft != null || erasing != null) onPenInput(false)
@@ -1345,7 +1384,7 @@ class InkView(context: Context) : View(context) {
                     // Held back until the contact reads as a drag, so a settling hand moves nothing.
                     if (panGate.moved(x, y)) {
                         reportNavigating(true)
-                        if (page.infinite || readOnly) { camera.pan((x - lastX) * panMultiplier, (y - lastY) * panMultiplier); reportCanvasViewport() } else onDocumentPan((x - lastX) * panMultiplier, (y - lastY) * panMultiplier)
+                        if (page.infinite || cameraPage) { camera.pan((x - lastX) * panMultiplier, (y - lastY) * panMultiplier); reportCanvasViewport() } else onDocumentPan((x - lastX) * panMultiplier, (y - lastY) * panMultiplier)
                     }
                     lastX = x; lastY = y
                 } else {
@@ -2303,7 +2342,13 @@ class InkView(context: Context) : View(context) {
         }
     }
     private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
-    private fun isPalm(event: MotionEvent, index: Int) = palmRejectMs > 0 && !isStylus(event, index) && SystemClock.uptimeMillis() - lastStylusAt < palmRejectMs
+    private fun isPalm(event: MotionEvent, index: Int) = palmRejectMs > 0 && !isStylus(event, index) &&
+        (SystemClock.uptimeMillis() - lastStylusAt < palmRejectMs || isLargeContact(event, index))
+    /** A contact far wider than a fingertip is a hand, whether or not the pen has been seen recently. */
+    private fun isLargeContact(event: MotionEvent, index: Int): Boolean {
+        val major = event.getTouchMajor(index)
+        return major > 0f && major > PALM_CONTACT_MM * resources.displayMetrics.xdpi / 25.4f
+    }
     private fun point(e: MotionEvent, i: Int, history: Int? = null): InkPoint {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)
@@ -2363,6 +2408,8 @@ class InkView(context: Context) : View(context) {
         val MEASURE_TOOLS = ShapePickerTools
         /** How long after stylus activity a finger still counts as a resting palm. */
         const val PALM_REJECT_MS = 500L
+        /** Touch major axis above which a finger contact is treated as a resting palm. */
+        const val PALM_CONTACT_MM = 22f
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
         const val EDGE_TOLERANCE = 24f
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */

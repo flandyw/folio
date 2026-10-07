@@ -129,7 +129,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -680,7 +680,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (!page.infinite) pages.scrollToItem(state.pageIndex.coerceIn(0, note.pages.lastIndex))
             handledNavigation = state.navigationRequest
         }
-        if (page.infinite) return@LaunchedEffect
+        // A score has no scrolling column: the stage decides which pages are on view.
+        if (page.infinite || music != null) return@LaunchedEffect
         snapshotFlow { visibleCurrentPage(pages, note.pages.size) }
             .distinctUntilChanged().collect { index -> index?.let(model::selectPage) }
     }
@@ -705,7 +706,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-        if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
+        if (music != null && music.onKey(event.nativeKeyEvent)) true
+        else if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
             Key.Z -> { if (event.isShiftPressed) model.redo() else model.undo(); true }
             Key.Y -> { model.redo(); true }
             Key.F -> { if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
@@ -724,12 +726,30 @@ private fun paperLabel(p: Paper): String = when (p) {
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
         var floatingToolbarTop by remember { mutableStateOf(120.dp) }
+        // A score clears the whole tool strip, quick bar included. Measured in full but applied once it
+        // settles, so opening or closing the bar re-fits the sheet once instead of every frame.
+        var musicToolbarFull by remember { mutableIntStateOf(0) }
+        var musicToolbarDp by remember { mutableStateOf(64.dp) }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)
             .onGloballyPositioned { coordinates ->
                 val origin = coordinates.localToWindow(Offset.Zero)
                 canvasWindowBounds = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
             }) {
             val density = LocalDensity.current
+            if (music != null) LaunchedEffect(Unit) {
+                snapshotFlow { musicToolbarFull }.collectLatest { full ->
+                    if (full > 0) { delay(160); musicToolbarDp = with(density) { full.toDp() } + FolioSpacing.dp6 }
+                    else musicToolbarDp = FolioSpacing.dp6
+                }
+            }
+            val musicInsets = music?.let { stage ->
+                MusicStageInsets(
+                    top = if (stage.performance) MusicStageMetrics.PERFORMANCE_TOP
+                        else (if (stage.showToolbar) musicToolbarDp else FolioSpacing.dp6) + FolioSpacing.dp4,
+                    bottom = MusicStageMetrics.BOTTOM,
+                    side = if (stage.performance) MusicStageMetrics.PERFORMANCE_GUTTER else MusicStageMetrics.RAIL_GUTTER,
+                    gap = MusicStageMetrics.GAP)
+            }
             val selectionViewport = canvasWindowBounds?.let { bounds ->
                 bounds.copy(top = (bounds.top + with(density) { floatingToolbarTop.toPx() }).coerceAtMost(bounds.bottom))
             }
@@ -797,7 +817,34 @@ private fun paperLabel(p: Paper): String = when (p) {
                     )
                 }
             }
-            if (page.infinite) {
+            if (music != null && musicInsets != null) {
+                val sheet: @Composable (NotePage, Int) -> Unit = { item, index ->
+                    EditorPage(note.id, item, model, if (music.performance) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, item.id == page.id,
+                        onActive = { model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
+                        onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
+                        onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
+                        onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music.onKey,
+                        canvasReset = canvasReset, onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(item),
+                        selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
+                        onImageSelected = { image -> selectedImage = image?.let { item.id to it } },
+                        onCropMode = { if (item.id == page.id) cropActive = it }, onNavigating = { inkNavigating = it },
+                        onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
+                        pdfLinks = pdfLinks, onPdfLink = ::openPdfLink,
+                        eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
+                        eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
+                        palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
+                        onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
+                        onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
+                        inputBlocked = music.performance,
+                        onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
+                        selectionAnchor = if (item.id == page.id) selectionAnchor else null,
+                        selectionMenuViewport = selectionViewport,
+                        selectionMenu = if (item.id != page.id || inkNavigating || restyleSelection != null || music.performance) null
+                            else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
+                }
+                MusicSheets(note, music, musicInsets, zoomed = documentZoom > 1.02f, onFit = { canvasReset++; documentZoom = 1f },
+                    tapTurns = music.performance || tool == Tool.HAND || (!finger && tool != Tool.TEXT && tool != Tool.LASSO), sheet)
+            } else if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
                     onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
@@ -1076,7 +1123,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
             }
-            HorizontalFloatingToolbar(
+            if (music == null) HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
                     .padding(FloatingToolbarDefaults.ScreenOffset)
@@ -1219,9 +1266,10 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             if (tool == Tool.MARK_AREA && page.pdfIndex != null) MarkAreaHint(
                 Modifier.align(Alignment.BottomCenter).zIndex(11f).padding(bottom = FolioSpacing.dp16))
-            if (!page.infinite) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
+            if (!page.infinite && music == null) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
+            if (music != null && musicInsets != null) music.chrome(this, musicInsets)
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
@@ -1229,9 +1277,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
-                FloatingInkToolbar(
-                    modifier = Modifier, markAreaAvailable = note.pages.any { it.pdfIndex != null },
+                if (music == null || (music.showToolbar && !music.performance)) FloatingInkToolbar(
+                    modifier = Modifier, markAreaAvailable = music == null && note.pages.any { it.pdfIndex != null },
                     onMainHeight = { floatingToolbarTop = with(density) { it.toDp() } + 8.dp },
+                    onFullHeight = { if (music != null) musicToolbarFull = it },
+                    hiddenSlots = if (music != null) setOf(ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA) else emptySet(),
+                    shapeTools = if (music != null) ShapeTools.toList() else ShapePickerTools.toList(),
                     tool = tool,
                     onTool = { selectTool(it) },
                     options = options,
@@ -1260,7 +1311,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
                     ),
                     header = { mainTools ->
-                        EditorTopBar(
+                        if (music != null) FolioExpand(true) { mainTools() } else EditorTopBar(
                             title = note.title,
                             mainTools = mainTools,
                             notebookActions = notebookActions,
@@ -1939,7 +1990,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2076,7 +2127,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         }) {
         Surface(
             Modifier.fillMaxSize(),
-            shape = if (fullscreen) RectangleShape else FolioShapes.medium,
+            shape = if (fullscreen && !pageCamera) RectangleShape else FolioShapes.medium,
             color = canvasBackground,
             shadowElevation = 0.dp,
             tonalElevation = 0.dp,
@@ -2110,7 +2161,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.canvasBackgroundColor = canvasBackground.toArgb()
                 if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
-                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.tool = tool; view.inkColor = options.color
+                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.pageCamera = pageCamera; view.onPageKey = onPageKey; view.tool = tool; view.inkColor = options.color
                 view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion
@@ -2214,6 +2265,46 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
+
+/**
+ * The pages of a score on the music stand: a window of one or two sheets, each fitted to the room
+ * the chrome leaves and each an ordinary [EditorPage]. Tapping the left or right half turns the page
+ * where a tap would not otherwise draw; the tap is only watched, never consumed.
+ */
+@Composable private fun MusicSheets(note: Notebook, stage: MusicStage, insets: MusicStageInsets, zoomed: Boolean, onFit: () -> Unit, tapTurns: Boolean,
+    sheet: @Composable (NotePage, Int) -> Unit) {
+    val end = minOf(stage.start + stage.step, note.pages.size)
+    val turn by rememberUpdatedState(stage.onTurn)
+    Row(Modifier.fillMaxSize().padding(start = insets.side, end = insets.side, top = insets.top, bottom = insets.bottom)
+        .pointerInput(tapTurns, zoomed) {
+            if (!tapTurns && !zoomed) return@pointerInput
+            var lastTapAt = 0L
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                if (down.type != PointerType.Touch) return@awaitEachGesture
+                var crowded = false
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.size > 1) crowded = true
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.uptimeMillis - down.uptimeMillis > 300L || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+                    if (!change.pressed) {
+                        if (crowded) break
+                        // Zoomed in, a tap never turns the page; a quick second tap fits the sheet again.
+                        if (zoomed && !stage.performance) {
+                            if (change.uptimeMillis - lastTapAt < 320L) { lastTapAt = 0L; onFit() } else lastTapAt = change.uptimeMillis
+                        } else turn(down.position.x >= size.width / 2f)
+                        break
+                    }
+                }
+            }
+        },
+        horizontalArrangement = Arrangement.spacedBy(insets.gap)) {
+        for (index in stage.start until end) key(note.pages[index].id) {
+            Box(Modifier.weight(1f).fillMaxHeight().clip(FolioShapes.medium)) { sheet(note.pages[index], index) }
+        }
+    }
+}
 
 /** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
 @Composable private fun PageOptionsContent(

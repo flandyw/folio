@@ -544,6 +544,44 @@ class NoteRepository(private val context: Context) {
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
     }
 
+    /**
+     * The hidden notebook that carries a Music score in the real editor: the score's PDF copied in as
+     * ordinary pages, then [arrange] puts any pencil marks onto them (an older Folio's ink, or pages
+     * copied from another score). Pages that already hold marks are written as snapshots before the
+     * index, so an interruption leaves no notebook that points at missing ink.
+     */
+    suspend fun createScoreNotebook(scoreId: String, title: String, pdf: File,
+        arrange: (List<NotePage>) -> List<NotePage> = { it }): Notebook = withContext(Dispatchers.IO) {
+        val note = Notebook(title = title, cover = 3, musicScoreId = scoreId)
+        val dir = directory(note.id)
+        try {
+            val source = File(dir, "source.pdf")
+            pdf.inputStream().use { input -> source.outputStream().use { output ->
+                input.copyTo(output, 256 * 1024)
+                output.fd.sync()
+            } }
+            val blank = PdfRenderer(ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)).use { renderer ->
+                require(renderer.pageCount > 0) { "This score has no pages" }
+                (0 until renderer.pageCount).map { index -> renderer.openPage(index).use {
+                    NotePage(width = 840f, height = 840f * it.height / it.width, paper = Paper.PLAIN, pdfIndex = index)
+                } }
+            }
+            val created = note.copy(pages = arrange(blank))
+            lock.withLock {
+                created.pages.filter { it.strokes.isNotEmpty() || it.texts.isNotEmpty() }
+                    .forEach { writeSnapshot(created.id, it, history = PageJournal.History.EMPTY) }
+                atomicWrite(noteFile(created.id), NoteMetaCodec.encode(created))
+            }
+            // Read every carried page back before the caller empties the older copy of its marks.
+            created.pages.filter { it.strokes.isNotEmpty() || it.texts.isNotEmpty() }.forEach { page ->
+                val back = loadPage(created.id, page.copy(strokes = emptyList(), texts = emptyList(), loaded = false))
+                check(back.strokes.size == page.strokes.size && back.texts.size == page.texts.size &&
+                    back.strokes.sumOf { it.points.size } == page.strokes.sumOf { it.points.size }) { "A page's pencil marks could not be verified" }
+            }
+            created
+        } catch (e: Exception) { dir.deleteRecursively(); throw e }
+    }
+
     /** Reads either a native single-notebook backup or an older portable JSON `.folio` archive. */
     suspend fun importArchive(uri: Uri, folder: String?): Notebook = withContext(Dispatchers.IO) {
         val staging = newBackupStaging("restore")

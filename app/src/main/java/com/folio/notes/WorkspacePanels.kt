@@ -69,8 +69,10 @@ import androidx.compose.ui.unit.dp
     val keyboard = LocalSoftwareKeyboardController.current
     val openIds = remember(state.tabs) { state.tabs.map { it.notebookId }.toSet() }
     val folders = remember(state.folders) { state.folders.associate { it.id to it.name } }
-    val sections = remember(state.notes, query, openIds, folders) {
-        WorkspacePicker.sections(state.notes, query, openIds, folders)
+    // A score's notebook belongs to the Music reader, so it is never offered as a document to open.
+    val pickable = remember(state.notes) { state.notes.filterNot { it.musicScoreId != null } }
+    val sections = remember(pickable, query, openIds, folders) {
+        WorkspacePicker.sections(pickable, query, openIds, folders)
     }
 
     fun pick(note: Notebook) {
@@ -129,13 +131,13 @@ import androidx.compose.ui.unit.dp
                     null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    WorkspacePicker.emptyCaption(purpose, state.loading, query, state.notes.size),
+                    WorkspacePicker.emptyCaption(purpose, state.loading, query, pickable.size),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (!state.loading && query.isNotBlank()) {
                     FilledTonalButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
                 }
-                if (!state.loading && state.notes.isEmpty()) {
+                if (!state.loading && pickable.isEmpty()) {
                     FilledTonalButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp8))
