@@ -229,7 +229,12 @@ import com.folio.notes.*
                                     if (questionOnly) shareText(androidContext, text)
                                     else shareScope.launch {
                                         val png = runCatching { renderWorkingPng(androidContext, folio, state, attempt, preferences) }.getOrNull()
-                                        shareText(androidContext, text, png)
+                                        if (png == null) shareText(androidContext, text)
+                                        else {
+                                            copyText(androidContext, text)
+                                            shareText(androidContext, null, png)
+                                            launch { snackbar.showSnackbar("Question and working copied to the clipboard") }
+                                        }
                                     }
                                 },
                             )
@@ -371,10 +376,15 @@ private suspend fun renderWorkingPng(context: android.content.Context, folio: Fo
     }
 }
 
-/** Opens the Android share sheet with [text], plus [image] when there is one. */
-private fun shareText(context: android.content.Context, text: String, image: java.io.File? = null) {
+private fun copyText(context: android.content.Context, text: String) {
+    (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+        .setPrimaryClip(android.content.ClipData.newPlainText("Question and working", text))
+}
+
+/** Opens the Android share sheet with [text] and/or [image]. */
+private fun shareText(context: android.content.Context, text: String?, image: java.io.File? = null) {
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-        putExtra(android.content.Intent.EXTRA_TEXT, text)
+        if (text != null) putExtra(android.content.Intent.EXTRA_TEXT, text)
         if (image == null) type = "text/plain"
         else {
             val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", image)
@@ -389,17 +399,17 @@ private fun shareText(context: android.content.Context, text: String, image: jav
     } catch (_: android.content.ActivityNotFoundException) {}
 }
 
-/** Tap shares the question with your working; long-press shares the question text alone. */
+/** Tap shares a picture of the working and copies the text; long-press shares the question text alone. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun ShareTextButton(onShare: (questionOnly: Boolean) -> Unit) {
     Box(
         Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).combinedClickable(
             role = androidx.compose.ui.semantics.Role.Button,
-            onClickLabel = "Share question, working and a picture of your working out",
+            onClickLabel = "Share a picture of your working out and copy the text",
             onLongClickLabel = "Share question text only",
             onLongClick = { onShare(true) },
             onClick = { onShare(false) }
         ),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Rounded.IosShare, "Share question, working and picture · hold for question text only", Modifier.size(24.dp)) }
+    ) { Icon(Icons.Rounded.IosShare, "Share working out as a picture and copy the text · hold to share the question text", Modifier.size(24.dp)) }
 }
