@@ -58,7 +58,7 @@ private val images = object : LruCache<MathRenderKey, Bitmap>(16 * 1024 * 1024) 
 }
 
 // Capture behavior is part of the cache format: old partial images still pass an ink check.
-private const val KATEX_DISK_VERSION = "katex-0.18.7-document-v3"
+private const val KATEX_DISK_VERSION = "katex-0.19.0-document-v3"
 private const val KATEX_DISK_MAX_BYTES = 32L * 1024 * 1024
 
 private fun diskFile(appContext: Context, key: MathRenderKey): File {

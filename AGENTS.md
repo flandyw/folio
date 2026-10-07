@@ -9,6 +9,7 @@ Native Android notebook app. Single module `:app`, Kotlin + Jetpack Compose + Ma
   `./build.sh -p` (signed experimental build, published to the Folio server without prompting). Do **not** run `:app:lintDebug` or plain `./gradlew :app:assembleDebug` as the check — lint takes far too long; only run it if explicitly asked.
 - Windows-only shortcut: `.\build.ps1` (uses ignored `.tooling/` JDK/SDK; its default tasks still include `lintDebug`, so pass `-Tasks ':app:assembleDebug'`). No `local.properties` / `.tooling/` needed on macOS/Linux with JDK 25 + SDK 36.
 - Offline KaTeX check (run locally): `node tools/katex-smoke.cjs`
+- KaTeX updates: `node tools/update-katex.cjs --check` reports the latest stable release; `--update` verifies and smoke-tests the new offline bundle and bumps the bitmap cache version.
 
 ## Architecture entrypoints
 

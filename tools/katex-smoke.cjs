@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const root = path.resolve(__dirname, '../app/src/main/assets/katex');
+// The updater passes its staging directory to validate before installing anything.
+const root = process.argv[2] ? path.resolve(process.argv[2]) :
+  path.resolve(__dirname, '../app/src/main/assets/katex');
 const katex = require(path.join(root, 'katex.min.js'));
 const formulas = [
   String.raw`\boxed{\frac{1}{2}}`, String.raw`f(3)=7`, String.raw`f'(7)=3`,
@@ -34,7 +36,13 @@ for (const font of fonts) {
   assert.ok(fs.statSync(path.join(root, font)).size > 0, font);
 }
 assert.ok(fs.readFileSync(path.join(root, 'LICENSE'), 'utf8').includes('MIT'));
-assert.ok(fs.readFileSync(path.join(root, 'VERSION.txt'), 'utf8').includes(katex.version));
+assert.equal(fs.readFileSync(path.join(root, 'VERSION.txt'), 'utf8').split(/\r?\n/)[0], `KaTeX ${katex.version}`);
+if (!process.argv[2]) {
+  const renderer = fs.readFileSync(path.resolve(__dirname,
+    '../app/src/main/java/com/folio/notes/math/KaTeXMath.kt'), 'utf8');
+  const cacheVersion = renderer.match(/KATEX_DISK_VERSION = "katex-(\d+\.\d+\.\d+)-/)?.[1];
+  assert.equal(cacheVersion, katex.version, 'bitmap cache must track the bundled renderer');
+}
 console.log(`KaTeX ${katex.version}: ${formulas.length * 2} representative renders, malformed/untrusted input, ${fonts.length} local font URLs passed.`);
 
 // Exercise the async shell without a browser: a cancelled render's fonts can finish
