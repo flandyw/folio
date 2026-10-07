@@ -129,7 +129,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -244,6 +244,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         next.save(prefs, preset.tool)
     }
     var snapEnabled by rememberSaveable { mutableStateOf(appPrefs.getBoolean("mathSnap", true)) }
+    var shapeRecognition by remember(shapeRecognitionSetting) { mutableStateOf(shapeRecognitionSetting) }
     fun setSnap(v: Boolean) { snapEnabled = v; appPrefs.edit().putBoolean("mathSnap", v).apply() }
     // Eraser single-stroke + pressure + scribble-to-erase + whole-stroke + measurements + multitouch undo
     var eraserSingleStroke by remember { mutableStateOf(appPrefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
@@ -275,6 +276,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 EditorQuickPrefs.ERASER_WHOLE_STROKE -> eraserWholeStroke = appPrefs.getBoolean(key, false)
                 EditorQuickPrefs.SHAPE_MEASUREMENTS -> shapeMeasurements = appPrefs.getBoolean(key, true)
                 EditorQuickPrefs.MULTI_TOUCH_UNDO -> multiTouchUndo = appPrefs.getBoolean(key, true)
+                "mathSnap" -> snapEnabled = appPrefs.getBoolean(key, true)
+                "shapeRecognition" -> shapeRecognition = appPrefs.getBoolean(key, false)
                 GraphStyle.PREF_KEY -> graphStyle = GraphStyle.load(appPrefs)
             }
         }
@@ -2491,6 +2494,11 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                     FilterChip(lineStyle == StrokeStyle.SOLID, { lineStyle = StrokeStyle.SOLID }, { Text("Solid") })
                     FilterChip(lineStyle == StrokeStyle.DASHED, { lineStyle = StrokeStyle.DASHED }, { Text("Dashed") })
                     FilterChip(lineStyle == StrokeStyle.DOTTED, { lineStyle = StrokeStyle.DOTTED }, { Text("Dotted") })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    listOf(StrokeStyle.LONG_DASH, StrokeStyle.DASH_DOT, StrokeStyle.DENSE_DOTS).forEach { style ->
+                        FilterChip(lineStyle == style, { lineStyle = style }, { Text(style.label) })
+                    }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

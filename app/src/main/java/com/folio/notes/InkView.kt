@@ -1604,7 +1604,15 @@ class InkView(context: Context) : View(context) {
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
         cancelGesture()
         if (changed) {
-            if (appendedStroke != null && onStrokeAppended != null)
+            if (tidied != null && drawn != null) {
+                // Commit the hand-drawn stroke first, then swap in the clean shape as its own step,
+                // so one undo brings the original drawing back instead of removing the ink entirely.
+                val original = drawn.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
+                val withOriginal = beforeStrokes + original
+                if (onStrokeAppended != null) onStrokeAppended!!.invoke(beforeStrokes, original, withOriginal)
+                else onStrokesChanged(withOriginal)
+                onStrokesChanged(page.strokes)
+            } else if (appendedStroke != null && onStrokeAppended != null)
                 onStrokeAppended!!.invoke(beforeStrokes, appendedStroke, page.strokes)
             else onStrokesChanged(page.strokes)
         }

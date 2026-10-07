@@ -130,16 +130,26 @@ object EditorQuickPrefs {
                 if (tool in ShapePickerTools) {
                     PopoverSection("Line style", initiallyOpen = true) {
                         // M3e button group: these three are one choice, so they read as connected toggles.
-                        FolioButtonGroup {
-                            toggleableItem(options.style == StrokeStyle.SOLID, "Solid", { onChange(options.copy(style = StrokeStyle.SOLID)) })
-                            toggleableItem(options.style == StrokeStyle.DASHED, "Dashed", { onChange(options.copy(style = StrokeStyle.DASHED)) })
-                            toggleableItem(options.style == StrokeStyle.DOTTED, "Dotted", { onChange(options.copy(style = StrokeStyle.DOTTED)) })
+                        StrokeStyle.entries.chunked(3).forEach { row ->
+                            FolioButtonGroup {
+                                row.forEach { style -> toggleableItem(options.style == style, style.label, { onChange(options.copy(style = style)) }) }
+                            }
                         }
                         var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
                         SwitchRow("Live measurements", measurements, {
                             measurements = it
                             prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply()
                         }, "Shows length/angle or width×height while drawing. Lines snap to 15° and to the grid on Maths/Grid/Graph paper.")
+                        var snap by remember { mutableStateOf(prefs.getBoolean("mathSnap", true)) }
+                        SwitchRow("Snap to grid and 15°", snap, {
+                            snap = it
+                            prefs.edit().putBoolean("mathSnap", it).apply()
+                        }, "Lines snap to 15° and to the grid on Maths, Grid and Graph paper.")
+                        var tidy by remember { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
+                        SwitchRow("Tidy up shapes", tidy, {
+                            tidy = it
+                            prefs.edit().putBoolean("shapeRecognition", it).apply()
+                        }, "A rough line, square, circle or triangle becomes a clean shape when you lift the pen.")
                     }
                     if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
                 }

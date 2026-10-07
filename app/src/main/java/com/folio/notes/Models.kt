@@ -29,7 +29,14 @@ val DrawingTools = ShapePickerTools + setOf(Tool.PEN, Tool.HIGHLIGHTER)
 val PolygonTools = setOf(Tool.TRIANGLE, Tool.DIAMOND, Tool.PENTAGON, Tool.HEXAGON, Tool.STAR)
 /** Line pattern for shape tools, like GoodNotes' dashed and dotted lines for diagrams. */
 enum class StrokeStyle {
-    SOLID, DASHED, DOTTED;
+    SOLID, DASHED, DOTTED, LONG_DASH, DASH_DOT, DENSE_DOTS;
+    /** Shown in menus and chips. */
+    val label: String get() = when (this) {
+        SOLID -> "Solid"; DASHED -> "Dashed"; DOTTED -> "Dotted"
+        LONG_DASH -> "Long dash"; DASH_DOT -> "Dash-dot"; DENSE_DOTS -> "Dense dots"
+    }
+    /** The next style when a single control cycles through them. */
+    fun next(): StrokeStyle = entries[(ordinal + 1) % entries.size]
     companion object {
         fun safeValueOf(name: String): StrokeStyle = try { valueOf(name) } catch (_: Exception) { SOLID }
     }

@@ -1062,7 +1062,13 @@ object InkRenderer {
         val effect = when (style) {
             StrokeStyle.DASHED -> android.graphics.DashPathEffect(floatArrayOf(14f.coerceAtLeast(width * 3f), 10f.coerceAtLeast(width * 2f)), 0f)
             StrokeStyle.DOTTED -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 3f).coerceAtLeast(8f)), 0f)
-            else -> null
+            StrokeStyle.LONG_DASH -> android.graphics.DashPathEffect(floatArrayOf(30f.coerceAtLeast(width * 6f), 12f.coerceAtLeast(width * 2.5f)), 0f)
+            StrokeStyle.DASH_DOT -> {
+                val gap = 8f.coerceAtLeast(width * 2f)
+                android.graphics.DashPathEffect(floatArrayOf(20f.coerceAtLeast(width * 4f), gap, 0.5f, gap), 0f)
+            }
+            StrokeStyle.DENSE_DOTS -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 1.8f).coerceAtLeast(5f)), 0f)
+            StrokeStyle.SOLID -> null
         }
         synchronized(dashCache) {
             if (dashCache.size > 64) dashCache.clear()

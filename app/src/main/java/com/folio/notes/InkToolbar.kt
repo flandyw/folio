@@ -67,7 +67,6 @@ import kotlin.math.roundToInt
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
-    var showWidth by remember { mutableStateOf(false) }
     var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
     var quickBarOpen by rememberSaveable { mutableStateOf(true) }
@@ -203,20 +202,10 @@ import kotlin.math.roundToInt
     }
     @Composable fun WidthControl() {
         val hold = rememberLongPressGuard()
+        // The one settings popover: width, opacity, colour and the tool's own options all live in it.
         Box {
-            // Long-press jumps past the width slider straight to the tool's full settings.
-            IconButton(hold.click { showWidth = true }, modifier = Modifier.size(40.dp).longPressAction(hold) { onPalette(true) }) {
-                Icon(Icons.Rounded.Tune, "Width, opacity and more", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (showWidth) FolioPopover(onDismiss = { showWidth = false }, width = 300.dp) {
-                Text(if (tool == Tool.ERASER) "Eraser size" else "Stroke width", style = MaterialTheme.typography.titleMedium)
-                StrokeSample(if (tool == Tool.ERASER) 4f else options.width, if (tool == Tool.ERASER) MaterialTheme.colorScheme.outline else Color(options.color).copy(alpha = options.opacity))
-                PopoverSlider(if (tool == Tool.ERASER) "Diameter" else "Width", String.format(java.util.Locale.ROOT, "%.1f pt", options.width), options.width, widthRange,
-                    { onOptions(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
-                if (tool != Tool.ERASER && tool != Tool.HAND && tool != Tool.LASSO) {
-                    PopoverSlider("Opacity", "${(options.opacity * 100).toInt()}%", options.opacity, 0.15f..1f, { onOptions(options.copy(opacity = it)) })
-                }
-                TextButton({ onPalette(true); showWidth = false }, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) { Text("More settings") }
+            IconButton(hold.click { onPalette(!palette) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -354,12 +343,8 @@ import kotlin.math.roundToInt
                         if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
                         if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
                     }
-                    if (isShape) DropdownMenuItem({ Text("Line style: ${options.style.name.lowercase()}") }, {
-                        onOptions(options.copy(style = when (options.style) {
-                            StrokeStyle.SOLID -> StrokeStyle.DASHED
-                            StrokeStyle.DASHED -> StrokeStyle.DOTTED
-                            StrokeStyle.DOTTED -> StrokeStyle.SOLID
-                        }))
+                    if (isShape) DropdownMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, {
+                        onOptions(options.copy(style = options.style.next()))
                     }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                     if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 }
