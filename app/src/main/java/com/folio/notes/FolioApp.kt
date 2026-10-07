@@ -338,6 +338,7 @@ import kotlinx.coroutines.withContext
             return
         }
         try {
+            model.pauseForUpdate()
             commitUpdateSession(context, ready.file)
             updates.message("Installing Folio ${ready.update.versionName}…")
             // Keep the APK if the install is cancelled. The next app start removes installed builds.

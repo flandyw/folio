@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.EmptyHint
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -303,7 +304,7 @@ private const val FORM_ADD = -1
                     }
                 }
             }
-            if (papers.isNotEmpty() && indexed.isEmpty()) Text("No papers match.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (papers.isNotEmpty() && indexed.isEmpty()) EmptyHint("No papers match.")
             Spacer(Modifier.height(FolioSpacing.dp4))
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {

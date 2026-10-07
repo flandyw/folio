@@ -71,9 +71,9 @@ private fun shapeName(tool: Tool) = when (tool) {
 }
 
 @Composable private fun <T> ShapeGrid(items: List<T>, tile: @Composable RowScope.(T) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         items.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 row.forEach { tile(it) }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
@@ -90,7 +90,7 @@ private fun shapeName(tool: Tool) = when (tool) {
         shape = FolioShapes.medium,
         color = if (selected) scheme.secondaryContainer else scheme.surfaceContainerLow,
         contentColor = if (selected) scheme.onSecondaryContainer else scheme.onSurface) {
-        Column(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp8), horizontalAlignment = Alignment.CenterHorizontally) {
             preview(LocalContentColor.current)
             Spacer(Modifier.height(4.dp))
             Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,

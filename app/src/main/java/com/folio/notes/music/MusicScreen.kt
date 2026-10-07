@@ -53,8 +53,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.AppPrefs
+import com.folio.notes.FolioDestinationInset
+import com.folio.notes.FolioDestinationVerticalInset
 import com.folio.notes.FolioExpand
+import com.folio.notes.FolioHeadingFlush
 import com.folio.notes.FolioPanel
+import com.folio.notes.FolioScreenHeading
 import com.folio.notes.FolioState
 import com.folio.notes.FolioViewModel
 import com.folio.notes.FolioShapes
@@ -188,14 +192,13 @@ import kotlinx.coroutines.withContext
             LazyVerticalGrid(
                 columns = if (rows) GridCells.Fixed(1) else GridCells.Adaptive(144.dp),
                 modifier = Modifier.fillMaxSize(), state = gridState,
-                contentPadding = (if (wide) 20.dp else 12.dp).let { PaddingValues(start = it, top = it + topGap, end = it, bottom = it + FolioSpacing.dp24) },
+                contentPadding = PaddingValues(start = FolioDestinationInset, top = FolioDestinationVerticalInset + topGap, end = FolioDestinationInset, bottom = FolioDestinationInset),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
                 verticalArrangement = Arrangement.spacedBy(if (rows) FolioSpacing.dp8 else FolioSpacing.dp16),
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Text("Music", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                        FolioScreenHeading("Music", contentPadding = FolioHeadingFlush) {
                             Box {
                                 // The same split button the notebook shelf uses for New: tap imports,
                                 // the trailing half holds the other ways to add.
@@ -267,8 +270,8 @@ import kotlinx.coroutines.withContext
                                         { Text("${set.name} · ${set.scores.size}") },
                                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, Modifier.size(16.dp)) },
                                         trailingIcon = {
-                                            IconButton({ setMenu = set.id }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
-                                                Icon(Icons.Rounded.MoreVert, "Options for ${set.name}", Modifier.size(14.dp))
+                                            IconButton({ setMenu = set.id }, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) {
+                                                Icon(Icons.Rounded.MoreVert, "Options for ${set.name}", Modifier.size(18.dp))
                                             }
                                         })
                                     DropdownMenu(setMenu == set.id, { setMenu = null }, modifier = Modifier.guardUiTouches()) {
@@ -341,7 +344,7 @@ import kotlinx.coroutines.withContext
                                     selectedSet != null -> "Build the running order"
                                     favorites -> "Keep your go-to pieces close"
                                     else -> "Your repertoire lives here."
-                                }, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+                                }, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                                 Text(when {
                                     trimmed.isNotEmpty() -> "Try a title, composer or instrument."
                                     filter.active -> "Clear the filters to see your whole shelf."

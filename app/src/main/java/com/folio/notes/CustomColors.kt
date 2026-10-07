@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -143,15 +144,16 @@ class CoverPaletteState(private val prefs: SharedPreferences) {
     }
 }
 
-/** A round swatch that shows the accent and its check mark. */
+/** A round swatch that shows the accent and its check mark. Disabled swatches stay visible but fade, so a palette that ignores the accent still shows what is stored. */
 @Composable
-fun ColorSwatch(color: Color, selected: Boolean, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ColorSwatch(color: Color, selected: Boolean, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val check = AccentTones.lightnessOf(color) > 0.6f
     Surface(
         onClick = onClick,
+        enabled = enabled,
         shape = CircleShape,
         color = color,
-        modifier = modifier.size(40.dp).semantics { contentDescription = label },
+        modifier = modifier.size(40.dp).alpha(if (enabled) 1f else .38f).semantics { contentDescription = label },
         border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null,
     ) {
         Box(contentAlignment = Alignment.Center) {

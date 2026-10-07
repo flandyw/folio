@@ -65,7 +65,7 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
         SettingsDivider()
         SettingsSwitchRow("Pure black dark", "True black backgrounds whenever the dark theme is active.", s.amoled, s.onAmoled)
     }
-    AccentGroup()
+    AccentGroup(s.themePalette)
     TextSizeGroup()
     SettingsGroup("Display") {
         SettingsPrefSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
@@ -75,25 +75,38 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
 }
 
 /** One colour of your own, applied to every Folio palette by re-tinting its accents. */
-@Composable private fun AccentGroup() {
+@Composable private fun AccentGroup(palette: ThemePalette) {
     val accent = rememberAccentState()
     var picking by remember { mutableStateOf(false) }
     val chosen = accent.accent
-    SettingsGroup("Accent colour", footer = "Replaces the wallpaper colours when both are on.") {
+    // Black and white is the one palette an accent cannot re-tint, so the chooser says so rather
+    // than accepting a colour that would never be drawn. The stored colour is kept untouched.
+    val tinting = palette != ThemePalette.MONO
+    SettingsGroup(
+        "Accent colour",
+        footer = if (tinting) "Replaces the wallpaper colours when both are on."
+        else "Black and white keeps its own greys, so no accent colour is applied. Your choice is remembered for the other palettes.",
+    ) {
         SettingsBlock {
-            SettingsBlockHint(if (chosen == null) "Using the palette's own colours." else "Tints buttons, selections and highlights.")
+            SettingsBlockHint(
+                when {
+                    !tinting -> "Not used by Black and white."
+                    chosen == null -> "Using the palette's own colours."
+                    else -> "Tints buttons, selections and highlights."
+                }
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 AccentPresets.forEach { preset ->
-                    ColorSwatch(preset, chosen != null && AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) })
+                    ColorSwatch(preset, chosen != null && AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) }, enabled = tinting)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                OutlinedButton({ picking = true }, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
-                if (chosen != null) TextButton(accent::clear, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
+                OutlinedButton({ picking = true }, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
+                if (chosen != null) TextButton(accent::clear, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
             }
         }
     }
-    if (picking) {
+    if (picking && tinting) {
         // The live preview lives with the dialog, so dismissing it leaves the accent alone.
         var preview by remember { mutableStateOf(chosen ?: AccentPresets.first()) }
         ColorDialog("Accent colour", onDismiss = { picking = false }) {
@@ -356,7 +369,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             trailing = {},
         )
         if (b.progress != null) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp))
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = FolioSpacing.dp12))
         }
         SettingsDivider()
         SettingsLinkRow(if (auto) "Change backup folder" else "Choose backup folder", onClick = b.onChooseFolder, enabled = !b.busy)

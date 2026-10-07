@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioSpacing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -127,15 +128,15 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             else error = manager.state.value.error; busy = false }
     }
     FolioPanel(if (editing) "Edit exam" else "Log exam", ::dismiss) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             ChoiceField("Subject", subject, (catalog.references.map { it.subject } + catalog.studies.map { it.subject }).distinct().sorted(), { subject = it }, true)
             ChoiceField("Provider", provider, (listOf("VCAA", "VCAA NHT", "NEAP", "Insight", "TSSM", "MAV", "iTute", "Kilbaha", "Heffernan", "Other")), { provider = it }, true)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(year, { year = it }, Modifier.weight(1f), label = { Text("Exam year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                 OutlinedTextField(date, { date = it }, Modifier.weight(2f), label = { Text("Date · YYYY-MM-DD") }, singleLine = true)
             }
             ChoiceField("Paper", paper, catalog.references.filter { comparisonName(it.subject) == comparisonName(subject) }.map { it.paper.replace("WRITTEN EXAMINATION", "Exam", true).replace("EXAMINATION", "Exam", true) }.distinct(), { paper = it }, true)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(score, { score = it }, Modifier.weight(1f), label = { Text("Marks awarded") }, singleLine = true,
                     isError = score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true,
                     supportingText = { if (score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true) Text("More than the total") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
@@ -159,7 +160,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                             OutlinedTextField(question.label, { updateQuestion(index, question.copy(label = it)) }, Modifier.weight(1f), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or section") }, singleLine = true)
                             IconButton({ questionsRaw = JSONArray(JSONArray(questionsRaw).objects().filterIndexed { i, _ -> i != index }).toString() }) { Icon(Icons.Rounded.DeleteOutline, "Remove question ${index + 1}") }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             OutlinedTextField(question.awarded, { updateQuestion(index, question.copy(awarded = it)) }, Modifier.weight(1f), label = { Text("Awarded") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next), singleLine = true)
                             OutlinedTextField(question.maximum, { updateQuestion(index, question.copy(maximum = it)) }, Modifier.weight(1f), label = { Text("Maximum") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next), singleLine = true)
                         }
@@ -195,7 +196,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(4.dp))
         }
-        FlowRow(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+        FlowRow(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
             TextButton(::dismiss, enabled = !busy) { Text("Cancel") }
             OutlinedButton({ submit(true) }, enabled = !busy) { Text("Save & add mistake") }
             Button({ submit(false) }, enabled = !busy) { Text(if (busy) "Saving…" else "Save") }
@@ -221,14 +222,14 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     val scope = rememberCoroutineScope()
     fun dismiss() { if (!busy) { if (category != "Concept" || question.isNotBlank() || explanation.isNotBlank() || correction.isNotBlank() || topic.isNotBlank() || lost.isNotBlank() || total.isNotBlank()) discard = true else onDismiss() } }
     FolioPanel("Log mistake · ${exam.paper}", ::dismiss) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(exam.title)
             OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") })
             ChoiceField("Category", category, listOf("Concept", "Knowledge recall", "Reasoning", "Evidence and analysis", "Written expression", "Process or technique", "Accuracy", "Interpretation", "Time management", "Algebra", "Arithmetic", "Calculator", "Other"), { category = it })
             OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("What went wrong?") }, minLines = 2)
             OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Correction") }, placeholder = { Text("Explain the correct approach for next time.") }, minLines = 2)
             OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Area of study") })
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true,
                     isError = lost.toDoubleOrNull()?.let { l -> total.toDoubleOrNull()?.let { t -> l > t } } == true,
                     supportingText = { if (lost.toDoubleOrNull()?.let { l -> total.toDoubleOrNull()?.let { t -> l > t } } == true) Text("More than the total") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
@@ -252,7 +253,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 busy = true
                 scope.launch { if (manager.save("mistakes", id, raw, owner)) onDismiss() else error = manager.state.value.error; busy = false }
             }
-        }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(16.dp)) { Text(if (busy) "Saving…" else "Save mistake") }
+        }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(FolioSpacing.dp16)) { Text(if (busy) "Saving…" else "Save mistake") }
     }
     if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard mistake changes?") },
         confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } }, dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })

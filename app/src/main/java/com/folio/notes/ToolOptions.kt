@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
+import androidx.compose.ui.semantics.Role
 import android.content.SharedPreferences
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -349,7 +350,7 @@ object EditorQuickPrefs {
                     onClick = hold.click { quick.applyPreset(group, preset); load(quick.colors(group)) },
                     label = { Text(preset.name) },
                     modifier = Modifier.longPressAction(hold) { quick.deletePreset(group, preset) },
-                    trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { quick.deletePreset(group, preset) }) }
+                    trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(18.dp).clickable(role = Role.Button) { quick.deletePreset(group, preset) }) }
                 )
             }
         }
@@ -394,7 +395,7 @@ object EditorQuickPrefs {
                 onClick = hold.click { },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
                 modifier = Modifier.longPressAction(hold) { presets.delete(preset.id) },
-                trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(16.dp).clickable { presets.delete(preset.id) }) }
+                trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(18.dp).clickable(role = Role.Button) { presets.delete(preset.id) }) }
             )
         }
         Text("Apply a preset from the toolbar's More menu.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

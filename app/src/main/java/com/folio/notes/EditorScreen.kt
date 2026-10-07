@@ -1032,8 +1032,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             Box {
                                 val captionHold = rememberLongPressGuard()
                                 Row(Modifier.longPressAction(captionHold) { pageMenuFor = item.id }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                    if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                                    if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                                    if (item.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    if (item.redoFlag) Icon(Icons.Rounded.OutlinedFlag, "Flagged to redo", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                                     Text(
                                         item.title.ifBlank { "Page ${index + 1}" } + " · ${index + 1} / ${note.pages.size}",
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1690,7 +1690,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 if (destinations.isEmpty()) item {
-                    Text("No destination pages match.", style = MaterialTheme.typography.bodyMedium)
+                    EmptyHint("No destination pages match.")
                     TextButton({ destinationQuery = "" }) { Text("Show all destinations") }
                 }
                 items(destinations, key = { it.value.id }) { (index, destination) ->
@@ -1796,7 +1796,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             } else if (hits.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No typed text matches “${noteQuery.trim().take(80)}”.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1848,7 +1848,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         } else if (outline.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {

@@ -53,6 +53,7 @@ enum class ThemePalette(val label: String, val description: String) {
     SAGE("Sage", "Calm greens for long writing sessions"),
     OCEAN("Ocean", "Cool blues that stay easy on the eyes"),
     PLUM("Plum", "Soft purple on warm surfaces"),
+    MONO("Black and white", "Greyscale only, with no colour at all"),
     DYNAMIC("Wallpaper colors", "Use your Android color palette (Android 12+)");
 
     companion object {
@@ -85,6 +86,14 @@ object AppTheme {
 
     /** Pure black backgrounds only change the dark theme. */
     fun isAmoledEffective(amoled: Boolean, dark: Boolean): Boolean = amoled && dark
+
+    /**
+     * The accent to re-tint the scheme with. Black and white is deliberately left out: a colour
+     * the user picked would break the one palette whose whole point is having none, so its own
+     * greys stand. The stored accent is kept for the other palettes and ink is never affected.
+     */
+    fun effectiveAccent(palette: ThemePalette, accent: Color?): Color? =
+        if (palette == ThemePalette.MONO) null else accent
 }
 
 private val LightColors = lightColorScheme(
@@ -212,11 +221,52 @@ private val PlumDarkColors = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6)
 )
 
+// Black and white: every surface, text and container role is a neutral grey with equal red, green
+// and blue channels, so nothing on screen carries a hue. The surface tiers are spelled out (the
+// other palettes leave them to the Material defaults) because those defaults are tinted. Only the
+// error family keeps its red, as Material's own monochrome scheme does: an error must not read as
+// ordinary text. Combine it with Pure black dark for a true-black OLED screen.
+private val MonoLightColors = lightColorScheme(
+    primary = Color(0xFF1A1A1A), onPrimary = Color.White,
+    primaryContainer = Color(0xFFE4E4E4), onPrimaryContainer = Color(0xFF101010),
+    secondary = Color(0xFF444444), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE9E9E9), onSecondaryContainer = Color(0xFF141414),
+    tertiary = Color(0xFF5A5A5A), onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFEEEEEE), onTertiaryContainer = Color(0xFF1A1A1A),
+    background = Color.White, surface = Color.White,
+    surfaceContainer = Color(0xFFF0F0F0), surfaceContainerLow = Color(0xFFF7F7F7),
+    surfaceContainerHigh = Color(0xFFE9E9E9), surfaceContainerHighest = Color(0xFFE2E2E2),
+    surfaceContainerLowest = Color.White, surfaceBright = Color.White, surfaceDim = Color(0xFFE2E2E2),
+    onSurface = Color(0xFF141414), onSurfaceVariant = Color(0xFF5E5E5E),
+    outline = Color(0xFF8A8A8A), outlineVariant = Color(0xFFDCDCDC), surfaceTint = Color(0xFF1A1A1A),
+    inverseSurface = Color(0xFF2E2E2E), inverseOnSurface = Color(0xFFF2F2F2), inversePrimary = Color(0xFFD4D4D4),
+    error = Color(0xFFBA1A1A), onError = Color.White, errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002)
+)
+private val MonoDarkColors = darkColorScheme(
+    primary = Color(0xFFEDEDED), onPrimary = Color(0xFF1A1A1A),
+    primaryContainer = Color(0xFF3A3A3A), onPrimaryContainer = Color(0xFFF2F2F2),
+    secondary = Color(0xFFC6C6C6), onSecondary = Color(0xFF2A2A2A),
+    secondaryContainer = Color(0xFF424242), onSecondaryContainer = Color(0xFFE6E6E6),
+    tertiary = Color(0xFFD6D6D6), onTertiary = Color(0xFF303030),
+    tertiaryContainer = Color(0xFF4E4E4E), onTertiaryContainer = Color(0xFFEDEDED),
+    background = Color(0xFF121212), surface = Color(0xFF121212),
+    surfaceContainer = Color(0xFF202020), surfaceContainerLow = Color(0xFF1A1A1A),
+    surfaceContainerHigh = Color(0xFF2A2A2A), surfaceContainerHighest = Color(0xFF343434),
+    surfaceContainerLowest = Color(0xFF0B0B0B), surfaceBright = Color(0xFF3A3A3A), surfaceDim = Color(0xFF121212),
+    onSurface = Color(0xFFEBEBEB), onSurfaceVariant = Color(0xFFB8B8B8),
+    outline = Color(0xFF8A8A8A), outlineVariant = Color(0xFF464646), surfaceTint = Color(0xFFEDEDED),
+    inverseSurface = Color(0xFFEBEBEB), inverseOnSurface = Color(0xFF2A2A2A), inversePrimary = Color(0xFF3A3A3A),
+    error = Color(0xFFFFB4AB), onError = Color(0xFF690005), errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6)
+)
+
 /** Static light scheme for [palette]; DYNAMIC resolves separately from the wallpaper. */
 fun lightSchemeFor(palette: ThemePalette): ColorScheme = when (palette) {
     ThemePalette.SAGE -> SageLightColors
     ThemePalette.OCEAN -> OceanLightColors
     ThemePalette.PLUM -> PlumLightColors
+    ThemePalette.MONO -> MonoLightColors
     else -> LightColors
 }
 
@@ -225,6 +275,7 @@ fun darkSchemeFor(palette: ThemePalette): ColorScheme = when (palette) {
     ThemePalette.SAGE -> SageDarkColors
     ThemePalette.OCEAN -> OceanDarkColors
     ThemePalette.PLUM -> PlumDarkColors
+    ThemePalette.MONO -> MonoDarkColors
     else -> DarkColors
 }
 
@@ -271,7 +322,8 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
         if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
     } else if (dark) darkSchemeFor(effective) else lightSchemeFor(effective)
     // The accent wins over wallpaper colors: picking a colour of your own is a deliberate choice.
-    val tinted = AccentTones.tinted(base, accent)
+    // Black and white is the exception, so that palette stays truly greyscale.
+    val tinted = AccentTones.tinted(base, AppTheme.effectiveAccent(effective, accent))
     val colors = if (AppTheme.isAmoledEffective(amoled, dark)) tinted.withAmoled() else tinted
     val density = LocalDensity.current
     val scale = textScale.takeIf { it.isFinite() && it > 0f } ?: 1f

@@ -177,10 +177,10 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var linkError by remember { mutableStateOf(false) }
     FolioPanel("Exam result", onDismiss) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Text(exam.title, style = MaterialTheme.typography.titleLarge)
             Text("${exam.paper} · ${exam.completedAt.take(10)} · ${exam.rawScore.display()}/${exam.rawMax.display()} (${exam.percentage.display()}%)")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 OutlinedButton(onEdit) { Text("Edit") }; Button(onAddMistake) { Text("Add mistake") }
                 if (hasNotebook) IconButton(onOpenNotebook) { Icon(Icons.AutoMirrored.Rounded.MenuBook, "Open linked notebook") }
             }
@@ -229,9 +229,9 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     FolioPanel("Provider difficulty", { if (!busy) onDismiss() }) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Harder providers go above VCAA, easier below. This is a conservative planning adjustment, capped at 8 percentage points.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }); Text("Apply alignment", Modifier.padding(start = 12.dp)) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }); Text("Apply alignment", Modifier.padding(start = FolioSpacing.dp12)) }
             ChoiceField("Strength", strength, listOf("light", "balanced", "strong"), { strength = it })
             Text("Light: 1 point/rank · Balanced: 1.5 · Strong: 2", style = MaterialTheme.typography.bodySmall)
             providers.forEachIndexed { index, provider -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -250,7 +250,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
                 .put("providerOrder", JSONArray(providers)).put("updatedAt", isoTime())
             if (manager.saveValue("examDifficulty", settings, owner)) onDismiss() else error = manager.state.value.error
             busy = false
-        } }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(16.dp)) { Text(if (busy) "Saving…" else "Save") }
+        } }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(FolioSpacing.dp16)) { Text(if (busy) "Saving…" else "Save") }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.folio.notes.progress
 
+import com.folio.notes.EmptyHint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -151,7 +152,7 @@ internal fun Double.display(digits: Int = 1) = String.format(Locale.getDefault()
     maximum: Double? = null, icon: ImageVector? = null, limit: Int = 6) {
     var expanded by remember(title) { mutableStateOf(false) }
     ProgressCard(title, subtitle, icon) {
-        if (values.isEmpty()) Text("No data yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (values.isEmpty()) EmptyHint("No data yet.")
         val scale = maximum ?: max(1.0, values.maxOfOrNull { it.second } ?: 1.0)
         (if (expanded) values else values.take(limit)).forEach { (label, value) ->
             MeterRow(label, "${value.display(if (suffix == "%") 1 else 0)}$suffix", (value / scale).toFloat())

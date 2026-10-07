@@ -588,7 +588,7 @@ fun ScoreDialog(
                                         else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                if (markScanBusy) CircularProgressIndicator(Modifier.size(20.dp).padding(end = FolioSpacing.dp4), strokeWidth = 2.dp)
+                                if (markScanBusy) CircularProgressIndicator(Modifier.padding(end = FolioSpacing.dp4).size(20.dp), strokeWidth = 2.dp)
                                 Switch(markAssist, onMarkAssist)
                             }
                             if (markAssist) {
@@ -733,7 +733,7 @@ fun ExamProgressContent(notes: List<Notebook>, modifier: Modifier = Modifier, sc
                             )
                         }
                         if (row.averageShare == null) {
-                            Text("No marks recorded yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            EmptyHint("No marks recorded yet.")
                         } else {
                             ProgressRow("Average", row.averageShare)
                             row.recentShare?.let { ProgressRow("Recent attempts", it) }

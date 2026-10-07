@@ -84,7 +84,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
             if (showCopy) SelectionAction(Icons.Rounded.ContentCopy, "Copy selection") { run(onCopy) }
             if (showStyle) SelectionAction(Icons.Rounded.Palette, "Style selection") { run(onStyle) }
             if (showDuplicate) SelectionAction(Icons.Rounded.DynamicFeed, "Duplicate selection") { run(onDuplicate) }
@@ -92,7 +92,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
         }
         // Inline, not a DropdownMenu: a dropdown inside this non-focusable popup is placed against the wrong window.
-        if (overflow) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp)).padding(bottom = 4.dp)) {
+        if (overflow) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp)).padding(bottom = FolioSpacing.dp4)) {
             if (!showCopy) PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
             PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
             PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
@@ -133,7 +133,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
-        Column(Modifier.padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(horizontal = FolioSpacing.dp4), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (showLeft) SelectionAction(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", onClick = onRotateLeft)
                 if (showRight) SelectionAction(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", onClick = onRotateRight)
@@ -161,7 +161,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Crop options")) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
             SelectionAction(Icons.Rounded.Close, "Cancel crop", onClick = onCancel)
             SelectionAction(Icons.Rounded.Check, "Apply crop", onClick = onApply)
         }
@@ -191,7 +191,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.width(200.dp).semanticsLabel("Page options")) {
-            Column(Modifier.padding(vertical = 4.dp)) {
+            Column(Modifier.padding(vertical = FolioSpacing.dp4)) {
                 PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
                 PageMenuRow(Icons.Rounded.TextFields, "Add text here", true) { run(onText) }
                 PageMenuRow(Icons.Rounded.Image, "Insert image", true) { run(onImage) }
@@ -206,8 +206,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
 @Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         Icon(icon, null, Modifier.size(20.dp), tint = tint)
         Text(label, style = MaterialTheme.typography.bodyMedium, color = tint)
     }
@@ -221,7 +221,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Sticky note options")) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
             if (typing) SelectionAction(Icons.Rounded.Check, "Finish typing", onClick = onDone)
             else SelectionAction(Icons.Rounded.TextFields, "Type in sticky note", onClick = onType)
             SelectionAction(Icons.Rounded.Edit, "Draw in sticky note", onClick = onDraw)

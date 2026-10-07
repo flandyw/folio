@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -147,8 +148,7 @@ import kotlin.math.roundToInt
                         trailingIcon = { Icon(Icons.Rounded.Close, "Remove “$text”", Modifier.size(16.dp)) })
                     else AssistChip({ use(MarkingAction.Comment(text)) }, { Text(text) })
                 }
-                if (bank.isEmpty()) Text("No saved comments yet — type one below.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (bank.isEmpty()) EmptyHint("No saved comments yet — type one below.")
             }
             OutlinedTextField(
                 draft, { draft = it }, Modifier.fillMaxWidth(),
@@ -289,12 +289,12 @@ import kotlin.math.roundToInt
                     maxLines = 1)
                 if (total != null) Text(Marking.format(total) + (available?.let { " / $it" } ?: "") + " marks",
                     style = MaterialTheme.typography.labelLarge)
-                IconButton(onMore, Modifier.size(32.dp)) { Icon(Icons.Rounded.Tune, "More marking options", Modifier.size(20.dp)) }
-                IconButton(onClose, Modifier.size(32.dp)) { Icon(Icons.Rounded.Close, "Close marking bar", Modifier.size(20.dp)) }
+                IconButton(onMore, Modifier.size(40.dp)) { Icon(Icons.Rounded.Tune, "More marking options", Modifier.size(20.dp)) }
+                IconButton(onClose, Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Close marking bar", Modifier.size(20.dp)) }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Box(Modifier.size(30.dp).clip(CircleShape).background(tint).clickable {
+                Box(Modifier.size(36.dp).clip(CircleShape).background(tint).clickable(role = Role.Button) {
                     val next = Marking.COLORS.indexOf(color).let { Marking.COLORS[(it + 1) % Marking.COLORS.size] }
                     onColor(next)
                 }.semantics { contentDescription = "Marking ink colour ${Marking.colorName(color)}, tap to change" })

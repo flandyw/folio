@@ -97,11 +97,11 @@ data class FolioState(
     val page get() = active?.pages?.getOrNull(pageIndex)
     /** True while an edit the editor has made is not yet on the device. */
     val saving get() = editGeneration != durableGeneration
-    /** Days until the nearest upcoming exam date across the library, or null when none is set. */
+    /** Days until the nearest upcoming date of a notebook typed as an exam (not SAC/topic test/notes) across the library, or null when none is set. */
     val daysToExam: Int?
         get() {
             val start = startOfDay()
-            return notes.asSequence().mapNotNull { it.exam.examDate }
+            return notes.asSequence().filter { it.exam.type?.isExam == true }.mapNotNull { it.exam.examDate }
                 .filter { it >= start }
                 .minOrNull()
                 ?.let { date -> ((date - start) / 86_400_000L).toInt() }
@@ -2313,6 +2313,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (_state.value.active == null) return
         val current = _state.value.timer
         if (current.running) {
+            val parked = current.pause(now, auto = true)
+            if (parked != current) {
+                saveSitting(parked, lastSeen = now)
+                _state.update { it.copy(timer = parked) }
+                recordTimerInFocal(parked, now, force = true)
+            }
+        }
+    }
+    /** Installing an update restarts Folio: park the study session and exam clock durably so Resume works afterwards. */
+    fun pauseForUpdate(now: Long = timerNow()) {
+        (getApplication<FolioApplication>()).focalStudy.parkFocus(FocalFocus.PARK_UPDATE, now = now)
+        val current = _state.value.timer
+        if (_state.value.active != null && current.running) {
             val parked = current.pause(now, auto = true)
             if (parked != current) {
                 saveSitting(parked, lastSeen = now)

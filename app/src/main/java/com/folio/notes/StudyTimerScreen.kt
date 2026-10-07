@@ -15,7 +15,7 @@ fun StudyTimerScreen(notebooks: List<Notebook>, examTimer: ExamTimerState, onAcc
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { Text("Study timer") },
+                title = { FolioScreenHeading("Study timer", contentPadding = FolioHeadingFlush) },
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 actions = {
                     FocalAccountButton(onAccount)

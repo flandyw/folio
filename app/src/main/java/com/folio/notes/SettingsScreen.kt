@@ -121,7 +121,7 @@ import kotlinx.coroutines.withContext
         contentWindowInsets = WindowInsets(0),
         topBar = {
             LargeTopAppBar(
-                title = { Text(title, Modifier.semantics { heading() }) },
+                title = { FolioScreenHeading(title, contentPadding = FolioHeadingFlush) },
                 navigationIcon = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
                 scrollBehavior = scroll,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surface),
@@ -131,7 +131,7 @@ import kotlinx.coroutines.withContext
         Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(horizontal = FolioSpacing.dp16).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp32),
+                    .padding(horizontal = FolioDestinationInset).padding(top = FolioDestinationVerticalInset, bottom = FolioSpacing.dp32),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
                 content = content,
             )
@@ -216,7 +216,7 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
 ) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Text("Settings", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp12), style = MaterialTheme.typography.headlineSmall)
+            FolioScreenHeading("Settings", contentPadding = PaddingValues(horizontal = FolioSpacing.dp12, vertical = FolioDestinationVerticalInset))
             SettingsSearchField(query, onQuery, Modifier.padding(bottom = FolioSpacing.dp8))
             SettingsSection.entries.forEach { section ->
                 Text(section.title, Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -279,7 +279,8 @@ private object SettingsIndex {
 
     private val all = listOf(
         e(SettingsCategory.APPEARANCE, "Theme", "light dark system mode night"),
-        e(SettingsCategory.APPEARANCE, "Colour theme", "color palette sage ocean plum warm wallpaper dynamic material you"),
+        e(SettingsCategory.APPEARANCE, "Colour theme", "color palette sage ocean plum warm mono monochrome greyscale grey neutral wallpaper dynamic material you"),
+        e(SettingsCategory.APPEARANCE, "Black and white theme", "mono monochrome greyscale grey colourless neutral no colour pure"),
         e(SettingsCategory.APPEARANCE, "Pure black dark", "amoled oled black"),
         e(SettingsCategory.APPEARANCE, "Accent colour", "color tint highlight picker custom"),
         e(SettingsCategory.APPEARANCE, "Text size", "font bigger smaller scale"),

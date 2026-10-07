@@ -83,7 +83,7 @@ internal fun MistakeDetailCard(
         when (tab) {
             0 -> {
                 if (!mistake.questionText.isNullOrBlank()) RichText(mistake.questionText, style = MaterialTheme.typography.bodyLarge)
-                else if (mistake.attachments.isEmpty()) Text("No extra question text saved. Use the question reference above.", style = MaterialTheme.typography.bodyMedium)
+                else if (mistake.attachments.isEmpty()) EmptyHint("No extra question text saved. Use the question reference above.")
                 AttachmentGallery(mistake, userId, attachments)
                 TextButton({ showMetadata = !showMetadata }, shapes = ButtonDefaults.shapes()) {
                     Icon(if (showMetadata) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)

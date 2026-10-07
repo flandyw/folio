@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioSpacing
+import com.folio.notes.EmptyHint
 import android.content.ClipData
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -190,7 +192,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             val focusManager = LocalFocusManager.current
             LaunchedEffect(gridState) { snapshotFlow { gridState.isScrollInProgress }.collect { if (it) focusManager.clearFocus() } }
             LazyVerticalGrid(GridCells.Adaptive(340.dp), Modifier.fillMaxSize().guardUiTouches(), state = gridState,
-                contentPadding = PaddingValues(start = FolioSpacing.dp16, end = FolioSpacing.dp16, top = FolioSpacing.dp8, bottom = 120.dp),
+                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = 0.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 (state.error ?: actionError ?: state.catalogError)?.let { message -> wide("banner:error") {
                     ProgressBanner(Icons.Rounded.ErrorOutline, message, error = state.error != null || !state.readable) {
@@ -346,16 +348,16 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         state.cache.outbox.isNotEmpty() -> Icons.Rounded.CloudUpload to "${state.cache.outbox.size} changes waiting to sync"
         else -> Icons.Rounded.CloudDone to "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
     }
-    Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp4),
-        verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            Text("Progress", style = MaterialTheme.typography.headlineMedium)
+    FolioScreenHeading(
+        title = "Progress",
+        subtitle = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(statusIcon, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(statusIcon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        }
+        },
+    ) {
         IconButton(onSync, enabled = state.userId != null && !state.syncing && !state.loading, shapes = IconButtonDefaults.shapes()) {
             if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(Icons.Rounded.Sync, "Sync exam results")
         }
@@ -424,7 +426,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
         ProgressCard("Recent results", icon = Icons.Rounded.History, action = {
             if (exams.isNotEmpty()) TextButton({ onDestination("Exams") }) { Text("All ${exams.size}") }
         }) {
-            if (exams.isEmpty()) Text("No results yet. Notebook marks with a known total appear here too.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (exams.isEmpty()) EmptyHint("No results yet. Notebook marks with a known total appear here too.")
             exams.take(5).forEach { exam -> ExamRow(exam, state.catalog.references, { onDetail(exam.id) }) }
         }
     }

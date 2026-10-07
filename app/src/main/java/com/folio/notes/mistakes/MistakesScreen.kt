@@ -456,7 +456,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val tablet = maxWidth >= 600.dp
         val layout = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
         val split = layout.splitLibrary && destination == "Library" && state.userId != null
         val standaloneDetail = selected != null && !split
@@ -467,14 +466,14 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         // behind it instead of ending at a reserved Scaffold bottom-bar strip.
         val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
         val toolbarClearance = bottomInset + if (showDestinations) toolbarHeight + FolioSpacing.dp32 else 0.dp
-        val contentInset = if (tablet) FolioSpacing.dp24 else FolioSpacing.dp16
+        val contentInset = FolioDestinationInset
         Scaffold(
             // TopAppBar handles the top inset. Draw the body to the bottom edge; navigation/IME
             // clearance belongs to scroll padding and the floating toolbar, never a full-width bar.
             contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
             topBar = {
                 TopAppBar(
-                    title = { Text(if (selected != null) "Question details" else "Mistakes", style = MaterialTheme.typography.titleLarge) },
+                    title = { FolioScreenHeading(if (selected != null) "Question details" else "Mistakes", contentPadding = FolioHeadingFlush) },
                     navigationIcon = {
                         if (detail != null) IconButton({ detail = null }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes")
@@ -494,7 +493,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
                         state = if (standaloneDetail) detailListState else listState,
                         contentPadding = PaddingValues(
-                            start = contentInset, top = contentInset, end = contentInset,
+                            start = contentInset, top = FolioDestinationVerticalInset, end = contentInset,
                             bottom = contentInset + toolbarClearance,
                         ),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
@@ -803,7 +802,7 @@ private fun AccountCard(
                 .background(scheme.primary.copy(alpha = .10f), CircleShape))
             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    Box(Modifier.size(68.dp).background(scheme.surface.copy(alpha = .55f), CircleShape).padding(4.dp)) {
+                    Box(Modifier.size(68.dp).background(scheme.surface.copy(alpha = .55f), CircleShape).padding(FolioSpacing.dp4)) {
                         Surface(shape = CircleShape, color = scheme.primary, modifier = Modifier.fillMaxSize()) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
@@ -814,7 +813,7 @@ private fun AccountCard(
                             }
                         }
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                         Text("Signed in to Focal", style = MaterialTheme.typography.labelLarge,
                             color = scheme.onPrimaryContainer.copy(alpha = .75f))
                         Text(email ?: "Focal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
@@ -840,7 +839,7 @@ private fun AccountStat(icon: androidx.compose.ui.graphics.vector.ImageVector, l
     Surface(modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surface.copy(alpha = .6f),
         contentColor = MaterialTheme.colorScheme.onSurface) {
         Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)

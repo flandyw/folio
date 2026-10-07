@@ -24,6 +24,9 @@ object AppPrefs {
     /** Only explicitly connected device folders; an empty set is the default. */
     const val EXPLORER_LOCATIONS = "explorer.locations"
     fun explorerLocations(value: Set<String>?): Set<String> = value.orEmpty().filter { it.startsWith("content://") }.take(32).toSet()
+    /** Dot-prefixed device folders are hidden unless the user chooses to show them. */
+    const val EXPLORER_SHOW_HIDDEN_FOLDERS = "explorer.showHiddenFolders"
+    const val DEFAULT_EXPLORER_SHOW_HIDDEN_FOLDERS = false
     /** Music shelf shows rows instead of first-page covers; music keeps its own choice. */
     const val MUSIC_LIST = "music.listView"
     /** Music shelf order, stored as a `MusicSort` name; music keeps its own choice. */

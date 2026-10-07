@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.EmptyHint
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -158,7 +159,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                     }
                 }
             }
-            if (drafts.isEmpty()) Text("Nothing left to add.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (drafts.isEmpty()) EmptyHint("Nothing left to add.")
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {

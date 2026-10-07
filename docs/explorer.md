@@ -10,11 +10,25 @@ Create notebooks and subfolders in the current folder. Notebook menus and long-p
 
 User tags are separate from structured exam details. Tags are trimmed, limited to 40 characters, deduplicated without case sensitivity, and limited to 32 per notebook. Bulk tagging preserves mixed tags unless explicitly changed. Library searches also match these labels.
 
+### Drag and drop
+
+Hold a notebook, then move to lift it; a stationary hold still starts selection. Dragging a selected notebook lifts the whole visible selection, captured before navigation changes the view. A mouse can drag directly. Both the shelf and Explorer support this, with a floating title/count, faded source cards, outlined destinations and a release hint. Existing Move and Tags menus remain available for keyboard and accessibility use.
+
+Drop on a folder row/chip, an ancestor breadcrumb, or the background of an open folder to move notebooks. In Explorer, folder rows can also be dragged to move their entire subtree. Hover over a folder or breadcrumb for 750 ms to open it while continuing the same drag. Edges scroll notebook lists, side panels, horizontal folder/tag rows and breadcrumbs. Favorites adds a star; a tag target adds that label while preserving other tags. Each successful drop offers **Undo**.
+
+No-op, missing, self/descendant, duplicate-sibling-name and tag-limit destinations reject drops. Invalid foreground targets block background drops. Hover navigation remains possible through the original parent even when moving there would be a no-op. Ending outside a destination or pressing Back leaves the organization intact. Drops accept only Folio's internal notebook sessions. Source buttons use Material 3 Expressive tonal toggles with single-line labels; narrow windows and larger text scroll the row instead of wrapping **Tablet files**.
+
 ## Tablet files
 
-**Connect folder** uses Android’s Storage Access Framework. Folio remembers up to 32 explicitly selected trees and their persisted access. The system controls which locations can be selected; for individual files in Downloads or restricted roots, the existing PDF/Folio file pickers remain available. Local storage, SD cards, and installed document providers can participate. No all-files permission is requested.
+**Enable all files access** opens Folio’s Android storage-access settings on Android 11+. Enable **Allow access to manage all files** once, then Explorer opens internal storage directly and lists mounted SD/USB volumes. The permission is checked again on resume, so granting or revoking it is reflected without restarting Folio. Android 8–10 uses legacy shared-storage runtime permissions (and the Android 10 legacy-storage flag). Android still protects other apps’ private directories.
+
+**Connect folder** remains available for cloud/document providers and uses Android’s Storage Access Framework. Folio remembers up to 32 explicitly selected trees and their persisted access. The system controls which locations can be selected; for individual files in Downloads or restricted roots, the existing PDF/Folio file pickers remain available. Local storage, SD cards, and installed document providers can participate. The manifest declares `MANAGE_EXTERNAL_STORAGE`; the user must explicitly grant it in Android settings.
 
 Browse subfolders with breadcrumbs, search the current folder, sort by name/date/size, and filter to PDF/Folio files. PDF imports enter the existing review panel, including its destination chooser; Folio archives use the existing notebook importer. Imported notebooks are copies. Other files open in their usual app, and sharing grants temporary read access to the selected content URI.
+
+Dot-prefixed device folders are hidden by default, including from search results. **Show hidden folders** in the file toolbar reveals them for both direct storage and connected document providers; the choice is remembered across folders and restarts. When only hidden folders remain, the empty state explains how to reveal them.
+
+Direct disk browsing uses `java.io.File` inside canonical shared-storage roots; path traversal and symlink escapes outside these roots are rejected. Copies reserve a fresh name instead of overwriting an existing file, and renames refuse existing destinations. Imports/open/share wrap selected disk files in read-granted FileProvider content URIs, so file URIs are never sent to another app. Storage roots cannot be renamed or deleted.
 
 Document-provider flags determine which create, rename and delete actions are offered. Non-virtual files can be copied or moved: choose an action in the file menu, navigate to a writable destination, then paste. Copying streams on an IO worker with a bounded buffer; incomplete copies are removed where the provider permits it. Moves remove the original only after writing the complete copy. If source deletion fails, the copy remains and Folio explains that the original could not be removed. Folder copying/moving between device locations is not offered.
 
@@ -26,7 +40,7 @@ Document queries and mutations run off the UI thread. Loading, empty, read-only 
 
 ## Verification
 
-Run the canonical `./build.sh -p`, plus `./gradlew :app:prepareBackupSmoke` and `node tools/backup-smoke.cjs`. The smoke runner covers hierarchy paths, duplicate IDs, missing parents, cycles, forbidden moves, restore ID remapping, native/legacy manifest round trips, absent-field defaults, tag normalization/limits, both notebook codecs, and tag search.
+Run the canonical `./build.sh -p -- :app:prepareBackupSmoke` and `node tools/backup-smoke.cjs`. The smoke runner covers hierarchy paths, duplicate IDs, missing parents, cycles, forbidden moves, restore ID remapping, native/legacy manifest round trips, absent-field defaults, tag normalization/limits, both notebook codecs, tag search, drag selections, mixed/no-op drops, stale IDs, folder collisions, hover navigation and edge scrolling.
 
 Device checks are still required; JVM checks do not exercise Compose layout, Android permissions or real document providers:
 
@@ -37,3 +51,7 @@ Device checks are still required; JVM checks do not exercise Compose layout, And
 5. Connect local and SD/cloud-provider folders. Restart and revisit them; revoke access externally and use Retry/Reconnect. Cancel the picker, disconnect a location, and verify originals remain and automatic-backup folder access still works.
 6. Browse, search, sort and share files; import multiple PDFs together and a Folio archive. Confirm the review destination, editor contents and untouched originals. Check a read-only provider and virtual documents.
 7. Create/rename/delete a disposable device folder and file. Copy a large file across folders/providers, move a disposable file, and check byte contents. Exercise same-folder copy, refused writes/deletes, interruption and source-deletion failure. Confirm unsuccessful copying keeps the original and move failures report the retained copy.
+
+8. On Android 11+, deny all-files access, grant it from Explorer, and return: internal storage should open immediately. Browse Downloads, Documents, Android/media and mounted SD/USB volumes without individual folder grants. Repeat after restarting, backgrounding and revoking access. Android/data and other protected paths should produce a clear unavailable state. Confirm connected cloud folders still work when all-files access is off.
+9. Repeat direct create/rename/copy/move/delete with disposable disk files, including duplicate names, disk-to-provider and provider-to-disk copies, and sharing/importing from both internal and removable storage. Unmount a volume while browsing and check retry. Test the legacy permission flow on Android 8–10 when available.
+10. Hold without moving to select, scroll normally, then hold-and-move single notebooks and selected groups in list and cover modes. Drop into nested folders, onto breadcrumbs and empty folder backgrounds; hover through several levels and scroll long lists/chip rows at their edges. Move a folder subtree. Check Favorites, mixed tags and Undo after each action; reject self/descendant, duplicate names, full tags, same-folder and outside drops. Cancel with Back. Restart to confirm moved groups and subtrees persist. Repeat with stylus and mouse, and verify ordinary taps, long-press selection and TalkBack Move/Tags menus still work.

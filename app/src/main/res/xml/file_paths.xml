@@ -1,1 +1,7 @@
-<paths xmlns:android="http://schemas.android.com/apk/res/android"><cache-path name="exports" path="exports/" /><files-path name="updates" path="../no_backup/updates/" /></paths>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="exports" path="exports/" />
+    <files-path name="updates" path="../no_backup/updates/" />
+    <!-- Only individual selected files receive temporary read grants. -->
+    <external-path name="tablet" path="." />
+    <root-path name="volumes" path="storage/" />
+</paths>

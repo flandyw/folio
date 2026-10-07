@@ -30,13 +30,13 @@ import java.util.Date
     val validMarks = marks.isBlank() || marks.toIntOrNull()?.let { it in 1..1000 } == true
     val validTime = minutes.isBlank() || minutes.toIntOrNull()?.let { it in 1..1440 } == true
     FolioPanel(title = if (initial == null) "Long response" else "Question details", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             if (initial == null) OutlinedTextField(title, { title = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Notebook name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(subject, { subject = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Subject") }, placeholder = { Text("e.g. English, Legal Studies") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(topic, { topic = it.take(240) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Text or topic") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(prompt, { prompt = it.take(8000) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or prompt") }, minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(marks, { marks = it.take(4) }, label = { Text("Marks (optional)") }, singleLine = true,
                     isError = !validMarks, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
                 OutlinedTextField(minutes, { minutes = it.take(4) }, label = { Text("Minutes (optional)") }, singleLine = true,
@@ -48,7 +48,7 @@ import java.util.Date
                 ResponseModeChoices(mode) { mode = it }
                 Text("Your question stays visible while you write. Plans, drafts, marked copies and retries stay together.", style = MaterialTheme.typography.bodyMedium)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss) { Text("Cancel") }
                 Button({ onSave(title.trim(), subject.trim(), LongResponse(prompt.trim(), topic.trim(), marks.toIntOrNull(), minutes.toIntOrNull()), mode) },
                     enabled = (initial != null || title.isNotBlank()) && prompt.isNotBlank() && validMarks && validTime) {
@@ -60,7 +60,7 @@ import java.util.Date
 }
 
 @Composable private fun ResponseModeChoices(mode: ResponseMode, onMode: (ResponseMode) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         ResponseMode.entries.forEach { item -> FilterChip(mode == item, { onMode(item) }, { Text(item.label) }) }
     }
 }
@@ -72,17 +72,17 @@ import java.util.Date
     var expanded by rememberSaveable(note.id) { mutableStateOf(false) }
     var planning by rememberSaveable(note.id, attempt?.id) { mutableStateOf(attempt?.mode == ResponseMode.PLAN) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) {
             TextButton({ expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
                 Text(response.prompt, maxLines = if (expanded) 8 else 2, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Text(if (expanded) "Less" else "More", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelSmall)
+                Text(if (expanded) "Less" else "More", Modifier.padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.labelSmall)
             }
             attempt?.let {
                 Text(listOfNotNull(it.title, response.marks?.let { marks -> "$marks marks" }, response.targetMinutes?.let { minutes -> "$minutes min target" }).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall)
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 TextButton(onAttempts) { Text("Attempts · ${response.attempts.size}") }
                 if (attempt != null) TextButton({ planning = !planning }) { Text(if (planning) "Hide plan" else "Plan") }
                 if (attempt != null) TextButton({ model.addPage(Paper.RULED); model.openAt(note.id, model.state.value.pageIndex) }) { Text("Continue on new page") }
@@ -123,8 +123,8 @@ import java.util.Date
         return
     }
     FolioPanel(title = "Response attempts", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(response.prompt, style = MaterialTheme.typography.titleMedium)
             Text(listOfNotNull(note.exam.subjectLabel.takeIf { it.isNotBlank() }, response.topic.takeIf { it.isNotBlank() },
                 response.marks?.let { "$it marks" }, response.targetMinutes?.let { "$it minute target" }).joinToString(" · "))
@@ -142,7 +142,7 @@ import java.util.Date
                 val existingPages = note.pages.count { it.id in attempt.pageIds }
                 val parent = response.attempts.find { it.id == attempt.parentId }
                 OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text(attempt.title + if (attempt.id == current?.id) " · Current" else "", style = MaterialTheme.typography.titleSmall)
                         Text("${attempt.mode.label} · $existingPages pages · ${DateFormat.getDateInstance().format(Date(attempt.created))}", style = MaterialTheme.typography.bodySmall)
                         parent?.let { Text("From ${it.title}", style = MaterialTheme.typography.bodySmall) }
@@ -150,7 +150,7 @@ import java.util.Date
                             Text("${mark.score}${mark.total?.let { " / $it" }.orEmpty()} marks", style = MaterialTheme.typography.labelLarge)
                         }
                         if (existingPages < attempt.pageIds.size) Text("Some pages have been deleted.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             TextButton({ model.openResponseAttempt(note.id, attempt.id); onDismiss() }, enabled = existingPages > 0) { Text("Open") }
                             TextButton({ model.openResponseAttempt(note.id, attempt.id, beside = true); onDismiss() }, enabled = existingPages > 0 && attempt.id != current?.id) { Text("Compare") }
                             TextButton({ model.newResponseAttempt(note.id, attempt.mode, attempt.id, copyForMarking = true); onDismiss() }, enabled = existingPages > 0 && existingPages == attempt.pageIds.size) { Text("Copy for marking") }
@@ -182,8 +182,8 @@ import java.util.Date
         note.feedbackActions.filter { showCompleted || !it.done }.map { note to it }
     }
     FolioPanel(title = "Feedback actions", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             if (sourceNote != null && sourcePage != null) {
                 Text("New action · ${sourcePage.title.ifBlank { "Page ${sourceNote.pages.indexOfFirst { it.id == sourcePage.id } + 1}" }}", style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(text, { text = it.take(2000); sourceTextId = null }, label = { Text("What should you improve?") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
@@ -197,26 +197,26 @@ import java.util.Date
                         } }
                     }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FeedbackPractice.entries.forEach { item -> FilterChip(practice == item, { practice = item }, { Text(item.label) }) }
                 }
                 Button({ model.addFeedbackAction(sourceNote.id, sourcePage.id, text, practice, sourceTextId); text = ""; sourceTextId = null }, enabled = text.isNotBlank()) { Text("Add action") }
                 HorizontalDivider()
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 FilterChip(allSubjects, { allSubjects = true }, { Text("All subjects") })
                 notes.map { it.exam.subjectLabel }.distinct().sorted().forEach { label ->
                     FilterChip(!allSubjects && subject == label, { allSubjects = false; subject = label }, { Text(label.ifBlank { "No subject" }) })
                 }
                 FilterChip(showCompleted, { showCompleted = !showCompleted }, { Text("Include completed") })
             }
-            if (rows.isEmpty()) Text("No ${if (showCompleted) "" else "open "}actions here. Turn a marking comment into a focused practice task.")
+            if (rows.isEmpty()) EmptyHint("No ${if (showCompleted) "" else "open "}actions here. Turn a marking comment into a focused practice task.")
             rows.forEach { (note, action) ->
                 val pageIndex = note.pages.indexOfFirst { it.id == action.pageId }
                 val attempt = note.longResponse?.attempts?.find { it.id == action.practiceAttemptId }
                 val practiceAvailable = attempt?.pageIds?.any { id -> note.pages.any { it.id == id } } == true
                 OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text(note.title, style = MaterialTheme.typography.labelMedium)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(action.done, { model.completeFeedbackAction(note.id, action.id, it) })
@@ -224,14 +224,14 @@ import java.util.Date
                         }
                         Text(action.practice.label, style = MaterialTheme.typography.bodySmall)
                         if (pageIndex < 0) Text("The original page was deleted; feedback is retained.", style = MaterialTheme.typography.bodySmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             TextButton({ model.openAt(note.id, pageIndex); onDismiss() }, enabled = pageIndex >= 0) { Text("Source page") }
                             TextButton({
                                 if (practiceAvailable) model.openResponseAttempt(note.id, attempt.id)
                                 else model.newResponseAttempt(note.id, action.practice.mode, actionId = action.id)
                                 onDismiss()
                             }) { Text(if (practiceAvailable) "Resume practice" else "Practise") }
-                            TextButton({ removeNote = note.id; removeAction = action.id }) { Text("Remove") }
+                            TextButton({ removeNote = note.id; removeAction = action.id }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Remove") }
                         }
                     }
                 }
@@ -240,6 +240,6 @@ import java.util.Date
     }
     if (removeAction != null) AlertDialog(onDismissRequest = { removeAction = null }, title = { Text("Remove feedback action?") },
         text = { Text("The original comment and any practice pages are kept.") },
-        confirmButton = { TextButton({ model.removeFeedbackAction(removeNote!!, removeAction!!); removeAction = null }) { Text("Remove") } },
+        confirmButton = { TextButton({ model.removeFeedbackAction(removeNote!!, removeAction!!); removeAction = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Remove") } },
         dismissButton = { TextButton({ removeAction = null }) { Text("Cancel") } })
 }

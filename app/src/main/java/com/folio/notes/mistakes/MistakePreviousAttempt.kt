@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.EmptyHint
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -65,7 +67,7 @@ internal fun PreviousAttemptDialog(
                 }
                 if (current == null) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("No previous attempts yet — your first page will appear here next time.")
+                        EmptyHint("No previous attempts yet — your first page will appear here next time.", textAlign = TextAlign.Center)
                     }
                 } else {
                     if (attempts.size > 1) {

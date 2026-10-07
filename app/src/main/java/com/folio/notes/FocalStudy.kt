@@ -399,6 +399,8 @@ data class FocalFocus(
         const val PARK_CLOSED = "closed"
         /** An exam timer started and took over. */
         const val PARK_EXAM = "exam"
+        /** The user installed an app update, which restarts Folio. */
+        const val PARK_UPDATE = "update"
     }
 }
 
@@ -408,6 +410,7 @@ internal fun focalFocusStatus(focus: FocalFocus): String? = when {
     focus.parkReason == FocalFocus.PARK_AWAY -> "Stopped when you left the pages"
     focus.parkReason == FocalFocus.PARK_CLOSED -> "Recovered after Folio closed"
     focus.parkReason == FocalFocus.PARK_EXAM -> "Paused for the exam timer"
+    focus.parkReason == FocalFocus.PARK_UPDATE -> "Paused for the app update"
     else -> "Paused"
 }
 
@@ -419,6 +422,7 @@ internal fun focalFocusStatusDetail(focus: FocalFocus): String? = when {
     focus.parkReason == FocalFocus.PARK_CLOSED ->
         "Time after the last checkpoint (up to 30 seconds before Folio closed) was not counted. Resume to carry on."
     focus.parkReason == FocalFocus.PARK_EXAM -> "Resume regular study after the exam timer stops."
+    focus.parkReason == FocalFocus.PARK_UPDATE -> "Folio paused your session to install an update. Resume to carry on."
     else -> null
 }
 

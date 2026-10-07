@@ -84,6 +84,92 @@ private fun checkStickyNotes() {
     println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history and portable round trips passed")
 }
 
+private fun checkNotebookDrops() {
+    val study = Folder("study", "Study")
+    val maths = Folder("maths", "Maths", study.id)
+    val calculus = Folder("calculus", "Calculus", maths.id)
+    val duplicate = Folder("duplicate", "MATHS")
+    val folders = listOf(study, maths, calculus, duplicate)
+    val a = Notebook(id = "a", title = "Algebra", folderId = maths.id, tags = listOf("Revision"))
+    val b = Notebook(id = "b", title = "Biology", starred = true)
+    val notes = listOf(a, b)
+    val pair = NotebookDragPayload.Notes(setOf(a.id, b.id), "2 notebooks")
+    val single = NotebookDragPayload.Notes(setOf(a.id), a.title)
+    val here = NotebookDropDestination.Folder(maths.id, maths.name)
+    val root = NotebookDropDestination.Folder(null, "Unfiled")
+    check(NotebookDropRules.selection(a.id, setOf(a.id, b.id, "missing"), notes) == pair.ids)
+    check(NotebookDropRules.selection(b.id, setOf(a.id), notes) == setOf(b.id))
+    check(!NotebookDropRules.canDrop(single, here, notes, folders))
+    check(NotebookDropRules.canDrop(pair, here, notes, folders))
+    check(NotebookDropRules.canDrop(single, root, notes, folders))
+    check(!NotebookDropRules.canDrop(single, here.copy(id = "missing"), notes, folders))
+    check(!NotebookDropRules.canDrop(single.copy(ids = setOf(a.id, "missing")), root, notes, folders))
+    check(!NotebookDropRules.canDrop(single.copy(ids = emptySet()), root, notes, folders))
+    check(NotebookDropRules.canDrop(pair, NotebookDropDestination.Favorites, notes, folders))
+    check(!NotebookDropRules.canDrop(NotebookDragPayload.Notes(setOf(b.id), b.title), NotebookDropDestination.Favorites, notes, folders))
+    val tag = NotebookDropDestination.Tag("revision")
+    check(!NotebookDropRules.canDrop(single, tag, notes, folders))
+    check(NotebookDropRules.canDrop(pair, tag, notes, folders))
+    check(!NotebookDropRules.canDrop(pair, NotebookDropDestination.Tag(" "), notes, folders))
+    check(!NotebookDropRules.canDrop(pair, NotebookDropDestination.Tag("x".repeat(41)), notes, folders))
+    val full = b.copy(tags = (0 until NotebookTags.MAX_TAGS).map { "Tag $it" })
+    check(!NotebookDropRules.canDrop(pair, tag, listOf(a, full), folders))
+    check(NotebookDropRules.canDrop(pair, NotebookDropDestination.Tag("tag 0"), listOf(a, full), folders))
+    val folder = NotebookDragPayload.Folder(maths.id, maths.name)
+    check(!NotebookDropRules.canDrop(folder, here, notes, folders))
+    check(!NotebookDropRules.canDrop(folder, NotebookDropDestination.Folder(calculus.id, calculus.name), notes, folders))
+    check(!NotebookDropRules.canDrop(folder, root, notes, folders)) // Duplicate sibling name.
+    check(NotebookDropRules.canDrop(folder, root, notes, folders - duplicate))
+    check(!NotebookDropRules.canDrop(folder, NotebookDropDestination.Favorites, notes, folders))
+    check(!NotebookDropRules.canDrop(folder, tag, notes, folders))
+    val parent = NotebookDropDestination.Folder(study.id, study.name)
+    check(!NotebookDropRules.canDrop(folder, parent, notes, folders))
+    check(NotebookDropRules.canOpen(folder, parent, folders)) // Navigate through no-op destinations.
+    check(NotebookDropRules.canOpen(single, here, folders))
+    check(!NotebookDropRules.canOpen(folder, here, folders))
+    check(!NotebookDropRules.canOpen(folder, NotebookDropDestination.Folder(calculus.id, calculus.name), folders))
+    check(!NotebookDropRules.canOpen(single, here.copy(id = "missing"), folders))
+    check(!NotebookDropRules.canOpen(pair, tag, folders))
+    check(NotebookDropRules.edgeScroll(0f, 0f, 200f, 50f) == -1f)
+    check(NotebookDropRules.edgeScroll(25f, 0f, 200f, 50f) == -.5f)
+    check(NotebookDropRules.edgeScroll(100f, 0f, 200f, 50f) == 0f)
+    check(NotebookDropRules.edgeScroll(175f, 0f, 200f, 50f) == .5f)
+    check(NotebookDropRules.edgeScroll(200f, 0f, 200f, 50f) == 1f)
+    check(NotebookDropRules.edgeScroll(-1f, 0f, 200f, 50f) == 0f)
+    check(NotebookDropRules.edgeScroll(201f, 0f, 200f, 50f) == 0f)
+    check(NotebookDropRules.edgeScroll(10f, 20f, 20f, 50f) == 0f)
+    check(NotebookDropRules.edgeScroll(10f, 0f, 20f, 0f) == 0f)
+    check(NotebookDropRules.edgeScroll(10f, 0f, 20f, 50f) == 0f)
+    println("Notebook drag: captured selections, mixed drops, no-ops, stale IDs, tag limits, folder cycles/collisions, hover navigation and edge scrolling passed.")
+}
+
+private fun checkSharedStorageFiles() {
+    val temp = kotlin.io.path.createTempDirectory("folio-disk-check-").toFile()
+    try {
+        val root = File(temp, "storage").apply { mkdir() }.canonicalFile
+        val outside = File(temp, "storage-other").apply { mkdir() }.canonicalFile
+        check(SharedStorageRules.contains(listOf(root), root))
+        check(SharedStorageRules.contains(listOf(root), File(root, "Documents/note.pdf")))
+        check(!SharedStorageRules.contains(listOf(root), outside))
+        check(!SharedStorageRules.contains(listOf(root), File(root, "../storage-other/file").canonicalFile))
+        val original = File(root, "note.pdf").apply { writeText("Original contents") }
+        val first = SharedStorageRules.createCopy(root, original.name)
+        val second = SharedStorageRules.createCopy(root, original.name)
+        check(first.name == "note (1).pdf" && second.name == "note (2).pdf")
+        check(first.exists() && second.exists() && original.readText() == "Original contents")
+        val hidden = File(root, ".notes").apply { createNewFile() }
+        check(SharedStorageRules.createCopy(root, hidden.name).name == ".notes (1)")
+        listOf("", ".", "..", "../outside", "a/b", "a\\b", "a\u0000b").forEach { name ->
+            rejects("unsafe disk file name") { SharedStorageRules.createCopy(root, name) }
+        }
+        val link = File(root, "escape")
+        java.nio.file.Files.createSymbolicLink(link.toPath(), outside.toPath())
+        check(!SharedStorageRules.contains(listOf(root), link.canonicalFile))
+        java.nio.file.Files.delete(link.toPath())
+        println("Shared storage: root boundaries, traversal/symlink escapes, invalid names and copies without overwriting passed.")
+    } finally { temp.deleteRecursively() }
+}
+
 private fun checkExplorerOrganization() {
     val root = Folder("root", "Study")
     val child = Folder("child", "Maths", root.id)
@@ -133,6 +219,8 @@ private fun checkExplorerOrganization() {
 }
 
 fun main() = runBlocking {
+    checkNotebookDrops()
+    checkSharedStorageFiles()
     checkExplorerOrganization()
     checkStickyNotes()
     checkResponseMetadata()

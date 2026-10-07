@@ -90,7 +90,7 @@ internal data class StatTileData(val icon: ImageVector, val value: String, val l
         contentColor = if (strong) scheme.onPrimaryContainer else scheme.onSurfaceVariant) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            if (icon != null) Icon(icon, null, Modifier.size(14.dp))
+            if (icon != null) Icon(icon, null, Modifier.size(16.dp))
             Text(text, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }

@@ -4,6 +4,10 @@ package com.folio.notes
 
 import android.content.ClipData
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.text.format.Formatter
@@ -29,6 +33,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private enum class FileSort(val label: String) { NAME("Name A–Z"), RECENT("Last modified"), SIZE("Largest first") }
 private data class DeviceClipboard(val file: DeviceFile, val parent: String, val move: Boolean)
@@ -39,6 +48,9 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     val prefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     val files = remember(context) { DeviceFiles(context.applicationContext) }
     val scope = rememberCoroutineScope()
+    val tabletStorage = remember(context) { TabletStorage(context.applicationContext) }
+    var fullAccess by remember { mutableStateOf(tabletStorage.granted()) }
+    var waitingForAccess by rememberSaveable { mutableStateOf(false) }
     var trees by remember { mutableStateOf(AppPrefs.explorerLocations(prefs.getStringSet(AppPrefs.EXPLORER_LOCATIONS, emptySet())).toList()) }
     var locationsLoading by remember { mutableStateOf(trees.isNotEmpty()) }
     var clipboard by remember { mutableStateOf<DeviceClipboard?>(null) }
@@ -49,6 +61,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(FileSort.NAME) }
     var pdfOnly by rememberSaveable { mutableStateOf(false) }
+    var showHiddenFolders by rememberSaveable { mutableStateOf(prefs.getBoolean(AppPrefs.EXPLORER_SHOW_HIDDEN_FOLDERS, AppPrefs.DEFAULT_EXPLORER_SHOW_HIDDEN_FOLDERS)) }
     var selectedUris by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -72,6 +85,31 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     fun visit(tree: String, name: String) {
         activeTree = tree; pathUris = listOf(files.root(Uri.parse(tree)).toString()); pathNames = listOf(name); query = ""; clearSelection()
     }
+    fun updateAccess() {
+        fullAccess = tabletStorage.granted()
+        if (fullAccess && waitingForAccess) {
+            waitingForAccess = false
+            visit(Uri.fromFile(Environment.getExternalStorageDirectory()).toString(), "Internal storage")
+        }
+        refresh++
+    }
+    val accessSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { updateAccess() }
+    val legacyAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { updateAccess() }
+    val lifecycle = LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) updateAccess() }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    fun requestAccess() {
+        waitingForAccess = !fullAccess
+        if (Build.VERSION.SDK_INT < 30) legacyAccess.launch(TabletStorage.legacyPermissions)
+        else try { accessSettings.launch(tabletStorage.settingsIntent()) }
+        catch (_: ActivityNotFoundException) {
+            try { accessSettings.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+            catch (_: ActivityNotFoundException) { model.reportError("Open Android settings → Special app access → All files access → Folio") }
+        }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) scope.launch {
             try {
@@ -87,16 +125,17 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
             catch (e: Exception) { model.reportError("Couldn't connect this folder: ${e.message.orEmpty()}") }
         }
     }
-    LaunchedEffect(trees, refresh) {
-        locationsLoading = trees.isNotEmpty()
-        locations = trees.map { tree ->
+    LaunchedEffect(trees, refresh, fullAccess) {
+        locationsLoading = trees.isNotEmpty() || fullAccess
+        val disk = if (fullAccess) withContext(Dispatchers.IO) { tabletStorage.volumes() }.map { DeviceLocation(it.uri.toString(), it.name, true) } else emptyList()
+        locations = disk + trees.map { tree ->
             try { DeviceLocation(tree, files.info(files.root(Uri.parse(tree))).name, true) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { DeviceLocation(tree, "Unavailable folder", false) }
         }.sortedBy { it.name.lowercase() }
         locationsLoading = false
     }
-    LaunchedEffect(current, refresh) {
+    LaunchedEffect(current, refresh, fullAccess) {
         children = emptyList(); parent = null; error = null; loading = current != null
         if (current != null) try {
             val uri = Uri.parse(current)
@@ -104,11 +143,14 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
             children = files.children(uri)
             selectedUris = selectedUris.filter { id -> children.any { it.uri.toString() == id } }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = "This folder may have moved, or access has expired. Reconnect it or try again." }
+        catch (e: Exception) { error = if (Uri.parse(current).scheme == "file")
+            if (!fullAccess) "Enable all files access to browse this storage." else "Android doesn't allow access to this folder, or the storage is disconnected."
+            else "This folder may have moved, or access has expired. Reconnect it or try again." }
         finally { loading = false }
     }
-    val visible = remember(children, query, pdfOnly, sort) {
-        children.filter { it.name.contains(query.trim(), true) && (!pdfOnly || it.directory || it.pdf || it.folio) }
+    val visible = remember(children, query, pdfOnly, sort, showHiddenFolders) {
+        children.filter { (showHiddenFolders || !it.directory || !it.name.startsWith('.')) &&
+            it.name.contains(query.trim(), true) && (!pdfOnly || it.directory || it.pdf || it.folio) }
             .sortedWith(compareByDescending<DeviceFile> { it.directory }.then(when (sort) {
                 FileSort.NAME -> compareBy { it.name.lowercase() }
                 FileSort.RECENT -> compareByDescending { it.modified }
@@ -131,12 +173,21 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     BackHandler { back() }
     fun launchFile(file: DeviceFile, share: Boolean = false) {
         try {
-            val intent = if (share) Intent(Intent.ACTION_SEND).setType(file.mime).putExtra(Intent.EXTRA_STREAM, file.uri)
-                else Intent(Intent.ACTION_VIEW).setDataAndType(file.uri, file.mime)
+            val uri = files.contentUri(file.uri)
+            val intent = if (share) Intent(Intent.ACTION_SEND).setType(file.mime).putExtra(Intent.EXTRA_STREAM, uri)
+                else Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mime)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            intent.clipData = ClipData.newUri(context.contentResolver, file.name, file.uri)
+            intent.clipData = ClipData.newUri(context.contentResolver, file.name, uri)
             context.startActivity(Intent.createChooser(intent, if (share) "Share ${file.name}" else "Open ${file.name}"))
         } catch (_: Exception) { model.reportError("No app could open this file") }
+    }
+    fun importFiles(selection: List<DeviceFile>) {
+        try {
+            val uris = selection.map { files.contentUri(it.uri) }
+            if (selection.size == 1 && !selection.single().pdf) model.importArchive(uris.single())
+            else model.preparePdfImport(uris)
+            clearSelection()
+        } catch (e: Exception) { model.reportError("Couldn't open this file: ${e.message.orEmpty()}") }
     }
     fun mutate(success: String, block: suspend () -> Unit) {
         if (changing) return
@@ -151,28 +202,41 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 760.dp
         Row(Modifier.fillMaxSize()) {
-            if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = 16.dp, bottom = 12.dp), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    item { Text("Locations", Modifier.padding(8.dp), style = MaterialTheme.typography.titleSmall) }
-                    item { ExplorerPlace("Connected folders", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } } }
-                    items(locations, key = { it.tree }) { location -> ExplorerPlace(location.name, Icons.Rounded.FolderOpen, activeTree == location.tree) { if (!changing) { if (location.available) visit(location.tree, location.name) else picker.launch(Uri.parse(location.tree)) } } }
-                    item { TextButton({ picker.launch(activeTree?.let(Uri::parse)) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(4.dp)); Text("Connect folder") } }
+            if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = FolioSpacing.dp16, bottom = FolioSpacing.dp12), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                LazyColumn(contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                    item { Text("Locations", Modifier.padding(FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall) }
+                    item { ExplorerPlace("Tablet storage", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } } }
+                    items(locations, key = { it.tree }) { location -> ExplorerPlace(location.name, Icons.Rounded.FolderOpen, activeTree == location.tree) { if (!changing) { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) } } }
+                    item { TextButton({ picker.launch(activeTree?.let(Uri::parse)) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Connect folder") } }
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(horizontal = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     if (current != null) ExplorerBreadcrumbs(listOf("Locations" to { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } }) + pathNames.mapIndexed { index, name -> name to { if (!changing) { pathUris = pathUris.take(index + 1); pathNames = pathNames.take(index + 1); query = ""; clearSelection() } } })
-                    else Text("Connected folders", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium)
+                    else Text("Tablet storage", Modifier.padding(top = FolioSpacing.dp8), style = MaterialTheme.typography.titleMedium)
+                    if (current == null && !fullAccess) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            Text("Browse your whole tablet", style = MaterialTheme.typography.titleMedium)
+                            Text("Enable all files access once to browse internal storage, Downloads and available SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
+                            Button({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Enable all files access") }
+                        }
+                    }
                     if (current != null) ExplorerSearch(query, { query = it }, "Search files in this folder")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (current == null) Button({ picker.launch(null) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Connect folder") }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        if (current == null && fullAccess) TextButton({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("All files access") }
+                        if (current == null) FilledTonalButton({ picker.launch(null) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Connect folder") }
                         if (current != null) {
                             FilledTonalButton({ newFolder = true }, enabled = !loading && !changing && parent?.supports(DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) == true,
-                                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(8.dp)); Text("New folder") }
+                                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
                             IconButton({ refresh++ }, enabled = !loading && !changing, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Refresh, "Refresh files") }
                             FilterChip(pdfOnly, { pdfOnly = !pdfOnly }, { Text("PDF & Folio") })
+                            FilterChip(showHiddenFolders, {
+                                showHiddenFolders = !showHiddenFolders
+                                prefs.edit().putBoolean(AppPrefs.EXPLORER_SHOW_HIDDEN_FOLDERS, showHiddenFolders).apply()
+                            }, { Text("Show hidden folders", maxLines = 1, softWrap = false) },
+                                leadingIcon = { Icon(if (showHiddenFolders) Icons.Rounded.Check else Icons.Rounded.VisibilityOff, null, Modifier.size(18.dp)) })
                             Box {
-                                TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, null); Spacer(Modifier.width(4.dp)); Text(sort.label) }
+                                TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label) }
                                 DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) { FileSort.entries.forEach { option -> DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) }) } }
                             }
                             TextButton({ selecting = !selecting; selectedUris = emptyList() }, enabled = !loading && !changing && (selecting || visible.any { !it.directory }), shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
@@ -180,7 +244,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                     }
                     clipboard?.let { clip ->
                         Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(if (clip.move) "Move · ${clip.file.name}" else "Copy · ${clip.file.name}", style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text("Browse to a destination, then paste", style = MaterialTheme.typography.bodySmall)
@@ -199,39 +263,49 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                             }
                         }
                     }
-                    if (changing) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { LoadingIndicator(Modifier.size(32.dp)); Text("Updating files…", style = MaterialTheme.typography.bodySmall) }
+                    if (changing) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) { LoadingIndicator(Modifier.size(32.dp)); Text("Updating files…", style = MaterialTheme.typography.bodySmall) }
                 }
                 val scroll = androidx.compose.foundation.lazy.rememberLazyListState()
-                LaunchedEffect(current, query, sort, pdfOnly) { scroll.scrollToItem(0) }
-                LazyColumn(state = scroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LaunchedEffect(current, query, sort, pdfOnly, showHiddenFolders) { scroll.scrollToItem(0) }
+                LazyColumn(state = scroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     if (current == null) {
-                        item { Text("Connect a folder to browse it here. PDFs and Folio notebooks can be copied into your library; other files open in their usual app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        item { Text("Browse tablet storage or connect a cloud folder. PDFs and Folio notebooks can be copied into your library; other files open in their usual app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         items(locations, key = { it.tree }) { location ->
                             var menu by remember { mutableStateOf(false) }
                             ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", Icons.Rounded.FolderOpen,
-                                { if (location.available) visit(location.tree, location.name) else picker.launch(Uri.parse(location.tree)) }, trailing = {
+                                { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) }, trailing = {
                                     Box {
                                         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Location options") }
                                         DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                                            DropdownMenuItem({ Text("Reconnect") }, { menu = false; picker.launch(Uri.parse(location.tree)) })
-                                            DropdownMenuItem({ Text("Disconnect") }, { menu = false; forget = location })
+                                            if (Uri.parse(location.tree).scheme == "file") DropdownMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
+                                            else {
+                                                DropdownMenuItem({ Text("Reconnect") }, { menu = false; picker.launch(Uri.parse(location.tree)) })
+                                                DropdownMenuItem({ Text("Disconnect") }, { menu = false; forget = location })
+                                            }
                                         }
                                     }
                                 })
                         }
-                        if (locationsLoading) item { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { LoadingIndicator() } }
-                        if (locations.isEmpty() && !locationsLoading) item { ExplorerEmpty(Icons.Rounded.TabletAndroid, "Your tablet, within reach", "Choose a folder once to keep it here. Android’s picker also provides individual files from Downloads and other locations.") {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (locationsLoading) item { Box(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), contentAlignment = Alignment.Center) { LoadingIndicator() } }
+                        if (locations.isEmpty() && !locationsLoading) item { ExplorerEmpty(Icons.Rounded.TabletAndroid, "Your tablet, within reach", "Enable all files access above, or connect a folder from a document provider.") {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 TextButton(onImport, shapes = ButtonDefaults.shapes()) { Text("Choose PDF files") }
                                 TextButton(onImportArchive, shapes = ButtonDefaults.shapes()) { Text("Choose Folio file") }
                             }
                         } }
-                    } else if (loading) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { ContainedLoadingIndicator() } }
+                    } else if (loading) item { Box(Modifier.fillMaxWidth().padding(FolioSpacing.dp32), contentAlignment = Alignment.Center) { ContainedLoadingIndicator() } }
                     else if (error != null) item { ExplorerEmpty(Icons.Rounded.FolderOff, "Couldn't open this folder", error!!) {
-                        Row { TextButton({ refresh++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }; Button({ picker.launch(activeTree?.let(Uri::parse)) }, shapes = ButtonDefaults.shapes()) { Text("Reconnect") } }
+                        Row { TextButton({ refresh++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }; Button({ if (Uri.parse(current).scheme == "file") requestAccess() else picker.launch(activeTree?.let(Uri::parse)) }, shapes = ButtonDefaults.shapes()) { Text(if (Uri.parse(current).scheme == "file") "Access settings" else "Reconnect") } }
                     } }
                     else {
-                        if (visible.isEmpty()) item { ExplorerEmpty(Icons.Rounded.FolderOpen, if (query.isNotBlank() || pdfOnly) "No matching files" else "This folder is empty", if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter." else "Create a folder here, or bring files in using your tablet’s file manager.") }
+                        if (visible.isEmpty()) item {
+                            val hiddenFolders = !showHiddenFolders && children.any { it.directory && it.name.startsWith('.') }
+                            ExplorerEmpty(Icons.Rounded.FolderOpen,
+                                if (query.isNotBlank() || pdfOnly) "No matching files" else if (hiddenFolders) "No visible files" else "This folder is empty",
+                                if (hiddenFolders) "Turn on Show hidden folders to include dot-prefixed folders."
+                                else if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter."
+                                else "Create a folder here, or bring files in using your tablet’s file manager.")
+                        }
                         items(visible, key = { it.uri.toString() }) { file ->
                             var menu by remember { mutableStateOf(false) }
                             val selected = file.uri.toString() in selectedUris
@@ -263,10 +337,10 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                                     DropdownMenuItem({ Text("Copy") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), false) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                                                     if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) DropdownMenuItem({ Text("Move") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), true) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
                                                 }
-                                                DropdownMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) })
+                                                DropdownMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
                                             }
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) DropdownMenuItem({ Text("Rename") }, { menu = false; rename = file })
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) DropdownMenuItem({ Text("Delete") }, { menu = false; delete = file })
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) DropdownMenuItem({ Text("Rename") }, { menu = false; rename = file }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) DropdownMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
                                         }
                                     } }, colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow))
                             }
@@ -275,9 +349,9 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                 }
                 if (selecting) ExplorerSelectionBar(selection.size, visible.count { !it.directory },
                     { selectedUris = if (selection.size == visible.count { !it.directory }) emptyList() else visible.filterNot { it.directory }.map { it.uri.toString() } }, { clearSelection() }) {
-                    Button({ model.preparePdfImport(selection.map { it.uri }); clearSelection() }, enabled = selection.isNotEmpty() && selection.all { it.pdf && !it.virtual } && !state.busy && !state.loading && !state.loadFailed,
+                    Button({ importFiles(selection) }, enabled = selection.isNotEmpty() && selection.all { it.pdf && !it.virtual } && !state.busy && !state.loading && !state.loadFailed,
                         shapes = ButtonDefaults.shapes()) { Text("Import PDFs") }
-                    Spacer(Modifier.width(8.dp)); Text("Select PDFs to import together", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Select PDFs to import together", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -300,5 +374,5 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     importFile?.let { file -> AlertDialog(onDismissRequest = { importFile = null }, modifier = Modifier.guardUiTouches(), title = { Text(file.name) },
         text = { Text("Import a copy into your notebooks to read and write on it. The original stays in this folder.") },
         dismissButton = { TextButton({ importFile = null; launchFile(file) }, shapes = ButtonDefaults.shapes()) { Text("Open with…") } },
-        confirmButton = { Button({ importFile = null; if (file.pdf) model.preparePdfImport(listOf(file.uri)) else model.importArchive(file.uri) }, enabled = !state.busy && !state.loading && !state.loadFailed, shapes = ButtonDefaults.shapes()) { Text("Import to Folio") } }) }
+        confirmButton = { Button({ importFile = null; importFiles(listOf(file)) }, enabled = !state.busy && !state.loading && !state.loadFailed, shapes = ButtonDefaults.shapes()) { Text("Import to Folio") } }) }
 }

@@ -111,7 +111,7 @@ fun FocalStudyChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onC
             ) {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                    Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(15.dp))
+                    Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(16.dp))
                     Text(when {
                         examActive -> label.removePrefix("Focal · ")
                         isPaused -> "$pauseWord · ${formatChipElapsed(activeElapsed)}"
@@ -394,7 +394,7 @@ internal fun FocalStudyContent(
             Text(if (dedicated) "Session history" else "Recent sessions", style = MaterialTheme.typography.titleMedium)
         }
         if (recent.isEmpty()) item(key = "empty-history") {
-            Text("No completed sessions yet. Your saved study will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            EmptyHint("No completed sessions yet. Your saved study will appear here.")
         }
         items(recent, key = { it.id }) { entry ->
             val minutes = (focalActiveMillisBetween(entry, entry.startedAt, entry.endedAt) / 60_000L).toInt().coerceAtLeast(1)
@@ -645,7 +645,7 @@ private fun SubjectPicker(subjects: List<FocalSubject>, selected: String?, onSel
                 FilterChip(selected = selected == subject.id, onClick = { onSelect(if (selected == subject.id) null else subject.id) },
                     label = { Text(subject.name, maxLines = 1, overflow = TextOverflow.Ellipsis) })
             }
-            if (subjects.isEmpty()) Text("No subjects yet — sessions are saved without one.", style = MaterialTheme.typography.bodySmall)
+            if (subjects.isEmpty()) EmptyHint("No subjects yet — sessions are saved without one.")
         }
     }
 }
