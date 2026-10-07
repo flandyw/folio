@@ -381,6 +381,7 @@ import kotlinx.coroutines.withContext
             // Full screen hides the status bar, so its inset is zero. Screens without a top bar of
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (16.dp - padding.calculateTopPadding()).coerceAtLeast(0.dp)
+            CompositionLocalProvider(LocalDestinationTopGap provides topGap) {
             Box(Modifier.fillMaxSize().padding(padding).then(
                 if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
@@ -420,7 +421,7 @@ import kotlinx.coroutines.withContext
                             showMusic = showMusic,
                             onMusic = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = false; showMusic = true },
                             musicContent = { onReaderMode ->
-                                com.folio.notes.music.MusicScreen(model, state, finger, haptics, shapeRecognition, topGap, onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
+                                com.folio.notes.music.MusicScreen(model, state, finger, haptics, shapeRecognition, onReaderMode = onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
                             },
                             studyContent = { StudyTimerScreen(state.notes.filterNot { it.hiddenFromLibrary }, state.timer,
                                 onAccount = { focalAccountOpen = true }) },
@@ -442,7 +443,7 @@ import kotlinx.coroutines.withContext
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
                             onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                             onFolder = { folderDialog = true }, onSettings = { settings = true },
-                            showMistakes = showMistakes, topGap = topGap,
+                            showMistakes = showMistakes,
                             onLibrary = { showStudy = false; showMistakes = false; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
                                 if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)
@@ -469,6 +470,7 @@ import kotlinx.coroutines.withContext
                             }
                         }
                 }
+            }
             }
         }
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {

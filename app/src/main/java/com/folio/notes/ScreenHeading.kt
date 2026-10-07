@@ -2,14 +2,15 @@ package com.folio.notes
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -19,76 +20,83 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The horizontal inset every sidebar destination shares.
- *
- * A destination's heading and the content under it both start on this edge, so Library, Mistakes,
- * Study, Music, Explorer and Progress read as one shell rather than each picking its own margin.
- * Grids and scrolling columns that carry the destination's content use it as their horizontal
- * `contentPadding`; [FolioScreenHeading] applies it itself by default.
+ * The horizontal inset every destination shares. A destination's heading and the content under it
+ * both start on this edge; grids and scrolling columns use it as their horizontal `contentPadding`.
  */
 val FolioDestinationInset: Dp = FolioSpacing.dp16
 
-/**
- * Vertical breathing room the shared destination rhythm uses above and below a heading. A pane whose
- * heading is flush — because a grid or bar already insets it — uses it for the same gap itself, so
- * every destination puts the same distance between its title and what follows.
- */
+/** The gap a heading keeps above itself (below the status bar) and below itself. */
 val FolioDestinationVerticalInset: Dp = FolioSpacing.dp8
 
 /**
- * The spacing a [FolioScreenHeading] applies by default: the shared inset, plus a little vertical
- * breath above and below the title.
+ * The title row's fixed height. Fixed rather than wrapped, so a pane with a 48 dp icon button, a
+ * 40 dp split button or no actions at all still puts its title on exactly the same line.
  */
-val FolioHeadingPadding = PaddingValues(horizontal = FolioDestinationInset, vertical = FolioDestinationVerticalInset)
+val FolioHeadingHeight: Dp = 56.dp
 
 /**
- * Pass as [FolioScreenHeading]'s `contentPadding` from a pane whose container already insets it —
- * a Material `TopAppBar`, or a lazy grid whose `contentPadding` is [FolioDestinationInset]. The
- * heading then adds nothing of its own, so the shared edge is reached exactly once.
+ * Extra space a heading keeps above itself when the status bar is hidden or shorter than 16 dp.
+ * Provided once by the shell (and by Settings), so no screen threads its own top gap.
  */
-val FolioHeadingFlush = PaddingValues(0.dp)
+val LocalDestinationTopGap = compositionLocalOf { 0.dp }
 
 /**
- * The heading every sidebar destination wears — Library, Mistakes, Study, Music, Explorer, Progress.
+ * The one heading every destination wears: Library, Explorer, Mistakes, Study, Progress, Music and
+ * Settings. Always the first thing in the pane, outside any scrolling content, and never padded by
+ * its caller: it owns the shared inset, the top gap and its height, so every title sits in the same
+ * place on every screen.
  *
- * One treatment for all of them: the same [contentPadding], a single-line [title], an optional
- * quieter [subtitle], an optional [leading] control for a nested pane (a back arrow) and a trailing
- * [actions] slot for whatever the pane puts beside its name. [actions] runs in this row's scope, so
- * its children are laid out here and share the row's spacing.
- *
- * When a destination lives in a Material `TopAppBar`, pass this as the bar's `title` with
- * [FolioHeadingFlush]: the bar already owns the inset, the status-bar gap and the
- * navigation/action slots, and the title still reads as one of the shared headings.
+ * [leading] is only for a nested pane that has somewhere to go back to; [actions] are laid out in
+ * this row's scope. [subtitle] sits under the title row, so it never moves the title.
  */
 @Composable
 fun FolioScreenHeading(
     title: String,
     modifier: Modifier = Modifier,
-    /**
-     * This heading's own outer spacing. Defaults to [FolioHeadingPadding]; a pane that its
-     * container already insets passes [FolioHeadingFlush] so the heading never double-pads.
-     */
-    contentPadding: PaddingValues = FolioHeadingPadding,
     subtitle: (@Composable () -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Row(
-        modifier.fillMaxWidth().padding(contentPadding),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+    Column(
+        modifier.fillMaxWidth().padding(
+            start = FolioDestinationInset, end = FolioDestinationInset,
+            top = LocalDestinationTopGap.current + FolioDestinationVerticalInset, bottom = FolioDestinationVerticalInset,
+        ),
     ) {
-        leading?.invoke()
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+        Row(
+            Modifier.fillMaxWidth().height(FolioHeadingHeight),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+        ) {
+            leading?.invoke()
             Text(
                 title,
                 style = MaterialTheme.typography.headlineSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier.weight(1f).semantics { heading() },
             )
-            subtitle?.invoke()
+            actions()
         }
+        subtitle?.invoke()
+    }
+}
+
+/** A titled group inside a destination's content, such as "Your notebooks" above the shelf. */
+@Composable
+fun FolioSectionHeading(title: String, modifier: Modifier = Modifier, actions: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).semantics { heading() },
+        )
         actions()
     }
 }

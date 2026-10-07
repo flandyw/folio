@@ -42,11 +42,7 @@ private enum class ExplorerCollection(val label: String) { FOLDERS("Folders"), A
 ) {
     var source by rememberSaveable { mutableStateOf(ExplorerSource.NOTEBOOKS) }
     Column(modifier.fillMaxSize().guardUiTouches()) {
-        FolioScreenHeading(
-            title = "Explorer",
-            subtitle = { Text("A place for everything", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leading = { IconButton(onShelf, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") } },
-        )
+        FolioScreenHeading("Explorer")
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioDestinationInset).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             ExplorerSource.entries.forEach { option ->
                 TonalToggleButton(checked = source == option, onCheckedChange = { source = option },

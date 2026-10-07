@@ -75,6 +75,9 @@ import kotlinx.coroutines.withContext
         if (searching) query = "" else category = null
     }
 
+    // Same top gap as the shell gives its destinations, so this heading lines up with theirs.
+    val topGap = (FolioSpacing.dp16 - WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()).coerceAtLeast(0.dp)
+    CompositionLocalProvider(LocalDestinationTopGap provides topGap) {
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         val wide = maxWidth >= 840.dp
         val open: (SettingsCategory) -> Unit = { category = it; query = "" }
@@ -102,11 +105,12 @@ import kotlinx.coroutines.withContext
             }
         }
     }
+    }
 }
 
 // ---- Shell --------------------------------------------------------------------------------------
 
-/** A collapsing title bar over a centred, scrolling column of groups. */
+/** The shared screen heading over a centred, scrolling column of groups. */
 @Composable private fun SettingsPane(
     title: String,
     onNavigate: () -> Unit,
@@ -114,24 +118,21 @@ import kotlinx.coroutines.withContext
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
-        modifier = modifier.nestedScroll(scroll.nestedScrollConnection),
+        modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            LargeTopAppBar(
-                title = { FolioScreenHeading(title, contentPadding = FolioHeadingFlush) },
-                navigationIcon = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
-                scrollBehavior = scroll,
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, scrolledContainerColor = MaterialTheme.colorScheme.surface),
+            FolioScreenHeading(
+                title,
+                leading = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
             )
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(horizontal = FolioDestinationInset).padding(top = FolioDestinationVerticalInset, bottom = FolioSpacing.dp32),
+                    .padding(horizontal = FolioDestinationInset).padding(bottom = FolioSpacing.dp32),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
                 content = content,
             )
@@ -215,8 +216,9 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
     onSelect: (SettingsCategory) -> Unit, modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            FolioScreenHeading("Settings", contentPadding = PaddingValues(horizontal = FolioSpacing.dp12, vertical = FolioDestinationVerticalInset))
+        Column(Modifier.fillMaxSize()) {
+        FolioScreenHeading("Settings")
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             SettingsSearchField(query, onQuery, Modifier.padding(bottom = FolioSpacing.dp8))
             SettingsSection.entries.forEach { section ->
                 Text(section.title, Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -227,6 +229,7 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
                     )
                 }
             }
+        }
         }
     }
 }

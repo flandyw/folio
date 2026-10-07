@@ -468,21 +468,20 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val toolbarClearance = bottomInset + if (showDestinations) toolbarHeight + FolioSpacing.dp32 else 0.dp
         val contentInset = FolioDestinationInset
         Scaffold(
-            // TopAppBar handles the top inset. Draw the body to the bottom edge; navigation/IME
+            // The shell consumes the top inset. Draw the body to the bottom edge; navigation/IME
             // clearance belongs to scroll padding and the floating toolbar, never a full-width bar.
             contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
             topBar = {
-                TopAppBar(
-                    title = { FolioScreenHeading(if (selected != null) "Question details" else "Mistakes", contentPadding = FolioHeadingFlush) },
-                    navigationIcon = {
-                        if (detail != null) IconButton({ detail = null }, shapes = IconButtonDefaults.shapes()) {
+                FolioScreenHeading(
+                    if (selected != null) "Question details" else "Mistakes",
+                    leading = if (detail != null) ({
+                        IconButton({ detail = null }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes")
                         }
-                    },
-                    actions = {
-                        FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
-                    }
-                )
+                    }) else null,
+                ) {
+                    FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
+                }
             },
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = toolbarClearance)) }
         ) { padding ->
@@ -493,7 +492,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
                         state = if (standaloneDetail) detailListState else listState,
                         contentPadding = PaddingValues(
-                            start = contentInset, top = FolioDestinationVerticalInset, end = contentInset,
+                            start = contentInset, top = 0.dp, end = contentInset,
                             bottom = contentInset + toolbarClearance,
                         ),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),

@@ -424,20 +424,23 @@ internal fun FocalStudyContent(
         }
     }
 
+    // The dedicated destination sits under a FolioScreenHeading, which already leaves the shared
+    // gap below itself; the editor's quick panel has no heading, so it keeps its own.
+    val top = if (dedicated) 0.dp else FolioSpacing.dp8
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         if (maxWidth >= 840.dp) {
             Row(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding(),
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
+                horizontalArrangement = Arrangement.spacedBy(FolioDestinationInset)) {
                 Column(Modifier.weight(5f).fillMaxHeight().verticalScroll(rememberScrollState())
-                    .padding(start = FolioSpacing.dp24, top = FolioSpacing.dp8, bottom = FolioSpacing.dp16),
+                    .padding(start = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)
                 LazyColumn(Modifier.weight(6f).fillMaxHeight(),
-                    contentPadding = PaddingValues(end = FolioSpacing.dp24, top = FolioSpacing.dp8, bottom = FolioSpacing.dp16),
+                    contentPadding = PaddingValues(end = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), content = contextItems)
             }
         } else {
-            LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter).imePadding(),
-                contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp16),
+            LazyColumn((if (dedicated) Modifier.fillMaxWidth() else Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter)).imePadding(),
+                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = if (dedicated) 0.dp else FolioSpacing.dp16, bottom = FolioSpacing.dp16),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 item(key = "timer") {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)

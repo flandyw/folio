@@ -54,9 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.AppPrefs
 import com.folio.notes.FolioDestinationInset
-import com.folio.notes.FolioDestinationVerticalInset
 import com.folio.notes.FolioExpand
-import com.folio.notes.FolioHeadingFlush
 import com.folio.notes.FolioPanel
 import com.folio.notes.FolioScreenHeading
 import com.folio.notes.FolioState
@@ -77,7 +75,7 @@ import kotlinx.coroutines.withContext
  * the shelf for the reader and asks the shell to hide its navigation ([onReaderMode]).
  */
 @Composable internal fun MusicScreen(folio: FolioViewModel, folioState: FolioState, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean,
-    topGap: Dp = 0.dp, onReaderMode: (Boolean) -> Unit = {}, onSettings: () -> Unit = {}, onBack: () -> Unit) {
+    onReaderMode: (Boolean) -> Unit = {}, onSettings: () -> Unit = {}, onBack: () -> Unit) {
     val model: MusicViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by model.state.collectAsStateWithLifecycle()
     val library = state.library
@@ -189,35 +187,36 @@ import kotlinx.coroutines.withContext
                 // Only a new scope starts at the top; returning from a score keeps the position.
                 if (inputs != shelfInputs) { shelfInputs = inputs; gridState.scrollToItem(0) }
             }
+            Column(Modifier.fillMaxSize()) {
+                    FolioScreenHeading("Music") {
+                        Box {
+                            // The same split button the notebook shelf uses for New: tap imports,
+                            // the trailing half holds the other ways to add.
+                            SplitButtonLayout(
+                                leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, enabled = ready && !state.busy) {
+                                    Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import")
+                                } },
+                                trailingButton = { SplitButtonDefaults.TrailingButton({ importMenu = true }, enabled = ready) {
+                                    Icon(Icons.Rounded.ArrowDropDown, "More ways to add music")
+                                } },
+                            )
+                            DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                DropdownMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
+                                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) }, enabled = !state.busy)
+                                DropdownMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            }
+                        }
+                    }
             LazyVerticalGrid(
                 columns = if (rows) GridCells.Fixed(1) else GridCells.Adaptive(144.dp),
-                modifier = Modifier.fillMaxSize(), state = gridState,
-                contentPadding = PaddingValues(start = FolioDestinationInset, top = FolioDestinationVerticalInset + topGap, end = FolioDestinationInset, bottom = FolioDestinationInset),
+                modifier = Modifier.weight(1f).fillMaxWidth(), state = gridState,
+                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
                 verticalArrangement = Arrangement.spacedBy(if (rows) FolioSpacing.dp8 else FolioSpacing.dp16),
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        FolioScreenHeading("Music", contentPadding = FolioHeadingFlush) {
-                            Box {
-                                // The same split button the notebook shelf uses for New: tap imports,
-                                // the trailing half holds the other ways to add.
-                                SplitButtonLayout(
-                                    leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, enabled = ready && !state.busy) {
-                                        Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import")
-                                    } },
-                                    trailingButton = { SplitButtonDefaults.TrailingButton({ importMenu = true }, enabled = ready) {
-                                        Icon(Icons.Rounded.ArrowDropDown, "More ways to add music")
-                                    } },
-                                )
-                                DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                    DropdownMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
-                                        leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) }, enabled = !state.busy)
-                                    DropdownMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
-                                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                                }
-                            }
-                        }
                         FolioExpand(state.busy) {
                             Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
@@ -389,6 +388,7 @@ import kotlinx.coroutines.withContext
                         else ScoreCard(score, model, placement, { open(score, null) }, star, menu)
                     }
                 }
+            }
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
