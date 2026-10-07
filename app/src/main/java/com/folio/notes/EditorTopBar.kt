@@ -95,8 +95,11 @@ internal val EditorFloatingGroupHeight = 46.dp
     onExport: () -> Unit,
     onSettings: () -> Unit,
     onKeyboardShortcuts: () -> Unit,
-    pageActions: @Composable (() -> Unit) -> Unit
+    pageActions: @Composable (() -> Unit) -> Unit,
+    /** False where leaving the editor mid-task is wrong (mistake review has its own back button). */
+    showBack: Boolean = true
 ) {
+    var navMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -110,13 +113,29 @@ internal val EditorFloatingGroupHeight = 46.dp
         val narrow = maxWidth < 720.dp
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
-        val leftNatural = 40.dp * 5 + FolioSpacing.dp8
+        // Below this width the page, search and layer buttons fold into one menu beside back.
+        val foldNav = maxWidth < 840.dp
+        val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
+        val leftNatural = 40.dp * navButtons + FolioSpacing.dp8
         val rightNatural = 40.dp * 2 + FolioSpacing.dp8 + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
         val sideWidth = maxOf(leftNatural, rightNatural)
         @Composable fun NavigationControls() {
             Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-                    DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
+                    if (showBack) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
+                    if (foldNav) Box {
+                        DockButton(Icons.Rounded.MoreHoriz, "Pages, search and layers", { navMenu = true })
+                        DropdownMenu(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches()) {
+                            val closeThen: (() -> Unit) -> Unit = { navMenu = false; it() }
+                            DropdownMenuItem({ Text("Browse pages") }, { closeThen(onPages) }, leadingIcon = { Icon(Icons.Rounded.GridView, null) })
+                            DropdownMenuItem({ Text("Blank page after this") }, { closeThen(onInsertPage) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            DropdownMenuItem({ Text("Blank page at end") }, { closeThen(onAdd) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            DropdownMenuItem({ Text("Duplicate this page") }, { closeThen(onDuplicatePage) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                            DropdownMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            DropdownMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
+                        }
+                        layersPopover()
+                    } else {
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     Box {
                         DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
@@ -130,6 +149,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                     Box {
                         DockButton(Icons.Rounded.Layers, "Layers", onLayers)
                         layersPopover()
+                    }
                     }
                 }
             } }

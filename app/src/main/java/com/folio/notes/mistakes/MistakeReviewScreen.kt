@@ -5,6 +5,8 @@ package com.folio.notes.mistakes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -219,6 +221,9 @@ import com.folio.notes.*
                         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel and text size") }
+                            ShareTextButton(
+                                onShare = { questionOnly -> shareText(androidContext, mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))) },
+                            )
                             if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
                         }
                         if (adjustLayout) {
@@ -287,7 +292,7 @@ import com.folio.notes.*
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
                 )
-                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false) }
             } else Column(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
                 // A collapsed question panel is still a handle: any drag reopens and resizes it.
@@ -301,7 +306,7 @@ import com.folio.notes.*
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
                 )
-                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport) }
+                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false) }
             }
         }
     }
@@ -325,4 +330,38 @@ import com.folio.notes.*
             },
         )
     }
+}
+
+/** Typed working on the practice page, top to bottom. Handwriting has no text to share. */
+private fun workingTexts(state: FolioState, attempt: LocalMistakeReviewAttempt): List<String> =
+    state.notes.find { it.id == attempt.practiceNotebookId }?.pages?.find { it.id == attempt.practicePageId }
+        ?.texts?.sortedWith(compareBy({ it.y }, { it.x }))?.map { it.text.trim() }?.filter(String::isNotEmpty) ?: emptyList()
+
+/** The question as raw text, followed by [working] when there is any. */
+private fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String = buildString {
+    append(m.question.trim())
+    m.questionText?.trim()?.takeIf(String::isNotEmpty)?.let { append("\n\n").append(it) }
+    if (working.isNotEmpty()) append("\n\nMy working:\n").append(working.joinToString("\n\n"))
+}
+
+private fun shareText(context: android.content.Context, text: String) {
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(android.content.Intent.createChooser(send, "Share question").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** Tap shares the question with your working; long-press shares the question text alone. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable private fun ShareTextButton(onShare: (questionOnly: Boolean) -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).combinedClickable(
+            role = androidx.compose.ui.semantics.Role.Button,
+            onClickLabel = "Share question and working",
+            onLongClickLabel = "Share question text only",
+            onLongClick = { onShare(true) },
+            onClick = { onShare(false) }
+        ),
+        contentAlignment = Alignment.Center
+    ) { Icon(Icons.Rounded.IosShare, "Share question and working · hold for question only", Modifier.size(24.dp)) }
 }

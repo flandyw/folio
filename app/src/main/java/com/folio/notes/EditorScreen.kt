@@ -129,7 +129,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognition: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -1325,6 +1325,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onRename = { renameTitle = note.title; rename = true },
                             onRetrySave = model::retrySave,
                             onClose = model::close,
+                            showBack = showBack,
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                                     TimingChip(state.timer, onLongClick = {
