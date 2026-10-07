@@ -124,8 +124,11 @@ import kotlin.math.roundToInt
     val paletteSlot = toolbarLayout.primary.firstOrNull { tool in it.tools }
     var colorSlotEditing by remember { mutableStateOf<Int?>(null) }
     var widthSlotEditing by remember { mutableStateOf<Int?>(null) }
-    @Composable fun ToolSettingsPopover() {
-        if (palette) FolioPopover(onDismiss = { onPalette(false) }, width = 344.dp) {
+    // The popover opens under whichever control asked for it: the quick bar's settings icon, or the tool's own button.
+    var paletteFromQuickBar by remember { mutableStateOf(false) }
+    LaunchedEffect(palette) { if (!palette) paletteFromQuickBar = false }
+    @Composable fun ToolSettingsPopover(fromQuickBar: Boolean = false) {
+        if (palette && paletteFromQuickBar == fromQuickBar) FolioPopover(onDismiss = { onPalette(false) }, width = 344.dp) {
             ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
         }
     }
@@ -204,9 +207,10 @@ import kotlin.math.roundToInt
         val hold = rememberLongPressGuard()
         // The one settings popover: width, opacity, colour and the tool's own options all live in it.
         Box {
-            IconButton(hold.click { onPalette(!palette) }, modifier = Modifier.size(40.dp)) {
+            IconButton(hold.click { paletteFromQuickBar = !palette; onPalette(!palette) }, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Rounded.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            ToolSettingsPopover(fromQuickBar = true)
         }
     }
     @Composable fun ShapesSlot() {
