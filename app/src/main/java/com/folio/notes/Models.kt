@@ -1116,50 +1116,63 @@ object InkGeometry {
      * forward-moving `W` whose teeth only touch at a point), and the stroke as a whole must
      * end near where it travelled — low net progress along that axis for the distance covered.
      */
-    fun isScribble(points: List<InkPoint>, sensitivity: Float = ScribbleSensitivity.DEFAULT): Boolean {
+    fun isScribble(points: List<InkPoint>, sensitivity: Float = ScribbleSensitivity.DEFAULT): Boolean =
+        scribblePasses(points, sensitivity).isNotEmpty()
+
+    /** Split at sustained axis reversals, not every corner of a rounded or noisy sweep. */
+    private fun scribblePasses(points: List<InkPoint>, sensitivity: Float): List<List<InkPoint>> {
         val ease = ScribbleSensitivity.normalize(sensitivity)
-        if (points.size < ScribbleSensitivity.reversals(ease) + 2) return false
-        val minX = points.minOf { it.x }; val maxX = points.maxOf { it.x }
-        val minY = points.minOf { it.y }; val maxY = points.maxOf { it.y }
-        val width = maxX - minX; val height = maxY - minY
+        if (points.size < ScribbleSensitivity.reversals(ease) + 2 ||
+            points.any { !it.x.isFinite() || !it.y.isFinite() }) return emptyList()
+        val bounds = pointBounds(points)
+        val width = bounds[2] - bounds[0]; val height = bounds[3] - bounds[1]
         val span = hypot(width, height)
-        if (span < 14f) return false
-        // Remove tiny wiggles and rounded turnaround samples before measuring direction changes.
-        val corners = simplify(points, max(2f, span * .025f))
-        val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
-        if (total < 80f - 20f * ease || total / span < 2.2f) return false
-        // Letter cusps are short: a scrub leg must span a real share of the whole stroke.
-        val minLeg = max(8f - 2f * ease, span * (.18f - .06f * ease))
+        if (span < 14f) return emptyList()
         val horizontal = width >= height
+        fun axis(p: InkPoint) = if (horizontal) p.x else p.y
+        val minLeg = max(8f - 2f * ease, span * (.18f - .06f * ease))
+        val turns = ArrayList<Int>()
+        turns.add(0)
+        var extreme = 0
+        var direction = 0
+        for (i in 1 until points.size) {
+            val delta = axis(points[i]) - axis(points[extreme])
+            if (direction == 0) {
+                if (abs(delta) >= minLeg) {
+                    direction = if (delta > 0f) 1 else -1
+                    extreme = i
+                }
+            } else if (delta * direction > 0f) {
+                extreme = i
+            } else if (delta * direction <= -minLeg) {
+                turns.add(extreme)
+                direction = -direction
+                extreme = i
+            }
+        }
+        if (extreme != turns.last()) turns.add(extreme)
+        val corners = turns.map { points[it] }
+        val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
+        if (total < 80f - 20f * ease || total / span < 2.2f) return emptyList()
         var reversals = 0
         for (i in 1 until corners.lastIndex) {
             val ax = corners[i].x - corners[i - 1].x; val ay = corners[i].y - corners[i - 1].y
             val bx = corners[i + 1].x - corners[i].x; val by = corners[i + 1].y - corners[i].y
             val al = hypot(ax, ay); val bl = hypot(bx, by)
             if (al < minLeg || bl < minLeg) continue
-            // Hairpin only: ~117° or sharper, so rounded loop turns do not count.
             if ((ax * bx + ay * by) / (al * bl) >= -0.45f) continue
-            // Successive legs must re-cover each other along the scrub axis. A forward-moving
-            // cursive `W`/`M` only meets at a point (no overlap); a scrub fully re-traces it.
-            val overlap = if (horizontal) segmentOverlap(
-                corners[i - 1].x, corners[i].x, corners[i].x, corners[i + 1].x
-            ) else segmentOverlap(
-                corners[i - 1].y, corners[i].y, corners[i].y, corners[i + 1].y
-            )
+            val overlap = segmentOverlap(axis(corners[i - 1]), axis(corners[i]),
+                axis(corners[i]), axis(corners[i + 1]))
             if (overlap >= .6f - .1f * ease) reversals++
         }
-        if (reversals < ScribbleSensitivity.reversals(ease)) return false
-        // Cursive marches forward while a scrub stays put: net progress along the dominant
-        // axis must be small next to the distance travelled along it.
-        val travel = corners.zipWithNext().sumOf { (a, b) ->
-            if (horizontal) abs(b.x - a.x).toDouble() else abs(b.y - a.y).toDouble()
-        }.toFloat()
-        if (travel <= 0f) return false
-        val net = if (horizontal) abs(corners.last().x - corners.first().x)
-        else abs(corners.last().y - corners.first().y)
-        // Repeated small backtracks in a word must not add up to a scrub.
+        if (reversals < ScribbleSensitivity.reversals(ease)) return emptyList()
+        val travel = corners.zipWithNext().sumOf { (a, b) -> abs(axis(b) - axis(a)).toDouble() }.toFloat()
+        if (travel <= 0f) return emptyList()
+        val net = abs(axis(points.last()) - axis(points.first()))
         val axisSpan = if (horizontal) width else height
-        return net / travel <= .32f + .13f * ease && axisSpan / travel <= .32f + .13f * ease
+        if (net / travel > .32f + .13f * ease || axisSpan / travel > .32f + .13f * ease) return emptyList()
+        // Keep the sampled curve for contact checks: a chord can cross ink the pen never touched.
+        return turns.zipWithNext().map { (a, b) -> points.subList(a, b + 1) }
     }
 
     /** Share of the longer 1-D segment covered by the overlap, 0 when they only touch. */
@@ -1211,21 +1224,22 @@ object InkGeometry {
     fun scribbleErase(
         strokes: List<Stroke>, scribble: Stroke, radius: Float,
         sensitivity: Float = ScribbleSensitivity.DEFAULT,
-        boundsOf: (Stroke) -> FloatArray = { pointBounds(it.points) }
+        boundsOf: (Stroke) -> FloatArray = { pointBounds(it.points) },
+        canErase: (Stroke) -> Boolean = { true }
     ): List<Stroke> {
         val ease = ScribbleSensitivity.normalize(sensitivity)
-        if (strokes.isEmpty() || !isScribble(scribble.points, ease)) return strokes
+        if (strokes.isEmpty()) return strokes
+        val sweeps = scribblePasses(scribble.points, ease)
+        if (sweeps.isEmpty()) return strokes
         val bounds = pointBounds(scribble.points)
-        val span = hypot(bounds[2] - bounds[0], bounds[3] - bounds[1])
-        val legs = simplify(scribble.points, max(2f, span * .025f)).zipWithNext()
-            .filter { (a, b) -> distance(a, b) >= max(8f - 2f * ease, span * (.18f - .06f * ease)) }
-        if (legs.isEmpty()) return strokes
+        val sweepBounds = sweeps.map(::pointBounds)
         // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
         val contactRadius = min(radius.coerceAtLeast(0f), 2f)
         val needed = ScribbleSensitivity.passes(ease)
         var survivors: ArrayList<Stroke>? = null
         for (index in strokes.indices) {
             val target = strokes[index]
+            if (!canErase(target)) { survivors?.add(target); continue }
             val reach = contactRadius + target.width / 2f
             // Reject distant ink before expanding shapes or walking long freehand paths.
             // The view supplies its identity-cached bounds, so this stays cheap on dense pages.
@@ -1238,13 +1252,12 @@ object InkGeometry {
             val path = pathPoints(target)
             if (path.isEmpty()) { survivors?.add(target); continue }
             var passes = 0
-            for ((a, b) in legs) {
-                // Per-leg box reject before the O(path) narrow phase.
-                val lMinX = min(a.x, b.x); val lMaxX = max(a.x, b.x)
-                val lMinY = min(a.y, b.y); val lMaxY = max(a.y, b.y)
-                if (box[2] < lMinX - reach || box[0] > lMaxX + reach ||
-                    box[3] < lMinY - reach || box[1] > lMaxY + reach) continue
-                if (legHits(a, b, path, reach) && ++passes >= needed) break
+            for (i in sweeps.indices) {
+                val sweepBox = sweepBounds[i]
+                if (box[2] < sweepBox[0] - reach || box[0] > sweepBox[2] + reach ||
+                    box[3] < sweepBox[1] - reach || box[1] > sweepBox[3] + reach) continue
+                // A curved pass may touch the target many times, but still counts only once.
+                if (anySegment(sweeps[i]) { a, b -> legHits(a, b, path, reach) } && ++passes >= needed) break
             }
             if (passes >= needed) {
                 if (survivors == null) {

@@ -1571,7 +1571,7 @@ class InkView(context: Context) : View(context) {
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
         var scribbleErased: List<Stroke>? = null
         if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
-            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity, ::boundsOf)
+            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity, ::boundsOf, ::erasable)
             if (scrubbed !== page.strokes) scribbleErased = scrubbed
         }
         // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
