@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.*
@@ -35,6 +36,7 @@ import com.folio.notes.*
     onRate: (ReviewRating) -> Unit,
     onDelete: () -> Unit = {}) {
     val androidContext = LocalContext.current
+    val shareScope = rememberCoroutineScope()
     val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
@@ -222,7 +224,14 @@ import com.folio.notes.*
                             Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel and text size") }
                             ShareTextButton(
-                                onShare = { questionOnly -> shareText(androidContext, mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))) },
+                                onShare = { questionOnly ->
+                                    val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))
+                                    if (questionOnly) shareText(androidContext, text)
+                                    else shareScope.launch {
+                                        val png = runCatching { renderWorkingPng(androidContext, folio, state, attempt, preferences) }.getOrNull()
+                                        shareText(androidContext, text, png)
+                                    }
+                                },
                             )
                             if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
                         }
@@ -344,11 +353,40 @@ private fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String
     if (working.isNotEmpty()) append("\n\nMy working:\n").append(working.joinToString("\n\n"))
 }
 
-private fun shareText(context: android.content.Context, text: String) {
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-        type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text)
+/** The practice page as a PNG in the share cache, or null when it holds nothing to draw. */
+private suspend fun renderWorkingPng(context: android.content.Context, folio: FolioViewModel, state: FolioState,
+    attempt: LocalMistakeReviewAttempt, preferences: android.content.SharedPreferences): java.io.File? {
+    val note = state.notes.find { it.id == attempt.practiceNotebookId } ?: return null
+    val index = note.pages.indexOfFirst { it.id == attempt.practicePageId }
+    if (index < 0 || !pageHasAnnotations(note.pages[index])) return null
+    val scale = AppPrefs.pngScale(preferences.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { preferences.contains(AppPrefs.EXPORT_PNG_SCALE) })
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val dir = exportCacheDir(context.cacheDir)
+        pruneExportCache(dir)
+        java.io.File(dir, uniqueShareFilename("working-out.png")).also { out ->
+            out.outputStream().use {
+                NoteExporter(folio.repository).write(it, PageExportRequest(note, listOf(index), PageExportFormat.PNG), scale)
+            }
+        }
     }
-    context.startActivity(android.content.Intent.createChooser(send, "Share question").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** Opens the Android share sheet with [text], plus [image] when there is one. */
+private fun shareText(context: android.content.Context, text: String, image: java.io.File? = null) {
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+        if (image == null) type = "text/plain"
+        else {
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", image)
+            type = "image/png"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri("Working out", uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    try {
+        context.startActivity(android.content.Intent.createChooser(send, "Share question").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: android.content.ActivityNotFoundException) {}
 }
 
 /** Tap shares the question with your working; long-press shares the question text alone. */
@@ -357,11 +395,11 @@ private fun shareText(context: android.content.Context, text: String) {
     Box(
         Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).combinedClickable(
             role = androidx.compose.ui.semantics.Role.Button,
-            onClickLabel = "Share question and working",
+            onClickLabel = "Share question, working and a picture of your working out",
             onLongClickLabel = "Share question text only",
             onLongClick = { onShare(true) },
             onClick = { onShare(false) }
         ),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Rounded.IosShare, "Share question and working · hold for question only", Modifier.size(24.dp)) }
+    ) { Icon(Icons.Rounded.IosShare, "Share question, working and picture · hold for question text only", Modifier.size(24.dp)) }
 }
