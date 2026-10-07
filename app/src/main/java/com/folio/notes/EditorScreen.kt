@@ -483,7 +483,6 @@ private fun paperLabel(p: Paper): String = when (p) {
         while (true) {
             kotlinx.coroutines.delay(1000)
             model.tickTimer()
-            model.tickStopwatch()
         }
     }
     // The exam clock only runs while the pages are on screen: leaving the editor for the library
@@ -1277,11 +1276,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onClose = model::close,
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                                    TimingChip(state.timer, state.stopwatch, onLongClick = {
+                                    TimingChip(state.timer, onLongClick = {
                                         if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
-                                        else model.toggleStopwatchPause()
                                     }) { timerPanel = true }
-                                    FocalStudyChip(state.timer) { studyPanel = true }
+                                    FocalStudyChip(state.timer, onLongClick = {
+                                        (context.applicationContext as FolioApplication).focalStudy.toggleFocus()
+                                    }) { studyPanel = true }
                                 }
                             },
                             pageIndex = state.pageIndex,
@@ -1579,16 +1579,14 @@ private fun paperLabel(p: Paper): String = when (p) {
     }) { Text("Your paper or PDF stays in place. Ink, text and pictures are removed. You can undo this change.", style = MaterialTheme.typography.bodyMedium) }
     if (timerPanel) TimingPanel(
         timer = state.timer,
-        stopwatch = state.stopwatch,
+        note = note,
+        onOpenStudy = { studyPanel = true },
         onDismiss = { timerPanel = false },
         onStartTimer = model::startTimer,
         onStopTimer = { model.stopTimer() },
         onAdjustTimer = model::adjustTimer,
         onSkipTimer = model::skipTimerPhase,
-        onPauseTimer = model::toggleTimerPause,
-        onStartStopwatch = model::startStopwatch,
-        onPauseStopwatch = model::toggleStopwatchPause,
-        onResetStopwatch = model::resetStopwatch
+        onPauseTimer = model::toggleTimerPause
     )
     if (studyPanel) FocalStudyPanel(note, state.timer, onDismiss = { studyPanel = false })
     if (examPanel) ExamDetailsPanel(
@@ -1823,11 +1821,11 @@ private fun paperLabel(p: Paper): String = when (p) {
 /**
  * One timing action while idle, with live countdown and elapsed clocks when active.
  */
-@Composable private fun TimingChip(timer: ExamTimerState, stopwatch: StopwatchState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+@Composable private fun TimingChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     // The hold claims the gesture so the release after it never also opens the timer panel.
     val hold = rememberLongPressGuard()
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
-    Crossfade(targetState = active || stopwatch.active, label = "timingChip") { isActive ->
+    Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
                 IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch") }
@@ -1847,20 +1845,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Icon(
                         if (done) Icons.Rounded.Flag
-                        else if (if (active) timer.paused else stopwatch.paused) Icons.Rounded.Pause
+                        else if (timer.paused) Icons.Rounded.Pause
                         else Icons.Rounded.Timer,
                         null, Modifier.size(15.dp)
                     )
                     Text(
-                        listOfNotNull(
-                            if (!active) null
-                            else if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
-                            else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
-                            else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
-                            else "Pens down",
-                            if (!stopwatch.active) null
-                            else "${if (stopwatch.paused) "Paused · " else ""}↑ ${stopwatch.clockText()}"
-                        ).joinToString(" · "),
+                        if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
+                        else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
+                        else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
+                        else "Pens down",
                         style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
                     )
                 }

@@ -32,10 +32,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -45,7 +47,9 @@ import java.util.Calendar
 import java.util.Date
 
 @Composable
-fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
+fun FocalStudyChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    // The hold claims the gesture so the release after it never also opens the panel.
+    val hold = rememberLongPressGuard()
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
     val entries = remember(state.entries, state.userId) { state.visibleEntries }
@@ -74,7 +78,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         examActive && timer.phase == ExamTimerPhase.READING -> "Focal · Reading"
         examActive -> "Focal · Writing"
         focus?.resumedAt != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
-        focus != null -> "Focal · Paused"
+        focus != null -> "Focal · ${focalFocusStatus(focus)}"
         sharedActive != null && sharedActive.paused -> "Focal · Paused"
         sharedActive != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
         else -> "Focal"
@@ -86,6 +90,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
         focus != null -> focus.resumedAt == null
         else -> sharedActive?.paused == true
     }
+    val pauseWord = if (focus?.parkReason == FocalFocus.PARK_AWAY || focus?.parkReason == FocalFocus.PARK_CLOSED) "Stopped" else "Paused"
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(if (recording) label else "Focal · Study sessions") } },
@@ -93,10 +98,13 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
     ) {
         if (recording) {
             Surface(
-                onClick = onClick,
-                modifier = Modifier.padding(horizontal = FolioSpacing.dp4).height(36.dp).semantics {
-                    contentDescription = "$label. $syncStatus. Open study sessions"
-                },
+                onClick = hold.click(onClick),
+                modifier = Modifier.padding(horizontal = FolioSpacing.dp4).height(36.dp)
+                    .then(if (onLongClick != null && !examActive) Modifier.longPressAction(hold, onLongClick) else Modifier)
+                    .semantics {
+                        contentDescription = "$label. $syncStatus. Open study sessions" +
+                            if (onLongClick != null && !examActive) ". Hold to ${if (isPaused) "resume" else "pause"}" else ""
+                    },
                 shape = FolioShapes.extraLarge,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -106,7 +114,7 @@ fun FocalStudyChip(timer: ExamTimerState, onClick: () -> Unit) {
                     Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(15.dp))
                     Text(when {
                         examActive -> label.removePrefix("Focal · ")
-                        isPaused -> "Paused · ${formatChipElapsed(activeElapsed)}"
+                        isPaused -> "$pauseWord · ${formatChipElapsed(activeElapsed)}"
                         else -> formatChipElapsed(activeElapsed)
                     }, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
                 }
@@ -258,6 +266,7 @@ internal fun FocalStudyContent(
             TimerHero(
                 if (running) HeroMode.RUNNING else HeroMode.PAUSED, formatElapsed(focus.elapsed(now)),
                 focalSessionTitle(focus.subjectId, state.subjects), detail, dedicated,
+                statusOverride = focalFocusStatus(focus),
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically) {
                     Button(
@@ -283,9 +292,8 @@ internal fun FocalStudyContent(
                 }
                 if (examRecording != null && !running) {
                     Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall)
-                }
-                if (dedicated) Text("Keeps counting when you leave this page. If Folio restarts, it recovers paused at the last checkpoint (up to 30 seconds earlier).",
-                    style = MaterialTheme.typography.bodySmall)
+                } else focalFocusStatusDetail(focus)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(state.syncStatus, style = MaterialTheme.typography.labelSmall)
             }
             Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -459,10 +467,124 @@ internal fun FocalStudyContent(
     }
 }
 
+/**
+ * The editor's stopwatch is the Focal study focus, not a second clock: starting it records a
+ * study session for the open notebook, and the session shows up in history and on other Focal
+ * apps. It counts only while the pages are on screen, so leaving the editor or backgrounding
+ * the app parks it with a visible reason, and a kill recovers it paused at the last checkpoint.
+ */
+@Composable
+internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, onOpenStudy: () -> Unit) {
+    val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
+    val state by manager.state.collectAsStateWithLifecycle()
+    val entries = remember(state.entries, state.userId) { state.visibleEntries }
+    var now by remember { mutableLongStateOf(manager.now()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, manager) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = manager.now()
+                kotlinx.coroutines.delay(1_000)
+            }
+        }
+    }
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val focus = state.visibleFocus
+    val examRunning = examTimer.active && examTimer.startedAt != null
+    val otherRunning = entries.any { it.active && !it.paused && it.id != focus?.sessionId }
+    val blocked = when {
+        examRunning -> "The exam timer is recording this sitting. Stop it to start regular study."
+        otherRunning -> "Another study session is running, possibly on another Focal app. Pause or finish it first."
+        else -> null
+    }
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
+    ) {
+        if (focus == null) {
+            val subject = note?.let { FocalSubjects.suggest(it, state.subjects) }
+                ?.let { id -> state.subjects.firstOrNull { it.id == id }?.name }
+            Text(
+                "Time your study here. It is saved as a Focal study session for this notebook" +
+                    (subject?.let { ", under $it" } ?: "") + ", and appears in your history and on your other Focal apps.",
+                color = scheme.onSurfaceVariant
+            )
+            Button({ manager.startFocus(note, note?.let { FocalSubjects.suggest(it, state.subjects) }, attended = true) },
+                enabled = blocked == null && state.canStartFocus,
+                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.PlayArrow, null)
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text("Start studying")
+            }
+            blocked?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
+        } else {
+            val running = focus.resumedAt != null
+            Surface(shape = FolioShapes.extraLarge,
+                color = if (running) scheme.primaryContainer else scheme.tertiaryContainer,
+                contentColor = if (running) scheme.onPrimaryContainer else scheme.onTertiaryContainer,
+                modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp24, horizontal = FolioSpacing.dp16),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                    Text((focalFocusStatus(focus) ?: "Recording").uppercase(),
+                        style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
+                    Text(formatElapsed(focus.elapsed(now)),
+                        style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    listOfNotNull(state.subjects.firstOrNull { it.id == focus.subjectId }?.name, focus.notebookTitle)
+                        .joinToString(" · ").takeIf { it.isNotBlank() }
+                        ?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    (if (examRunning && !running) "Resume regular study after the exam timer stops." else focalFocusStatusDetail(focus))
+                        ?.let { Text(it, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
+                }
+            }
+            Button({ manager.toggleFocus() },
+                enabled = running || (!examRunning && !otherRunning),
+                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(if (running) "Pause" else "Resume")
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+                FilledTonalButton({ manager.finishFocus("", null) }, enabled = focus.elapsed(now) >= 1_000L,
+                    modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp6))
+                    Text("Finish & save")
+                }
+                OutlinedButton({ confirmDiscard = true }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = scheme.error)) {
+                    Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp6))
+                    Text("Discard")
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Icon(when {
+                state.syncing -> Icons.Rounded.Sync
+                state.error != null -> Icons.Rounded.ErrorOutline
+                state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
+                else -> Icons.Rounded.CloudDone
+            }, null, Modifier.size(18.dp))
+            Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton(onOpenStudy) { Text("Add notes & history") }
+        }
+        if (state.error != null && !state.syncing) Text(state.error!!, color = scheme.error, style = MaterialTheme.typography.bodySmall)
+    }
+    if (confirmDiscard) AlertDialog(onDismissRequest = { confirmDiscard = false }, modifier = Modifier.guardUiTouches(),
+        title = { Text("Discard this session?") },
+        text = { Text("Its recorded study time will be removed from Folio and Focal. This cannot be undone.") },
+        confirmButton = { TextButton({ manager.discardFocus(); confirmDiscard = false }) { Text("Discard") } },
+        dismissButton = { TextButton({ confirmDiscard = false }) { Text("Keep session") } })
+}
+
 /** The clock. Colour carries state (running / paused / idle) so it reads from across a desk. */
 @Composable
 private fun TimerHero(
     mode: HeroMode, time: String, title: String, detail: String?, large: Boolean,
+    statusOverride: String? = null,
     actions: @Composable ColumnScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -476,7 +598,7 @@ private fun TimerHero(
         HeroMode.PAUSED -> scheme.onTertiaryContainer
         HeroMode.IDLE -> scheme.onSurface
     }
-    val status = when (mode) { HeroMode.RUNNING -> "Recording"; HeroMode.PAUSED -> "Paused"; HeroMode.IDLE -> "Ready" }
+    val status = statusOverride ?: when (mode) { HeroMode.RUNNING -> "Recording"; HeroMode.PAUSED -> "Paused"; HeroMode.IDLE -> "Ready" }
     Surface(shape = FolioShapes.panel, color = container, contentColor = content) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

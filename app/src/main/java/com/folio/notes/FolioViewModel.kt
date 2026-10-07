@@ -83,8 +83,6 @@ data class FolioState(
     val activeLayers: Map<String, Int> = emptyMap(),
     /** Exam-condition timer for the open notebook, driven by [FolioViewModel.tickTimer]. */
     val timer: ExamTimerState = ExamTimerState(),
-    /** Simple count-up stopwatch for the open notebook, driven by [FolioViewModel.tickStopwatch]. */
-    val stopwatch: StopwatchState = StopwatchState(),
     /** Seconds the last stopped timed sitting ran for, offered when recording the mark. */
     val lastTimedSeconds: Int? = null,
     /** Ink, text and pictures cut or copied from a lasso selection, kept so they paste on any page. */
@@ -202,8 +200,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private val notebookSittings = NotebookSittings()
     /** Last moment a running clock's heartbeat was written to preferences. */
     private var lastSeenPersistedAt: Long = 0L
-    /** Last moment the running stopwatch's heartbeat was written to preferences. */
-    private var stopwatchSeenPersistedAt: Long = 0L
     /** Last moment the pen or an edit touched the open notebook; drives the idle auto-stop. */
     @Volatile private var lastTimerActivityAt: Long = 0L
 
@@ -240,7 +236,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
 
     private fun restoreNotebookTimer(now: Long = timerNow()) {
         val id = timerNotebookId ?: run {
-            _state.update { it.copy(timer = ExamTimerState(), lastTimedSeconds = null, stopwatch = StopwatchState()) }
+            _state.update { it.copy(timer = ExamTimerState(), lastTimedSeconds = null) }
             return
         }
         val cached = notebookSittings.restore(id)
@@ -257,55 +253,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (clamped != timer) saveSitting(clamped, clamped.pausedAt ?: now)
         // The idle stop measures pen work, not wall time, and a fresh clock is never idle yet.
         lastTimerActivityAt = now
-        val restoredStopwatch = restoreStopwatch(id, cached?.stopwatch, now)
-        _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds, stopwatch = restoredStopwatch) }
+        _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds) }
         if (clamped.active) _state.value.active?.let { note ->
             (getApplication<FolioApplication>()).focalStudy.recordExamProgress(note, clamped, now, force = true)
         }
     }
 
-    private fun stopwatchKey(key: String): String = "$key.notebook.${requireNotNull(timerNotebookId)}"
-
-    private fun restoreStopwatch(id: String, cached: StopwatchState?, now: Long): StopwatchState {
-        cached?.let { return it }
-        val startedAt = prefs.getLong(stopwatchKey(STOPWATCH_START_KEY), 0L)
-        if (startedAt <= 0L) return StopwatchState()
-        val restored = StopwatchState.resume(
-            startedAt = startedAt,
-            now = now,
-            pausedAt = prefs.getLong(stopwatchKey(STOPWATCH_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
-            pausedMillis = prefs.getLong(stopwatchKey(STOPWATCH_PAUSED_MILLIS_KEY), 0L),
-            parkAuto = prefs.getInt(stopwatchKey(STOPWATCH_PARK_AUTO_KEY), 0) != 0,
-            lastSeen = prefs.getLong(stopwatchKey(STOPWATCH_LAST_SEEN_KEY), 0L).takeIf { it > 0L }
-        ) ?: return StopwatchState()
-        val clamped = restored.clampUnseenGap(prefs.getLong(stopwatchKey(STOPWATCH_LAST_SEEN_KEY), 0L).takeIf { it > 0L }, now)
-        if (clamped != restored) saveStopwatch(clamped, clamped.pausedAt ?: now)
-        return clamped
-    }
-
-    private fun saveStopwatch(stopwatch: StopwatchState, lastSeen: Long = timerNow()) {
-        prefs.edit()
-            .putLong(stopwatchKey(STOPWATCH_START_KEY), stopwatch.startedAt ?: 0L)
-            .putLong(stopwatchKey(STOPWATCH_PAUSED_AT_KEY), stopwatch.pausedAt ?: 0L)
-            .putLong(stopwatchKey(STOPWATCH_PAUSED_MILLIS_KEY), stopwatch.pausedMillis)
-            .putLong(stopwatchKey(STOPWATCH_LAST_SEEN_KEY), lastSeen)
-            .putInt(stopwatchKey(STOPWATCH_PARK_AUTO_KEY), if (stopwatch.autoParked) 1 else 0)
-            .apply()
-    }
-
-    private fun clearStopwatch() {
-        prefs.edit().remove(stopwatchKey(STOPWATCH_START_KEY))
-            .remove(stopwatchKey(STOPWATCH_PAUSED_AT_KEY))
-            .remove(stopwatchKey(STOPWATCH_PAUSED_MILLIS_KEY))
-            .remove(stopwatchKey(STOPWATCH_LAST_SEEN_KEY))
-            .remove(stopwatchKey(STOPWATCH_PARK_AUTO_KEY))
-            .apply()
-    }
-
     /**
      * Leaving a notebook parks its clock, so time away never counts. Writing in that notebook
      * again starts the parked clock back up while the auto-start setting is on.
-     * The stopwatch parks the same way but only resumes by hand — the pen never touches it.
+     * An editor-started study session parks too when the editor is left, but only resumes by hand — the pen never touches it.
      */
     private fun selectNotebookTimer(id: String?, now: Long = timerNow()) {
         if (id == timerNotebookId) return
@@ -320,11 +277,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             }
             val state = _state.value
             notebookSittings.save(previous, paused, state.lastTimedSeconds)
-            val stopwatch = state.stopwatch
-            val parkedStopwatch = if (stopwatch.running) stopwatch.pause(now, auto = true) else stopwatch
-            if (parkedStopwatch != stopwatch) saveStopwatch(parkedStopwatch, lastSeen = now)
-            notebookSittings.saveStopwatch(previous, parkedStopwatch)
         }
+        // Switching between notebooks is still studying; only leaving the pages altogether parks.
+        if (id == null) (getApplication<FolioApplication>()).focalStudy
+            .parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
         timerNotebookId = id
         restoreNotebookTimer()
     }
@@ -2253,9 +2209,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * off, or the editor left for the library or mistakes. Parked time never counts, the parked
      * state is saved immediately so a kill still restores it parked, and it stays parked until
      * the user explicitly resumes it or the pen resumes it. A timer that is not running is
-     * untouched. The stopwatch parks alongside it.
+     * untouched. An editor-started study session parks alongside it.
      */
     fun autoPauseTimer(now: Long = timerNow()) {
+        // The study session first: leaving the editor may already have cleared the active notebook.
+        (getApplication<FolioApplication>()).focalStudy.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
         if (_state.value.active == null) return
         val current = _state.value.timer
         if (current.running) {
@@ -2266,19 +2224,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 recordTimerInFocal(parked, now, force = true)
             }
         }
-        val stopwatch = _state.value.stopwatch
-        if (stopwatch.running) {
-            val parked = stopwatch.pause(now, auto = true)
-            if (parked != stopwatch) {
-                saveStopwatch(parked, lastSeen = now)
-                _state.update { it.copy(stopwatch = parked) }
-            }
-        }
     }
     fun startTimer(preset: ExamTimerPreset, now: Long = timerNow()) {
         if (_state.value.active == null) return
         val focal = (getApplication<FolioApplication>()).focalStudy
-        if (focal.state.value.focus?.resumedAt != null) focal.toggleFocus(now)
+        focal.parkFocus(FocalFocus.PARK_EXAM, now = now)
         val started = ExamTimerState().start(preset, now)
         lastTimerActivityAt = now
         saveSitting(started, lastSeen = now)
@@ -2326,45 +2276,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             requireNotNull(_state.value.active), current, now)
         clearSitting()
         _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
-    }
-    // ---- Stopwatch ---------------------------------------------------------------------------------
-    /**
-     * Advances the stopwatch by however long has passed. Like the exam tick, a no-op tick
-     * emits no state so an idle stopwatch never recomposes the editor every second. While the
-     * stopwatch runs, the tick refreshes the last-seen heartbeat (throttled) so a crash with
-     * no recorded pause restores parked at the last visible moment instead of counting the gap.
-     */
-    fun tickStopwatch(now: Long = timerNow()) {
-        val current = _state.value.stopwatch
-        val next = current.tick(now)
-        if (next != current) _state.update { it.copy(stopwatch = next) }
-        if (next.running && now - stopwatchSeenPersistedAt >= LAST_SEEN_THROTTLE_MS) {
-            stopwatchSeenPersistedAt = now
-            saveStopwatch(next, lastSeen = now)
-        }
-    }
-    /** Starts the stopwatch from zero, replacing whatever it showed before. */
-    fun startStopwatch(now: Long = timerNow()) {
-        if (_state.value.active == null) return
-        val started = StopwatchState().start(now)
-        saveStopwatch(started, lastSeen = now)
-        _state.update { it.copy(stopwatch = started) }
-    }
-    /** Pauses or resumes the stopwatch; a paused stopwatch is only ever started again by hand. */
-    fun toggleStopwatchPause(now: Long = timerNow()) {
-        if (_state.value.active == null) return
-        val current = _state.value.stopwatch
-        val updated = if (current.paused) current.unpause(now) else current.pause(now)
-        if (updated == current) return
-        saveStopwatch(updated, lastSeen = now)
-        _state.update { it.copy(stopwatch = updated) }
-    }
-    /** Resets the stopwatch to 0:00 and clears its saved record. */
-    fun resetStopwatch() {
-        if (_state.value.active == null) return
-        clearStopwatch()
-        timerNotebookId?.let { notebookSittings.saveStopwatch(it, StopwatchState()) }
-        _state.update { it.copy(stopwatch = StopwatchState()) }
     }
     /**
      * Pops one edit off [from] and replays it, pushing the inverse onto [to]. Undo and redo are the
@@ -2631,11 +2542,6 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         const val TIMER_LAST_SEEN_KEY = "examTimer.lastSeen"
         const val TIMER_PARK_AUTO_KEY = "examTimer.parkAuto"
         const val TIMER_VISITS_KEY = "examTimer.visits"
-        const val STOPWATCH_START_KEY = "stopwatch.startedAt"
-        const val STOPWATCH_PAUSED_AT_KEY = "stopwatch.pausedAt"
-        const val STOPWATCH_PAUSED_MILLIS_KEY = "stopwatch.pausedMillis"
-        const val STOPWATCH_LAST_SEEN_KEY = "stopwatch.lastSeen"
-        const val STOPWATCH_PARK_AUTO_KEY = "stopwatch.parkAuto"
         /** The running timer's visible-heartbeat is written at most this often. */
         const val LAST_SEEN_THROTTLE_MS = 5_000L
     }

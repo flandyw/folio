@@ -14,23 +14,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-/** One entry point for the independent countdown and count-up clocks. */
+/** One entry point for the exam countdown and the Focal-backed study stopwatch. */
 @Composable
 internal fun TimingPanel(
     timer: ExamTimerState,
-    stopwatch: StopwatchState,
+    note: Notebook?,
+    onOpenStudy: () -> Unit,
     onDismiss: () -> Unit,
     onStartTimer: (ExamTimerPreset) -> Unit,
     onStopTimer: (Int?) -> Unit,
     onAdjustTimer: (Int) -> Unit,
     onSkipTimer: () -> Unit,
-    onPauseTimer: () -> Unit,
-    onStartStopwatch: () -> Unit,
-    onPauseStopwatch: () -> Unit,
-    onResetStopwatch: () -> Unit
+    onPauseTimer: () -> Unit
 ) {
-    var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && stopwatch.active) 1 else 0) }
+    val focalState by (LocalContext.current.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
+    var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && focalState.visibleFocus != null) 1 else 0) }
     FolioPanel(title = "Timer & stopwatch", onDismissRequest = onDismiss) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
@@ -42,14 +43,14 @@ internal fun TimingPanel(
             )
             FilterChip(
                 selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                label = { Text("Stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
+                label = { Text("Study stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
             )
         }
         Box(Modifier.weight(1f, fill = false).folioEntrance(selectedTab)) {
             if (selectedTab == 0) {
                 ExamTimerContent(timer, onStartTimer, onStopTimer, onAdjustTimer, onSkipTimer, onPauseTimer)
             } else {
-                StopwatchContent(stopwatch, onStartStopwatch, onPauseStopwatch, onResetStopwatch)
+                StudyStopwatchContent(note, timer, onOpenStudy = { onDismiss(); onOpenStudy() })
             }
         }
     }

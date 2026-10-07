@@ -373,15 +373,53 @@ data class FocalFocus(
     val accumulatedMillis: Long = 0L,
     val sessionId: String = UUID.randomUUID().toString(),
     val intervals: List<FocalStudyInterval> = emptyList(),
-    val notebookTitle: String? = null
+    val notebookTitle: String? = null,
+    /**
+     * Started from the editor's stopwatch, so it counts only while the pages are on screen:
+     * leaving the editor or backgrounding the app parks it. A session started from the Study
+     * page keeps running when the app is in the background.
+     */
+    val attended: Boolean = false,
+    /** Why a paused session is paused, when the app rather than a button press parked it. */
+    val parkReason: String? = null
 ) {
     fun elapsed(now: Long) = accumulatedMillis + (resumedAt?.let { (now - it).coerceAtLeast(0) } ?: 0L)
-    fun pause(now: Long) = if (resumedAt == null) this else copy(resumedAt = null,
+    fun pause(now: Long, reason: String? = null) = if (resumedAt == null) this else copy(resumedAt = null,
+        parkReason = reason,
         accumulatedMillis = elapsed(now), intervals = intervals.mapIndexed { i, interval ->
             if (i == intervals.lastIndex && interval.endAt == null) interval.copy(endAt = now) else interval
         })
-    fun resume(now: Long) = if (resumedAt != null) this else copy(resumedAt = now,
+    fun resume(now: Long) = if (resumedAt != null) this else copy(resumedAt = now, parkReason = null,
         intervals = intervals + FocalStudyInterval(now, null))
+
+    companion object {
+        /** The app stopped looking at the pages (left the editor, backgrounded, screen off). */
+        const val PARK_AWAY = "away"
+        /** Folio was closed or killed while running; recovered at the last durable checkpoint. */
+        const val PARK_CLOSED = "closed"
+        /** An exam timer started and took over. */
+        const val PARK_EXAM = "exam"
+    }
+}
+
+/** What a paused session should say about itself; null while it is running. */
+internal fun focalFocusStatus(focus: FocalFocus): String? = when {
+    focus.resumedAt != null -> null
+    focus.parkReason == FocalFocus.PARK_AWAY -> "Stopped when you left the pages"
+    focus.parkReason == FocalFocus.PARK_CLOSED -> "Recovered after Folio closed"
+    focus.parkReason == FocalFocus.PARK_EXAM -> "Paused for the exam timer"
+    else -> "Paused"
+}
+
+/** Longer explanation under [focalFocusStatus], so the user knows what was and was not counted. */
+internal fun focalFocusStatusDetail(focus: FocalFocus): String? = when {
+    focus.resumedAt != null -> if (focus.attended) "Pauses by itself when you leave the pages or close Folio." else
+        "Keeps counting when you leave this page. If Folio closes, it recovers paused at the last checkpoint."
+    focus.parkReason == FocalFocus.PARK_AWAY -> "Time away was not counted. Resume to carry on."
+    focus.parkReason == FocalFocus.PARK_CLOSED ->
+        "Time after the last checkpoint (up to 30 seconds before Folio closed) was not counted. Resume to carry on."
+    focus.parkReason == FocalFocus.PARK_EXAM -> "Resume regular study after the exam timer stops."
+    else -> null
 }
 
 internal fun focalReconcileFocus(current: FocalFocus, session: FocalStudyEntry): FocalFocus? {
@@ -837,11 +875,15 @@ class FocalStudyManager(context: Context) {
                 subjectId = row.optString("subjectId").ifBlank { null }, startedAt = row.getLong("startedAt"),
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 resumedAt = row.optLong("resumedAt").takeIf { it > 0 }, accumulatedMillis = row.optLong("accumulatedMillis"),
+                attended = row.optBoolean("attended"),
+                parkReason = row.optString("parkReason").takeIf { it.isNotBlank() && it != "null" },
                 intervals = focalDecodeIntervals(row.optJSONArray("intervals")))
         }.getOrNull() }
         // Recovery closes at the last durable checkpoint. A new process cannot reuse the
         // prior process's monotonic delta, and a reboot cannot reuse elapsedRealtime at all.
-        val recoveredFocus = focus?.copy(resumedAt = null)?.takeUnless { current ->
+        // A session saved while running (resumedAt set) was cut off by the process ending.
+        val recoveredFocus = focus?.copy(resumedAt = null,
+            parkReason = if (focus.resumedAt != null) FocalFocus.PARK_CLOSED else focus.parkReason)?.takeUnless { current ->
             entries.any { it.id == current.sessionId && (it.deleted || it.completed) }
         }
         val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
@@ -884,9 +926,9 @@ class FocalStudyManager(context: Context) {
                     .put("request", event.request))
             } })
             .put("intervals", focalEncodeIntervals(entry.intervals))) }
-        val focus = snapshot.focus?.let { if (parkRunningAt == null) it else it.pause(parkRunningAt) }?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
+        val focus = snapshot.focus?.let { if (parkRunningAt == null) it else it.pause(parkRunningAt, FocalFocus.PARK_CLOSED) }?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
             .put("title", it.title).put("subjectId", it.subjectId).put("notebookTitle", it.notebookTitle)
-            .put("startedAt", it.startedAt)
+            .put("startedAt", it.startedAt).put("attended", it.attended).put("parkReason", it.parkReason)
             .put("resumedAt", it.resumedAt).put("accumulatedMillis", it.accumulatedMillis)
             .put("intervals", focalEncodeIntervals(it.intervals)) }
         val bytes = JSONObject().put("entries", rows).put("focus", focus)
@@ -912,11 +954,12 @@ class FocalStudyManager(context: Context) {
         }
     }
 
-    fun startFocus(note: Notebook?, subjectId: String?, now: Long = this.now()) {
+    fun startFocus(note: Notebook?, subjectId: String?, now: Long = this.now(), attended: Boolean = false) {
         if (!_state.value.canStartFocus || _state.value.visibleEntries.any { it.active && !it.paused }) return
         val focus = FocalFocus(notebookId = note?.id,
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
-            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title)
+            startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title,
+            attended = attended)
         _state.update { it.copy(focus = focus, error = null) }
         saveFocusEntry(focus, now)
     }
@@ -929,6 +972,18 @@ class FocalStudyManager(context: Context) {
         _state.update { it.copy(focus = next, error = null) }
         // Publish pause/resume boundaries. While running, the macOS client can derive elapsed
         // time from the open interval's start and does not need a checkpoint every few seconds.
+        saveFocusEntry(next, now, forceUpload = true)
+    }
+    /**
+     * Parks a running session because the app stopped looking at it. Like a manual pause it is
+     * published as a boundary, so other Focal clients stop counting too. With [attendedOnly] a
+     * session started from the Study page, which is meant to run in the background, is left alone.
+     */
+    fun parkFocus(reason: String, attendedOnly: Boolean = false, now: Long = this.now()) {
+        val focus = _state.value.focus ?: return
+        if (focus.resumedAt == null || (attendedOnly && !focus.attended)) return
+        val next = focus.pause(now, reason)
+        _state.update { it.copy(focus = next) }
         saveFocusEntry(next, now, forceUpload = true)
     }
     fun discardFocus(now: Long = this.now()) {

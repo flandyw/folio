@@ -21,6 +21,27 @@ checkpoint is saved every 30 seconds. After process death or reboot, the timer r
 30 seconds of uncheckpointed work can be lost. No exact alarms or foreground-service
 permissions are needed. This is an elapsed-study timer, not a Pomodoro countdown/alarm.
 
+## Editor stopwatch
+
+The editor's stopwatch is not a separate clock: **Timer & stopwatch → Study stopwatch** starts
+the same Focal study session (`FocalStudyManager.startFocus`, `attended = true`) linked to the
+open notebook, with the subject suggested from its metadata. Pause/resume, **Finish & save**
+(straight to history; add notes from the study panel) and **Discard** act on that session, and
+it appears in history and on other Focal apps. Holding the Focal chip pauses/resumes it.
+
+An *attended* session (started from the editor) counts only while the pages are on screen:
+leaving the editor for the library, backgrounding the app or turning the screen off parks it
+(`parkFocus`, published as a pause boundary) and it only resumes by hand. Switching between
+notebooks does not park it. A session started from the Study page is unattended and keeps
+running in the background. Starting an exam timer parks a running session as well.
+
+Status is explicit, via `FocalFocus.parkReason` (persisted in `focal-study.json`, optional, so
+older files load unchanged): *Paused* (by hand), *Stopped when you left the pages*, *Recovered
+after Folio closed* (the last durable checkpoint was restored; up to 30 s of work lost) and
+*Paused for the exam timer*. The chip, panel and stopwatch tab show it with the sync status.
+The old per-notebook stopwatch (`stopwatch.*` preferences) is gone; a stopwatch that was
+running at update time is not carried over.
+
 Signed-out sessions remain local and are claimed by the account on sign-in. Account-owned
 sessions remain isolated; signing out or switching accounts parks and detaches that account's
 local timer. The old account can resolve its parked session after signing back in. Local
@@ -42,8 +63,10 @@ Before release, verify on an Android device with a Focal test account:
 1. Start without a notebook while signed out. Navigate away/back, rotate, and background
    the app: elapsed time continues. Pause for a minute, resume and save; only active time
    appears in history. Repeat with a linked notebook, notes and confidence.
+   Then start the editor stopwatch: leave the editor and background the app; it must show
+   *Stopped when you left the pages* and not count the time away.
 2. Start, wait past a checkpoint, then terminate/restart the process; it opens paused at
-   the saved duration. Repeat after reboot. Old notebook-linked timers still recover.
+   the saved duration, labelled *Recovered after Folio closed*. Repeat after reboot. Old notebook-linked timers still recover.
 3. Turn off the network; start, pause, resume, pause and save a standalone session. Restart
    and reconnect: exactly one canonical session has the correct ordered intervals and active
    duration. Repeat with discard and with a manual log.
