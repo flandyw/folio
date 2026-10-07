@@ -143,6 +143,50 @@ private fun checkNotebookDrops() {
     println("Notebook drag: captured selections, mixed drops, no-ops, stale IDs, tag limits, folder cycles/collisions, hover navigation and edge scrolling passed.")
 }
 
+private fun checkLibraryBrowse() {
+    val study = Folder("study", "Study")
+    val maths = Folder("maths", "Maths", study.id)
+    val calculus = Folder("calculus", "Calculus", maths.id)
+    val art = Folder("art", "art")
+    val folders = listOf(calculus, study, art, maths)
+    val loose = Notebook(id = "loose", title = "Loose", starred = true, tags = listOf("Revision"))
+    val algebra = Notebook(id = "algebra", title = "Algebra", folderId = maths.id, tags = listOf("revision"))
+    val limits = Notebook(id = "limits", title = "Limits", folderId = calculus.id)
+    val stale = Notebook(id = "stale", title = "Stale", folderId = "missing")
+    val notes = listOf(loose, algebra, limits, stale)
+    fun ids(place: LibraryPlace, folder: String? = null, tag: String? = null, query: String = "") =
+        LibraryBrowse.notebooks(notes, folders, place, folder, tag, query, sort = LibrarySort.NAME).map { it.id }
+    fun names(place: LibraryPlace, folder: String? = null, tag: String? = null, query: String = "") =
+        LibraryBrowse.folders(folders, place, folder, tag, query).map { it.id }
+    check(ids(LibraryPlace.ALL) == listOf("algebra", "limits", "loose", "stale"))
+    check(ids(LibraryPlace.UNFILED) == listOf("loose"))
+    check(ids(LibraryPlace.FAVORITES) == listOf("loose"))
+    // An open folder is spatial until a search widens it to the subtree; the place is ignored there.
+    check(ids(LibraryPlace.FAVORITES, maths.id) == listOf("algebra"))
+    check(ids(LibraryPlace.ALL, maths.id, query = "l") == listOf("algebra", "limits"))
+    check(ids(LibraryPlace.ALL, calculus.id, query = "algebra").isEmpty())
+    // A tag looks across the library, case-insensitively, whatever folder was open.
+    check(ids(LibraryPlace.UNFILED, calculus.id, tag = "REVISION") == listOf("algebra", "loose"))
+    // A folder that no longer exists falls back to the top level instead of an empty view.
+    check(ids(LibraryPlace.ALL, "missing") == ids(LibraryPlace.ALL))
+    check(names(LibraryPlace.ALL) == listOf("art", "study"))
+    check(names(LibraryPlace.UNFILED) == listOf("art", "study"))
+    check(names(LibraryPlace.FAVORITES).isEmpty())
+    check(names(LibraryPlace.ALL, tag = "revision").isEmpty())
+    check(names(LibraryPlace.FAVORITES, study.id) == listOf("maths"))
+    check(names(LibraryPlace.ALL, query = "a") == listOf("art", "calculus", "maths"))
+    check(names(LibraryPlace.ALL, study.id, query = "a") == listOf("calculus", "maths"))
+    check(names(LibraryPlace.ALL, maths.id, query = "maths").isEmpty())
+    check(LibraryBrowse.tree(folders, emptySet()) == listOf(art to 0, study to 0))
+    check(LibraryBrowse.tree(folders, setOf(study.id)) == listOf(art to 0, study to 0, maths to 1))
+    check(LibraryBrowse.tree(folders, setOf(study.id, maths.id)) == listOf(art to 0, study to 0, maths to 1, calculus to 2))
+    // Collapsing a middle folder hides its whole branch even when a descendant is still expanded.
+    check(LibraryBrowse.tree(folders, setOf(maths.id, calculus.id)) == listOf(art to 0, study to 0))
+    val cycle = listOf(Folder("x", "X", "y"), Folder("y", "Y", "x"))
+    check(LibraryBrowse.tree(cycle, setOf("x", "y")).isEmpty())
+    println("Library browse: places, spatial folders, subtree search, tags, stale folders and the folder tree passed.")
+}
+
 private fun checkSharedStorageFiles() {
     val temp = kotlin.io.path.createTempDirectory("folio-disk-check-").toFile()
     try {
@@ -220,6 +264,7 @@ private fun checkExplorerOrganization() {
 
 fun main() = runBlocking {
     checkNotebookDrops()
+    checkLibraryBrowse()
     checkSharedStorageFiles()
     checkExplorerOrganization()
     checkStickyNotes()

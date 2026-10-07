@@ -41,7 +41,7 @@ val FolioHeadingHeight: Dp = 56.dp
 val LocalDestinationTopGap = compositionLocalOf { 0.dp }
 
 /**
- * The one heading every destination wears: Library, Explorer, Mistakes, Study, Progress, Music and
+ * The one heading every destination wears: Library, Tablet files, Mistakes, Study, Progress, Music and
  * Settings. Always the first thing in the pane, outside any scrolling content, and never padded by
  * its caller: it owns the shared inset, the top gap and its height, so every title sits in the same
  * place on every screen.

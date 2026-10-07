@@ -132,7 +132,6 @@ import kotlinx.coroutines.withContext
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
-    var folderDialog by remember { mutableStateOf(false) }
     val updates = remember(context) { (context.applicationContext as FolioApplication).updates }
     val updateState by updates.state.collectAsStateWithLifecycle()
     val experimentalUpdates by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
@@ -442,7 +441,7 @@ import kotlinx.coroutines.withContext
                             onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; newNote = true },
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
                             onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
-                            onFolder = { folderDialog = true }, onSettings = { settings = true },
+                            onSettings = { settings = true },
                             showMistakes = showMistakes,
                             onLibrary = { showStudy = false; showMistakes = false; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
@@ -477,7 +476,6 @@ import kotlinx.coroutines.withContext
             PdfImportDialog(state, model::cancelPdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
-        if (folderDialog) NameDialog("New folder", "Give your ideas a home", "", "Create folder", { folderDialog = false }) { if (model.createFolder(it)) folderDialog = false }
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize().guardUiTouches()) {
                 SettingsScreen(

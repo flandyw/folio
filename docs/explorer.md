@@ -1,20 +1,27 @@
-# Explorer
+# Library and Explorer
 
-Open **Explorer** from the Library’s quick actions or the tablet navigation rail. The existing shelf remains available, with the same notebooks, covers, and editor.
+The Library and the old Explorer are one screen (`LibraryScreen.kt`, with the sidebar, place chips and folder tiles in `LibraryBrowser.kt`). Its scope rules are pure (`LibraryBrowse` in `LibraryOrganization.kt`) and checked by `node tools/backup-smoke.cjs`. **Tablet files** is a place inside the Library: the **Files** rail item on tablets, the tablet icon in the heading on phones, or the sidebar's last row.
 
 ## Notebooks
 
-**Folders** is a spatial view: the library root contains top-level folders and unfiled notebooks, and opening a folder shows its direct contents. Breadcrumbs and Android Back go up through the hierarchy. Searching a folder includes its descendants; **All notebooks**, **Favorites**, and tag filters search across the library. On wide tablets, collections and tags stay in a side panel; narrow windows use horizontally scrolling chips. Covers/list and sorting share the shelf’s saved preferences.
+The shelf shows one of three **places** (All notebooks, Favorites, Unfiled), an open folder, or a tag:
 
-Create notebooks and subfolders in the current folder. Notebook menus and long-press selection support moving, tagging, favorites, and deletion; individual notebooks can also be renamed or duplicated. The existing shelf supports individual and bulk tags too. Move pickers display each destination’s parent path, so equally named folders in different branches remain distinguishable. A folder cannot be moved into itself or a descendant. Removing a folder promotes its notebooks and direct subfolders to its parent and keeps their contents.
+- **All notebooks** lists every notebook, with the top-level folders as tiles above them. **Unfiled** is the spatial root: top-level folders plus notebooks that are in none. **Favorites** shows starred notebooks and no folders.
+- **Opening a folder** shows its subfolders as tiles and its own notebooks. Breadcrumbs and Android Back go up through the hierarchy, and the ⋮ beside the breadcrumbs (or on a tile) offers New folder inside, Rename, Move folder and Remove folder. Searching an open folder widens to its whole subtree and matches folder names too.
+- **A tag** shows tagged notebooks across the library, whatever folder was open.
+- Back steps out in order: drag → selection → search → filters → tag → folder → place → All notebooks.
+
+On wide windows (≥ 840 dp) a side panel holds the places, the whole folder tree (expand/collapse with the chevrons; opening a folder unfolds its branch), tags with counts, and Tablet files. Narrow windows show the places and tags as a row of chips, and folders only as tiles. Covers/list, sorting, type and exam filters, Continue writing, Quick note/Canvas, the exam countdown and Retry save all come from the old shelf; quick actions and Continue writing show only on the unscoped All notebooks view.
+
+The New menu (split button on phones, held rail button on tablets) creates a folder inside the open folder; a new notebook lands in the open folder. Notebook menus and long-press selection support moving, tagging, exam details, covers, backup exclusion, favorites and deletion. Move pickers display each destination’s parent path, so equally named folders in different branches remain distinguishable. A folder cannot be moved into itself or a descendant. Removing a folder promotes its notebooks and direct subfolders to its parent and keeps their contents.
 
 User tags are separate from structured exam details. Tags are trimmed, limited to 40 characters, deduplicated without case sensitivity, and limited to 32 per notebook. Bulk tagging preserves mixed tags unless explicitly changed. Library searches also match these labels.
 
 ### Drag and drop
 
-Hold a notebook, then move to lift it; a stationary hold still starts selection. Dragging a selected notebook lifts the whole visible selection, captured before navigation changes the view. A mouse can drag directly. Both the shelf and Explorer support this, with a floating title/count, faded source cards, outlined destinations and a release hint. Existing Move and Tags menus remain available for keyboard and accessibility use.
+Hold a notebook, then move to lift it; a stationary hold still starts selection. Dragging a selected notebook lifts the whole visible selection, captured before navigation changes the view. A mouse can drag directly. Drags show a floating title/count, faded source cards, outlined destinations and a release hint. Existing Move and Tags menus remain available for keyboard and accessibility use. Picking a notebook for the workspace browses folders but never drags.
 
-Drop on a folder row/chip, an ancestor breadcrumb, or the background of an open folder to move notebooks. In Explorer, folder rows can also be dragged to move their entire subtree. Hover over a folder or breadcrumb for 750 ms to open it while continuing the same drag. Edges scroll notebook lists, side panels, horizontal folder/tag rows and breadcrumbs. Favorites adds a star; a tag target adds that label while preserving other tags. Each successful drop offers **Undo**.
+Drop on a folder tile, a sidebar tree row, an ancestor breadcrumb, Unfiled, Favorites, a tag, or the shelf's background. The background files into whatever the shelf is showing (the open folder, Unfiled, Favorites or the tag); All notebooks and search results have no background target. Folder tiles and sidebar tree rows can also be dragged to move their entire subtree; dropping a folder on Unfiled or the Library crumb moves it to the top level. Hover over a folder, tree row, breadcrumb or Unfiled for 750 ms to open it while continuing the same drag; the tree unfolds as you go. Edges scroll the shelf, the sidebar, the place/tag chip row and breadcrumbs. Favorites adds a star; a tag target adds that label while preserving other tags. Each successful drop offers **Undo**.
 
 No-op, missing, self/descendant, duplicate-sibling-name and tag-limit destinations reject drops. Invalid foreground targets block background drops. Hover navigation remains possible through the original parent even when moving there would be a no-op. Ending outside a destination or pressing Back leaves the organization intact. Drops accept only Folio's internal notebook sessions. Source buttons use Material 3 Expressive tonal toggles with single-line labels; narrow windows and larger text scroll the row instead of wrapping **Tablet files**.
 
@@ -44,7 +51,7 @@ Run the canonical `./build.sh -p -- :app:prepareBackupSmoke` and `node tools/bac
 
 Device checks are still required; JVM checks do not exercise Compose layout, Android permissions or real document providers:
 
-1. Open Explorer in portrait, landscape, split screen, dark mode and large text. Check responsive collections, keyboard resizing, scrolling, row targets, TalkBack labels, long-press selection, list/covers and Back behavior. Open a notebook, return, switch sources and rotate; confirm navigation/filter/scroll state remains usable.
+1. Open the Library in portrait, landscape, split screen, dark mode and large text. Check responsive collections, keyboard resizing, scrolling, row targets, TalkBack labels, long-press selection, list/covers and Back behavior. Open a notebook, return, switch sources and rotate; confirm navigation/filter/scroll state remains usable.
 2. Create three levels of folders, including the same name in different branches. Move a subtree, rename it, and remove an intermediate folder. Confirm descendants stay reachable, notebooks remain intact, illegal destinations are absent, and the shelf’s paths/pickers agree.
 3. Assign individual and mixed bulk tags, search by multiple title/tag terms, remove tags, and exercise the 32-tag limit. Restart Folio and confirm tags and folder parents persist.
 4. Export/import a `.folio`, export/restore a portable library, and create/restore automatic backup points with nested folders and tags. Restore twice alongside existing notes. Check fresh folder identities, correct parent/notebook references, labels, ink, PDFs, and undo/redo. Open an older notebook and backup with neither new field.

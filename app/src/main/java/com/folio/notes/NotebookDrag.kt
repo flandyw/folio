@@ -140,7 +140,7 @@ internal class NotebookDragScrollZone {
                 if (success) scope.launch {
                     drag.snackbar.currentSnackbarData?.dismiss()
                     val message = when (destination) {
-                        is NotebookDropDestination.Folder -> "Moved ${payload.title} to ${destination.label}"
+                        is NotebookDropDestination.Folder -> "Moved ${payload.title} to ${if (destination.id == null && payload is NotebookDragPayload.Folder) "the top level" else destination.label}"
                         NotebookDropDestination.Favorites -> "Added ${payload.title} to Favorites"
                         is NotebookDropDestination.Tag -> "Tagged ${payload.title} · ${destination.tag}"
                     }
