@@ -26,6 +26,31 @@ near the final word, or anywhere along the stroke just written (a cursive word i
 after it is finished), can resume an interrupted request after a fresh pen-up pause; corrections
 to earlier words hold the view. Rejected palm contacts do not cancel a pending glide.
 
+## Navigation, feedback and accessibility
+
+- **Back is multi-step.** Each follow move (sideways glide, placement, return) is its own entry in
+  `FollowBackHistory`, up to 8; Back (toolbar, menu, Alt+Backspace) reverses them newest first and
+  restores the follow state from before each move. Manual navigation still clears the history.
+- **Previous writing line** (options menu, Alt+↑) goes up one printed rule, or one line spacing on
+  blank paper and canvases, to the line start (`FollowNavigation.previous`). It never leaves the
+  answer block or the area's top. Alt+↓ is Next line.
+- **Line spacing scales with the handwriting.** Until two natural breaks teach the spacing, blank
+  pages and canvases use at least 1.6× the median stroke height (`SPACING_PER_HEIGHT`, after three
+  strokes), so large writing or a zoomed-out canvas does not land Next line on top of the last line.
+  The configured spacing remains the minimum; *Adapt spacing* off uses it exactly.
+- **Undo and erasing retract the line.** Removing pen ink cancels a pending return or glide and
+  pulls the frontier back to the furthest writing still on the line (`WritingFollow.retract`), so
+  an undone word cannot trigger an early return; a line emptied completely starts afresh at the
+  same height.
+- **Landing marker.** While a return counts down, during a line move and after arrival until the
+  next accepted stroke, a short dashed baseline and dot in the accent colour mark where the next
+  line starts. *Mark where the next line starts* in the settings (`follow.showLanding`) hides it.
+- **Hints when the view holds.** Messages that explain a still or blocked view (outside the area or
+  column, zoom too small, end of the answer area, view edge, first line) appear for about three
+  seconds above the follow controls as a polite live region; the full status stays in the menu.
+- **Reduced motion.** With system animations off, follow moves land in one frame instead of
+  gliding. Pauses before moving are unchanged.
+
 ## Infinite canvas: free working and responses
 
 Canvases open in free working, including mistake reviews. Global writing-follow enablement and
@@ -140,7 +165,13 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
    return exactly. Repeat during a response and verify there is no follow movement in overview.
 6. Write on the final printed rule with descenders below it. Sideways following should continue;
    automatic return must not spill into the next question or an adjacent answer column.
-7. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should
+7. Write three lines with follow and auto return, then press Back three times: each press should
+   undo one move. Use Previous writing line and Alt+↑/↓/Backspace with a keyboard attached. Write
+   large on a blank page: the first Next line must clear the descenders. Undo the last word during
+   a return countdown: the return must cancel and not fire until the line reaches the end again.
+   Watch the landing marker appear during the countdown and vanish on the next word. Write outside
+   an answer area: the hint should show briefly. Turn on *Remove animations*: moves should jump.
+8. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should
    remain off. Check Pause/Resume, both follow-axis toggles, fixed/adaptive timing, and shape tidy.
 
 These traces exercise geometry and state transitions, but they do not substitute for real stylus,

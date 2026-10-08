@@ -102,6 +102,72 @@ fun main() {
         for (raw in listOf(null, "", "1,2,3", "0,0,0,0,LTR,false", "NaN,0,5,0,LTR,true", "0,0,5,0,UP,true", "0,0,5,0,LTR,maybe"))
             check(CanvasWritingSession.decode(raw) == null)
     }
+    scenario("Back steps through several follow moves, newest first, and stays bounded") {
+        val history = FollowBackHistory(limit = 3)
+        val states = (1..5).map { WritingFollowState(baselineY = it * 100f) }
+        for ((i, state) in states.withIndex()) { history.begin(state); history.moved(0f, -(i + 1) * 10f); history.moved(0f, -1f) }
+        check(history.depth == 3)
+        for (i in listOf(4, 3, 2)) {
+            val entry = history.pop()!!
+            check(entry.state == states[i] && entry.y == -(i + 1) * 10f - 1f)
+        }
+        check(history.pop() == null && history.entry == null)
+        history.begin(states[0]); history.moved(0f, 0f)
+        check(history.depth == 0)
+    }
+    scenario("Previous line goes up one rule or one spacing and stops at the top") {
+        val region = WritingLane(36f, 72f, 300f, 156f)
+        val up = FollowNavigation.previous(128f, region, guides, 28f)!!
+        check(up.to.y == 100f && up.from.y == 128f)
+        check(FollowNavigation.previous(100f, region, guides, 28f) == null)
+        val blank = WritingLane(0f, 0f, 400f, 600f)
+        for (direction in WritingDirection.entries) {
+            val back = FollowNavigation.previous(200f, blank, emptyList(), 32f, 50f, direction)!!
+            check(back.to.y == 168f)
+            check((if (direction == WritingDirection.LTR) back.to.left else back.to.right) == 50f)
+        }
+        check(FollowNavigation.previous(20f, blank, emptyList(), 32f) == null)
+        // Next then previous lands back on the same line.
+        val next = FollowNavigation.next(200f, blank, emptyList(), 32f)!!
+        check(FollowNavigation.previous(next.to.y, blank, emptyList(), 32f)!!.to.y == 200f)
+    }
+    scenario("Large handwriting widens the line spacing until breaks are learned") {
+        val follow = WritingFollow()
+        check(follow.lineSpacing(32f) == 32f)
+        listOf(40f, 140f, 240f).forEachIndexed { i, x ->
+            check(follow.completed(letter(x, 40f, 100f, 60f), i * 200L, prefs.copy(spacing = 96f)) == WritingProgress.SAME_LINE)
+        }
+        check(abs(follow.lineSpacing(32f) - 60f * WritingFollow.SPACING_PER_HEIGHT) < .01f)
+        check(follow.lineSpacing(32f, adaptive = false) == 32f)
+        // Ordinary handwriting keeps the configured spacing.
+        check(seeded().lineSpacing(32f) == 32f)
+        follow.state = follow.state.copy(lineSpacings = listOf(70f, 72f))
+        check(follow.lineSpacing(32f) == 72f || follow.lineSpacing(32f) == 70f)
+    }
+    scenario("Undoing a word pulls the frontier back so a return cannot fire early") {
+        for (direction in WritingDirection.entries) {
+            val follow = seeded(direction)
+            val ltr = direction == WritingDirection.LTR
+            val xs = if (ltr) (0..9).map { 160f + it * 20 } else (0..9).map { 40f - it * 20 }
+            xs.forEachIndexed { i, x -> follow.completed(letter(x), 800L + i * 200, prefs.copy(direction = direction)) }
+            val all = (if (ltr) listOf(40f, 80f, 120f) else listOf(160f, 120f, 80f)).plus(xs).map { FollowNavigation.bounds(letter(it))!! }
+            val region = if (ltr) WritingLane(36f, 0f, 360f, 600f) else WritingLane(-160f, 0f, 180f, 600f)
+            val custom = prefs.copy(direction = direction)
+            check(follow.returnFor(region, emptyList(), custom) != null)
+            follow.retract(all.take(5), direction)
+            check(follow.returnFor(region, emptyList(), custom) == null)
+            check(if (ltr) follow.state.frontierRight == all[4].right else follow.state.frontierLeft == all[4].left)
+            follow.retract(emptyList(), direction)
+            check(follow.state.frontierLeft == null && follow.state.baselineY == 100f && follow.state.lineStrokeCount == 0)
+        }
+    }
+    scenario("Reduced motion lands a glide on its first moving frame with exact travel") {
+        val glide = FollowGlide()
+        glide.start(-300f, 120f, 0, 0, 280, 1000f, 1000f, instant = true)
+        check(glide.step(0).let { it.dx == 0f && !it.finished })
+        val step = glide.step(16)
+        check(step.finished && step.dx == -300f && step.dy == 120f)
+    }
     scenario("Invalid viewports cannot authorize a canvas writing session") {
         check(CanvasWritingSession.start(WritingLane(0f, 0f, 0f, 300f), prefs) == null)
         check(CanvasWritingSession.start(WritingLane(Float.NaN, 0f, 300f, 300f), prefs) == null)

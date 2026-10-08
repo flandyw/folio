@@ -185,7 +185,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         verticalDeadBand = appPrefs.getFloat("follow.verticalDeadBand", .15f).coerceIn(.05f, .3f),
         endMargin = appPrefs.getFloat("follow.endMargin", .08f).coerceIn(.02f, .2f),
         glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
-        lineSpeedMs = appPrefs.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500))) }
+        lineSpeedMs = appPrefs.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500),
+        showLandingGuide = appPrefs.getBoolean("follow.showLanding", true))) }
     LaunchedEffect(followPreferences) {
         appPrefs.edit()
             .putBoolean("follow.adaptiveSpacing", followPreferences.adaptiveSpacing)
@@ -200,7 +201,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
             .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing)
             .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs)
-            .putInt("follow.lineSpeedMs", followPreferences.lineSpeedMs).apply()
+            .putInt("follow.lineSpeedMs", followPreferences.lineSpeedMs)
+            .putBoolean("follow.showLanding", followPreferences.showLandingGuide).apply()
     }
     fun setWritingHand(value: WritingHand) {
         writingHand = value
@@ -811,6 +813,15 @@ private fun paperLabel(p: Paper): String = when (p) {
             Key.G -> { finishTextEditing(); pageBrowser = true; pageJumpExpanded = true; true }
             Key.Zero -> { resetZoom(); true }
             else -> false
+        } else if (event.type == KeyEventType.KeyDown && event.isAltPressed && writingFollowEnabled && overviewReturn == null &&
+            !peekOpen && textEditor == null && event.key in setOf(Key.DirectionDown, Key.DirectionUp, Key.Backspace)) {
+            // Keyboard writing follow: Alt+Down next line, Alt+Up previous line, Alt+Backspace back.
+            when (event.key) {
+                Key.DirectionDown -> activeInkView?.nextWritingLine()
+                Key.DirectionUp -> activeInkView?.previousWritingLine()
+                else -> activeInkView?.backWritingView()
+            }
+            true
         } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) when {
             cropActive -> { activeInkView?.endImageCrop(false); true }
             selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
@@ -1230,6 +1241,27 @@ private fun paperLabel(p: Paper): String = when (p) {
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
             }
+            // Held, blocked and end-of-area messages show briefly above the follow controls, because
+            // otherwise a still view looks broken; the full status stays in the options menu.
+            var followHint by remember(page.id) { mutableStateOf<String?>(null) }
+            LaunchedEffect(followStatus.message, followStatus.attention, writingFollowEnabled) {
+                val message = followStatus.message
+                if (!followStatus.attention || !writingFollowEnabled) return@LaunchedEffect
+                followHint = message
+                try { delay(2800) } finally { if (followHint == message) followHint = null }
+            }
+            if (music == null) followHint?.let { hint ->
+                Surface(
+                    Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
+                        .padding(followInset).padding(bottom = 52.dp).widthIn(max = 320.dp).zIndex(11f),
+                    shape = FolioShapes.large,
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                ) {
+                    Text(hint, Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (music == null) HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
@@ -1290,6 +1322,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            DropdownMenuItem({ Text("Previous writing line") },
+                                { followView?.previousWritingLine(); followMenu = false },
+                                enabled = overviewReturn == null,
+                                leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
+                                trailingIcon = { Text("Alt+↑", style = MaterialTheme.typography.labelSmall) })
                             if (overflowFollowActions) {
                                 DropdownMenuItem({ Text("Next writing line") },
                                     { followView?.nextWritingLine(); followMenu = false },

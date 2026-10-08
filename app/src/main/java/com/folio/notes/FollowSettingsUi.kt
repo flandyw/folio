@@ -88,6 +88,11 @@ fun FollowSettingsDialog(
                     "Returns after writing across a line and pausing near its edge. Touch down to stop."
                     else "Maths moves down as your working grows. Tap Next line when you want a new row.",
                     style = MaterialTheme.typography.bodySmall)
+                FollowToggle("Mark where the next line starts", preferences.showLandingGuide) {
+                    onPreferences(preferences.copy(showLandingGuide = it))
+                }
+                Text("A short dashed line and dot show the landing spot while a return counts down, until you write again.",
+                    style = MaterialTheme.typography.bodySmall)
 
                 // 1 · What are you writing?
                 if (!proseOnly) {

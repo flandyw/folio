@@ -23,7 +23,8 @@ internal class FollowGlide {
     val reachedLine get() = abs(y - appliedY) < .75f
 
     fun start(dx: Float, dy: Float, now: Long, delayMs: Int, durationMs: Int,
-              viewportWidth: Float, viewportHeight: Float, msPerViewport: Float = MS_PER_VIEWPORT) {
+              viewportWidth: Float, viewportHeight: Float, msPerViewport: Float = MS_PER_VIEWPORT,
+              instant: Boolean = false) {
         cancel()
         if (!dx.isFinite() || !dy.isFinite() || !viewportWidth.isFinite() || !viewportHeight.isFinite() ||
             viewportWidth <= 0f || viewportHeight <= 0f) return
@@ -32,7 +33,9 @@ internal class FollowGlide {
         // A half-screen pan needs at least 350 ms, regardless of resolution or zoom.
         // The configured duration is a minimum; long trips must not become faster trips.
         val travel = maxOf(abs(dx) / viewportWidth, abs(dy) / viewportHeight)
-        duration = maxOf(durationMs.coerceIn(120, 800), ceil(travel * msPerViewport.coerceIn(MIN_MS_PER_VIEWPORT, MAX_MS_PER_VIEWPORT)).toInt())
+        // With system animations off (reduced motion), the move lands on the first drawn frame.
+        duration = if (instant) 1 else
+            maxOf(durationMs.coerceIn(120, 800), ceil(travel * msPerViewport.coerceIn(MIN_MS_PER_VIEWPORT, MAX_MS_PER_VIEWPORT)).toInt())
         active = true
     }
 
