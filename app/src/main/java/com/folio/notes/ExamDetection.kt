@@ -3,7 +3,7 @@ package com.folio.notes
 import kotlinx.coroutines.CancellationException
 
 enum class ExamField { SUBJECT, YEAR, COMPANY, TYPE, MARKS_TOTAL }
-enum class ExamEvidenceSource { FILENAME, PDF_TEXT, PDF_METADATA, STRUCTURE }
+enum class ExamEvidenceSource { FILENAME, PDF_TEXT, PDF_METADATA, OCR, STRUCTURE }
 
 /** Scores are evidence strengths, not statistically calibrated probabilities. */
 data class ExamEvidence(
@@ -26,12 +26,17 @@ data class ExamDetectionResult(
 ) {
     fun toExamTags() = ExamTags(subject = subject, year = year, company = company.orEmpty(),
         type = type, marksTotal = marksTotal)
+
+    /** Missing conflicting fields and tentative prefills are both worth reviewing. */
+    val reviewFields: Set<ExamField> get() = evidence.filter { it.strength >= ExamClassifier.PREFILL_THRESHOLD }
+        .map { it.field }.filter { (fieldConfidence[it] ?: 0.0) < ExamClassifier.HIGH_CONFIDENCE }.toSet()
 }
 
-/** Bounded, parser-independent input. An OCR provider can supply page text here in future. */
+/** Bounded, parser-independent input; scanned front matter can supply offline OCR text. */
 data class ExamDocumentEvidence(
     val pages: List<PdfPageText> = emptyList(),
-    val metadata: List<String> = emptyList()
+    val metadata: List<String> = emptyList(),
+    val ocrPages: List<PdfPageText> = emptyList()
 )
 
 object ExamEvidenceCollector {
@@ -39,10 +44,10 @@ object ExamEvidenceCollector {
     const val MAX_PAGE_CHARACTERS = 24_000
 
     private val subjects = mapOf(
-        VceSubject.GENERAL_MATHS to listOf("general mathematics", "general maths", "further mathematics"),
+        VceSubject.GENERAL_MATHS to listOf("general mathematics", "general maths", "further mathematics", "further maths", "gm", "fm"),
         VceSubject.MATHS_METHODS to listOf("mathematical methods", "maths methods", "methods", "meths", "mm"),
-        VceSubject.SPECIALIST_MATHS to listOf("specialist mathematics", "specialist maths", "specialist", "spesh"),
-        VceSubject.PHYSICS to listOf("physics"),
+        VceSubject.SPECIALIST_MATHS to listOf("specialist mathematics", "specialist maths", "specialist", "spesh", "sm"),
+        VceSubject.PHYSICS to listOf("physics", "phys"),
         VceSubject.CHEMISTRY to listOf("chemistry", "chem"),
         VceSubject.BIOLOGY to listOf("biology", "bio"),
         VceSubject.PHYSICAL_EDUCATION to listOf("physical education", "phys ed", "pe"),
@@ -61,16 +66,19 @@ object ExamEvidenceCollector {
         "Heffernan" to listOf("heffernan associates", "heffernan", "heff"),
         "NEAP" to listOf("neap"), "TSSM" to listOf("tssm"),
         "Insight" to listOf("insight publications", "insight"), "MAV" to listOf("mathematical association of victoria", "mav"),
-        "Kilbaha" to listOf("kilbaha")
+        "Kilbaha" to listOf("kilbaha"), "Edrolo" to listOf("edrolo"),
+        "QATs" to listOf("qats", "quality assessment tasks"),
+        "A+" to listOf("a plus publishing", "a plus")
     )
     private val types = mapOf(
-        ExamType.EXAM_1 to listOf("examination 1", "exam 1", "e 1"),
-        ExamType.EXAM_2 to listOf("examination 2", "exam 2", "e 2"),
+        ExamType.EXAM_1 to listOf("examination 1", "exam 1", "paper 1", "exam i", "examination i", "e 1"),
+        ExamType.EXAM_2 to listOf("examination 2", "exam 2", "paper 2", "exam ii", "examination ii", "e 2"),
         ExamType.SAC to listOf("school assessed coursework", "sac"),
         ExamType.TOPIC_TEST to listOf("topic test")
     )
 
     private fun normalize(text: String): String = text.lowercase(java.util.Locale.ROOT)
+        .replace(Regex("\\ba\\s*\\+"), "a plus ")
         .replace(Regex("(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])"), " ")
         .replace(Regex("[^a-z0-9]+"), " ").trim()
 
@@ -82,9 +90,9 @@ object ExamEvidenceCollector {
             val text = normalize(raw)
             val lines = raw.lineSequence().map(::normalize).toSet()
             val filenameSource = source == ExamEvidenceSource.FILENAME
-            val pdf = source == ExamEvidenceSource.PDF_TEXT
+            val pdf = source == ExamEvidenceSource.PDF_TEXT || source == ExamEvidenceSource.OCR
             val location = if (pdf) "page ${page!! + 1}" else if (filenameSource) "filename" else "PDF metadata"
-            val examContext = Regex("\\b(exam|examination|e) [12]\\b").containsMatchIn(text) ||
+            val examContext = Regex("\\b(exam|examination|paper)(?: [12]| ii?)?\\b|\\be [12]\\b").containsMatchIn(text) ||
                 contains(text, "victorian certificate of education") || contains(text, "reading time")
             fun score(phrase: String, short: Boolean = false): Double = when {
                 filenameSource -> if (short) (if (examContext) 0.61 else 0.44) else 0.68
@@ -96,7 +104,8 @@ object ExamEvidenceCollector {
                 else -> 0.77
             }
             fun add(field: ExamField, value: Any, phrase: String, strength: Double) {
-                result += ExamEvidence(field, value, strength, source, "\"$phrase\" found in $location")
+                result += ExamEvidence(field, value, if (source == ExamEvidenceSource.OCR) minOf(strength, 0.90) else strength,
+                    source, "\"$phrase\" found in $location${if (source == ExamEvidenceSource.OCR) " (scanned text)" else ""}")
             }
             subjects.forEach { (subject, aliases) ->
                 aliases.firstOrNull { contains(text, it) }?.let { phrase ->
@@ -123,38 +132,70 @@ object ExamEvidenceCollector {
             types.forEach { (type, aliases) ->
                 aliases.firstOrNull { contains(text, it) }?.let { add(ExamField.TYPE, type, it, score(it)) }
             }
-            // Compact official-style names such as 2024mm1 carry an exam number next to MM.
-            if (filenameSource) Regex("\\b(20\\d{2})mm([12])\\b").find(raw.lowercase())?.let {
-                add(ExamField.TYPE, if (it.groupValues[2] == "1") ExamType.EXAM_1 else ExamType.EXAM_2,
-                    it.value, 0.61)
-                add(ExamField.SUBJECT, VceSubject.MATHS_METHODS, it.value, 0.61)
-            }
-            Regex("\\b20[0-9]{2}\\b").findAll(text).forEach { match ->
-                val year = match.value.toInt()
-                val line = raw.lineSequence().firstOrNull { contains(normalize(it), match.value) }.orEmpty()
-                val historical = Regex("(?i)copyright|©|study design|accreditation|past papers|from ").containsMatchIn(line)
-                val explicit = match.value in lines || Regex("\\b${match.value} (exam|examination)\\b|\\b(exam|examination) ${match.value}\\b").containsMatchIn(text)
-                val strength = when {
-                    filenameSource -> 0.66
-                    historical -> 0.35
-                    pdf && explicit && examContext -> if (page == 0) 0.96 else 0.86
-                    pdf && examContext && match.range.first < 300 -> if (page == 0) 0.88 else 0.78
-                    else -> 0.40
+            // Official-style names join the year, study code and paper number (2024mm1, 2023sm2).
+            if (filenameSource) Regex("\\b((?:19|20)\\d{2})[ _-]*(mm|sm|gm|fm|biol|chem|phys|psych|eng|lit|leg|econ|acc)([12])?\\b")
+                .findAll(raw.lowercase(java.util.Locale.ROOT)).forEach { match ->
+                val subject = when (match.groupValues[2]) {
+                    "mm" -> VceSubject.MATHS_METHODS; "sm" -> VceSubject.SPECIALIST_MATHS
+                    "gm", "fm" -> VceSubject.GENERAL_MATHS; "biol" -> VceSubject.BIOLOGY
+                    "chem" -> VceSubject.CHEMISTRY; "phys" -> VceSubject.PHYSICS
+                    "psych" -> VceSubject.PSYCHOLOGY; "eng" -> VceSubject.ENGLISH
+                    "lit" -> VceSubject.LITERATURE; "leg" -> VceSubject.LEGAL_STUDIES
+                    "econ" -> VceSubject.ECONOMICS; else -> VceSubject.ACCOUNTING
                 }
-                add(ExamField.YEAR, year, match.value, strength)
+                add(ExamField.SUBJECT, subject, match.value, 0.68)
+                match.groupValues[3].takeIf { it.isNotEmpty() }?.let {
+                    add(ExamField.TYPE, if (it == "1") ExamType.EXAM_1 else ExamType.EXAM_2, match.value, 0.68)
+                }
             }
-            if (filenameSource && examContext && subjects.values.flatten().any { contains(text, it) }) {
-                Regex("\\b(1[8-9]|2[0-9])\\b").findAll(text).forEach {
-                    add(ExamField.YEAR, 2000 + it.value.toInt(), it.value, 0.61)
+            if (result.none { it.field == ExamField.TYPE && it.source == source && it.strength >= 0.6 }) {
+                val generic = listOf(ExamType.EXAM to listOf("examination", "exam", "trial paper", "practice paper"),
+                    ExamType.NOTES to listOf("summary notes", "revision notes", "formula sheet", "bound reference"))
+                generic.forEach { (type, aliases) -> aliases.firstOrNull { contains(text, it) }?.let { phrase ->
+                    // Incidental mentions in a question are not a document's assessment type.
+                    val heading = lines.any { contains(it, phrase) && it.length <= 100 }
+                    if (filenameSource || (pdf && examContext && heading))
+                        add(ExamField.TYPE, type, phrase, if (filenameSource) 0.64 else if (page == 0) 0.86 else 0.72)
+                } }
+            }
+            var lineOffset = 0
+            raw.lineSequence().forEach { line ->
+                val normalizedLine = normalize(line)
+                Regex("\\b(?:19|20)[0-9]{2}\\b").findAll(normalizedLine).forEach { match ->
+                    val year = match.value.toInt()
+                    val historical = Regex("(?i)copyright|©|study design|accreditation|past papers|from |adapted|based on|\\b(?:19|20)\\d{2}\\s*[–−-]\\s*(?:19|20)\\d{2}").containsMatchIn(line)
+                    val explicit = normalizedLine == match.value || Regex("\\b${match.value} (exam|examination)\\b|\\b(exam|examination) ${match.value}\\b").containsMatchIn(normalizedLine)
+                    val strength = when {
+                        filenameSource -> 0.66
+                        historical -> 0.35
+                        pdf && explicit && examContext -> if (page == 0) 0.96 else 0.86
+                        pdf && examContext && lineOffset + match.range.first < 300 -> if (page == 0) 0.88 else 0.78
+                        else -> 0.40
+                    }
+                    add(ExamField.YEAR, year, match.value, strength)
+                }
+                lineOffset += line.length + 1
+            }
+
+            if (filenameSource && examContext && !Regex("\\b(?:19|20)\\d{2}\\b").containsMatchIn(text) && subjects.values.flatten().any { contains(text, it) }) {
+                Regex("\\b(0[0-9]|1[0-9]|2[0-9])\\b").findAll(text).forEach {
+                    val before = text.substring(0, it.range.first).trimEnd()
+                    val after = text.substring(it.range.last + 1).trimStart()
+                    if (!Regex("(?:unit|topic|chapter|question|section)$").containsMatchIn(before) &&
+                        !Regex("^(?:marks|questions|minutes|pages)\\b").containsMatchIn(after))
+                        add(ExamField.YEAR, 2000 + it.value.toInt(), it.value, 0.61)
                 }
             }
             if (pdf) {
                 listOf(Regex("\\btotal marks(?: for (?:the )?(?:examination|exam|paper))?\\s*[:=–-]?\\s*(\\d{1,3})\\b", RegexOption.IGNORE_CASE),
+                    Regex("\\btotal(?: (?:number of )?marks)?\\s*[:=–-]?\\s*(\\d{1,3})(?:\\s+marks)?\\b", RegexOption.IGNORE_CASE)
+                        .takeIf { contains(text, "number of marks") || contains(text, "total marks") },
                     Regex("\\btotal\\s*[:=–-]?\\s*(\\d{1,3})\\s+marks\\b", RegexOption.IGNORE_CASE),
                     Regex("\\b(\\d{1,3})\\s+marks\\s+in total\\b", RegexOption.IGNORE_CASE))
-                    .forEach { pattern -> pattern.findAll(raw).forEach { match ->
+                    .filterNotNull().forEach { pattern -> pattern.findAll(raw).forEach { match ->
                         val marks = match.groupValues[1].toInt()
-                        val line = raw.lineSequence().firstOrNull { match.value in it }.orEmpty()
+                        val line = raw.substring(0, match.range.first).substringAfterLast('\n') +
+                            raw.substring(match.range.first).substringBefore('\n')
                         if (marks in 1..300 && !Regex("(?i)section|question|subtotal").containsMatchIn(line))
                             add(ExamField.MARKS_TOTAL, marks, match.value, if (page == 0) 0.92 else 0.79)
                     } }
@@ -171,6 +212,7 @@ object ExamEvidenceCollector {
         inspect(filename.replace(Regex("(?i)\\.pdf$"), ""), ExamEvidenceSource.FILENAME)
         document.metadata.take(3).forEach { inspect(it.take(MAX_PAGE_CHARACTERS), ExamEvidenceSource.PDF_METADATA) }
         document.pages.take(MAX_PAGES).forEach { inspect(it.text.take(MAX_PAGE_CHARACTERS), ExamEvidenceSource.PDF_TEXT, it.pageIndex) }
+        document.ocrPages.take(2).forEach { inspect(it.text.take(MAX_PAGE_CHARACTERS), ExamEvidenceSource.OCR, it.pageIndex) }
         return result
     }
 }
@@ -184,11 +226,23 @@ object ExamClassifier {
         val values = mutableMapOf<ExamField, Any>()
         val confidence = mutableMapOf<ExamField, Double>()
         ExamField.entries.forEach { field ->
-            val ranked = evidence.filter { it.field == field }.groupBy { it.value }.map { (value, items) ->
+            val fieldEvidence = evidence.filter { it.field == field }
+            // A generic "written examination" heading corroborates a numbered paper; it does not
+            // contradict its filename unless the cover identifies a different subject.
+            val numbered = field == ExamField.TYPE && fieldEvidence.any {
+                (it.value == ExamType.EXAM_1 || it.value == ExamType.EXAM_2) && it.strength >= PREFILL_THRESHOLD &&
+                    (it.source != ExamEvidenceSource.FILENAME || evidence.any { subject ->
+                        subject.field == ExamField.SUBJECT && subject.source == ExamEvidenceSource.FILENAME &&
+                            subject.value == values[ExamField.SUBJECT] && subject.strength >= PREFILL_THRESHOLD
+                    })
+            }
+            val ranked = fieldEvidence.filterNot { numbered && it.value == ExamType.EXAM }.groupBy { it.value }.map { (value, items) ->
                 val direct = items.filter { it.source != ExamEvidenceSource.STRUCTURE }
                 val best = direct.maxOfOrNull { it.strength } ?: 0.0
                 // Repeated mentions cannot swamp a stronger title match. Independent agreement is capped.
-                val corroboration = if (direct.filter { it.strength >= PREFILL_THRESHOLD }.map { it.source }.distinct().size > 1) 0.03 else 0.0
+                val corroboration = if (direct.filter { it.strength >= PREFILL_THRESHOLD }.map {
+                    if (it.source == ExamEvidenceSource.OCR) ExamEvidenceSource.PDF_TEXT else it.source
+                }.distinct().size > 1) 0.03 else 0.0
                 val structure = if (best >= PREFILL_THRESHOLD && items.any { it.source == ExamEvidenceSource.STRUCTURE }) 0.03 else 0.0
                 value to (best + corroboration + structure).coerceAtMost(0.99)
             }.sortedByDescending { it.second }
@@ -209,9 +263,12 @@ object ExamClassifier {
     }
 }
 
-/** The import naming convention: year, source/company, then subject, omitting unknown fields. */
+/** Keep numbered papers distinct, and leave ordinary documents' names alone. */
 fun smartImportedNotebookName(exam: ExamTags, fallback: String): String {
-    val name = listOfNotNull(exam.year?.toString(), exam.company.trim().takeIf(String::isNotEmpty), exam.subjectLabel.trim().takeIf(String::isNotEmpty))
+    if (exam.subjectLabel.isBlank() || exam.type == null ||
+        Regex("(?i)\\b(solutions?|answers?|reports?)\\b|marking guide").containsMatchIn(fallback)) return fallback
+    val name = listOfNotNull(exam.year?.toString(), exam.company.trim().takeIf(String::isNotEmpty),
+        exam.subjectLabel.trim().takeIf(String::isNotEmpty), exam.type.label)
         .joinToString(" ")
     return name.ifBlank { fallback }
 }

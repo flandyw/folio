@@ -130,6 +130,7 @@ private fun paperLabel(p: Paper): String = when (p) {
 }
 
 @Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true) {
+    val inputStylusActivity = LocalStylusActivity.current
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
@@ -979,9 +980,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
                     selectionMenu = if (inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
-            } else Box(Modifier.fillMaxSize().pointerInput(motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
+            } else Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val cancellationSerial = inputStylusActivity.cancellationSerial
                     motion.stop()
                     scope.launch { pages.stopScroll() }
                     if (down.type == PointerType.Stylus || down.type == PointerType.Eraser) {
@@ -1007,6 +1009,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         try {
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (inputStylusActivity.cancellationSerial != cancellationSerial) break
                                 // Additional fingers or a pen cancel the scrub before it moves the page.
                                 if (event.changes.any { it.id != down.id && it.pressed }) break
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -1035,6 +1038,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                         velocity.addPosition(down.uptimeMillis, travel)
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (inputStylusActivity.cancellationSerial != cancellationSerial) {
+                                transforming = false
+                                motion.reset()
+                                break
+                            }
                             if (event.changes.any { it.pressed && (it.type == PointerType.Stylus || it.type == PointerType.Eraser) }) {
                                 transforming = false
                                 motion.reset()
@@ -1893,6 +1901,24 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     pageMenu?.takeIf { !inkNavigating }?.let { (wx, wy, at) ->
+        val pressedText = page.texts.lastOrNull {
+            !it.isSticky && PageLayers.editable(page.layers, it.layer) &&
+                at.x >= it.x && at.x <= it.x + it.width && at.y >= it.y && at.y <= it.y + InkRenderer.textHeight(it)
+        }
+        if (pressedText != null) {
+            fun copyText() {
+                context.getSystemService(android.content.ClipboardManager::class.java)
+                    ?.setPrimaryClip(android.content.ClipData.newPlainText("Folio text", pressedText.text))
+            }
+            TextBoxContextMenu(wx, wy,
+                onEdit = { selectTool(Tool.TEXT); editTextBox(page, pressedText) },
+                onCopy = ::copyText,
+                onCut = { copyText(); finishTextEditing(); model.removeText(pressedText.id) },
+                onDuplicate = { finishTextEditing(); model.duplicateText(pressedText.id) },
+                onDelete = { finishTextEditing(); model.removeText(pressedText.id) },
+                onDismiss = { pageMenu = null })
+            return@let
+        }
         PageContextMenu(wx, wy,
             onPaste = { model.pasteClipboard(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
@@ -2175,6 +2201,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     onCropMode: (Boolean) -> Unit = {}, onNavigating: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
     DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
+    val inputStylusActivity = LocalStylusActivity.current
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
     var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
@@ -2317,6 +2344,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 }
             }
             else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
+                view.inputStylusActivity = inputStylusActivity
                 view.documentPaperWidth = paperWidthPx
                 view.documentTop = workspaceTop
                 view.onTextEditorFrame = { textFrame = it }
@@ -2455,18 +2483,21 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
  */
 @Composable private fun MusicSheets(note: Notebook, stage: MusicStage, insets: MusicStageInsets, zoomed: Boolean, onFit: () -> Unit, tapTurns: Boolean,
     sheet: @Composable (NotePage, Int) -> Unit) {
+    val inputStylusActivity = LocalStylusActivity.current
     val end = minOf(stage.start + stage.step, note.pages.size)
     val turn by rememberUpdatedState(stage.onTurn)
     Row(Modifier.fillMaxSize().padding(start = insets.side, end = insets.side, top = insets.top, bottom = insets.bottom)
-        .pointerInput(tapTurns, zoomed) {
+        .pointerInput(inputStylusActivity, tapTurns, zoomed) {
             if (!tapTurns && !zoomed) return@pointerInput
             var lastTapAt = 0L
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val cancellationSerial = inputStylusActivity.cancellationSerial
                 if (down.type != PointerType.Touch) return@awaitEachGesture
                 var crowded = false
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (inputStylusActivity.cancellationSerial != cancellationSerial) { lastTapAt = 0L; break }
                     if (event.changes.size > 1) crowded = true
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                     if (change.uptimeMillis - down.uptimeMillis > 300L || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) break

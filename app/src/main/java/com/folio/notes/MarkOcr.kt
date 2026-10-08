@@ -2,7 +2,6 @@ package com.folio.notes
 
 import android.graphics.Bitmap
 import android.util.AtomicFile
-import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.currentCoroutineContext
@@ -10,9 +9,6 @@ import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import java.io.File
 import java.security.MessageDigest
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
 /** Disposable, derived cache only. No recognized response text is retained or added to the notebook. */
 internal class MarkOcr(cacheDir: File, source: File) : AutoCloseable {
@@ -26,13 +22,7 @@ internal class MarkOcr(cacheDir: File, source: File) : AutoCloseable {
      * the input or closes the recognizer, then observes cancellation before doing any more work.
      */
     private suspend fun recognize(bitmap: Bitmap): com.google.mlkit.vision.text.Text {
-        val result = suspendCoroutine { continuation ->
-            recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener { continuation.resume(it) }
-                .addOnFailureListener { continuation.resumeWithException(it) }
-        }
-        currentCoroutineContext().ensureActive()
-        return result
+        return recognizePdfText(recognizer, bitmap)
     }
 
     /** The marks written in a boxed [lane] of [page] (page units) on its rendered [bitmap], or null when unreadable. */

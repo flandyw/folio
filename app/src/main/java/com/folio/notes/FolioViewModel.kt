@@ -47,8 +47,24 @@ data class PendingPdfImport(
     val uri: Uri,
     val title: String,
     val exam: ExamTags = ExamTags(),
-    val detected: Boolean = false
-)
+    val detected: Boolean = false,
+    val filename: String = "",
+    val pageCount: Int? = null,
+    val detection: ExamDetectionResult = ExamDetectionResult(),
+    val inspectionError: String? = null,
+    val useSmartTitle: Boolean = true,
+    val plainPdf: Boolean = false,
+    val savedExam: ExamTags? = null
+) {
+    val originalTitle: String get() = filename.substringBeforeLast('.', filename).ifBlank { "Imported document" }
+
+    fun withExam(tags: ExamTags): PendingPdfImport = copy(exam = tags,
+        title = if (useSmartTitle) smartImportedNotebookName(tags, originalTitle) else title)
+
+    fun asPlainPdf(plain: Boolean): PendingPdfImport = if (plain == plainPdf) this else
+        copy(plainPdf = plain, savedExam = if (plain) exam else savedExam)
+            .withExam(if (plain) ExamTags() else savedExam ?: detection.toExamTags())
+}
 
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
@@ -2478,29 +2494,59 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
     fun clearPdfSearch() { _state.update { it.copy(pdfSearch = PdfSearchState()) }; captureTab() }
+    private var pdfInspectionJob: Job? = null
+    private val pdfInspectionGate = Mutex()
+
     fun preparePdfImport(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || _state.value.busy) return
         val existing = _state.value.pendingPdfImports
         val additions = uris.distinct().filter { uri -> existing.none { it.uri == uri } }
         if (additions.isEmpty()) return
         _state.update { it.copy(pendingPdfImports = it.pendingPdfImports + additions.map { PendingPdfImport(it, "Reading PDF…") }) }
-        viewModelScope.launch(Dispatchers.IO) {
-            additions.forEach { uri ->
-                val inspected = runCatching { repository.inspectPdf(uri) }.getOrElse { PendingPdfImport(uri, "Imported document") }
+        // One reader for the whole review; new selections join its queue without opening more PDFs.
+        if (pdfInspectionJob?.isActive == true) return
+        pdfInspectionJob = viewModelScope.launch {
+            while (true) {
+                val pending = _state.value.pendingPdfImports.firstOrNull { !it.detected } ?: break
+                val uri = pending.uri
+                // Cancelled OCR must finish releasing its bitmap before a new review starts reading.
+                val inspected = try { pdfInspectionGate.withLock { repository.inspectPdf(uri) } }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { pending.copy(detected = true, title = "Imported document",
+                    inspectionError = e.message ?: "This PDF could not be read") }
                 _state.update { state -> state.copy(pendingPdfImports = state.pendingPdfImports.map {
                     if (it.uri == uri) inspected.copy(detected = true) else it
                 }) }
             }
         }
     }
-    fun cancelPdfImport() { _state.update { it.copy(pendingPdfImports = emptyList()) } }
+    fun updatePdfImport(item: PendingPdfImport) {
+        _state.update { state -> state.copy(pendingPdfImports = state.pendingPdfImports.map {
+            if (it.uri == item.uri && it.detected) item else it
+        }) }
+    }
+
+    fun removePdfImport(uri: Uri) {
+        _state.update { it.copy(pendingPdfImports = it.pendingPdfImports.filterNot { item -> item.uri == uri }) }
+        if (_state.value.pendingPdfImports.isEmpty()) cancelPdfImport()
+    }
+
+    fun cancelPdfImport() {
+        pdfInspectionJob?.cancel()
+        pdfInspectionJob = null
+        _state.update { it.copy(pendingPdfImports = emptyList()) }
+    }
 
     fun importPdfs(folderId: String?, reviewed: List<PendingPdfImport> = _state.value.pendingPdfImports) {
         val request = _state.value
         if (request.busy || request.loading || request.loadFailed || request.pendingPdfImports.isEmpty()) return
         if (folderId != null && request.folders.none { it.id == folderId }) return
         val items = request.pendingPdfImports
+        if (items.any { !it.detected } || reviewed.size != items.size) return
         val options = reviewed.associateBy { it.uri }
+        if (items.any { options[it.uri]?.let { option -> option.title.isBlank() || option.inspectionError != null ||
+            (option.exam.year != null && option.exam.year !in 1900..2099) ||
+            (option.exam.marksTotal != null && option.exam.marksTotal !in 1..300) } != false }) return
         _state.update { it.copy(busy = true, pendingPdfImports = emptyList()) }
         viewModelScope.launch {
             val imported = mutableListOf<Notebook>()

@@ -204,12 +204,18 @@ object EditorQuickPrefs {
                 }
             }
         }
-        Text("Origin", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            AssistChip({ update(style.copy(origin = GraphOrigin.CENTRE)) }, { Text("Centre") },
-                leadingIcon = if (style.origin == GraphOrigin.CENTRE) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
-            AssistChip({ update(style.copy(origin = GraphOrigin.CORNER)) }, { Text("Bottom left") },
-                leadingIcon = if (style.origin == GraphOrigin.CORNER) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+        Text("Quick setups", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            GraphStyle.PRESETS.forEach { (name, preset) ->
+                // A preset keeps the shape toggle the student chose: it is about the paper, not the graph.
+                FilterChip(selected = style == preset.copy(square = style.square), onClick = { update(preset.copy(square = style.square)) }, label = { Text(name) })
+            }
+        }
+        Text("Axes cross", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            GraphOrigin.entries.forEach { origin ->
+                FilterChip(selected = style.origin == origin, onClick = { update(style.copy(origin = origin)) }, label = { Text(origin.label) })
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Square diagram", Modifier.weight(1f))
@@ -227,12 +233,38 @@ object EditorQuickPrefs {
                 )
             }
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Square grid cells", Modifier.weight(1f))
+            Switch(style.squareCells, { update(style.copy(squareCells = it)) }, enabled = style.divisions > 0)
+        }
         if (style.numbers) {
-            Text("Units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                GraphStyle.STEPS.forEach { step ->
-                    AssistChip({ update(style.copy(step = step)) }, { Text(if (step == 1) "1" else "$step") },
-                        leadingIcon = if (style.step == step) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+            Text(if (style.piDen > 0) "x axis counts in multiples of" else "Units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                if (style.piDen > 0) {
+                    GraphStyle.PI_DENOMINATORS.forEach { den ->
+                        FilterChip(selected = style.piDen == den, onClick = { update(style.copy(piDen = den)) },
+                            label = { Text(if (den == 1) "π" else "π/$den") })
+                    }
+                } else {
+                    GraphStyle.STEPS.forEach { step ->
+                        FilterChip(selected = style.step == step, onClick = { update(style.copy(step = step)) }, label = { Text(graphNumber(step)) })
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("x axis in π (trigonometry)", Modifier.weight(1f))
+                Switch(style.piDen > 0, { update(style.copy(piDen = if (it) 2 else 0)) })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Different units on y", Modifier.weight(1f))
+                Switch(style.stepY > 0.0, { update(style.copy(stepY = if (it) style.step else 0.0)) })
+            }
+            if (style.stepY > 0.0) {
+                Text("y units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    GraphStyle.STEPS.forEach { step ->
+                        FilterChip(selected = style.stepY == step, onClick = { update(style.copy(stepY = step)) }, label = { Text(graphNumber(step)) })
+                    }
                 }
             }
         }
@@ -248,11 +280,15 @@ object EditorQuickPrefs {
             Text("Numbers on the axes", Modifier.weight(1f))
             Switch(style.numbers, { update(style.copy(numbers = it)) }, enabled = style.divisions > 0)
         }
-        if (style.numbers) Text("Counts 1, 2, 3 … outwards from the origin, so the step above sets what each division is worth.",
+        if (style.numbers) Text("Counts outwards from the origin, so the units above set what each division is worth.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("x and y labels", Modifier.weight(1f))
             Switch(style.letters, { update(style.copy(letters = it)) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Label the origin O", Modifier.weight(1f))
+            Switch(style.originLabel, { update(style.copy(originLabel = it)) })
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Arrowheads", Modifier.weight(1f))
@@ -328,6 +364,22 @@ object EditorQuickPrefs {
         }
         FolioExpand(editing) {
             Text("Tap a colour below to store it in slot ${slot + 1}, or tap another slot above to change which one you are editing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        Text("Palettes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
+            InkColors.palettes.forEach { palette ->
+                FilterChip(
+                    selected = quick.palette(group) == palette.name,
+                    onClick = { quick.applyPalette(group, palette); load(quick.colors(group)) },
+                    label = { Text(palette.name) },
+                    leadingIcon = {
+                        Row(horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
+                            palette.colors.take(InkColors.SLOT_COUNT).forEach { Box(Modifier.size(12.dp).background(Color(it), CircleShape).border(1.dp, MaterialTheme.colorScheme.surface, CircleShape)) }
+                        }
+                    }
+                )
+            }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {

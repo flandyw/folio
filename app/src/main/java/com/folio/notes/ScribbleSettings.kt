@@ -76,6 +76,7 @@ private fun scribblePracticePage() = NotePage(
 
 /** A disposable page using the editor's real input and erasing pipeline; never saved to a notebook. */
 @Composable private fun ScribblePractice(enabled: Boolean, sensitivity: Float) {
+    val inputStylusActivity = LocalStylusActivity.current
     var page by remember { mutableStateOf(scribblePracticePage()) }
     var feedback by remember { mutableStateOf("Try scrubbing across the blue ink, or write your own sample.") }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -90,6 +91,7 @@ private fun scribblePracticePage() = NotePage(
             } },
             modifier = Modifier.fillMaxWidth().aspectRatio(2f).clip(FolioShapes.medium),
             update = { view ->
+                view.inputStylusActivity = inputStylusActivity
                 if (view.page !== page) view.bind(page, null)
                 view.scribbleToErase = enabled
                 view.scribbleSensitivity = sensitivity

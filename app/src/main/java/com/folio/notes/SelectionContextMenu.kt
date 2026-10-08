@@ -168,14 +168,10 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-/** Finger long-press menu on the page itself; opens above the press, or below when there is no room. */
-@Composable internal fun PageContextMenu(
-    windowX: Float, windowY: Float, onPaste: () -> Unit, onSelectAll: () -> Unit, onText: () -> Unit, onImage: () -> Unit,
-    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit,
-    canPaste: Boolean = true
-) {
+/** Places a long-press menu above the press, or below when there is no room. */
+@Composable private fun rememberPressMenuPosition(windowX: Float, windowY: Float): PopupPositionProvider {
     val gap = with(LocalDensity.current) { 16.dp.toPx() }
-    val provider = remember(windowX, windowY, gap) {
+    return remember(windowX, windowY, gap) {
         object : PopupPositionProvider {
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
                 layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
@@ -186,6 +182,15 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             }
         }
     }
+}
+
+/** Finger long-press menu on the page itself; opens above the press, or below when there is no room. */
+@Composable internal fun PageContextMenu(
+    windowX: Float, windowY: Float, onPaste: () -> Unit, onSelectAll: () -> Unit, onText: () -> Unit, onImage: () -> Unit,
+    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit,
+    canPaste: Boolean = true
+) {
+    val provider = rememberPressMenuPosition(windowX, windowY)
     fun run(action: () -> Unit) { onDismiss(); action() }
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -204,8 +209,31 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
-    val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+/** Long-press menu on a typed text box: edit, clipboard, duplicate and delete without opening the editor first. */
+@Composable internal fun TextBoxContextMenu(
+    windowX: Float, windowY: Float, onEdit: () -> Unit, onCopy: () -> Unit, onCut: () -> Unit,
+    onDuplicate: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit
+) {
+    val provider = rememberPressMenuPosition(windowX, windowY)
+    fun run(action: () -> Unit) { onDismiss(); action() }
+    Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.width(200.dp).semanticsLabel("Text options")) {
+            Column(Modifier.padding(vertical = FolioSpacing.dp4)) {
+                PageMenuRow(Icons.Rounded.Edit, "Edit text", true) { run(onEdit) }
+                PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
+                PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
+                PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
+                HorizontalDivider()
+                PageMenuRow(Icons.Rounded.DeleteOutline, "Delete", true, destructive = true) { run(onDelete) }
+            }
+        }
+    }
+}
+
+@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, destructive: Boolean = false, onClick: () -> Unit) {
+    val tint = if (enabled) (if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         Icon(icon, null, Modifier.size(20.dp), tint = tint)

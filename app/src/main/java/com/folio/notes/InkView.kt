@@ -60,8 +60,19 @@ class InkView(context: Context) : View(context) {
     var scribbleToErase = true
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
     var eraserWholeStroke = false
-    /** How long after stylus activity a finger still counts as a resting palm. 0 disables. */
-    var palmRejectMs: Long = PALM_REJECT_MS
+    private var inputRouter = StylusInputRouter()
+    /** Main-window proximity is also seen by reference panes and controls in popup windows. */
+    internal var inputStylusActivity: StylusActivity? = null
+        set(value) {
+            if (field === value) return
+            inputRouter.reset(::handleTouchEvent)
+            field = value
+            inputRouter = StylusInputRouter(value ?: StylusActivity())
+        }
+    /** Proximity grace for a standalone surface; app windows use their shared preference. */
+    var palmRejectMs: Long
+        get() = inputRouter.stylus.graceMs
+        set(value) { if (inputStylusActivity == null) inputRouter.stylus.graceMs = AppPrefs.palmMs(value) }
     /** Scales finger pan distance and fling speed (the "fast pan" setting); 1 leaves panning unchanged. */
     var panMultiplier = 1f
     var shapeMeasurements = true
@@ -244,8 +255,6 @@ class InkView(context: Context) : View(context) {
     private var pointerId = -1
     private var stylus = false
     private var ignored = false
-    // Negative so a finger never counts as a palm before the stylus has ever been seen.
-    private var lastStylusAt = -PALM_REJECT_MS
     private var lastX = 0f; private var lastY = 0f
     private var navigating = false
     /**
@@ -288,8 +297,22 @@ class InkView(context: Context) : View(context) {
         color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f
         pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
     }
-    private val eraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x222F6FBA; style = Paint.Style.FILL }
-    private val eraserEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f }
+    // Eraser ring: a white halo under a dark neutral edge reads on paper, dark PDFs and ink alike;
+    // the fill deepens once the tip is cutting so hovering and erasing look different.
+    private val eraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val eraserEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD92B3440.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val eraserHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.STROKE }
+    private val eraserDotHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.FILL }
+    private val eraserDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD92B3440.toInt(); style = Paint.Style.FILL }
+    private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xCCFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val lassoGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x802F6FBA.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val frameHandleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+    private val frameHandleRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.STROKE }
+    private val frameShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x26000000; style = Paint.Style.FILL }
     private val textBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xAA2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f
         pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
@@ -541,6 +564,11 @@ class InkView(context: Context) : View(context) {
         reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Follow paused · write to resume")
     }
     var inputBlocked = false
+        set(value) {
+            if (field == value) return
+            if (value) inputRouter.reset(::handleTouchEvent)
+            field = value
+        }
     val isWritingGesture get() = draft != null || erasing != null || lasso != null
     /** The peek view this read-only page frames; only a different anchor re-frames it, so panning a kept-open peek sticks. */
     var peekRegion: PeekAnchor? = null
@@ -791,13 +819,13 @@ class InkView(context: Context) : View(context) {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
     /**
-     * Stylus hover keeps palm rejection armed before the tip even touches the screen, and leaving
-     * the stylus range releases it immediately so finger gestures are not blocked after writing.
+     * Hover arms proximity rejection before contact; EXIT retains a grace period because Android
+     * also sends it when the tip lands. The router cancels an earlier touch without committing it.
      */
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        inputRouter.hover(event, ::handleTouchEvent)
         if ((0 until event.pointerCount).any { isStylus(event, it) }) {
             val leaving = event.actionMasked == MotionEvent.ACTION_HOVER_EXIT
-            lastStylusAt = if (leaving) -palmRejectMs else SystemClock.uptimeMillis()
             // Hovering with the eraser previews the same outline it will cut with, before the tip lands.
             if (!leaving && !readOnly && markZones.isNotEmpty()) {
                 val at = point(event, 0)
@@ -813,7 +841,7 @@ class InkView(context: Context) : View(context) {
                 if (last == null || hypot(next.x - last.x, next.y - last.y) > .75f) { eraserMark = next; invalidate() }
             }
         }
-        return super.onGenericMotionEvent(event)
+        return if ((0 until event.pointerCount).any { isStylus(event, it) }) true else super.onHoverEvent(event)
     }
     private fun offerZone(zone: MarkZone) {
         lastZoneOfferAt = SystemClock.uptimeMillis()
@@ -839,6 +867,7 @@ class InkView(context: Context) : View(context) {
     }
     fun bind(value: NotePage, bitmap: Bitmap?, images: Map<String, Bitmap> = emptyMap()) {
         if (page.id != value.id || page.infinite != value.infinite) {
+            inputRouter.reset(::handleTouchEvent)
             stickyNotes.reset()
             followPaused = false; followLastPoint = null
             followBack.clear(); writingFollow.state = WritingFollowState(); cancelFollowMotion()
@@ -1023,6 +1052,7 @@ class InkView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        inputRouter.reset(::handleTouchEvent)
         stickyNotes.reset()
         removeCallbacks(followFrame)
         removeCallbacks(reportMeasurement)
@@ -1255,12 +1285,26 @@ class InkView(context: Context) : View(context) {
         invalidate(l, t, r, b)
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
+    override fun onTouchEvent(event: MotionEvent): Boolean = inputRouter.touch(event, ::handleTouchEvent)
+
+    /** Receives admitted pointers only; a pen is pointer zero in its own complete DOWN..UP stream. */
+    private fun handleTouchEvent(event: MotionEvent): Boolean {
+        // Cancellation must precede blocked input and every early-return tool path.
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            stickyNotes.cancel()
+            markRegionDraft = null; markRegionStart = null
+            regionDraft = null; regionStart = null
+            reportNavigating(false); removeCallbacks(longPressRunnable)
+            longPressFired = false; tapOff = false; touchChord.reset()
+            zoomDetector.onTouchEvent(event)
+            cancelGesture(); reportSelectionViewBounds(); invalidate()
+            return true
+        }
         if (inputBlocked) return true
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null && !isPalm(event, 0)) onTextEditingExit()
-        if (!readOnly && !selectingWritingRegion && !isPalm(event, 0)) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null) onTextEditingExit()
+        if (!readOnly && !selectingWritingRegion) {
             val pen = isStylus(event, 0)
-            if (pen) { stylus = true; lastStylusAt = SystemClock.uptimeMillis() }
+            if (pen) stylus = true
             if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, activeLayer,
                     inkColor, inkWidth, inkOpacity, eraserWholeStroke)) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) { onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable) }
@@ -1311,8 +1355,7 @@ class InkView(context: Context) : View(context) {
             }
             invalidate(); return true
         }
-        if ((event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) &&
-            !isPalm(event, event.actionIndex)) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             if (pendingReturn != null) { reportFollowStatus("Return cancelled · keep writing"); landingGuide = null }
             else if (lineAdvance != null || followGlide.moved) reportFollowStatus("Movement stopped · keep writing")
             val resume = pendingReturn != null || followGlide.active
@@ -1328,7 +1371,7 @@ class InkView(context: Context) : View(context) {
         if (hasStylus && (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN)) {
             requestUnbufferedDispatch(event)
         }
-        if (!multiTouchUndo || hasStylus || isPalm(event, 0)) touchChord.reset()
+        if (!multiTouchUndo || hasStylus) touchChord.reset()
         else {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                 touchChord.down(event.getPointerId(0), event.getX(0), event.getY(0), event.eventTime)
@@ -1343,11 +1386,9 @@ class InkView(context: Context) : View(context) {
                 touchChord.move(event.getPointerId(i), event.getX(i), event.getY(i))
             }
         }
-        if ((page.infinite || cameraPage) && !stylus && (0 until event.pointerCount).none { isStylus(event, it) } && !isPalm(event, 0)) {
+        if ((page.infinite || cameraPage) && !stylus && !hasStylus) {
             zoomDetector.onTouchEvent(event)
         }
-        // Stylus-first input: any stylus pointer refreshes the palm-rejection window.
-        if ((0 until event.pointerCount).any { isStylus(event, it) }) lastStylusAt = SystemClock.uptimeMillis()
         if (longPressFired && event.actionMasked != MotionEvent.ACTION_DOWN) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) longPressFired = false
             return true
@@ -1364,8 +1405,7 @@ class InkView(context: Context) : View(context) {
                 parent?.requestDisallowInterceptTouchEvent(true)
                 pointerId = event.getPointerId(0)
                 stylus = isStylus(event, 0)
-                // A finger touching while (or just after) the stylus writes is a resting palm: ignore it.
-                ignored = !stylus && isPalm(event, 0)
+                ignored = false
                 // Typing is a finger job even when finger drawing is off, so the text tool never pans.
                 navigating = !ignored && (tool == Tool.HAND || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
                 if (navigating) suspendWritingFollow()
@@ -1400,23 +1440,9 @@ class InkView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 removeCallbacks(longPressRunnable); tapOff = false
-                if (isStylus(event, event.actionIndex)) {
-                    // The stylus landed over an in-progress palm stroke: drop it and follow the stylus.
-                    pointerId = event.getPointerId(event.actionIndex)
-                    stylus = true
-                    ignored = false
-                    navigating = tool == Tool.HAND
-                    panGate.release()
-                    draft = null; erasing = null; lasso = null; cancelSelectionGesture(); offPage = false; eraserMark = null
-                    movingText = null; pendingTextBox = null
-                    movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null
-                    if (lassoActive()) beginLasso(event, event.actionIndex)
-                    else if (tool == Tool.TEXT) beginText(event, event.actionIndex)
-                    else if (!navigating) beginStroke(event, event.actionIndex)
-                } else if (!stylus && !ignored && !isPalm(event, event.actionIndex)) {
+                if (!stylus && !ignored) {
                     suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
-                    // Two fingers are a deliberate pinch or pan, never a resting hand.
                     panGate.release()
                     lastX = centroidX(event); lastY = centroidY(event)
                     panVelocity.resetTracking()
@@ -1426,14 +1452,6 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(pointerId)
                 if (index < 0) return true
-                // A palm often lands as a small contact and spreads: once it is plainly a hand, drop what it started.
-                if (!stylus && !ignored && !readOnly && palmRejectMs > 0 && isLargeContact(event, index)) {
-                    removeCallbacks(longPressRunnable)
-                    draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null
-                    movingImage = null; resizingImage = false; pendingLink = null; pendingZone = null; eraserMark = null
-                    navigating = false; ignored = true; panGate.release()
-                    invalidate(); return true
-                }
                 if (hypot(event.x - longPressX, event.y - longPressY) > ViewConfiguration.get(context).scaledTouchSlop) removeCallbacks(longPressRunnable)
                 // A stroke or eraser still in progress is work, even when the pen never lifts.
                 if (draft != null || erasing != null) onPenInput(false)
@@ -2381,12 +2399,29 @@ class InkView(context: Context) : View(context) {
     private fun selectionUiUnit(preview: Boolean = false): Float = SelectionChrome.pageUnit(
         resources.displayMetrics.density, scale, if (preview) selectionPreviewScale else 1f)
     private fun selectionBox(): FloatArray? = selectionBounds(margin = SelectionChrome.FRAME_MARGIN_DP * selectionUiUnit(preview = true))
+    /**
+     * The loop being drawn: a white-haloed blue line over a light wash, a faint guide back to the
+     * start, and a start dot that grows into a ring once the tip is close enough to close the loop.
+     */
     private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) {
         val unit = selectionUiUnit()
-        lassoEdgePaint.strokeWidth = unit
-        lassoEdgePaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
         val polygon = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) }; close() }
-        canvas.drawPath(polygon, lassoFillPaint); canvas.drawPath(polygon, lassoEdgePaint)
+        canvas.drawPath(polygon, lassoFillPaint)
+        val open = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) } }
+        lassoHaloPaint.strokeWidth = 4f * unit
+        lassoEdgePaint.strokeWidth = 1.75f * unit
+        lassoEdgePaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
+        canvas.drawPath(open, lassoHaloPaint)
+        canvas.drawPath(open, lassoEdgePaint)
+        val start = loop.first(); val tip = loop.last()
+        lassoGuidePaint.strokeWidth = unit
+        lassoGuidePaint.pathEffect = DashPathEffect(floatArrayOf(2f * unit, 4f * unit), 0f)
+        canvas.drawLine(tip.x, tip.y, start.x, start.y, lassoGuidePaint)
+        val closing = loop.size > 8 && hypot(tip.x - start.x, tip.y - start.y) < 28f * unit
+        val r = (if (closing) 7f else 4f) * unit
+        frameHandleRingPaint.strokeWidth = 1.75f * unit
+        canvas.drawCircle(start.x, start.y, r, frameHandleFillPaint)
+        canvas.drawCircle(start.x, start.y, r, frameHandleRingPaint)
     }
     /** A dashed outline around a text box while it is dragged, so its extent is visible. */
     private fun drawTextBox(canvas: Canvas, box: TextBox) {
@@ -2412,14 +2447,23 @@ class InkView(context: Context) : View(context) {
         selectionLinkPaint.strokeWidth = unit
         selectionGlyphPaint.strokeWidth = 1.5f * unit
         selectionHandleEdgePaint.strokeWidth = unit
+        lassoHaloPaint.strokeWidth = 3.5f * unit
+        canvas.drawRect(box[0], box[1], box[2], box[3], lassoHaloPaint)
         canvas.drawRect(box[0], box[1], box[2], box[3], selectionBoxPaint)
         val cx = (box[0] + box[2]) / 2f
         val rotateY = box[1] - SelectionChrome.ROTATE_LIFT_DP * unit
+        lassoHaloPaint.strokeWidth = 3.5f * unit
+        canvas.drawLine(cx, box[1], cx, rotateY + radius, lassoHaloPaint)
         canvas.drawLine(cx, box[1], cx, rotateY + radius, selectionLinkPaint)
-        canvas.drawCircle(box[2], box[3], radius, imageHandlePaint)
-        canvas.drawCircle(box[2], box[3], radius, selectionHandleEdgePaint)
-        canvas.drawCircle(cx, rotateY, radius, imageHandlePaint)
-        canvas.drawCircle(cx, rotateY, radius, selectionHandleEdgePaint)
+        frameHandleRingPaint.strokeWidth = 1.75f * unit
+        // White discs with a blue ring and a soft drop shadow: legible over any ink colour.
+        fun handle(hx: Float, hy: Float) {
+            canvas.drawCircle(hx, hy + unit, radius + unit, frameShadowPaint)
+            canvas.drawCircle(hx, hy, radius, frameHandleFillPaint)
+            canvas.drawCircle(hx, hy, radius, frameHandleRingPaint)
+        }
+        handle(box[2], box[3]); handle(cx, rotateY)
+        selectionGlyphPaint.color = 0xFF2F6FBA.toInt()
         // Circular arrow: 300° of arc plus a V head at its end (420° == 60°).
         val r = 4f * unit
         canvas.drawArc(RectF(cx - r, rotateY - r, cx + r, rotateY + r), 120f, 300f, false, selectionGlyphPaint)
@@ -2478,11 +2522,26 @@ class InkView(context: Context) : View(context) {
         if (pendingMeasurement != reportedMeasurement) post(reportMeasurement)
     }
 
-    /** A ring under the tip, so the eraser's size is visible while it hovers and while it cuts. */
+    /**
+     * A ring under the tip, so the eraser's size is visible while it hovers and while it cuts.
+     * Rubber is a solid ring with a centre dot; whole-stroke is dashed with no dot, since it
+     * removes what the ring touches rather than the area inside it. Screen-sized chrome.
+     */
     private fun drawEraser(canvas: Canvas, at: InkPoint) {
+        val unit = selectionUiUnit()
         val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(at.pressure) else inkWidth / 2f
+        val cutting = erasing != null
+        eraserFillPaint.color = if (cutting) 0x3A2B3440 else 0x142B3440
         canvas.drawCircle(at.x, at.y, radius, eraserFillPaint)
+        eraserHaloPaint.strokeWidth = 3.5f * unit
+        eraserEdgePaint.strokeWidth = (if (cutting) 1.75f else 1.25f) * unit
+        eraserEdgePaint.pathEffect = if (eraserWholeStroke) DashPathEffect(floatArrayOf(5f * unit, 4f * unit), 0f) else null
+        canvas.drawCircle(at.x, at.y, radius, eraserHaloPaint)
         canvas.drawCircle(at.x, at.y, radius, eraserEdgePaint)
+        if (!eraserWholeStroke) {
+            canvas.drawCircle(at.x, at.y, 2.5f * unit, eraserDotHaloPaint)
+            canvas.drawCircle(at.x, at.y, 1.5f * unit, eraserDotPaint)
+        }
     }
     /** Selects every stroke, text box and picture on the current page; call from toolbar/overflow. */
     fun selectAll() {
@@ -2535,14 +2594,7 @@ class InkView(context: Context) : View(context) {
             onPenInput(true)
         }
     }
-    private fun isStylus(event: MotionEvent, index: Int) = event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
-    private fun isPalm(event: MotionEvent, index: Int) = palmRejectMs > 0 && !isStylus(event, index) &&
-        (SystemClock.uptimeMillis() - lastStylusAt < palmRejectMs || isLargeContact(event, index))
-    /** A contact far wider than a fingertip is a hand, whether or not the pen has been seen recently. */
-    private fun isLargeContact(event: MotionEvent, index: Int): Boolean {
-        val major = event.getTouchMajor(index)
-        return major > 0f && major > PALM_CONTACT_MM * resources.displayMetrics.xdpi / 25.4f
-    }
+    private fun isStylus(event: MotionEvent, index: Int) = isStylusPointer(event, index)
     private fun point(e: MotionEvent, i: Int, history: Int? = null): InkPoint {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)
@@ -2600,10 +2652,6 @@ class InkView(context: Context) : View(context) {
         val FREEHAND_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER)
         /** Shapes that show live measurements while drawn. */
         val MEASURE_TOOLS = ShapePickerTools
-        /** How long after stylus activity a finger still counts as a resting palm. */
-        const val PALM_REJECT_MS = 500L
-        /** Touch major axis above which a finger contact is treated as a resting palm. */
-        const val PALM_CONTACT_MM = 22f
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
         const val EDGE_TOLERANCE = 24f
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */

@@ -9,13 +9,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 
-/** Shared across the editor and its separate dialog/popup windows; uses monotonic event times. */
-internal class StylusActivity {
-    private var lastSeen: Long? = null
-    fun record(now: Long) { lastSeen = now }
-    fun isRecent(now: Long): Boolean = lastSeen?.let { now - it in 0 until 500L } ?: false
-}
-
 /** Once rejected, a contact stays rejected until it lifts, even when the pen moves away. */
 internal class UiTouchGesture(private val stylus: StylusActivity) {
     private val rejected = mutableSetOf<Long>()

@@ -56,7 +56,20 @@ object InkColors {
 
     val swatches: List<Int> = namedSwatches.map { it.second }
     val defaultPalette = ColorPalette("Writing inks", swatches)
-    val palettes: List<ColorPalette> = listOf(defaultPalette)
+
+    /**
+     * Ready-made quick rows, each five restrained inks that keep the 4.5:1 contrast of the writing
+     * inks. Names are stored with the row, so never rename one without a migration.
+     */
+    val palettes: List<ColorPalette> = listOf(
+        defaultPalette,
+        ColorPalette("Colour coding", listOf(ink(0xFF252A30), ink(0xFF1F5FA8), ink(0xFFB3261E), ink(0xFF2E6B3A), ink(0xFF6B3FA0))),
+        ColorPalette("Classroom", listOf(ink(0xFF252A30), ink(0xFF2854A0), ink(0xFFA83246), ink(0xFF356344), ink(0xFF9A5200))),
+        ColorPalette("Earth", listOf(ink(0xFF3E2F25), ink(0xFFA04B2D), ink(0xFF5E6B2A), ink(0xFF2F5D62), ink(0xFF7A5C3E))),
+        ColorPalette("Ocean", listOf(ink(0xFF0B3C5D), ink(0xFF1D5C8C), ink(0xFF176B68), ink(0xFF514B91), ink(0xFF203858))),
+        ColorPalette("Berry", listOf(ink(0xFF3B1F3F), ink(0xFF704080), ink(0xFFA83246), ink(0xFF8A2D5F), ink(0xFF514B91))),
+        ColorPalette("Greys", listOf(ink(0xFF111418), ink(0xFF2F363D), ink(0xFF454E58), ink(0xFF596573), ink(0xFF6B7480)))
+    )
     val defaultQuick: List<Int> = quickRow(swatches)
 
     /** Retired built-in rows are replaced; hand-edited rows and saved presets are retained. */

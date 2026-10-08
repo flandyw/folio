@@ -19,6 +19,10 @@ moving and resizing during that visit form one Undo step. An empty new box is
 discarded; clearing an existing box removes it. Duplicate finishes the source
 and starts a new draft offset from it. The storage format is unchanged.
 
+Long-pressing a text box (any tool, not stickies) opens a context menu: Edit, Copy, Cut, Duplicate and
+Delete. Delete and Cut remove the box as one undoable step, so a finished box can be removed without
+opening the editor first. Long-pressing bare page still shows the page menu.
+
 The field retains its native Editable when formatting changes, preserving IME
 composition and cursor/selection. A page scroll or a typing-session camera pan
 keeps the caret clear of the keyboard and editor toolbar.
@@ -40,5 +44,6 @@ Check phone/tablet, portrait/landscape, narrow split panes and a hardware keyboa
    Undo/Redo should restore exactly one visit's changes on its original page.
 6. Rotate, background/resume, close/reopen and switch notebooks while editing.
    Confirm wording and formatting survive, with no duplicate boxes.
-7. Duplicate an edited box, delete one, and clear all its text. Undo each action.
+7. Long-press a finished box with the Text, Pen and Hand tools: check each menu action and Undo.
+8. Duplicate an edited box, delete one, and clear all its text. Undo each action.
    Confirm hidden/locked layers and read-only reference panes cannot be edited.

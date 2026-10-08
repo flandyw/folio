@@ -213,6 +213,17 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
             libraryGridState.scrollToItem(0)
         }
     }
+    // The grid keeps its scroll by item key, so a notebook that sorts above the first visible one
+    // (just created, or just edited) would sit off-screen above the viewport until something else
+    // scrolled the shelf. Bring a new front-runner of "Last edited" into view.
+    val newestId = notes.firstOrNull()?.id
+    var previousNewestId by rememberSaveable { mutableStateOf(newestId) }
+    LaunchedEffect(newestId) {
+        if (newestId != previousNewestId) {
+            previousNewestId = newestId
+            if (sort == LibrarySort.RECENT && newestId != null) libraryGridState.scrollToItem(0)
+        }
+    }
     fun libraryHome() {
         if (!otherPane && section == LibrarySection.LIBRARY && !located) shelfScope.launch { libraryGridState.animateScrollToItem(0) }
         section = LibrarySection.LIBRARY; goHome(); onLibrary()

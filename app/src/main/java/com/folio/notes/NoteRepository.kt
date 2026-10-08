@@ -22,6 +22,7 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOut
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -479,26 +480,45 @@ class NoteRepository(private val context: Context) {
 
     /** Reads only enough of a PDF to prefill the import review. The original URI is never modified. */
     suspend fun inspectPdf(uri: Uri): PendingPdfImport = withContext(Dispatchers.IO) {
-        val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+        val filename = runCatching { context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
-        } ?: "Imported document.pdf"
+        } }.getOrNull() ?: "Imported document.pdf"
         val title = filename.substringBeforeLast('.', filename)
-        val detection = detectImportedExam(title) {
-            ensurePdfBox()
+        // Seekable scratch copy supports cloud providers and scanned PDFs. Never retain it after review.
+        val scratch = File.createTempFile("pdf-review-", ".pdf", context.cacheDir)
+        try {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                PDDocument.load(input, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
-                    .setTempDir(context.cacheDir)).use { doc ->
-                    ExamDocumentEvidence(
-                        pages = extractPdfPageTexts(doc, ExamEvidenceCollector.MAX_PAGES,
-                            ExamEvidenceCollector.MAX_PAGE_CHARACTERS),
-                        metadata = listOfNotNull(doc.documentInformation.title,
-                            doc.documentInformation.subject, doc.documentInformation.author)
-                    )
-                }
+                scratch.outputStream().use { input.copyTo(it) }
             } ?: error("This PDF could not be opened")
-        }
-        val exam = detection.toExamTags()
-        PendingPdfImport(uri, smartImportedNotebookName(exam, title), exam, detected = true)
+            currentCoroutineContext().ensureActive()
+            val descriptor = ParcelFileDescriptor.open(scratch, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = try { PdfRenderer(descriptor) }
+            catch (e: Exception) { descriptor.close(); throw e }
+            renderer.use {
+                require(renderer.pageCount > 0) { "This PDF has no pages" }
+                val document = try {
+                    ensurePdfBox()
+                    PDDocument.load(scratch, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
+                        .setTempDir(context.cacheDir)).use { doc ->
+                        ExamDocumentEvidence(
+                            pages = extractPdfPageTexts(doc, ExamEvidenceCollector.MAX_PAGES,
+                                ExamEvidenceCollector.MAX_PAGE_CHARACTERS),
+                            metadata = listOfNotNull(doc.documentInformation.title,
+                                doc.documentInformation.subject, doc.documentInformation.author))
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { ExamDocumentEvidence() }
+                val ocrPages = scanPdfFrontMatter(renderer, document.pages)
+                val detection = detectImportedExam(filename) { document.copy(ocrPages = ocrPages) }
+                val exam = detection.toExamTags()
+                PendingPdfImport(uri, smartImportedNotebookName(exam, title), exam, detected = true,
+                    filename = filename, pageCount = renderer.pageCount, detection = detection, plainPdf = !exam.isTagged)
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            PendingPdfImport(uri, title, detected = true, filename = filename,
+                inspectionError = e.message ?: "Protected, damaged, or unavailable PDF")
+        } finally { scratch.delete() }
     }
 
     suspend fun importPdf(uri: Uri, folder: String?, options: PendingPdfImport? = null): Notebook = withContext(Dispatchers.IO) {

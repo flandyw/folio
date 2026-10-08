@@ -33,6 +33,8 @@ No-op, missing, self/descendant, duplicate-sibling-name and tag-limit destinatio
 
 Browse subfolders with breadcrumbs, search the current folder, sort by name/date/size, and filter to PDF/Folio files. PDF imports enter the existing review panel, including its destination chooser; Folio archives use the existing notebook importer. Imported notebooks are copies. Other files open in their usual app, and sharing grants temporary read access to the selected content URI.
 
+The PDF review and automatic exam detection are described in [imports.md](imports.md).
+
 Dot-prefixed device folders are hidden by default, including from search results. **Show hidden folders** in the file toolbar reveals them for both direct storage and connected document providers; the choice is remembered across folders and restarts. When only hidden folders remain, the empty state explains how to reveal them.
 
 Direct disk browsing uses `java.io.File` inside canonical shared-storage roots; path traversal and symlink escapes outside these roots are rejected. Copies reserve a fresh name instead of overwriting an existing file, and renames refuse existing destinations. Imports/open/share wrap selected disk files in read-granted FileProvider content URIs, so file URIs are never sent to another app. Storage roots cannot be renamed or deleted.

@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `node tools/marking-smoke.cjs`
   - `node tools/update-smoke.cjs [server-manifest.json]`
   - `node tools/writing-follow-smoke.cjs`
+  - `node tools/graph-smoke.cjs`
   - `node tools/katex-smoke.cjs` (offline; no Gradle step needed)
 - `python3 tools/build-version-smoke.py` checks the version/build-number mapping.
 - `./build.sh` builds a signed *experimental* APK (needs `.signing/` keystore); `-p` publishes, `-n` builds only, `-r` enables R8 (off by default). Every run consumes a reserved version number, even if the build fails.

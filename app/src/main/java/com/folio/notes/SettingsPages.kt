@@ -195,9 +195,9 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
     }
     SettingsGroup("Palm rejection and gestures", footer = "Pen pressure curves stay per tool in the editor.") {
         SettingsSliderRow(
-            "Palm rejection", if (palmMs == 0L) "Off" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
+            "Palm rejection", if (palmMs == 0L) "System only" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
             { p.write { putLong(AppPrefs.PALM_MS, AppPrefs.palmMs(it.roundToInt().toLong())) } },
-            subtitle = "How long a finger still counts as a resting palm after stylus activity. 0 turns filtering off.",
+            subtitle = "Blocks touch while the pen is in range and for this long afterwards. Rejected touches stay blocked until lifted. 0 keeps Android palm cancellation and pen-only input while the tip is down.",
             onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
         )
         SettingsDivider()

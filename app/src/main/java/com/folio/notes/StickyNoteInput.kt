@@ -62,6 +62,13 @@ internal class StickyNoteInput(
         if (focusedId != null) focus(null)
     }
 
+    /** Abandons ink/erase/move previews and tap intent without changing the focused note. */
+    fun cancel() {
+        clearGesture()
+        tapHit = null
+        host.parent?.requestDisallowInterceptTouchEvent(false)
+    }
+
     /** Re-reads the focused note after the page changed underneath it (undo, delete, move). */
     fun refresh() {
         if (focusedId == null) return

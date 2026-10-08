@@ -15,6 +15,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     private val stylusActivity = StylusActivity()
+    private val inputRouter = StylusInputRouter(stylusActivity)
+    private val palmPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == AppPrefs.PALM_MS) stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(key, AppPrefs.DEFAULT_PALM_MS))
+    }
     private val model: FolioViewModel by viewModels()
     private var shortcutRequest by mutableIntStateOf(0)
     /** Page rasters kept for pages scrolled away and cached text layouts are the first thing to give back. */
@@ -30,6 +34,9 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val prefs = getSharedPreferences("preferences", 0)
+        stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS))
+        prefs.registerOnSharedPreferenceChangeListener(palmPreferenceListener)
         enableEdgeToEdge()
         hideSystemBars()
         // Ask for the fastest mode as early as possible: the first frames are the ones the user
@@ -43,19 +50,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private fun observeStylus(event: MotionEvent) {
-        if ((0 until event.pointerCount).any {
-                event.getToolType(it) == MotionEvent.TOOL_TYPE_STYLUS ||
-                    event.getToolType(it) == MotionEvent.TOOL_TYPE_ERASER
-            }) stylusActivity.record(event.eventTime)
-    }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        observeStylus(event)
-        return super.dispatchTouchEvent(event)
+        return inputRouter.touch(event) { super.dispatchTouchEvent(it) }
     }
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        observeStylus(event)
+        inputRouter.hover(event) { super.dispatchTouchEvent(it) }
         return super.dispatchGenericMotionEvent(event)
+    }
+    override fun onPause() {
+        inputRouter.reset { super.dispatchTouchEvent(it) }
+        stylusActivity.clear()
+        super.onPause()
+    }
+    override fun onDestroy() {
+        getSharedPreferences("preferences", 0).unregisterOnSharedPreferenceChangeListener(palmPreferenceListener)
+        super.onDestroy()
     }
     override fun onStart() {
         super.onStart()

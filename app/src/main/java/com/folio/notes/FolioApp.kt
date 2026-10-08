@@ -14,7 +14,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -34,7 +33,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -475,7 +473,7 @@ import kotlinx.coroutines.withContext
             }
         }
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
-            PdfImportDialog(state, model::cancelPdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
+            PdfImportDialog(state, model::cancelPdfImport, model::updatePdfImport, model::removePdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
@@ -719,92 +717,4 @@ import kotlinx.coroutines.withContext
             }
         }
     }
-}
-
-@Composable
-private fun PdfImportDialog(state: FolioState, onDismiss: () -> Unit, onImport: (String?, List<PendingPdfImport>) -> Unit) {
-    var destination by rememberSaveable { mutableStateOf(state.folderId) }
-    var reviewed by remember(state.pendingPdfImports) { mutableStateOf(state.pendingPdfImports) }
-    val validDestination = destination?.takeIf { id -> state.folders.any { it.id == id } }
-    fun updateExam(uri: Uri, transform: (ExamTags) -> ExamTags) {
-        reviewed = reviewed.map { if (it.uri == uri) it.copy(exam = transform(it.exam)) else it }
-    }
-    AlertDialog(
-        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
-        modifier = Modifier.guardUiTouches(),
-        onDismissRequest = onDismiss,
-        title = { Text("Import ${state.pendingPdfImports.size} PDF${if (state.pendingPdfImports.size == 1) "" else "s"}") },
-        text = {
-            Column(Modifier.heightIn(max = 528.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Text("Review the detected exam details. You can change anything before importing.")
-                reviewed.forEachIndexed { index, item ->
-                    val tags = item.exam
-                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("PDF ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                Text(if (item.detected) "Exam details detected" else "Reading PDF…",
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                            OutlinedTextField(
-                                value = item.title, onValueChange = { value -> reviewed = reviewed.map {
-                                    if (it.uri == item.uri) it.copy(title = value.take(120)) else it
-                                } }, modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Notebook name") }, singleLine = true,
-                                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
-                                trailingIcon = { TextButton({ reviewed = reviewed.map {
-                                    if (it.uri == item.uri) it.copy(title = smartImportedNotebookName(tags, item.title)) else it
-                                } }) { Text("Auto") } }
-                            )
-                            OutlinedTextField(
-                                value = tags.subjectLabel,
-                                onValueChange = { value -> updateExam(item.uri) { old ->
-                                    old.copy(subject = VceSubject.match(value), subjectText = if (VceSubject.match(value) == null) value.take(60) else "")
-                                } },
-                                modifier = Modifier.fillMaxWidth(), label = { Text("Subject") },
-                                placeholder = { Text("Not an exam, or unknown") }, singleLine = true
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                OutlinedTextField(
-                                    tags.year?.toString().orEmpty(),
-                                    { value -> updateExam(item.uri) { it.copy(year = value.filter(Char::isDigit).take(4).toIntOrNull()) } },
-                                    Modifier.weight(1f), label = { Text("Year") }, singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                )
-                                OutlinedTextField(
-                                    tags.company, { value -> updateExam(item.uri) { it.copy(company = value.take(40)) } },
-                                    Modifier.weight(1.4f), label = { Text("Company / source") },
-                                    placeholder = { Text("e.g. VCAA") }, singleLine = true
-                                )
-                                OutlinedTextField(
-                                    tags.marksTotal?.toString().orEmpty(),
-                                    { value -> updateExam(item.uri) { it.copy(marksTotal = value.filter(Char::isDigit).take(3).toIntOrNull()) } },
-                                    Modifier.weight(0.8f), label = { Text("Marks") }, singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                )
-                            }
-                            Text("Type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                ExamType.entries.forEach { type ->
-                                    FilterChip(tags.type == type, { updateExam(item.uri) {
-                                        it.copy(type = if (it.type == type) null else type)
-                                    } }, { Text(type.label) })
-                                }
-                            }
-                        }
-                    }
-                }
-                Text("Destination", style = MaterialTheme.typography.titleSmall)
-                (listOf(null to "No folder") + state.folders.map { it.id to it.name }).forEach { (id, name) ->
-                    Row(Modifier.fillMaxWidth().then(Modifier.selectable(validDestination == id, role = androidx.compose.ui.semantics.Role.RadioButton) { destination = id }).padding(vertical = FolioSpacing.dp4),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = validDestination == id, onClick = null)
-                        Text(name, Modifier.weight(1f))
-                    }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = { onImport(validDestination, reviewed) }, shapes = ButtonDefaults.shapes(), enabled = reviewed.all { it.detected && it.title.isNotBlank() }) { Text(if (reviewed.size > 1) "Import ${reviewed.size}" else "Import") } },
-        dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
-    )
 }
