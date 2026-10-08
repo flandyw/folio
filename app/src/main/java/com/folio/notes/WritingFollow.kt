@@ -360,7 +360,37 @@ data class CanvasWritingSession(
         autoSwitchAreas = false,
     )
 
+    /**
+     * The visible left edge, in canvas units, that keeps the response readable. A column that
+     * fits on screen stays wholly in view with the least movement, so writing across it and
+     * returning never slide the view sideways. A column wider than the view (after zooming in)
+     * takes [wantedLeft], but never shows more than a margin beyond either column edge.
+     */
+    fun framedLeft(viewLeft: Float, viewWidth: Float, wantedLeft: Float = viewLeft): Float {
+        if (!viewLeft.isFinite() || !viewWidth.isFinite() || viewWidth <= 0f) return viewLeft
+        val pad = column.width * FRAME_PAD
+        val showsTrailing = column.right + pad - viewWidth
+        val showsLeading = column.left - pad
+        if (showsTrailing <= showsLeading) return viewLeft.coerceIn(showsTrailing, showsLeading)
+        return (if (wantedLeft.isFinite()) wantedLeft else viewLeft).coerceIn(showsLeading, showsTrailing)
+    }
+
+    /** Survives Activity recreation (rotation, resize, split screen) as plain text. */
+    fun encode(): String = listOf(column.left, column.top, column.right, column.bottom,
+        direction.name, automaticReturn).joinToString(",")
+
     companion object {
+        /** Breathing room kept beside the column edges when framing it, as a fraction of its width. */
+        const val FRAME_PAD = .04f
+
+        fun decode(raw: String?): CanvasWritingSession? = runCatching {
+            val parts = raw!!.split(",")
+            val (l, t, r, b) = parts.take(4).map { it.toFloat() }
+            val column = WritingLane(l, t, r, b)
+            if (!l.isFinite() || !r.isFinite() || column.width <= 0f) null
+            else CanvasWritingSession(column, WritingDirection.valueOf(parts[4]), parts[5].toBooleanStrict())
+        }.getOrNull()
+
         fun start(viewport: WritingLane, preferences: FollowPreferences): CanvasWritingSession? {
             if (!viewport.left.isFinite() || !viewport.right.isFinite() ||
                 !viewport.width.isFinite() || viewport.width <= 0f) return null

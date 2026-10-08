@@ -15,10 +15,10 @@ This pass builds on [the earlier 25 workflow changes](ux-simplification.md). It 
 9. Picture actions adapt to narrow panes; secondary actions remain accessible.
 10. Paste is disabled when the system clipboard is empty.
 11. Text draft fields and formatting use saved UI state.
-12. Text duplication copies the latest draft, leaving the original unchanged.
-13. Closing a changed text draft requires a discard decision.
+12. Text duplication finishes the latest draft and opens an offset copy for inline editing.
+13. Text edits finish automatically on Done, Back/Escape, tool/page changes or leaving the editor; Undo reverses the whole edit.
 14. The original text box and open editor restore with the draft after configuration changes.
-15. Text formatting is optional disclosure below the writing field.
+15. Text is edited directly on the page, with formatting in the editor toolbar and optional additional controls.
 16. Text supports multiline typing and Ctrl+Enter to apply.
 17. Notebook text search reads unopened pages and reports failed reads.
 18. Search excerpts come from the strongest matching text box.
@@ -37,7 +37,7 @@ This pass builds on [the earlier 25 workflow changes](ux-simplification.md). It 
 31. Notebook moves use a shared searchable folder chooser with Create & move for new folders.
 32. Hidden or locked active layers explain blocked drawing and expose Layers even in focus mode.
 33. Back/Escape cancels a crop or clears picture/ink selection before notebook navigation.
-34. Formatting chips wrap, and text sliders have spoken names and values.
+34. Inline formatting rows scroll in narrow panes, and text controls have spoken names.
 35. Deeply nested PDF outline titles retain readable space in narrow panes.
 36. Workspace searches match multiple terms across document fields; pending companion mode survives rotation.
 37. A pinned tool preset is active only when tool, colour, width, opacity and line style all match.
@@ -53,7 +53,7 @@ The build verifies compilation, packaging and signing; it does not verify render
 - Toggle focus mode while writing; verify writing follow, page scrolling and selection menus avoid the measured dock.
 - Browse a long notebook in list/grid modes, filter to bookmarks/practice pages, clear an empty search and reopen at the current page.
 - Make a lasso selection and duplicate/move it. Check picture controls at narrow widths; Back/Escape must cancel crop or clear selection, then allow notebook navigation.
-- Create/edit a multiline text box, change formatting, rotate, cancel/discard/keep editing, duplicate the draft, and apply using Ctrl+Enter. Check Undo returns the page to its prior contents.
+- Follow the [inline text device checks](text-tool.md): create/edit multiline text, format, resize/move, rotate, finish with Back or Ctrl+Enter, and duplicate/delete. Check Undo returns the page to its prior contents.
 - Cold-open a notebook with typed text on distant pages, search without visiting those pages, and confirm the strongest matching box supplies the excerpt. A failed read must show incomplete-results feedback.
 - Open PDF search from editor and reference panes, edit a submitted query, navigate matches, switch to typed notes and check deeply nested contents.
 - Select notebooks, search for a move folder, create a new folder and move them into it; return to the shelf and restart to verify the folder and notebook locations.

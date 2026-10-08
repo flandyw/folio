@@ -74,6 +74,34 @@ fun main() {
             check(!FollowNavigation.contains(WritingLane(500f, 80f, 520f, 100f), response.column, 32f))
         }
     }
+    scenario("A response column that fits on screen is never slid sideways") {
+        for (direction in WritingDirection.entries) {
+            val response = CanvasWritingSession.start(WritingLane(0f, 0f, 1000f, 600f), prefs.copy(direction = direction))!!
+            // Next line at the margin or sideways follow near the edge proposes a pan; the column stays put.
+            for (wanted in listOf(-420f, 350f, 0f)) check(response.framedLeft(0f, 1000f, wanted) == 0f)
+            // A column half off screen after a manual pan comes back fully, with the least movement.
+            val pad = response.column.width * CanvasWritingSession.FRAME_PAD
+            check(abs(response.framedLeft(400f, 1000f) - (response.column.left - pad)) < .01f)
+            check(abs(response.framedLeft(-400f, 1000f) - (response.column.right + pad - 1000f)) < .01f)
+        }
+    }
+    scenario("A column wider than the zoomed view follows writing without leaving the column") {
+        val response = CanvasWritingSession.start(WritingLane(0f, 0f, 1000f, 600f), prefs)!!
+        val pad = response.column.width * CanvasWritingSession.FRAME_PAD
+        check(response.framedLeft(300f, 400f, 250f) == 250f)
+        // A return aimed at the margin shows the margin at the edge, not mid-screen.
+        check(abs(response.framedLeft(500f, 400f, response.startX - 400f * .48f) - (response.column.left - pad)) < .01f)
+        check(abs(response.framedLeft(500f, 400f, 2000f) - (response.column.right + pad - 400f)) < .01f)
+    }
+    scenario("A response survives saved state exactly and rejects damaged state") {
+        for (direction in WritingDirection.entries) for (auto in listOf(false, true)) {
+            val response = CanvasWritingSession.start(WritingLane(-321.5f, -7f, 456.25f, 900f), prefs.copy(direction = direction))!!
+                .copy(automaticReturn = auto)
+            check(CanvasWritingSession.decode(response.encode()) == response)
+        }
+        for (raw in listOf(null, "", "1,2,3", "0,0,0,0,LTR,false", "NaN,0,5,0,LTR,true", "0,0,5,0,UP,true", "0,0,5,0,LTR,maybe"))
+            check(CanvasWritingSession.decode(raw) == null)
+    }
     scenario("Invalid viewports cannot authorize a canvas writing session") {
         check(CanvasWritingSession.start(WritingLane(0f, 0f, 0f, 300f), prefs) == null)
         check(CanvasWritingSession.start(WritingLane(Float.NaN, 0f, 300f, 300f), prefs) == null)

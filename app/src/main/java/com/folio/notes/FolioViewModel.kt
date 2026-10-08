@@ -1634,6 +1634,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
     fun addText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts + box.copy(layer = activeLayerOf(page))) }
     fun updateText(box: TextBox) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
+    /** Finishing inline typing is one journal/undo step, addressed to its original page. */
+    fun commitText(pageId: String, box: TextBox) {
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded || !PageLayers.editable(page.layers, box.layer)) return
+        val existing = page.texts.any { it.id == box.id }
+        val next = when {
+            box.text.isBlank() -> page.texts.filterNot { it.id == box.id }
+            existing -> page.texts.map { if (it.id == box.id) box else it }
+            else -> page.texts + box
+        }
+        texts(pageId, next)
+    }
     fun removeText(id: String) { val page = _state.value.page ?: return; texts(page.id, page.texts.filterNot { it.id == id }) }
     /** Duplicates one typed box nudged along so the copy never hides under its source. */
     fun duplicateText(id: String, draft: TextBox? = null) {

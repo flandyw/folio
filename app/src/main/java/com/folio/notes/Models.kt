@@ -112,7 +112,7 @@ data class TextBox(
 ) {
     val isSticky: Boolean get() = stickyHeight > 0f
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
-    /** Same wording with a new wrap width, clamped to the limits the dialog and lasso share. */
+    /** Same wording with a new wrap width, clamped to the limits the editor and lasso share. */
     fun withWidth(value: Float) = copy(width = value.coerceIn(MIN_WIDTH, MAX_WIDTH))
     /** Same wording faded to [value], clamped so text never vanishes entirely. */
     fun withOpacity(value: Float) = copy(opacity = value.coerceIn(MIN_OPACITY, MAX_OPACITY))

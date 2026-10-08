@@ -105,6 +105,49 @@ class InkView(context: Context) : View(context) {
     var onTextEdit: (TextBox) -> Unit = {}
     var onTextCreate: (InkPoint) -> Unit = {}
     var onTextsChanged: (List<TextBox>) -> Unit = {}
+    /** The native field draws this box while typing; keep its stored words out of the ink layer. */
+    internal var editingText: TextBox? = null
+        set(value) {
+            if (field == value) return
+            if (field?.id != value?.id) paperLayerSource = null
+            field = value
+            invalidate()
+        }
+    internal var onTextEditorFrame: (InlineTextFrame?) -> Unit = {}
+    internal var onTextEditingExit: () -> Unit = {}
+    private var pendingTextFrame: InlineTextFrame? = null
+    private var reportedTextFrame: InlineTextFrame? = null
+    private val reportTextFrame = Runnable {
+        if (reportedTextFrame != pendingTextFrame) {
+            reportedTextFrame = pendingTextFrame
+            onTextEditorFrame(pendingTextFrame)
+        }
+    }
+    private fun followTextEditor() {
+        pendingTextFrame = editingText?.let { box ->
+            InlineTextFrame(box.id, originX + box.x * scale, originY + box.y * scale,
+                box.width * scale, InkRenderer.textHeight(box) * scale, scale)
+        }
+        removeCallbacks(reportTextFrame)
+        if (pendingTextFrame != reportedTextFrame) post(reportTextFrame)
+    }
+    /** Only an active typing session may move the camera to keep its caret above the keyboard. */
+    internal fun revealTextCaret(box: TextBox, caret: Rect, topInset: Float) {
+        if ((!page.infinite && !cameraPage) || editingText?.id != box.id || height <= 0) return
+        val margin = 12f * resources.displayMetrics.density
+        val top = originY + box.y * scale + caret.top
+        val bottom = originY + box.y * scale + caret.bottom
+        val left = originX + box.x * scale + caret.left
+        val right = originX + box.x * scale + caret.right
+        // A line larger than the remaining viewport aligns to the bottom without oscillating.
+        val upper = (topInset + margin).coerceAtMost(height - margin - caret.height)
+        val dx = when { right > width - margin -> width - margin - right; left < margin -> margin - left; else -> 0f }
+        val dy = when { bottom > height - margin -> height - margin - bottom; top < upper -> upper - top; else -> 0f }
+        if (abs(dx) >= 1f || abs(dy) >= 1f) {
+            suspendWritingFollow()
+            camera.pan(dx, dy); reportCanvasViewport(); invalidate()
+        }
+    }
     /** The focused sticky note, its frame in view fractions (0..1), and whether it is being typed in. */
     var onStickyFocus: (TextBox?, Rect?, Boolean) -> Unit = { _, _, _ -> }
     fun typeInSticky() { stickyNotes.focused()?.let { stickyNotes.focus(it, type = true) } }
@@ -349,6 +392,17 @@ class InkView(context: Context) : View(context) {
     private val responseStart get() = if (page.infinite) canvasWritingSession?.startX else null
     private fun automaticFollowReturn(region: WritingLane): WritingAdvance? = writingFollow.returnFor(
         region, writingGuides, followPreferences, responseStart)
+    /**
+     * A canvas has no edge to stop a pan, so a screen-position target would put the response's
+     * margin mid-screen. In a response, a proposed sideways pan [dx] frames the column instead.
+     * Needs [followVisible] measured.
+     */
+    private fun responseDx(dx: Float): Float {
+        val session = canvasWritingSession?.takeIf { page.infinite } ?: return dx
+        val viewLeft = (followVisible.left - originX) / scale
+        val viewWidth = followVisible.width() / scale
+        return (viewLeft - session.framedLeft(viewLeft, viewWidth, viewLeft - dx / scale)) * scale
+    }
 
     private fun followRegion(points: List<InkPoint>? = null): WritingLane {
         if (page.infinite) canvasWritingSession?.let { return it.column }
@@ -547,8 +601,8 @@ class InkView(context: Context) : View(context) {
         val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
         val desiredX = followVisible.left + followVisible.width() * target
         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
-        val dx = if (followPreferences.mode == FollowMode.MATH) 0f else desiredX -
-            (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale)
+        val dx = if (followPreferences.mode == FollowMode.MATH) 0f else responseDx(desiredX -
+            (originX + advance.startX(if (followPreferences.direction == WritingDirection.LTR) WritingHand.RIGHT else WritingHand.LEFT) * scale))
         val dy = desiredY - (originY + advance.to.y * scale)
         followGlide.start(dx, dy, SystemClock.uptimeMillis(), 0, followPreferences.glideDurationMs,
             followVisible.width().toFloat(), followVisible.height().toFloat(), followPreferences.lineSpeedMs.toFloat())
@@ -925,6 +979,7 @@ class InkView(context: Context) : View(context) {
         stickyNotes.reset()
         removeCallbacks(followFrame)
         removeCallbacks(reportMeasurement)
+        removeCallbacks(reportTextFrame)
         removeCallbacks(longPressRunnable)
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
@@ -933,6 +988,7 @@ class InkView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        followTextEditor()
         reportShapeMeasurement()
         canvas.drawColor(canvasBackgroundColor)
         canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale)
@@ -943,7 +999,8 @@ class InkView(context: Context) : View(context) {
         if (paperLayerSource !== layered) {
             paperLayerSource = layered
             // Sticky notes may cross the paper edge, so they draw after the page clip below.
-            paperLayerValue = if (layered.texts.any { it.isSticky }) layered.copy(texts = layered.texts.filterNot { it.isSticky }) else layered
+            paperLayerValue = if (layered.texts.any { it.isSticky || it.id == editingText?.id })
+                layered.copy(texts = layered.texts.filterNot { it.isSticky || it.id == editingText?.id }) else layered
         }
         val shown = paperLayerValue!!
         val visible = if (erasing != null) shown.copy(strokes = PageLayers.viewStrokes(erasing!!, page.layers)) else shown
@@ -1151,6 +1208,7 @@ class InkView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (inputBlocked) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null && !isPalm(event, 0)) onTextEditingExit()
         if (!readOnly && !selectingWritingRegion && !isPalm(event, 0)) {
             val pen = isStylus(event, 0)
             if (pen) { stylus = true; lastStylusAt = SystemClock.uptimeMillis() }
@@ -1722,11 +1780,11 @@ class InkView(context: Context) : View(context) {
         val fraction = (sx - followVisible.left) / followVisible.width().coerceAtLeast(1)
         val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
         val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT) 0f
-        else if (placing) {
+        else responseDx(if (placing) {
             val startX = writingFollow.state.lineStartX ?: frontier
             (followVisible.left + followVisible.width() * target) - (originX + startX * scale)
         } else writingFollow.horizontalShift(fraction, target, followPreferences.direction,
-            followPreferences.edgeThreshold) * followVisible.width()
+            followPreferences.edgeThreshold) * followVisible.width())
         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
         val dy = if (!followPreferences.verticalFollow) 0f
         else if (placing || sy > desiredY + followVisible.height() * followPreferences.verticalDeadBand)

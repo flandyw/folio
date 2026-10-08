@@ -38,6 +38,13 @@ from the visible viewport with proportional margins and draws its two edges. Col
 stay fixed through follow pans, manual navigation, zoom, resize and natural line breaks. **Start a
 new column here** deliberately replaces it. Manual Next line returns to the column margin; an
 automatic list wrap can still use a hanging indent. Writing outside the column holds the view.
+A canvas has no edge to stop a pan, so a response frames its column rather than aiming the line
+start at a screen position (`CanvasWritingSession.framedLeft`): while the column fits on screen,
+sideways follow, natural line placement and returns never slide the view sideways (a column
+pushed partly off screen comes back with the least movement); once zoomed in past the column's
+width, sideways movement follows the writing but never shows more than a small margin beyond
+either column edge. The session and the See all working return point are saved UI state, so
+rotation, window resizing and split screen keep them.
 
 Automatic return starts off in every new session, regardless of the global page setting. It can
 be enabled in **Response settings** for that session only. **Finish response**, changing pages or
@@ -124,7 +131,10 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
    Next line stylus shortcut must not enable follow. Tap Write a response: two column edges
    appear, with automatic return off. Write paragraphs, use Next line, and try an RTL response.
    Zoom, pan, resize and move above/left of the origin: the column edges must retain their canvas
-   coordinates. Outside-column annotations must hold the view. Try Start a new column here,
+   coordinates. Across several lines and Next line, the column's margin must stay where it was
+   on screen (no sideways slide, never mid-screen). Zoom in past the column width: following
+   must stay within the column. Rotate and resize mid-response and in the overview: the column and
+   Return to working must survive. Outside-column annotations must hold the view. Try Start a new column here,
    Finish response, switching pages, leaving/reopening and enabling auto return for one session.
    See all working, pan around, then Return to working: the original position and zoom should
    return exactly. Repeat during a response and verify there is no follow movement in overview.

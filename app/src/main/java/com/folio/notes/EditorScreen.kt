@@ -153,8 +153,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var pageFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
     // Starting prose is deliberate and local to this canvas visit, never a global preference.
-    var canvasResponse by remember(note.id, page.id) { mutableStateOf<CanvasWritingSession?>(null) }
-    var overviewReturn by remember(note.id, page.id) { mutableStateOf<WorkspaceViewport?>(null) }
+    // Saved state, so rotating or resizing the window (which recreates the Activity) keeps both.
+    var canvasResponse by rememberSaveable(note.id, page.id, stateSaver = Saver<CanvasWritingSession?, String>(
+        save = { it?.encode() ?: "" }, restore = { CanvasWritingSession.decode(it) },
+    )) { mutableStateOf<CanvasWritingSession?>(null) }
+    var overviewReturn by rememberSaveable(note.id, page.id, stateSaver = Saver<WorkspaceViewport?, String>(
+        save = { it?.let { v -> "${v.canvasX},${v.canvasY},${v.canvasZoom}" } ?: "" },
+        restore = { raw -> raw.split(",").mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 }
+            ?.let { (x, y, zoom) -> WorkspaceViewport(canvasX = x, canvasY = y, canvasZoom = zoom) } },
+    )) { mutableStateOf<WorkspaceViewport?>(null) }
     val writingFollowEnabled = if (page.infinite) canvasResponse != null else pageFollowEnabled
     var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
     var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
@@ -416,12 +423,15 @@ private fun paperLabel(p: Paper): String = when (p) {
     var textAlign by rememberSaveable { mutableStateOf(try { TextAlignMode.valueOf(appPrefs.getString("text.align", "LEFT") ?: "LEFT") } catch (_: Exception) { TextAlignMode.LEFT }) }
     var textUnderline by rememberSaveable { mutableStateOf(appPrefs.getBoolean("text.underline", false)) }
     var textOpacity by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.opacity", TextBox.DEFAULT_OPACITY)) }
-    val textDraftSaver = remember { Saver<TextBox?, String>(
-        save = { draft -> draft?.let { InkCodec.encodeTexts(listOf(it)).toString() } ?: "" },
-        restore = { raw -> runCatching { InkCodec.decodeTexts(org.json.JSONArray(raw)).firstOrNull() }.getOrNull() }
+    val textDraftSaver = remember { Saver<InlineTextSession?, String>(
+        save = { draft -> draft?.let { org.json.JSONObject().put("page", it.pageId)
+            .put("box", InkCodec.encodeTexts(listOf(it.box))).toString() } ?: "" },
+        restore = { raw -> runCatching { val json = org.json.JSONObject(raw)
+            InlineTextSession(json.getString("page"), InkCodec.decodeTexts(json.getJSONArray("box")).first()) }.getOrNull() }
     ) }
-    var textEditor by rememberSaveable(note.id, page.id, stateSaver = textDraftSaver) { mutableStateOf<TextBox?>(null) }
-    var textEditorNew by rememberSaveable(note.id, page.id) { mutableStateOf(false) }
+    val textEditorState = rememberSaveable(note.id, stateSaver = textDraftSaver) { mutableStateOf<InlineTextSession?>(null) }
+    var textEditor by textEditorState
+    val textKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // Notebook-wide typed-text search and reusable diagram elements.
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by rememberSaveable(note.id) { mutableStateOf("") }
@@ -463,14 +473,55 @@ private fun paperLabel(p: Paper): String = when (p) {
     /** A toolbar quick colour: boxes created after this start with it. */
     fun setTextColor(value: Int) {
         textColor = value
+        textEditor = textEditor?.let { it.copy(box = it.box.copy(color = value)) }
         appPrefs.edit().putInt("text.color", value).apply()
     }
-    /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
-    fun placeTextBox(at: InkPoint) {
-        val width = if (page.infinite) TextBox.DEFAULT_WIDTH else (page.width - at.x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
-        textEditor = TextBox(x = at.x, y = at.y, width = width, text = "", size = textSize, color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline, opacity = textOpacity)
-        textEditorNew = true
+    fun finishTextEditing(hideKeyboard: Boolean = true) {
+        val draft = textEditor ?: return
+        textEditor = null
+        model.commitText(draft.pageId, draft.box)
+        rememberTextLook(draft.box)
+        if (hideKeyboard) textKeyboard?.hide()
     }
+    fun changeTextDraft(box: TextBox) {
+        textEditor = textEditor?.takeIf { it.box.id == box.id }?.copy(box = box) ?: textEditor
+    }
+    fun editTextBox(target: NotePage, box: TextBox) {
+        if (textEditor?.box?.id == box.id) return
+        finishTextEditing(hideKeyboard = false)
+        textEditor = InlineTextSession(target.id, box)
+        rememberTextLook(box)
+    }
+    /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
+    fun placeTextBox(target: NotePage, at: InkPoint) {
+        finishTextEditing(hideKeyboard = false)
+        val layer = model.activeLayerOf(target)
+        if (!PageLayers.editable(target.layers, layer)) { mainInkView?.onLayerBlocked?.invoke(); return }
+        val x = if (target.infinite) at.x else at.x.coerceIn(0f, (target.width - TextBox.MIN_WIDTH - 16f).coerceAtLeast(0f))
+        val width = if (target.infinite) TextBox.DEFAULT_WIDTH else (target.width - x - 16f).coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH)
+        textEditor = InlineTextSession(target.id, TextBox(x = x, y = at.y, width = width, text = "", size = textSize,
+            color = textColor, bold = textBold, italic = textItalic, align = textAlign, underline = textUnderline,
+            opacity = textOpacity, layer = layer))
+    }
+    LaunchedEffect(page.id, tool, page.layers, music?.performance) {
+        if (textEditor?.pageId != page.id || tool != Tool.TEXT || music?.performance == true ||
+            textEditor?.box?.let { !PageLayers.editable(page.layers, it.layer) } == true) finishTextEditing()
+    }
+    val textLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(note.id, textLifecycle) {
+        // Read the session holder directly so teardown uses the old notebook's latest draft.
+        fun flushDraft() {
+            val draft = textEditorState.value ?: return
+            textEditorState.value = null
+            model.commitText(draft.pageId, draft.box)
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) flushDraft()
+        }
+        textLifecycle.lifecycle.addObserver(observer)
+        onDispose { textLifecycle.lifecycle.removeObserver(observer); flushDraft() }
+    }
+    BackHandler(enabled = textEditor != null) { finishTextEditing() }
     var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.zoom ?: 1f) }
     var documentPan by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.pan ?: 0f) }
     var pageBrowser by remember { mutableStateOf(false) }
@@ -747,14 +798,17 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (cropActive) activeInkView?.endImageCrop(false)
         else { selectedImage = null; activeInkView?.clearImageSelection() }
     }
+    var editorChromeHeightPx by remember { mutableFloatStateOf(0f) }
     var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-        if (music != null && music.onKey(event.nativeKeyEvent)) true
+        if (textEditor != null && event.type == KeyEventType.KeyDown &&
+            (event.key == Key.Escape || (event.key == Key.Enter && event.isCtrlPressed))) { finishTextEditing(); true }
+        else if (textEditor == null && music != null && music.onKey(event.nativeKeyEvent)) true
         else if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
-            Key.Z -> { if (event.isShiftPressed) model.redo() else model.undo(); true }
-            Key.Y -> { model.redo(); true }
-            Key.F -> { if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
-            Key.G -> { pageBrowser = true; pageJumpExpanded = true; true }
+            Key.Z -> { finishTextEditing(); if (event.isShiftPressed) model.redo() else model.undo(); true }
+            Key.Y -> { finishTextEditing(); model.redo(); true }
+            Key.F -> { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
+            Key.G -> { finishTextEditing(); pageBrowser = true; pageJumpExpanded = true; true }
             Key.Zero -> { resetZoom(); true }
             else -> false
         } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) when {
@@ -865,7 +919,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     EditorPage(note.id, item, model, if (music.performance) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, item.id == page.id,
                         onActive = { model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
                         onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
-                        onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
+                        onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
+                        textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
+                        onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                         onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music.onKey,
                         canvasReset = canvasReset, onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(item),
                         selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
@@ -890,7 +946,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             } else if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
-                    onSelection = { selection = page.id to it },                    onTextEdit = { textEditor = it; textEditorNew = false }, onTextCreate = ::placeTextBox,
+                    onSelection = { selection = page.id to it },                    onTextEdit = { editTextBox(page, it) }, onTextCreate = { placeTextBox(page, it) },
+                    textDraft = textEditor?.takeIf { it.pageId == page.id }?.box,
+                    onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                     onLoad = { model.loadPage(page.id) }, fullscreen = true, canvasReset = canvasReset,
                     onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(page),
                     initialViewport = session?.viewport, onCameraChanged = { savedCanvas = it },
@@ -1027,8 +1085,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
                                 onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
                                 onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
-                                onTextEdit = { box -> textEditor = box; textEditorNew = false },
-                                onTextCreate = ::placeTextBox,
+                                onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
+                                textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
+                                onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                                 onLoad = { model.loadPage(item.id) }, activeLayer = model.activeLayerOf(item),
                                 paperWidth = baseWidth * documentZoom, onStickyDraw = { selectTool(Tool.PEN) },
                                 selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
@@ -1330,7 +1389,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             mode == null -> { peekMode = null; true }
                             // Opening mid-stroke would cut the stroke off under the lens.
                             activeInkView?.isWritingGesture == true -> false
-                            else -> { motion.reset(); peekShown = peekAnchor; peekMode = mode; true }
+                            else -> { finishTextEditing(); motion.reset(); peekShown = peekAnchor; peekMode = mode; true }
                         }
                     }
                 }
@@ -1344,7 +1403,8 @@ private fun paperLabel(p: Paper): String = when (p) {
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
-                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6),
+                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6)
+                    .onSizeChanged { editorChromeHeightPx = it.height.toFloat() + with(density) { 6.dp.toPx() } },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
@@ -1359,10 +1419,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                     options = options,
                     onOptions = ::changeOptions,
                     quick = quick,
-                    canUndo = state.canUndo,
+                    canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true,
                     canRedo = state.canRedo,
-                    undo = model::undo,
-                    redo = model::redo,
+                    undo = { finishTextEditing(); model.undo() },
+                    redo = { finishTextEditing(); model.redo() },
                     palette = palette,
                     snapEnabled = snapEnabled,
                     onSnap = ::setSnap,
@@ -1379,7 +1439,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
                     actions = listOf(
-                        ToolbarAction(Icons.Rounded.Settings, "Settings", onSettings)
+                        ToolbarAction(Icons.Rounded.Settings, "Settings") { finishTextEditing(); onSettings() }
                     ),
                     header = { mainTools ->
                         if (music != null) FolioExpand(true) { mainTools() } else EditorTopBar(
@@ -1395,7 +1455,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onStar = { model.star(note) },
                             onRename = { renameTitle = note.title; rename = true },
                             onRetrySave = model::retrySave,
-                            onClose = model::close,
+                            onClose = { finishTextEditing(); model.close() },
                             showBack = showBack,
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
@@ -1422,7 +1482,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 if (page.pdfIndex != null) { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true }
                                 else { noteSearchOpen = true }
                             },
-                            onLayers = { layersPopover = true },
+                            onLayers = { finishTextEditing(); layersPopover = true },
                             layerStatus = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.let { layer ->
                                 when { !layer.visible -> "Hidden layer: ${layer.name}"; layer.locked -> "Locked layer: ${layer.name}"; else -> null }
                             },
@@ -1439,8 +1499,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                             },
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
-                            onExport = onExport,
-                            onSettings = onSettings,
+                            onExport = { finishTextEditing(); onExport() },
+                            onSettings = { finishTextEditing(); onSettings() },
                             onKeyboardShortcuts = { keyboardShortcuts = true },
                             pageActions = { dismiss ->
                                 PageOptionsContent(dismiss, page, state.saveFailed,
@@ -1457,6 +1517,16 @@ private fun paperLabel(p: Paper): String = when (p) {
                         )
                     }
                 )
+                textEditor?.let { draft ->
+                    InlineTextToolbar(draft.box, quick.colors(InkColors.INK_GROUP),
+                        onChange = { box -> textEditor = draft.copy(box = box); rememberTextLook(box) },
+                        onDone = { finishTextEditing() },
+                        onDelete = { textEditor = draft.copy(box = draft.box.copy(text = "")); finishTextEditing() },
+                        onDuplicate = {
+                            finishTextEditing(hideKeyboard = false)
+                            textEditor = draft.copy(box = draft.box.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f))
+                        })
+                }
             }
         }
     }
@@ -1783,29 +1853,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         }
     }
-    textEditor?.let { box ->
-        TextBoxDialog(
-            box = box, isNew = textEditorNew, colors = quick.colors(InkColors.INK_GROUP),
-            onDismiss = { textEditor = null },
-            onCreate = { created -> model.addText(created); rememberTextLook(created); textEditor = null },
-            onUpdate = { updated -> model.updateText(updated); rememberTextLook(updated); textEditor = null },
-            onDelete = { model.removeText(box.id); textEditor = null },
-            onDuplicate = { source -> model.duplicateText(source.id, source); rememberTextLook(source); textEditor = null },
-            canMove = note.pages.size > 1,
-            onMove = { source ->
-                model.updateText(source)
-                moveSelection = page.id to CanvasSelection(texts = listOf(source))
-                textEditor = null
-            }
-        )
-    }
     pageMenu?.takeIf { !inkNavigating }?.let { (wx, wy, at) ->
         PageContextMenu(wx, wy,
             onPaste = { model.pasteClipboard(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
-            onText = { placeTextBox(at) },
+            onText = { selectTool(Tool.TEXT); placeTextBox(page, at) },
             onImage = { imagePicker.launch(arrayOf("image/*")) },
-            canUndo = state.canUndo, canRedo = state.canRedo, onUndo = model::undo, onRedo = model::redo,
+            canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true, canRedo = state.canRedo,
+            onUndo = { finishTextEditing(); model.undo() }, onRedo = { finishTextEditing(); model.redo() },
             onDismiss = { pageMenu = null })
     }
     if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
@@ -2070,6 +2125,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     selectionAnchor: Rect? = null,
     /** The paper's width in a document; the page view is wider by the workspace beside it. Null fits the paper to the view. */
     paperWidth: Dp? = null, onStickyDraw: () -> Unit = {},
+    textDraft: TextBox? = null, onTextDraft: (TextBox) -> Unit = {}, onTextDone: () -> Unit = {}, textTopInset: Float = 0f,
     /** Context menu content, given the available pane width; null on pages without a selection. */
     selectionMenu: (@Composable (Dp) -> Unit)? = null,
     selectionMenuViewport: Rect? = null,
@@ -2089,6 +2145,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         val target = page.pdfIndex
         if (target == null) emptyList() else markZones.filter { it.pageIndex == target && (markAssist || it.manual) }
     }
+    var textFrame by remember(page.id) { mutableStateOf<InlineTextFrame?>(null) }
     var sticky by remember(page.id) { mutableStateOf<StickyFocus?>(null) }
     var stickyDraft by remember(page.id) { mutableStateOf<StickyDraft?>(null) }
     var pageWindowFrame by remember(page.id) { mutableStateOf<Rect?>(null) }
@@ -2223,6 +2280,16 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
                 view.documentPaperWidth = paperWidthPx
                 view.documentTop = workspaceTop
+                view.onTextEditorFrame = { textFrame = it }
+                view.onTextEditingExit = {
+                    onTextDone()
+                    view.editingText = null
+                    // This down also starts the next gesture. Hit-test the committed wording and
+                    // bounds now, before Compose's next update, rather than the original box.
+                    model.state.value.notes.firstOrNull { it.id == noteId }?.pages?.firstOrNull { it.id == page.id }
+                        ?.let { view.bind(it, view.background, view.imageBitmaps) }
+                }
+                view.editingText = textDraft
                 view.onStickyFocus = { box, frame, typing ->
                     val draft = stickyDraft
                     if (draft != null && (!typing || box?.id != draft.id)) commitStickyDraft()
@@ -2315,6 +2382,10 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 },
                 onRemove = entry.existing?.let { old -> { model.clearMark(page.id, old); onReplaceZone(old, null); areaEntry = null } },
                 onDismiss = { boundInkView?.clearMarkRegion(); areaEntry = null })
+        }
+        if (textDraft != null && textFrame?.id == textDraft.id && active && !readOnly && !inputBlocked && page.loaded && ready) {
+            InlineTextField(textDraft, textFrame!!, page, onTextDraft, onTextDone, textTopInset,
+                onRevealCaret = { boundInkView?.revealTextCaret(textDraft, it, textTopInset) })
         }
         val focusedSticky = sticky?.takeIf { active && !readOnly && !inputBlocked && page.loaded && ready }
         val draft = stickyDraft
@@ -2586,134 +2657,6 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             }
         }
     }
-}
-
-/** Creates or edits a typed text box: wording, size, wrap width, opacity, style and colour. */
-@Composable private fun TextBoxDialog(
-    box: TextBox, isNew: Boolean, colors: List<Int>,
-    onDismiss: () -> Unit, onCreate: (TextBox) -> Unit, onUpdate: (TextBox) -> Unit, onDelete: () -> Unit,
-    onDuplicate: (TextBox) -> Unit, onMove: (TextBox) -> Unit, canMove: Boolean
-) {
-    val textFocus = remember(box.id) { FocusRequester() }
-    var text by rememberSaveable(box.id) { mutableStateOf(box.text) }
-    var size by rememberSaveable(box.id) { mutableFloatStateOf(box.size) }
-    var width by rememberSaveable(box.id) { mutableFloatStateOf(box.width) }
-    var opacity by rememberSaveable(box.id) { mutableFloatStateOf(box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY)) }
-    var color by rememberSaveable(box.id) { mutableIntStateOf(box.color) }
-    var bold by rememberSaveable(box.id) { mutableStateOf(box.bold) }
-    var italic by rememberSaveable(box.id) { mutableStateOf(box.italic) }
-    var align by rememberSaveable(box.id) { mutableStateOf(box.align) }
-    var formattingExpanded by rememberSaveable(box.id) { mutableStateOf(false) }
-    var underline by rememberSaveable(box.id) { mutableStateOf(box.underline) }
-    fun edited() = box.copy(
-        text = text.trimEnd(), size = size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
-        width = width.coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
-        opacity = opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
-        color = color, bold = bold, italic = italic, align = align, underline = underline
-    )
-    var discard by rememberSaveable(box.id) { mutableStateOf(false) }
-    fun dismiss() { if (edited() != box) discard = true else onDismiss() }
-    AlertDialog(
-        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
-        modifier = Modifier.guardUiTouches(),
-        onDismissRequest = ::dismiss,
-        icon = { Icon(Icons.Rounded.TextFields, null) },
-        title = { Text(if (isNew) "Add text" else "Edit text") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 110.dp).focusRequester(textFocus).onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && event.isCtrlPressed && text.isNotBlank()) {
-                            val done = edited(); if (isNew) onCreate(done) else onUpdate(done); true
-                        } else false
-                    },
-                    label = { Text("Text") }, placeholder = { Text("Write a heading, a label or a note…") },
-                    shape = FolioShapes.large,
-                    supportingText = {
-                        Text(
-                            if (text.isBlank()) "Empty boxes are not added."
-                            else "${text.trimEnd().length} characters · wraps at ${width.toInt()} pt",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    },
-                    minLines = 3, maxLines = 8,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default))
-                LaunchedEffect(box.id) { textFocus.requestFocus() }
-                TextButton({ formattingExpanded = !formattingExpanded }) {
-                    Icon(Icons.Rounded.FormatSize, null); Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(if (formattingExpanded) "Hide formatting" else "Formatting · ${size.toInt()} pt")
-                }
-                if (formattingExpanded) {
-                    // Live preview so size, width, fade and colour choices read before they land on the page.
-                    if (text.isNotBlank()) {
-                        Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-                            Text(
-                                text.trimEnd().take(220),
-                                Modifier.fillMaxWidth().padding(FolioSpacing.dp12),
-                                color = Color(color).copy(alpha = opacity.coerceIn(0f, 1f)),
-                                fontSize = size.coerceIn(10f, 48f).sp,
-                                fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else null,
-                                fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
-                                textAlign = when (align) { TextAlignMode.CENTER -> TextAlign.Center; TextAlignMode.RIGHT -> TextAlign.End; else -> TextAlign.Start },
-                                textDecoration = if (underline) androidx.compose.ui.text.style.TextDecoration.Underline else null,
-                                maxLines = 4, overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.Rounded.FormatSize, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Slider(size, { size = it }, valueRange = TextBox.MIN_SIZE..TextBox.MAX_SIZE, modifier = Modifier.weight(1f).semanticsLabel("Text size, ${size.toInt()} points"))
-                        Text("${size.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.AutoMirrored.Rounded.WrapText, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Slider(width, { width = it }, valueRange = TextBox.MIN_WIDTH..TextBox.MAX_WIDTH, modifier = Modifier.weight(1f).semanticsLabel("Text wrap width, ${width.toInt()} points"))
-                        Text("${width.toInt()}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-                    }
-                    Text("Wrap width · the box grows downwards as it wraps.",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.Rounded.Opacity, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Slider(opacity, { opacity = it }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY, modifier = Modifier.weight(1f).semanticsLabel("Text opacity, ${(opacity * 100).roundToInt()} percent"))
-                        Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        FilterChip(bold, { bold = !bold }, { Text("Bold") })
-                        FilterChip(italic, { italic = !italic }, { Text("Italic") })
-                        FilterChip(underline, { underline = !underline }, { Text("Underline") })
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        FilterChip(align == TextAlignMode.LEFT, { align = TextAlignMode.LEFT }, { Text("Left") })
-                        FilterChip(align == TextAlignMode.CENTER, { align = TextAlignMode.CENTER }, { Text("Centre") })
-                        FilterChip(align == TextAlignMode.RIGHT, { align = TextAlignMode.RIGHT }, { Text("Right") })
-                    }
-                    Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                        colors.forEach { option -> InkColorDot(option, option == color, { color = option }, touch = 36.dp, dot = 24.dp, label = "Text colour") }
-                    }
-                }
-                if (!isNew && canMove) OutlinedButton({ onMove(edited()) }, enabled = text.isNotBlank()) { Text("Move to page…") }
-            }
-        },
-        dismissButton = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                if (!isNew) {
-                    TextButton({ onDuplicate(edited()) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Duplicate") }
-                    TextButton(onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete") }
-                }
-                TextButton(::dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-            }
-        },
-        confirmButton = {
-            Button({ val done = edited(); if (isNew) onCreate(done) else onUpdate(done) }, enabled = text.isNotBlank(), shapes = ButtonDefaults.shapes()) {
-                Text(if (isNew) "Add text" else "Save")
-            }
-        }
-    )
-    if (discard) AlertDialog(onDismissRequest = { discard = false },
-        title = { Text("Discard text changes?") }, text = { Text("Your text and formatting changes have not been applied.") },
-        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
-        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 /** One gesture recognizer owns both actions, so holding never also adds a page. */
