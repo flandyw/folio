@@ -106,7 +106,7 @@ import kotlinx.coroutines.withContext
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()
     ) {
         IconButton(
-            onClick, modifier = Modifier.size(48.dp), enabled = enabled,
+            onClick, modifier = Modifier.size(40.dp), enabled = enabled,
             shape = CircleShape,
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
@@ -1120,7 +1120,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             // Keep the default Material shape, colors and elevation, with a shorter container.
             // Secondary actions overflow in narrow companion panes instead of shrinking targets.
-            val followToolbarWidth = 48.dp * 6 + 8.dp
+            val followToolbarWidth = 40.dp * 6 + 8.dp
             val overflowFollowActions = maxWidth < followToolbarWidth + 32.dp
             fun toggleFollowPause() {
                 writingFollowPaused = !followStatus.paused
@@ -1130,7 +1130,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 expanded = true,
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
                     .padding(FloatingToolbarDefaults.ScreenOffset)
-                    .height(52.dp)
+                    .height(44.dp)
                     .guardUiTouches()
                     .zIndex(11f),
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),

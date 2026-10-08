@@ -68,7 +68,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
     val rows = remember(folders, expanded) { LibraryBrowse.tree(folders, expanded) }
     val parents = remember(folders) { folders.mapNotNull { it.parentId }.toSet() }
     val home = !filesActive && openFolder == null && tag == null
-    Surface(modifier.width(256.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12),
+    Surface(modifier.width(288.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12),
         shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         LazyColumn(Modifier.then(if (drag != null) Modifier.notebookDragScroll(drag) { list.scrollBy(it) } else Modifier),
             state = list, contentPadding = PaddingValues(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
@@ -83,7 +83,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
             }
             item(key = "folders") {
                 LibrarySidebarHeading("Folders") {
-                    IconButton(onNewFolder, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                    IconButton(onNewFolder, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
                 }
             }
             if (rows.isEmpty()) item(key = "no-folders") {
@@ -110,7 +110,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 }
 
 @Composable private fun LibrarySidebarHeading(title: String, actions: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12).heightIn(min = 36.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12).heightIn(min = FolioTouch.target), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         actions()
     }
@@ -125,15 +125,15 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
         color = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         modifier = modifier.fillMaxWidth().semantics { selected = active }) {
-        Row(Modifier.heightIn(min = 44.dp).padding(start = if (depth == null) FolioSpacing.dp12 else FolioSpacing.dp4 + 14.dp * depth, end = FolioSpacing.dp12),
+        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = if (depth == null) FolioSpacing.dp12 else FolioSpacing.dp4 + 14.dp * depth, end = FolioSpacing.dp12),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (depth != null) {
                 if (expanded != null) {
                     val turn by animateFloatAsState(if (expanded) 90f else 0f, folioSpring(), label = "folderDisclosure")
-                    IconButton(onExpand, modifier = Modifier.size(28.dp), shapes = IconButtonDefaults.shapes()) {
+                    IconButton(onExpand, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.ChevronRight, if (expanded) "Collapse $label" else "Expand $label", Modifier.size(18.dp).rotate(turn))
                     }
-                } else Spacer(Modifier.width(28.dp))
+                } else Spacer(Modifier.width(FolioTouch.target))
             }
             Icon(icon, null, Modifier.size(20.dp))
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -143,7 +143,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
     }
 }
 
-/** Narrow screens have no sidebar: places and tags become one scrolling row of drop-target chips. */
+/** When the sidebar is folded, places and tags become scrolling, finger-sized drop targets. */
 @Composable internal fun LibraryPlacesRow(
     place: LibraryPlace, home: Boolean, tag: String?, tags: List<String>, counts: LibraryCounts, drag: NotebookDragState?,
     onPlace: (LibraryPlace) -> Unit, onTag: (String) -> Unit, onHoverOpen: (String?) -> Unit,
@@ -155,12 +155,12 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
             val count = when (item) { LibraryPlace.ALL -> 0; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 }
             FilterChip(home && place == item, { onPlace(item) }, { Text(if (count > 0) "${item.label} · $count" else item.label) },
                 leadingIcon = { Icon(item.icon(), null, Modifier.size(16.dp)) },
-                modifier = item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier)
+                modifier = Modifier.heightIn(min = FolioTouch.target).then(item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier))
         }
         tags.forEach { label ->
             FilterChip(tag.equals(label, true), { onTag(label) }, { Text(label) },
                 leadingIcon = { Icon(Icons.Rounded.Sell, null, Modifier.size(16.dp)) },
-                modifier = Modifier.notebookDropTarget(drag, NotebookDropDestination.Tag(label)))
+                modifier = Modifier.heightIn(min = FolioTouch.target).notebookDropTarget(drag, NotebookDropDestination.Tag(label)))
         }
     }
 }
@@ -184,7 +184,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
                 var open by remember { mutableStateOf(false) }
                 Box {
                     IconButton({ open = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $name") }
-                    DropdownMenu(open, { open = false }, modifier = Modifier.guardUiTouches()) { menu { open = false } }
+                    if (open) FolioActionPopover(name, { open = false }) { menu { open = false } }
                 }
             } else Spacer(Modifier.width(FolioSpacing.dp8))
         }
@@ -193,8 +193,8 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 
 /** The same four folder actions wherever a folder offers a menu. */
 @Composable internal fun FolderMenuItems(close: () -> Unit, onNewInside: () -> Unit, onRename: () -> Unit, onMove: () -> Unit, onRemove: () -> Unit) {
-    DropdownMenuItem({ Text("New folder inside") }, { close(); onNewInside() }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
-    DropdownMenuItem({ Text("Rename folder") }, { close(); onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-    DropdownMenuItem({ Text("Move folder") }, { close(); onMove() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
-    DropdownMenuItem({ Text("Remove folder") }, { close(); onRemove() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+    PopoverRow(Icons.Rounded.CreateNewFolder, "New folder inside") { close(); onNewInside() }
+    PopoverRow(Icons.Rounded.Edit, "Rename folder") { close(); onRename() }
+    PopoverRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move folder") { close(); onMove() }
+    PopoverRow(Icons.Rounded.DeleteOutline, "Remove folder", destructive = true) { close(); onRemove() }
 }

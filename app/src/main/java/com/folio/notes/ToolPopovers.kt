@@ -142,14 +142,17 @@ private class PopoverPositionProvider(private val margin: Int, private val gap: 
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val progress by animateFloatAsState(if (shown) 1f else 0f, folioSpring(), label = "popover")
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.72f).dp
+    val configuration = LocalConfiguration.current
+    // Keep palettes anchored in every window size; bound them to the usable window.
+    val maxHeight = (configuration.screenHeightDp * 0.72f).dp
+    val availableWidth = (configuration.screenWidthDp.dp - FolioSpacing.dp32).coerceAtLeast(0.dp)
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         Surface(
             modifier = modifier.guardUiTouches().graphicsLayer {
                 alpha = progress.coerceIn(0f, 1f)
                 scaleX = .94f + .06f * progress; scaleY = scaleX
                 transformOrigin = TransformOrigin(.5f, 0f)
-            }.width(width).heightIn(max = maxHeight),
+            }.width(minOf(width, availableWidth)).heightIn(max = maxHeight),
             shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 3.dp, shadowElevation = 12.dp
         ) {

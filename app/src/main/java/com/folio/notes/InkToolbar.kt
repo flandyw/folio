@@ -69,7 +69,7 @@ import kotlin.math.roundToInt
     var shapePicker by remember { mutableStateOf(false) }
     var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
-    var quickBarOpen by rememberSaveable { mutableStateOf(true) }
+    var quickBarOpen by rememberSaveable { mutableStateOf(false) }
     // The strip's own long-press opens Edit toolbar. A tool or pinned preset claims the
     // gesture first (and cancels the strip menu again if the strip handler ran first), so
     // a hold over a button only ever opens that button's own action.
@@ -174,7 +174,7 @@ import kotlin.math.roundToInt
             // Tapping the width in use, or holding any dot, edits that slot in a popover.
             Box {
                 Box(
-                    Modifier.size(width = 40.dp, height = 40.dp).clip(CircleShape)
+                    Modifier.size(40.dp).clip(CircleShape)
                         .combinedClickable(
                             role = androidx.compose.ui.semantics.Role.RadioButton,
                             onClick = {
@@ -249,7 +249,7 @@ import kotlin.math.roundToInt
         TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
         }
-        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+        if (!compactTools) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.size(20.dp)) }
         }
         ToolbarDivider()
@@ -396,9 +396,10 @@ import kotlin.math.roundToInt
                                 Box(Modifier.width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                                 QuickColors()
                             }
-                            WidthControl()
                         }
                     }
+                    // Settings stays reachable even when the colours and widths need scrolling.
+                    WidthControl()
                 }
             }
         }
@@ -602,4 +603,3 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 
 /** The second-level menus under the toolbar's ⋯ menu. */
 private enum class ToolSub { PRESETS, TOOL }
-

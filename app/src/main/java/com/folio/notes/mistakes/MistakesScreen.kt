@@ -599,7 +599,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                    TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                    Box {
+                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                        if (showFilters) FolioActionPopover("Focus your library", { showFilters = false }) {
+                                            MistakeFilterOptions("Subject", subjects, subject) { subject = it }
+                                            MistakeFilterOptions("Paper", papers, paper) { paper = it }
+                                            MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
+                                            Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${visible.size} questions") }
+                                            TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
+                                        }
+                                    }
                                     if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                                 }
                                 if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -649,16 +658,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             )
         }
     }
-    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Text("Focus your library", style = MaterialTheme.typography.headlineSmall)
-            MistakeFilterOptions("Subject", subjects, subject) { subject = it }
-            MistakeFilterOptions("Paper", papers, paper) { paper = it }
-            MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
-            Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${visible.size} questions") }
-            TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
-        }
-    }
+
 }
 
 // ---- Destination toolbar -----------------------------------------------------------------------

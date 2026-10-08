@@ -110,11 +110,12 @@ internal val EditorFloatingGroupHeight = 46.dp
         MeasureNaturalWidth(timerWidth) { timer() }
         val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
         val compact = maxWidth - 760.dp < timerNeed
-        val narrow = maxWidth < 720.dp
+        val narrow = maxWidth < 600.dp
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
-        // Below this width the page, search and layer buttons fold into one menu beside back.
-        val foldNav = maxWidth < 840.dp
+        // Keep navigation compact on most tablets so drawing tools get the width. Wide
+        // windows can expose the individual actions without adding another toolbar row.
+        val foldNav = maxWidth < 1100.dp
         val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
         val leftNatural = 40.dp * navButtons + FolioSpacing.dp8
         val rightNatural = 40.dp * 2 + FolioSpacing.dp8 + if (compact) 0.dp else timerNeed + FolioSpacing.dp6

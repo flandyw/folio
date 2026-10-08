@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -43,7 +42,7 @@ fun SplitDivider(
     val drag = rememberDraggableState(onDrag)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = (if (vertical) Modifier.width(28.dp).fillMaxHeight() else Modifier.height(28.dp).fillMaxWidth())
+        modifier = (if (vertical) Modifier.width(FolioTouch.target).fillMaxHeight() else Modifier.height(FolioTouch.target).fillMaxWidth())
             .then(if (onClick != null || onLongClick != null) Modifier.combinedClickable(
                 onClick = onClick ?: {},
                 onDoubleClick = onDoubleTap,

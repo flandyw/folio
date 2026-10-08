@@ -7,8 +7,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+
+/** An action list anchored to its trigger, leaving the surrounding page visible. */
+@Composable internal fun FolioActionPopover(
+    title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit,
+) {
+    FolioPopover(onDismiss) {
+        Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        content()
+    }
+}
 
 /** A tile for the few everyday toggles at the top of a popover. */
 @Composable internal fun PopoverTile(
