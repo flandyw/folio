@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -360,11 +361,17 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage,
             onDelete = ::deleteCurrentCard,
             onRate = onRate@{ rating ->
-            if (working || currentFrame == null || folioState.saving || folioState.saveFailed) return@onRate
+            if (working || currentFrame == null || folio.state.value.saveFailed) return@onRate
             actionMessage = null
             working = true
             scope.launch {
                 try {
+                    // Lock the review once, then let autosave finish before recording the
+                    // rating. The footer stays steady while writing, and a tap just after a
+                    // stroke is accepted rather than silently dropped. A save failure also
+                    // ends this wait so the page stays open for retry.
+                    val saved = folio.state.first { !it.saving || it.saveFailed }
+                    check(!saved.saveFailed) { "Save the handwriting before rating" }
                     val finishedId = active.mistakeId
                     val completed = model.rate(active, rating)
                     folio.completeMistakePractice(completed)

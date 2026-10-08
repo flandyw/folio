@@ -16,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.delay
@@ -155,7 +156,9 @@ import com.folio.notes.*
                                     runCatching { MistakeScheduler.previewMistakeReview(m, rating, now) }.getOrNull()
                                 }
                                 val label = preview?.let { intervalLabel(it, rating) } ?: ""
-                                val canRate = !busy && !state.saving && !state.saveFailed
+                                // Autosave runs after each stroke. Rating waits for it in the
+                                // handler, so drawing must not pulse the buttons' enabled state.
+                                val canRate = !busy && !state.saveFailed
                                 val modifier = Modifier.weight(1f)
                                 val labelText = label
                                 val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
@@ -176,7 +179,6 @@ import com.folio.notes.*
                             when {
                                 pendingAction == "skipTop" -> "Tap the top Skip button again to confirm."
                                 state.saveFailed -> "Save failed — retry from the editor status, then rate."
-                                state.saving -> "Saving your ink… ratings unlock when it says Saved."
                                 busy -> "Saving your review…"
                                 else -> "Again: missed it · Hard: needed help · Good: recalled it · Easy: confident"
                             },
@@ -191,8 +193,10 @@ import com.folio.notes.*
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val wide = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
             val referenceHeight = maxHeight * portraitShare
-            val splitWidth = maxWidth
-            val splitHeight = maxHeight
+            val dividerThickness = 16.dp
+            val density = LocalDensity.current
+            val splitWidthPx = with(density) { (maxWidth - dividerThickness).toPx() }
+            val splitHeightPx = with(density) { maxHeight.toPx() }
             // Drag the handle to resize; a release settles on a comfortable share and the last
             // position is remembered for the next card and the next session.
             fun draggedShare(deltaPx: Float, totalPx: Float) {
@@ -301,7 +305,8 @@ import com.folio.notes.*
                 ReferencePane(Modifier.weight(landscapeShare).fillMaxHeight())
                 SplitDivider(
                     vertical = true,
-                    onDrag = { draggedShare(it, splitWidth.value) },
+                    thickness = dividerThickness,
+                    onDrag = { draggedShare(it, splitWidthPx) },
                     onRelease = ::releaseShare,
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
@@ -312,9 +317,10 @@ import com.folio.notes.*
                 // A collapsed question panel is still a handle: any drag reopens and resizes it.
                 SplitDivider(
                     vertical = false,
+                    thickness = dividerThickness,
                     onDrag = { delta ->
                         if (!questionExpanded) questionExpanded = true
-                        draggedShare(delta, splitHeight.value)
+                        draggedShare(delta, splitHeightPx)
                     },
                     onRelease = ::releaseShare,
                     onDoubleTap = ::resetShare,

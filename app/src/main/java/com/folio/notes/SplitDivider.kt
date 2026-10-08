@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -18,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.zIndex
 
 /**
  * The draggable split between two panes, shared by the workspace editor/companion split and
@@ -38,23 +42,33 @@ fun SplitDivider(
     contentDescription: String,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    thickness: Dp = FolioTouch.target,
 ) {
     val drag = rememberDraggableState(onDrag)
+    // A slim divider reserves less space, but its gesture target still extends over the
+    // adjoining pane edges. Keep it above those panes so the whole target receives drags.
     Box(
         contentAlignment = Alignment.Center,
-        modifier = (if (vertical) Modifier.width(FolioTouch.target).fillMaxHeight() else Modifier.height(FolioTouch.target).fillMaxWidth())
-            .then(if (onClick != null || onLongClick != null) Modifier.combinedClickable(
+        modifier = (if (vertical) Modifier.width(thickness).fillMaxHeight() else Modifier.height(thickness).fillMaxWidth())
+            .zIndex(1f)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = (if (vertical) Modifier.requiredWidth(FolioTouch.target).fillMaxHeight() else Modifier.requiredHeight(FolioTouch.target).fillMaxWidth())
+            .combinedClickable(
                 onClick = onClick ?: {},
                 onDoubleClick = onDoubleTap,
                 onLongClick = onLongClick,
                 onLongClickLabel = if (onLongClick != null) "Pane options" else null,
-            ) else Modifier)
+            )
             .semantics { this.contentDescription = contentDescription }
             .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, onDragStopped = { onRelease() })
-    ) {
-        Box(
-            Modifier.then(if (vertical) Modifier.width(4.dp).height(48.dp) else Modifier.height(4.dp).width(48.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
-        )
+        ) {
+            val grip = if (thickness < FolioTouch.target) 2.dp else 4.dp
+            Box(
+                Modifier.then(if (vertical) Modifier.width(grip).height(48.dp) else Modifier.height(grip).width(48.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
+            )
+        }
     }
 }

@@ -109,17 +109,24 @@ internal val EditorFloatingGroupHeight = 46.dp
         val timerWidth = remember { mutableStateOf(0.dp) }
         MeasureNaturalWidth(timerWidth) { timer() }
         val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
-        val compact = maxWidth - 760.dp < timerNeed
-        val narrow = maxWidth < 600.dp
+        val toolsNeed = 400.dp
+        val groupGaps = FolioSpacing.dp6 * 2
+        val documentWidth = 40.dp * 2 + FolioSpacing.dp8
+        val expandedNavWidth = 40.dp * ((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
         // Keep navigation compact on most tablets so drawing tools get the width. Wide
         // windows can expose the individual actions without adding another toolbar row.
-        val foldNav = maxWidth < 1100.dp
+        val foldNav = maxWidth < toolsNeed + maxOf(expandedNavWidth, documentWidth) * 2 + groupGaps
         val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
         val leftNatural = 40.dp * navButtons + FolioSpacing.dp8
-        val rightNatural = 40.dp * 2 + FolioSpacing.dp8 + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
+        val rightWithTimer = documentWidth + timerNeed + FolioSpacing.dp6
+        val compact = maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
+        val rightNatural = documentWidth + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
         val sideWidth = maxOf(leftNatural, rightNatural)
+        // Reflow before either side squeezes the tool tray below a useful width. This also
+        // accounts for a running timer's actual size instead of a fixed window breakpoint.
+        val narrow = maxWidth < toolsNeed + sideWidth * 2 + groupGaps
         @Composable fun NavigationControls() {
             Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
@@ -330,4 +337,3 @@ internal val EditorFloatingGroupHeight = 46.dp
         }
     )
 }
-

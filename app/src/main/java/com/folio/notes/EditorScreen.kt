@@ -1120,8 +1120,11 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             // Keep the default Material shape, colors and elevation, with a shorter container.
             // Secondary actions overflow in narrow companion panes instead of shrinking targets.
-            val followToolbarWidth = 40.dp * 6 + 8.dp
-            val overflowFollowActions = maxWidth < followToolbarWidth + 32.dp
+            // Peek has a 48dp hold target, wider than the other 40dp controls. Include it
+            // and the actual outer inset when deciding whether the full group fits.
+            val followToolbarWidth = 40.dp * 5 + 48.dp + 8.dp
+            val followInset = if (maxWidth < 180.dp) FolioSpacing.dp4 else FloatingToolbarDefaults.ScreenOffset
+            val overflowFollowActions = maxWidth - followInset * 2 < followToolbarWidth
             fun toggleFollowPause() {
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
@@ -1129,7 +1132,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (music == null) HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
-                    .padding(FloatingToolbarDefaults.ScreenOffset)
+                    .padding(followInset)
                     .height(44.dp)
                     .guardUiTouches()
                     .zIndex(11f),
