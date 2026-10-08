@@ -429,14 +429,16 @@ import kotlinx.coroutines.withContext
                                 model.create("Canvas · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     Paper.DOTS, infinite = true,
-                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
+                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED),
+                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders))
                             },
                             onQuickNote = {
                                 workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
                                 model.create("Quick note · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     AppPrefs.defaultPaper(prefs.getString(AppPrefs.DEFAULT_PAPER, null)),
-                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED))
+                                    pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED),
+                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders))
                             },
                             onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; newNote = true },
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
@@ -496,6 +498,7 @@ import kotlinx.coroutines.withContext
                     updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
+                    folders = state.folders,
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
                     onBackupExclusions = { backupExclusionsOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },

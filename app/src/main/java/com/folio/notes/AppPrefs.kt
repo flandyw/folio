@@ -47,6 +47,7 @@ object AppPrefs {
     const val MISTAKE_PAPER = "mistake.paper"
     const val DEFAULT_COVER = "notebook.defaultCover"
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
+    const val QUICK_FOLDER = "notebook.quickFolder"
     const val PALM_MS = "input.palmMs"
     const val FAST_PAN = "input.fastPan"
     const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
@@ -144,6 +145,10 @@ object AppPrefs {
     /** Mistake practice pages are infinite canvases, so the paper only picks the printed guide. */
     fun mistakePaper(raw: String?): Paper =
         runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(DEFAULT_MISTAKE_PAPER)
+
+    /** A folder deleted since it was chosen falls back to the Library top level. */
+    fun quickFolderId(raw: String?, folders: List<Folder>): String? =
+        raw?.takeIf { id -> folders.any { it.id == id } }
 
     fun librarySort(raw: String?): LibrarySort =
         runCatching { LibrarySort.valueOf(raw ?: "") }.getOrDefault(LibrarySort.RECENT)

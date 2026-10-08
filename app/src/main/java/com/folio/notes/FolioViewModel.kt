@@ -620,10 +620,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         updateNotes(ids) { note -> note.copy(tags = NotebookTags.normalize(
             note.tags.filterNot { it.lowercase(java.util.Locale.ROOT) in removed } + add)) }
     }
-    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true, response: LongResponse? = null, responseMode: ResponseMode = ResponseMode.FULL) {
+    fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true, response: LongResponse? = null, responseMode: ResponseMode = ResponseMode.FULL, folderId: String? = _state.value.folderId) {
         if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
         val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
-        val note = Notebook(title = title.trim(), folderId = _state.value.folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover,
+        val note = Notebook(title = title.trim(), folderId = folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover,
             defaultPaper = if (response != null) Paper.RULED else null,
             longResponse = response?.copy(attempts = listOf(ResponseAttempt(title = "First attempt", mode = responseMode, pageIds = pages.map { it.id }))))
         captureTab()

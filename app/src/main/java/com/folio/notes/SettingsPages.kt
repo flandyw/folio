@@ -261,7 +261,7 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
 
 // ---- Library & covers ---------------------------------------------------------------------------
 
-@Composable internal fun LibraryPage() {
+@Composable internal fun LibraryPage(folders: List<Folder>) {
     val p = rememberPrefs()
     val sort by rememberPref(p, AppPrefs.LIB_SORT) { AppPrefs.librarySort(it.getString(AppPrefs.LIB_SORT, null)) }
     val kind by rememberPref(p, AppPrefs.LIB_KIND) { AppPrefs.libraryKind(it.getString(AppPrefs.LIB_KIND, null)) }
@@ -287,6 +287,16 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
         SettingsSwitchRow("First page as cover", "New notebooks show their first page on the shelf. Off uses the decorative cover.", pageCover,
             { p.write { putBoolean(AppPrefs.DEFAULT_PAGE_COVER, it) } },
             onReset = if (pageCover != AppPrefs.DEFAULT_PAGE_COVER_ENABLED) ({ p.write { putBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) } }) else null)
+    }
+    val quickRaw by rememberPref(p, AppPrefs.QUICK_FOLDER) { it.getString(AppPrefs.QUICK_FOLDER, null) }
+    val quickFolder = AppPrefs.quickFolderId(quickRaw, folders)
+    SettingsGroup("Quick notes and canvases", footer = "Where the Quick note and Canvas buttons save new notebooks.") {
+        SettingsRadioGroup {
+            SettingsRadioRow("Library", "Top level of the shelf", quickFolder == null) { p.write { remove(AppPrefs.QUICK_FOLDER) } }
+            folders.map { it to LibraryFolders.label(folders, it.id) }.sortedBy { it.second }.forEach { (folder, label) ->
+                SettingsRadioRow(label, null, quickFolder == folder.id) { p.write { putString(AppPrefs.QUICK_FOLDER, folder.id) } }
+            }
+        }
     }
     CustomCoverGroup()
 }

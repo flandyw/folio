@@ -208,6 +208,10 @@ class WritingFollow {
                   guides: List<WritingGuide> = emptyList()): WritingProgress {
         if (now < state.suspendedUntil) return WritingProgress.NONE
         val box = FollowNavigation.bounds(points) ?: return WritingProgress.NONE
+        // Even a finishing dot can release an abandoned candidate. Otherwise it blocks
+        // finishingMark/returnFor indefinitely until another advancing letter is written.
+        if (state.candidateAt?.let { now - it !in 0..15000 } == true)
+            state = state.copy(candidateLane = null, candidateAt = null)
         val noise = minOf(2f, preferences.spacing * .06f)
         if (box.height < noise && box.width < noise) return WritingProgress.NONE
         val baseline = state.baselineY
@@ -232,15 +236,27 @@ class WritingFollow {
             val sameBody = last != null &&
                 abs(last.bottom - box.bottom) <= maxOf(height, spacing * .55f) &&
                 maxOf(last.top, box.top) <= minOf(last.bottom, box.bottom) + 3f
+            // Two pen lifts are not two independent pieces of evidence: retracing a
+            // letter or adding a dot must not turn an uncertain mark into a line break.
+            val slack = (height * .1f).coerceIn(.5f, 2f)
+            val forward = last != null && if (preferences.direction == WritingDirection.LTR)
+                box.right > last.right + slack else box.left < last.left - slack
+            val gap = last?.let { if (preferences.direction == WritingDirection.LTR)
+                box.left - it.right else it.left - box.right } ?: Float.MAX_VALUE
+            val confirms = fresh && sameBody && forward && gap <= maxOf(spacing * 2f, height * 4f) &&
+                box.height >= maxOf(2f, height * .3f)
             // Clear body separation at a printed rule needs no extra confirmation stroke.
             val definite = (guideChanged && box.top > baseline!! + height * .2f) ||
                 (returned(box, preferences.direction) && box.top > baseline!! + height * .2f &&
                     box.width >= maxOf(32f, height * 2f))
-            if (!definite && !(fresh && sameBody)) {
-                state = state.copy(candidateLane = box, candidateAt = now)
+            if (!definite && !confirms) {
+                // Keep the original evidence while a letter is dotted or retraced;
+                // those marks must neither replace its body nor renew its lifetime.
+                if (!(fresh && sameBody && !forward))
+                    state = state.copy(candidateLane = box, candidateAt = now)
                 return WritingProgress.NONE
             }
-            val recent = if (fresh && sameBody) listOf(last!!, box) else listOf(box)
+            val recent = if (confirms) listOf(last!!, box) else listOf(box)
             accept(box, recent, true, preferences.direction, guide?.y)
             return WritingProgress.NEW_LINE
         }

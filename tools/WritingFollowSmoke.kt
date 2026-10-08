@@ -160,6 +160,41 @@ fun main() {
         check(follow.completed(letter(40f, 86f, 128f), 1000, prefs, guides) == WritingProgress.NONE)
         check(follow.completed(letter(65f, 116f, 128f), 1200, prefs, guides) == WritingProgress.NEW_LINE)
     }
+    scenario("Retracing an ambiguous new-line letter needs nearby forward writing in either direction") {
+        for (direction in WritingDirection.entries) {
+            val follow = seeded(direction)
+            val custom = prefs.copy(direction = direction)
+            val x = if (direction == WritingDirection.LTR) 40f else 160f
+            val first = letter(x, 116f, 128f)
+            check(follow.completed(first, 800, custom) == WritingProgress.NONE)
+            val candidate = follow.state.candidateLane
+            check(follow.completed(first, 1000, custom) == WritingProgress.NONE)
+            check(follow.state.baselineY == 100f && follow.state.candidateAt == 800L)
+            check(follow.state.candidateLane == candidate)
+            val nextX = x + if (direction == WritingDirection.LTR) 24f else -24f
+            check(follow.completed(letter(nextX, 116f, 128f), 1200, custom) == WritingProgress.NEW_LINE)
+            check(follow.state.baselineY == 128f)
+        }
+    }
+    scenario("Distant annotations do not corroborate an ambiguous new line") {
+        for (direction in WritingDirection.entries) {
+            val follow = seeded(direction)
+            val custom = prefs.copy(direction = direction)
+            val x = if (direction == WritingDirection.LTR) 40f else 160f
+            check(follow.completed(letter(x, 116f, 128f), 800, custom) == WritingProgress.NONE)
+            val distant = x + if (direction == WritingDirection.LTR) 200f else -200f
+            check(follow.completed(letter(distant, 116f, 128f), 1000, custom) == WritingProgress.NONE)
+            check(follow.state.baselineY == 100f && !follow.state.needsPlacement)
+        }
+    }
+    scenario("A finishing dot clears expired line evidence without moving the baseline") {
+        val follow = seeded()
+        check(follow.completed(letter(40f, 116f, 128f), 800, prefs) == WritingProgress.NONE)
+        val dot = listOf(InkPoint(133f, 82f), InkPoint(134f, 83f))
+        check(follow.completed(dot, 16000, prefs) == WritingProgress.NONE)
+        check(follow.state.candidateLane == null && follow.state.candidateAt == null)
+        check(follow.state.baselineY == 100f && follow.finishingMark(FollowNavigation.bounds(dot)!!, prefs))
+    }
     scenario("Configured pauses stay fixed through fast writing, long gaps and finishing marks") {
         for (delay in listOf(300, 650, 2000)) {
             val custom = prefs.copy(returnDelayMs = delay)

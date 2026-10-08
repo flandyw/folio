@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
  * a tablet keeps the category list beside the page. Search looks at individual settings, not just
  * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList()) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
@@ -88,7 +88,7 @@ import kotlinx.coroutines.withContext
                 SettingsPane(
                     title = when { searching -> "Search"; else -> (category ?: SettingsCategory.APPEARANCE).title },
                     onNavigate = onBack, navLabel = "Close settings", modifier = Modifier.weight(1f),
-                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open, { query = "" }) }
+                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, folders, open, { query = "" }) }
             }
         } else {
             SettingsPane(
@@ -101,7 +101,7 @@ import kotlinx.coroutines.withContext
                     SettingsSearchField(query, { query = it })
                 }
                 if (!searching && category == null) SettingsHome(app, backup, open)
-                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, open) { query = "" }
+                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, folders, open) { query = "" }
             }
         }
     }
@@ -142,7 +142,7 @@ import kotlinx.coroutines.withContext
 
 @Composable private fun SettingsContent(
     searching: Boolean, query: String, category: SettingsCategory,
-    app: AppSettings, backup: BackupSettings, account: AccountSettings, open: (SettingsCategory) -> Unit, onClear: () -> Unit,
+    app: AppSettings, backup: BackupSettings, account: AccountSettings, folders: List<Folder>, open: (SettingsCategory) -> Unit, onClear: () -> Unit,
 ) {
     if (searching) { SearchResults(query, open, onClear); return }
     when (category) {
@@ -151,7 +151,7 @@ import kotlinx.coroutines.withContext
         SettingsCategory.STYLUS -> StylusPage(app)
         SettingsCategory.ERASING -> ErasingPage()
         SettingsCategory.FOLLOW -> FollowPage()
-        SettingsCategory.LIBRARY -> LibraryPage()
+        SettingsCategory.LIBRARY -> LibraryPage(folders)
         SettingsCategory.BACKUP -> BackupPage(backup)
         SettingsCategory.WORKFLOW -> WorkflowPage()
         SettingsCategory.MISTAKES -> MistakesPage()
@@ -313,6 +313,7 @@ private object SettingsIndex {
         e(SettingsCategory.LIBRARY, "Default cover colour", "new notebook"),
         e(SettingsCategory.LIBRARY, "First page as cover", "thumbnail shelf"),
         e(SettingsCategory.LIBRARY, "Your cover colours", "custom add remove"),
+        e(SettingsCategory.LIBRARY, "Quick note folder", "quick canvas infinite save folder default"),
         e(SettingsCategory.BACKUP, "Automatic backup", "folder restore point cloud drive daily"),
         e(SettingsCategory.BACKUP, "Restore from backup folder", "recover"),
         e(SettingsCategory.BACKUP, "Backup exclusions", "leave out textbook pdf skip"),

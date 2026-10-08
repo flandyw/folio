@@ -4,6 +4,10 @@ Writing follow uses transient handwriting geometry; it does not change saved ink
 Printed rules anchor a page's baseline and spacing. Blank pages and infinite canvases infer the body
 from recent strokes, keep descenders out of the baseline estimate, and confirm ambiguous line changes.
 A clear cursive word on a new line can provide enough evidence in a single stroke.
+Ambiguous line changes need nearby forward writing in the selected writing direction: retracing
+the same letter or adding a distant annotation does not confirm a return. Retracing preserves the
+original candidate without extending its lifetime. After 15 seconds, the next valid stroke clears
+unconfirmed evidence, including when that stroke is only a finishing dot.
 
 New-line placement stays pending across pen-down interruptions. Glides stop as soon as the pen
 touches down and replan from the actual view after the next accepted stroke. Returns aim at an
@@ -61,10 +65,10 @@ hides the drawing, never the area itself, and an area being dragged out is alway
 
 ## Checks
 
-Run the usual Android build/lint checks, then the pure regression smoke check using the same JDK:
+Run the canonical signed experimental build/publish check, then the pure regression smoke check:
 
 ```sh
-./gradlew :app:assembleDebug :app:lintDebug
+./build.sh -p
 node tools/writing-follow-smoke.cjs
 node tools/katex-smoke.cjs
 ```
@@ -90,6 +94,9 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
 3. Start a natural next line with a tall capital, then a short letter or a descender. Continue
    writing during the placement pause and touch down midway through a glide. The next pen-up
    should replan placement without losing the line or moving an extra line down.
+   On blank paper, retrace the first letter before continuing: retracing should hold the view,
+   and a nearby following letter should confirm the line. Repeat in RTL. Also try a distant
+   annotation at the same height; it should not corroborate the first mark as a new line.
 4. Use Next line, stop its glide halfway, then either continue the old line or write the new one.
    Check that the resumed movement targets the actual position. At a scroll limit, sideways
    movement must not falsely report a successful vertical return. Check Back after each case.

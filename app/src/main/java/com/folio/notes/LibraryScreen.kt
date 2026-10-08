@@ -369,9 +369,6 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     OutlinedButton(onQuickCanvas, enabled = !state.loading, shapes = ButtonDefaults.shapes()) {
                                         Icon(Icons.Rounded.AllInclusive, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Canvas")
                                     }
-                                    OutlinedButton({ startNewFolder(null) }, enabled = !state.loading, shapes = ButtonDefaults.shapes()) {
-                                        Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Folder")
-                                    }
                                 }
                                 state.notes.maxByOrNull { it.updated }?.let { recent ->
                                     Surface(onClick = { onOpenNotebook(recent.id) }, shape = FolioShapes.large,
@@ -407,6 +404,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                             PopoverRow(if (sort == option) Icons.Rounded.Check else null, option.label) { sort = option; sortMenu = false }
                                         }
                                     }
+                                }
+                                if (!pickingNotebook && !selecting && !scoped) IconButton({ startNewFolder(null) }, enabled = !state.loading, shapes = IconButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.CreateNewFolder, "New folder")
                                 }
                                 IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) {
                                     Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList,
