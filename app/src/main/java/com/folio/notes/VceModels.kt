@@ -470,6 +470,10 @@ data class ExamTimerState(
     private fun elapsedMillis(now: Long): Long =
         ((pausedAt ?: now) - (startedAt ?: now) - pausedMillis).coerceAtLeast(0L)
 
+    /** Reading and writing time for the Focal session, excluding pauses and time after pens down. */
+    fun elapsedActiveMillis(now: Long = System.currentTimeMillis()): Long =
+        elapsedMillis(now).coerceAtMost((preset.readingSeconds.toLong() + preset.writingSeconds) * 1_000L)
+
     /**
      * Seconds spent writing so far, recorded onto the attempt when the exam is stopped. Measured
      * from the sitting's own start, so a sitting that survives a restart is still timed correctly,
@@ -557,12 +561,15 @@ data class ExamTimerState(
         else -> TimerAutoAction.NONE
     }
     /**
-     * True once the pen has left the page idle for [idleMinutes] while the clock ran through it:
-     * the smart timer's inactivity stop. Zero minutes keeps the clock running until something else
-     * parks it, and [lastActivityAt] must name a real moment before it counts.
+     * True once the pen has left the page idle for [idleMinutes] during writing. Reading never
+     * expires for pen inactivity, and its time cannot consume the writing phase's idle allowance.
+     * Zero minutes disables the idle stop, and [lastActivityAt] must name a real moment.
      */
-    fun idleExpired(lastActivityAt: Long, now: Long, idleMinutes: Int): Boolean =
-        idleMinutes > 0 && running && lastActivityAt > 0L && now - lastActivityAt >= idleMinutes * 60_000L
+    fun idleExpired(lastActivityAt: Long, now: Long, idleMinutes: Int): Boolean {
+        if (idleMinutes <= 0 || !running || phase != ExamTimerPhase.WRITING || lastActivityAt <= 0L) return false
+        val writingStartedAt = (startedAt ?: lastActivityAt) + pausedMillis + preset.readingSeconds * 1_000L
+        return now - maxOf(lastActivityAt, writingStartedAt) >= idleMinutes * 60_000L
+    }
     /** "1:28:03" style, used by the countdown chip and the timer panel. */
     fun clockText(): String {
         val total = remaining.coerceAtLeast(0)

@@ -341,7 +341,17 @@ class InkView(context: Context) : View(context) {
         onWritingRegion(writingRegion)
         reportFollowStatus("${regions.size} answer ${if (regions.size == 1) "area" else "areas"} detected"); invalidate()
     }
+    var canvasWritingSession: CanvasWritingSession? = null
+        set(value) {
+            if (field != value) { suspendWritingFollow(); field = value; invalidate() }
+        }
+    private val canFollow get() = followEnabled && (!page.infinite || canvasWritingSession != null)
+    private val responseStart get() = if (page.infinite) canvasWritingSession?.startX else null
+    private fun automaticFollowReturn(region: WritingLane): WritingAdvance? = writingFollow.returnFor(
+        region, writingGuides, followPreferences, responseStart)
+
     private fun followRegion(points: List<InkPoint>? = null): WritingLane {
+        if (page.infinite) canvasWritingSession?.let { return it.column }
         writingRegion?.let { return it }
         val point = followLastPoint
         val box = points?.let(FollowNavigation::bounds)
@@ -371,17 +381,17 @@ class InkView(context: Context) : View(context) {
                 followPreferences.direction, startX, followPreferences.endMargin)
             val start = startX ?: 0f
             val left = if (followPreferences.direction == WritingDirection.LTR) start else start - page.width
-            return WritingLane(left, minOf(0f, point?.y ?: 0f), left + page.width, Float.MAX_VALUE)
+            return WritingLane(left, -Float.MAX_VALUE, left + page.width, Float.MAX_VALUE)
         }
         return WritingLane(36f, 0f, page.width - 36f, page.height - 24f)
     }
     private fun nextFollowLine(baseline: Float, region: WritingLane): WritingAdvance? = FollowNavigation.next(
         baseline, region, writingGuides, writingFollow.lineSpacing(followPreferences.spacing,
             followPreferences.adaptiveSpacing && followPreferences.mode == FollowMode.TEXT),
-        writingFollow.state.lineStartX, followPreferences.direction)
+        responseStart ?: writingFollow.state.lineStartX, followPreferences.direction)
 
     fun nextWritingLine() {
-        if (isWritingGesture || inputBlocked || readOnly || lineAdvance != null) return
+        if (!canFollow || isWritingGesture || inputBlocked || readOnly || lineAdvance != null) return
         val region = followRegion()
         val baseline = writingFollow.state.baselineY ?: followLastPoint?.y
             ?: ((if (page.infinite) currentPeekAnchor()?.top ?: 0f else region.top) + followPreferences.spacing)
@@ -432,6 +442,7 @@ class InkView(context: Context) : View(context) {
         cancelFollowMotion()
         if (clearBack) followBack.clear()
         writingFollow.suspend(SystemClock.uptimeMillis())
+        if (page.infinite) followLastPoint = null
         reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Follow paused · write to resume")
     }
     var inputBlocked = false
@@ -462,7 +473,7 @@ class InkView(context: Context) : View(context) {
         override fun run() {
             // Frame-aligned time, so jitter in when this callback runs does not show up as judder.
             val now = AnimationUtils.currentAnimationTimeMillis()
-            if (!followEnabled || inputBlocked || readOnly || !getLocalVisibleRect(followVisible)) {
+            if (!canFollow || inputBlocked || readOnly || !getLocalVisibleRect(followVisible)) {
                 cancelFollowMotion()
                 return
             }
@@ -516,7 +527,7 @@ class InkView(context: Context) : View(context) {
         // A whole cursive line may already have reached its end while its placement was
         // interrupted. Once placed, it can return after a fresh pause without another mark.
         if (placing && moved && !followManuallyPaused && followPreferences.automaticReturn) {
-            writingFollow.returnFor(followRegion(), writingGuides, followPreferences)?.let(::queueFollowReturn)
+            automaticFollowReturn(followRegion())?.let(::queueFollowReturn)
         }
     }
     private fun queueFollowReturn(advance: WritingAdvance) {
@@ -609,6 +620,16 @@ class InkView(context: Context) : View(context) {
         peekRegion?.let(::fitPeekAnchor)
         reportCanvasViewport()
     }
+    fun canvasView(): WorkspaceViewport = WorkspaceViewport(
+        canvasX = camera.x, canvasY = camera.y, canvasZoom = camera.zoom)
+
+    fun returnToCanvasView(viewport: WorkspaceViewport) {
+        if (!page.infinite || isWritingGesture) return
+        suspendWritingFollow()
+        camera.restore(viewport.canvasX, viewport.canvasY, viewport.canvasZoom)
+        reportCanvasViewport(); invalidate()
+    }
+
     fun fitCanvas(bounds: androidx.compose.ui.geometry.Rect) {
         if (!page.infinite) return
         suspendWritingFollow()
@@ -1044,6 +1065,17 @@ class InkView(context: Context) : View(context) {
         }
         outlined?.let { if (cropImageId == null) drawImageSelection(canvas, it) }
         cropImageId?.let { id -> placed.images.find { it.id == id } }?.let { drawCropOverlay(canvas, it) }
+        if (page.infinite && followEnabled) canvasWritingSession?.column?.let { column ->
+            val unit = selectionUiUnit()
+            writingRegionPaint.color = answerAreaColor
+            writingRegionPaint.alpha = 0x80
+            writingRegionPaint.strokeWidth = unit
+            writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
+            val top = -originY / scale
+            val bottom = (height - originY) / scale
+            canvas.drawLine(column.left, top, column.left, bottom, writingRegionPaint)
+            canvas.drawLine(column.right, top, column.right, bottom, writingRegionPaint)
+        }
         val areas = (if (showAnswerAreas) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
         if (areas.isNotEmpty()) {
             // A constant on-screen dash and width, whatever the zoom: sized in dp and divided by the canvas scale.
@@ -1583,7 +1615,7 @@ class InkView(context: Context) : View(context) {
         // Shape tidy can straighten an "l" or a crossbar. Short pen lines still carry
         // writing progress; larger underlines are rejected by the follow geometry rules.
         val followableTidy = tidied == null || tidied.singleOrNull()?.tool == Tool.LINE
-        if (followEnabled && drawn?.tool == Tool.PEN && scribbleErased == null && followableTidy) {
+        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null && followableTidy) {
             followCompletedStroke(drawn)
         }
         val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
@@ -1635,11 +1667,11 @@ class InkView(context: Context) : View(context) {
             }
         }
         followLastPoint = point
-        val region = followRegion(drawn.points)
-        if (writingRegion == null && previousArea != null && previousArea != region) suspendWritingFollow()
-        if ((!page.infinite || writingRegion != null) && !FollowNavigation.contains(box, region, followPreferences.spacing)) {
+        val strokeRegion = followRegion(drawn.points)
+        if (writingRegion == null && previousArea != null && previousArea != strokeRegion) suspendWritingFollow()
+        if ((!page.infinite || writingRegion != null || canvasWritingSession != null) && !FollowNavigation.contains(box, strokeRegion, followPreferences.spacing)) {
             resumeFollowAfterMark = false
-            reportFollowStatus("Outside answer area · select an area to follow here")
+            reportFollowStatus(if (page.infinite) "Outside response column · view held" else "Outside answer area · select an area to follow here")
             return
         }
         followPaused = false
@@ -1653,6 +1685,9 @@ class InkView(context: Context) : View(context) {
             return
         }
         val baseline = writingFollow.state.baselineY ?: return
+        // A natural canvas line break can establish a different start column. Use it
+        // immediately rather than deciding whether to return against the previous lane.
+        val region = if (page.infinite && writingRegion == null) followRegion(drawn.points) else strokeRegion
         val next = nextFollowLine(baseline, region)
         if (page.infinite) {
             if (!FollowLegibility.isReadable(writingFollow.laneHeight(), camera.zoom)) {
@@ -1667,7 +1702,7 @@ class InkView(context: Context) : View(context) {
             writingFollow.state.frontierRight ?: point.x else writingFollow.state.frontierLeft ?: point.x
         // Finishing a word can end with a dot/crossbar behind its furthest letter. The
         // accepted line frontier, rather than that last pen sample, determines the return.
-        val returnAdvance = writingFollow.returnFor(region, writingGuides, followPreferences)
+        val returnAdvance = automaticFollowReturn(region)
         val atEnd = returnAdvance != null
         val returnDelay = followPreferences.automaticReturnDelayMs
         reportFollowStatus(when {
@@ -1700,7 +1735,7 @@ class InkView(context: Context) : View(context) {
             if (placing) {
                 writingFollow.placed()
                 if (followPreferences.automaticReturn)
-                    writingFollow.returnFor(region, writingGuides, followPreferences)?.let(::queueFollowReturn)
+                    automaticFollowReturn(region)?.let(::queueFollowReturn)
             }
             return
         }

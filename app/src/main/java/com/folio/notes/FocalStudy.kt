@@ -236,8 +236,7 @@ internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>)
 /**
  * Count only the part of a session that overlaps the requested day. This matters for a session
  * that begins before midnight: the old UI added its whole duration whenever it ended today.
- * Completed exam rows already contain writing intervals only; regular study rows use their active
- * intervals as well.
+ * Active intervals exclude pauses in both reading and writing phases.
  */
 private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
 
@@ -267,7 +266,6 @@ internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
 }
 
 internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until: Long): Long {
-    if (entry.kind == "exam" && entry.examPhase == "reading") return 0L
     if (until <= from) return 0L
     val sessionEnd = entry.endedAt.coerceAtMost(until)
     if (sessionEnd <= from) return 0L
@@ -286,7 +284,7 @@ internal fun focalActiveMillisBetween(entry: FocalStudyEntry, from: Long, until:
     }.coerceAtMost(activeLimit)
 }
 
-/** Keep exam lifecycle boundaries apart from writing-only analytics intervals. Every boundary is
+/** Keep exam lifecycle boundaries apart from active-time analytics intervals. Every boundary is
  *  written with the entry before any RPC, including automatic phase changes and auto-parks. */
 internal fun focalExamBoundariesFor(
     previous: FocalStudyEntry?, timer: ExamTimerState, now: Long, terminal: String? = null,
@@ -334,26 +332,27 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                             subjects: List<FocalSubject> = FocalSubjects.builtIn): FocalStudyEntry {
     val started = requireNotNull(timer.startedAt)
     val subject = existing?.subjectId ?: FocalSubjects.suggest(note, subjects)
-    val writing = timer.elapsedWriting(now).coerceAtLeast(0) * 1_000L
-    val previousWriting = existing?.activeMillis ?: 0L
-    val newWriting = (writing - previousWriting).coerceAtLeast(0L)
-    val writingEnd = timer.pausedAt ?: now
+    val activeMillis = timer.elapsedActiveMillis(now)
+    val activeEnd = started + timer.pausedMillis + activeMillis
     val intervals = (existing?.intervals ?: emptyList()).toMutableList()
-    if (intervals.isEmpty() && writing > 0L) {
-        val writingStart = (writingEnd - writing).coerceAtLeast(started)
-        intervals.add(FocalStudyInterval(writingStart, if (timer.paused || completed) writingEnd else null))
+    if (intervals.isEmpty()) {
+        intervals.add(FocalStudyInterval((activeEnd - activeMillis).coerceAtLeast(started),
+            if (timer.paused || completed) activeEnd else null))
     } else if (intervals.isNotEmpty() && (timer.paused || completed) && intervals.last().endAt == null) {
-        intervals[intervals.lastIndex] = intervals.last().copy(endAt = writingEnd)
-    } else if (!timer.paused && timer.phase == ExamTimerPhase.WRITING && newWriting > 0L && intervals.lastOrNull()?.endAt != null) {
-        intervals.add(FocalStudyInterval((writingEnd - newWriting).coerceAtLeast(started), null))
+        intervals[intervals.lastIndex] = intervals.last().copy(endAt = activeEnd)
+    } else if (intervals.last().endAt != null && (timer.running || completed)) {
+        val recordedMillis = intervals.sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
+        val newMillis = (activeMillis - recordedMillis).coerceAtLeast(0L)
+        intervals.add(FocalStudyInterval((activeEnd - newMillis).coerceAtLeast(started),
+            if (completed) activeEnd else null))
     }
     return (existing ?: FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subject, subjects),
         subjectId = subject, kind = "exam", startedAt = started,
-        endedAt = now, activeMillis = writing, notebookTitle = note.title)).copy(
+        endedAt = now, activeMillis = activeMillis, notebookTitle = note.title)).copy(
         changeId = UUID.randomUUID().toString(),
         title = focalSessionTitle(subject, subjects), subjectId = subject, kind = "exam",
-        endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = writing, notebookTitle = note.title,
-        completed = completed, deleted = completed && writing == 0L,
+        endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = activeMillis, notebookTitle = note.title,
+        completed = completed, deleted = completed && activeMillis == 0L,
         paused = timer.paused, examPhase = timer.phase.name.lowercase(),
         examPhaseBeforePause = if (timer.paused) timer.phase.name.lowercase() else null,
         intervals = intervals,
@@ -444,8 +443,7 @@ internal fun focalControlledEntry(current: FocalStudyEntry, action: String, now:
     val last = intervals.lastOrNull()
     when (action) {
         "pause" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
-        "resume" -> if ((current.kind != "exam" || current.examPhaseBeforePause != "reading") &&
-            (last == null || last.endAt != null)) intervals.add(FocalStudyInterval(now, null))
+        "resume" -> if (last == null || last.endAt != null) intervals.add(FocalStudyInterval(now, null))
         "finish", "discard" -> if (last != null && last.endAt == null) intervals[intervals.lastIndex] = last.copy(endAt = now)
         else -> return null
     }
@@ -625,7 +623,8 @@ internal fun focalCommandsFor(
     val intervals = entry.intervals
     if (entry.kind == "study" && intervals.isNotEmpty() &&
         (canonical == null || segments != null) && currentState !in setOf("completed", "cancelled")) {
-        val count = segments?.length() ?: 0
+        // A scheduled session's segments are its planned slot, not timer boundaries.
+        val count = if (currentState == "planned") 0 else segments?.length() ?: 0
         // Another client may have added segments that Folio has never observed locally.
         // A final-state diff cannot reconcile two incompatible timelines safely.
         if (count > intervals.size || (currentState in setOf("running", "paused") && count == 0))
@@ -683,7 +682,9 @@ internal fun focalCommandsFor(
                 append("cancel")
             }
         }
-    } else if (currentState !in setOf("completed", "cancelled") || desired == currentState) {
+    } else if (currentState !in setOf("completed", "cancelled") || desired == currentState ||
+        (currentState == "completed" && desired == "cancelled")) {
+        // A completed session is no longer terminal: it can be deleted. Only a deleted one is final.
         when {
             desired == "cancelled" && currentState != "cancelled" -> append("cancel")
             desired == "completed" && currentState != "completed" -> append("complete")
@@ -1039,13 +1040,13 @@ class FocalStudyManager(context: Context) {
         }
         val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
         val remoteBoundary = canonical?.optString("timing_at")?.takeIf { it.isNotBlank() }
-            ?: when (canonical?.optString("state")) {
+            ?: when (canonical?.let(::focalStateOf)) {
                 "running" -> canonical.optString("segment_started_at").takeIf { it.isNotBlank() }
                 "paused" -> canonical.optString("paused_at").takeIf { it.isNotBlank() }
                 else -> null
             }
         val recoveredRunningFocus = _state.value.focus?.let { it.sessionId == entry.id && it.resumedAt == null } == true &&
-            entry.paused && canonical?.optString("state") == "running"
+            entry.paused && canonical?.let(::focalStateOf) == "running"
         val serverElapsed = if (recoveredRunningFocus) null
             else focalElapsedFromServerBoundary(remoteBoundary, serverNow)
         val monotonicContinuous = previousMono != null && previousBoot >= 0 && previousBoot == timingBootCount &&
@@ -1160,7 +1161,7 @@ class FocalStudyManager(context: Context) {
     fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now(), phaseAt: Long? = null) {
         val started = timer.startedAt ?: return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
-        if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedWriting(now) <= 0)) return
+        if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedActiveMillis(now) <= 0L)) return
         val entry = examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects)
         updateExam(focalAppendExamBoundaries(entry, focalExamBoundariesFor(existing, timer, now,
             terminal = if (entry.deleted) "cancel" else "complete", phaseAt = phaseAt),
@@ -1450,11 +1451,11 @@ class FocalStudyManager(context: Context) {
             val reason = result.optString("reason").takeIf { it.isNotBlank() }
             canonical = result.optJSONObject("session") ?: canonical
             if (reason == "stale_revision" && canonical != null) {
-                val state = canonical.optString("state")
+                val state = focalStateOf(canonical)
                 val phase = canonical.optString("phase").takeIf { it.isNotBlank() }
                 val action = command.optString("action")
                 val satisfied = focalMutationSatisfied(action, state, phase, command.optString("phase").takeIf { it.isNotBlank() })
-                val terminal = state in setOf("completed", "cancelled")
+                val terminal = state == "cancelled"
                 if (satisfied) {
                     if (rest.isEmpty()) return FocalPublishAck(true, canonical, mutationIds)
                     command = JSONObject(rest.first().toString()).put("expected_revision", canonical.optLong("revision"))
@@ -1475,7 +1476,7 @@ class FocalStudyManager(context: Context) {
                 return FocalPublishAck(false, canonical, mutationIds)
             }
             val satisfied = canonical?.let { row -> focalMutationSatisfied(command.optString("action"),
-                row.optString("state"), row.optString("phase"), command.optString("phase")) } == true
+                focalStateOf(row), row.optString("phase"), command.optString("phase")) } == true
             if (!result.optBoolean("applied") && !satisfied) {
                 error("study_session_mutate failed: ${reason ?: "server_unavailable"}")
             }
@@ -1652,9 +1653,26 @@ internal fun focalStudyCommand(
         .put("elapsed_since_previous_ms", timing?.elapsedMs ?: 0L)
 }
 
+private fun JSONObject.focalStamp(key: String): String? = optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+/**
+ * The lifecycle word for a canonical session row. Rows no longer store a state: they carry a
+ * `completed` flag, and running, paused and scheduled ("planned") are derived from the open
+ * interval, the pause stamp and the absence of a start. `cancelled_at` marks a deleted session.
+ * A row cached by an older build still carries its own `state`, which wins.
+ */
+internal fun focalStateOf(value: JSONObject): String? = value.focalStamp("state") ?: when {
+    !value.has("completed") -> null
+    value.focalStamp("cancelled_at") != null -> "cancelled"
+    value.optBoolean("completed") -> "completed"
+    value.focalStamp("segment_started_at") != null -> "running"
+    value.focalStamp("paused_at") != null -> "paused"
+    else -> "planned"
+}
+
 internal fun focalCanonicalState(payload: String?): String? = payload?.let { raw -> runCatching {
     val value = JSONObject(raw)
-    value.optString("state").takeIf { it.isNotBlank() }
+    focalStateOf(value)
         ?: when (value.optJSONObject("execution")?.optString("state") ?: value.optString("status")) {
             "in-progress", "running" -> if (value.optJSONObject("integrations")?.optJSONObject("folio")?.optString("phase") == "paused") "paused" else "running"
             "completed" -> "completed"
@@ -1677,7 +1695,8 @@ internal fun focalMutationCanRebase(action: String, state: String?): Boolean = w
     "pause" -> state == "running"
     "resume" -> state == "paused"
     "phase_change", "save_progress" -> state in setOf("running", "paused")
-    "complete", "cancel" -> state in setOf("planned", "running", "paused")
+    "complete" -> state in setOf("planned", "running", "paused")
+    "cancel" -> state in setOf("planned", "running", "paused", "completed")
     else -> false
 }
 
@@ -1721,7 +1740,7 @@ internal fun focalExternalChanges(
 }
 
 internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: String, user: String): FocalStudyEntry? = runCatching {
-    val state = payload.optString("state")
+    val state = focalStateOf(payload).orEmpty()
     val kind = payload.optString("kind")
     val metadata = payload.optJSONObject("metadata") ?: JSONObject()
     val legacy = metadata.optJSONObject("legacy_metadata")
@@ -1739,6 +1758,8 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
             val runningStart = epoch("segment_started_at")
             if (state == "running" && runningStart != null && parsed.none { it.endAt == null })
                 parsed + FocalStudyInterval(runningStart, null)
+            // A scheduled session's segment is its planned slot, not time that was studied.
+            else if (state == "planned") emptyList()
             else parsed
         }
     val reflection = metadata.optJSONObject("reflection") ?: legacy?.optJSONObject("reflection")

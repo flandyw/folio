@@ -26,10 +26,29 @@ near the final word, or anywhere along the stroke just written (a cursive word i
 after it is finished), can resume an interrupted request after a fresh pen-up pause; corrections
 to earlier words hold the view. Rejected palm contacts do not cancel a pending glide.
 
-On a canvas, the current viewport width defines a line's length. Its start stays fixed in canvas
-coordinates during follow pans, even when that start moves off screen. Deliberate navigation or a
-viewport resize resets it. An answer area is optional. Pages use the configured minimum zoom;
-canvases use the handwriting's actual height on screen.
+## Infinite canvas: free working and responses
+
+Canvases open in free working, including mistake reviews. Global writing-follow enablement and
+Text/Maths mode never authorize canvas movement. Maths, short answers, diagrams and mind maps
+stay still until the student pans or zooms. The Next line stylus shortcut does not silently start
+canvas follow. Finite pages retain their existing controls.
+
+**Write a response** explicitly starts a prose session for this canvas visit. It captures a column
+from the visible viewport with proportional margins and draws its two edges. Column coordinates
+stay fixed through follow pans, manual navigation, zoom, resize and natural line breaks. **Start a
+new column here** deliberately replaces it. Manual Next line returns to the column margin; an
+automatic list wrap can still use a hanging indent. Writing outside the column holds the view.
+
+Automatic return starts off in every new session, regardless of the global page setting. It can
+be enabled in **Response settings** for that session only. **Finish response**, changing pages or
+leaving the editor ends the session. Sessions are transient, with no notebook or ink format changes.
+Navigation still cancels motion and resets handwriting evidence, but does not redefine the column.
+Pages use the configured minimum zoom; canvases use handwriting's actual height on screen.
+
+**See all working** saves the exact canvas camera before fitting the content. **Return to working**
+restores its position and zoom, including after panning around the overview. Follow is disabled
+while inspecting the overview. These actions work in free working as well as during a response;
+the pinned peek remains available for checking the question without moving the working view.
 
 A small cluster at the start of a line (`1.`, a bullet, a dash) followed by a clear gap is treated
 as a list marker. When such a line runs to its end and returns automatically, the wrapped text hangs
@@ -100,9 +119,15 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
 4. Use Next line, stop its glide halfway, then either continue the old line or write the new one.
    Check that the resumed movement targets the actual position. At a scroll limit, sideways
    movement must not falsely report a successful vertical return. Check Back after each case.
-5. On the canvas, write long enough for several sideways pans. Its end should remain reachable
-   and return to the original start. Then pinch/pan, rotate or resize the window, and write again:
-   following should use a fresh lane. Repeat in RTL and with the other pen hand selected.
+5. Open a mistake-review canvas with global page follow and automatic return already enabled.
+   Write a fraction, a short answer, a diagram and a mind map; the camera must stay still. The
+   Next line stylus shortcut must not enable follow. Tap Write a response: two column edges
+   appear, with automatic return off. Write paragraphs, use Next line, and try an RTL response.
+   Zoom, pan, resize and move above/left of the origin: the column edges must retain their canvas
+   coordinates. Outside-column annotations must hold the view. Try Start a new column here,
+   Finish response, switching pages, leaving/reopening and enabling auto return for one session.
+   See all working, pan around, then Return to working: the original position and zoom should
+   return exactly. Repeat during a response and verify there is no follow movement in overview.
 6. Write on the final printed rule with descenders below it. Sideways following should continue;
    automatic return must not spill into the next question or an adjacent answer column.
 7. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should

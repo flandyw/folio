@@ -9,6 +9,7 @@ data class WritingLane(val left: Float, val top: Float, val right: Float, val bo
     val width get() = right - left
     val height get() = bottom - top
     val centerX get() = (left + right) * .5f
+    val unbounded get() = top == -Float.MAX_VALUE && bottom == Float.MAX_VALUE
 }
 data class WritingFollowState(
     val baselineY: Float? = null,
@@ -101,13 +102,14 @@ class WritingFollow {
             span >= maxOf(48f, laneHeight() * 4f)
     }
 
-    fun returnFor(region: WritingLane, guides: List<WritingGuide>, preferences: FollowPreferences): WritingAdvance? {
+    fun returnFor(region: WritingLane, guides: List<WritingGuide>, preferences: FollowPreferences,
+                  columnStart: Float? = null): WritingAdvance? {
         val baseline = state.baselineY ?: return null
         if (preferences.mode != FollowMode.TEXT || state.needsPlacement || state.candidateLane != null || !readyForReturn()) return null
         val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
         if (frontier == null || !FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin)) return null
         return FollowNavigation.next(baseline, region, guides, lineSpacing(preferences.spacing, preferences.adaptiveSpacing),
-            state.textStartX ?: state.lineStartX, preferences.direction)
+            state.textStartX ?: columnStart ?: state.lineStartX, preferences.direction)
     }
 
     /**
@@ -346,6 +348,27 @@ class WritingFollow {
 /** User intent is independent of the hand holding the pen. */
 enum class WritingDirection { LTR, RTL }
 enum class FollowMode { TEXT, MATH }
+/** Explicit, transient permission to move an infinite canvas while composing prose. */
+data class CanvasWritingSession(
+    val column: WritingLane,
+    val direction: WritingDirection,
+    val automaticReturn: Boolean = false,
+) {
+    val startX get() = if (direction == WritingDirection.LTR) column.left else column.right
+    fun preferences(base: FollowPreferences) = base.copy(
+        mode = FollowMode.TEXT, direction = direction, automaticReturn = automaticReturn,
+        autoSwitchAreas = false,
+    )
+
+    companion object {
+        fun start(viewport: WritingLane, preferences: FollowPreferences): CanvasWritingSession? {
+            if (!viewport.left.isFinite() || !viewport.right.isFinite() ||
+                !viewport.width.isFinite() || viewport.width <= 0f) return null
+            return CanvasWritingSession(FollowNavigation.infiniteRegion(viewport, preferences.direction,
+                endMargin = preferences.endMargin), preferences.direction)
+        }
+    }
+}
 data class FollowPreferences(
     val direction: WritingDirection = WritingDirection.LTR,
     val mode: FollowMode = FollowMode.TEXT,
@@ -468,7 +491,7 @@ object FollowNavigation {
 
     /**
      * The writing lane on an unbounded canvas: the visible viewport inset by the end margin,
-     * with the writer's own start column kept as the leading edge while it is still in view.
+     * with the writer's own start column kept as the leading edge, even when off screen.
      *
      * An infinite page carries a nominal page box it is not bound by, so a lane measured from
      * page coordinates puts "end of line" somewhere the writer cannot see. Anchoring the lane
@@ -484,10 +507,12 @@ object FollowNavigation {
                        endMargin: Float = .08f): WritingLane {
         val width = viewport.right - viewport.left
         if (!width.isFinite() || width <= 0f) return viewport
-        val margin = (width * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
+        // Canvas coordinates have no physical size. Fixed page-unit caps change the
+        // visible margin with zoom and can make a narrow viewport's lane wider than itself.
+        val margin = width * endMargin.coerceIn(.02f, .2f)
         // A full viewport lane inset on both sides; the trailing edge below derives from
         // this width so pans never move it.
-        val laneWidth = maxOf(width - 2f * margin, MIN_LANE_UNITS)
+        val laneWidth = width - 2f * margin
         // Following can move the start column off screen. Only deliberate navigation
         // resets it (WritingFollow.suspend); falling back here would chase the line end away.
         val remembered = startX?.takeIf { it.isFinite() }
@@ -495,16 +520,18 @@ object FollowNavigation {
             if (remembered != null) remembered to remembered + laneWidth
             else {
                 val trailing = viewport.right - margin
-                (viewport.left + margin).coerceAtMost(trailing - MIN_LANE_UNITS) to trailing
+                (viewport.left + margin) to trailing
             }
         } else {
             if (remembered != null) remembered - laneWidth to remembered
             else {
                 val leading = viewport.left + margin
-                leading to (viewport.right - margin).coerceAtLeast(leading + MIN_LANE_UNITS)
+                leading to (viewport.right - margin)
             }
         }
-        return WritingLane(left, viewport.top, right, Float.MAX_VALUE)
+        // The viewport top is not a paper boundary. A return from a baseline above
+        // the screen still advances exactly one line, even after an interrupted pan.
+        return WritingLane(left, -Float.MAX_VALUE, right, Float.MAX_VALUE)
     }
 
     fun next(baseline: Float, region: WritingLane, guides: List<WritingGuide>, spacing: Float,
@@ -533,7 +560,8 @@ object FollowNavigation {
 
     fun nearEnd(frontier: Float, region: WritingLane, direction: WritingDirection, endMargin: Float = .08f): Boolean {
         if (!frontier.isFinite()) return false
-        val margin = (region.width * endMargin.coerceIn(.02f, .2f)).coerceIn(8f, 96f)
+        val proportionalMargin = region.width * endMargin.coerceIn(.02f, .2f)
+        val margin = if (region.unbounded) proportionalMargin else proportionalMargin.coerceIn(8f, 96f)
         return if (direction == WritingDirection.LTR) frontier >= region.right - margin
         else frontier <= region.left + margin
     }

@@ -850,7 +850,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                                 },
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                            if (!timer.paused && idleMinutes > 0) Text(
+                            if (active && !timer.paused && idleMinutes > 0) Text(
                                 "Stops on its own after $idleMinutes min without writing",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )

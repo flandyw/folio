@@ -39,6 +39,46 @@ private fun advanceGlide(glide: FollowGlide, from: Long, to: Long,
 fun main() {
     val prefs = FollowPreferences(automaticReturn = true)
     val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 300f, it) }
+    scenario("Canvas prose starts manually regardless of global maths and automatic return settings") {
+        val global = prefs.copy(mode = FollowMode.MATH, automaticReturn = true, autoSwitchAreas = true)
+        val response = CanvasWritingSession.start(WritingLane(-300f, -100f, 300f, 500f), global)!!
+        val local = response.preferences(global)
+        check(local.mode == FollowMode.TEXT && !local.automaticReturn && !local.autoSwitchAreas)
+        check(response.copy(automaticReturn = true).preferences(global).automaticReturn)
+        check(!CanvasWritingSession.start(response.column, global)!!.automaticReturn)
+        check(global.mode == FollowMode.MATH && global.automaticReturn)
+    }
+    scenario("Response columns survive changed viewports and keep their direction's return margin") {
+        for (direction in WritingDirection.entries) {
+            val custom = prefs.copy(direction = direction)
+            val response = CanvasWritingSession.start(WritingLane(-400f, -500f, 200f, 100f), custom)!!
+            val original = response.column
+            for (viewport in listOf(WritingLane(-900f, -900f, 900f, 900f), WritingLane(200f, 400f, 300f, 700f))) {
+                val another = CanvasWritingSession.start(viewport, custom)!!
+                check(another.column != original && response.column == original)
+                val next = FollowNavigation.next(-200f, response.column, emptyList(), 32f, response.startX, direction)!!
+                check(next.to.y == -168f)
+                check((if (direction == WritingDirection.LTR) next.to.left else next.to.right) == response.startX)
+            }
+        }
+    }
+    scenario("A prose return uses the session column instead of a paragraph's indented first stroke") {
+        for (direction in WritingDirection.entries) {
+            val custom = prefs.copy(direction = direction)
+            val response = CanvasWritingSession.start(WritingLane(0f, 0f, 400f, 600f), custom)!!
+            val follow = seeded(direction)
+            follow.state = follow.state.copy(frontierLeft = response.column.left, frontierRight = response.column.right,
+                lineStartX = 150f, textStartX = null)
+            val next = follow.returnFor(response.column, emptyList(), response.preferences(custom), response.startX)!!
+            check((if (direction == WritingDirection.LTR) next.to.left else next.to.right) == response.startX)
+            check(!FollowNavigation.contains(WritingLane(500f, 80f, 520f, 100f), response.column, 32f))
+        }
+    }
+    scenario("Invalid viewports cannot authorize a canvas writing session") {
+        check(CanvasWritingSession.start(WritingLane(0f, 0f, 0f, 300f), prefs) == null)
+        check(CanvasWritingSession.start(WritingLane(Float.NaN, 0f, 300f, 300f), prefs) == null)
+        check(CanvasWritingSession.start(WritingLane(-Float.MAX_VALUE, 0f, Float.MAX_VALUE, 300f), prefs) == null)
+    }
     scenario("Descenders and full-height f keep the old baseline and advance the frontier") {
         val follow = seeded()
         for (i in 0..7) {
@@ -269,6 +309,48 @@ fun main() {
                 val lane = FollowNavigation.infiniteRegion(WritingLane(x, 20f, x + 300f, 520f), direction, start)
                 check(lane.left == original.left && lane.right == original.right)
             }
+        }
+    }
+    scenario("Canvas lanes and return margins retain their screen proportions at every zoom") {
+        for (direction in WritingDirection.entries) for (width in listOf(20f, 80f, 300f, 3000f, 12000f)) {
+            val viewport = WritingLane(-width * 2, -700f, -width, 500f)
+            val region = FollowNavigation.infiniteRegion(viewport, direction)
+            check(abs(region.width / width - .84f) < .0001f)
+            check(region.left > viewport.left && region.right < viewport.right)
+            val sign = if (direction == WritingDirection.LTR) 1f else -1f
+            val end = if (direction == WritingDirection.LTR) region.right else region.left
+            check(!FollowNavigation.nearEnd(end - sign * region.width * .09f, region, direction))
+            check(FollowNavigation.nearEnd(end - sign * region.width * .07f, region, direction))
+        }
+    }
+    scenario("Canvas returns advance from the actual baseline even above the viewport or origin") {
+        for (direction in WritingDirection.entries) for (top in listOf(-500f, 0f, 500f)) {
+            val start = if (direction == WritingDirection.LTR) -240f else -40f
+            val region = FollowNavigation.infiniteRegion(WritingLane(-300f, top, 0f, top + 500f), direction, start)
+            for (baseline in listOf(top - 100f, top + 100f)) {
+                val next = FollowNavigation.next(baseline, region, emptyList(), 32f, start, direction)!!
+                check(next.to.y == baseline + 32f)
+                check((if (direction == WritingDirection.LTR) next.to.left else next.to.right) == start)
+            }
+        }
+        // A selected answer area still has a real top and bottom.
+        val area = WritingLane(0f, 100f, 300f, 200f)
+        check(FollowNavigation.next(80f, area, emptyList(), 32f)!!.to.y == 132f)
+        check(FollowNavigation.next(180f, area, emptyList(), 32f) == null)
+    }
+    scenario("Canvas navigation forgets the old lane and fresh writing establishes a new one") {
+        for (direction in WritingDirection.entries) {
+            val follow = seeded(direction)
+            val custom = prefs.copy(direction = direction)
+            follow.suspend(800)
+            check(follow.state.lineStartX == null && follow.state.frontierLeft == null)
+            check(follow.completed(letter(-600f, -312f, -300f), 2400, custom) == WritingProgress.SAME_LINE)
+            val start = if (direction == WritingDirection.LTR) -600f else -584f
+            check(follow.state.lineStartX == start && follow.state.baselineY == -300f)
+            val lane = FollowNavigation.infiniteRegion(WritingLane(-700f, -400f, -300f, 100f), direction, start)
+            val next = FollowNavigation.next(-300f, lane, emptyList(), 32f, start, direction)!!
+            check(next.to.y == -268f)
+            check((if (direction == WritingDirection.LTR) next.to.left else next.to.right) == start)
         }
     }
     scenario("Answer-area margins allow tails but reject writing in another area") {

@@ -151,7 +151,11 @@ private fun paperLabel(p: Paper): String = when (p) {
         appPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    var writingFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
+    var pageFollowEnabled by remember { mutableStateOf(appPrefs.getBoolean("writingFollow", false)) }
+    // Starting prose is deliberate and local to this canvas visit, never a global preference.
+    var canvasResponse by remember(note.id, page.id) { mutableStateOf<CanvasWritingSession?>(null) }
+    var overviewReturn by remember(note.id, page.id) { mutableStateOf<WorkspaceViewport?>(null) }
+    val writingFollowEnabled = if (page.infinite) canvasResponse != null else pageFollowEnabled
     var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
     var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
     var showAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.showAnswerAreas", true)) }
@@ -211,10 +215,20 @@ private fun paperLabel(p: Paper): String = when (p) {
             }.getOrNull()
         } ?: listOfNotNull(writingRegion)
     ) }
+    val effectiveFollowPreferences = if (page.infinite)
+        canvasResponse?.preferences(followPreferences) ?: followPreferences.copy(mode = FollowMode.TEXT, automaticReturn = false)
+        else followPreferences
     if (followSettingsOpen) FollowSettingsDialog(
-        preferences = followPreferences,
+        preferences = effectiveFollowPreferences,
+        proseOnly = page.infinite,
         writingHand = writingHand,
-        onPreferences = { followPreferences = it },
+        onPreferences = {
+            if (page.infinite) {
+                canvasResponse = canvasResponse?.copy(automaticReturn = it.automaticReturn, direction = it.direction)
+                followPreferences = it.copy(mode = followPreferences.mode, automaticReturn = followPreferences.automaticReturn,
+                    autoSwitchAreas = followPreferences.autoSwitchAreas)
+            } else followPreferences = it
+        },
         onHand = ::setWritingHand,
         onDismiss = { followSettingsOpen = false },
     )
@@ -320,12 +334,24 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     val followView = activeInkView
     fun setWritingFollow(enabled: Boolean) {
-        writingFollowEnabled = enabled
+        if (followView?.isWritingGesture == true) return
+        if (page.infinite) {
+            canvasResponse = if (enabled) {
+                val anchor = followView?.currentPeekAnchor() ?: return
+                CanvasWritingSession.start(WritingLane(anchor.left, anchor.top, anchor.right, anchor.bottom), followPreferences)
+                    ?: return
+            } else null
+            if (enabled) selectTool(Tool.PEN)
+        } else {
+            pageFollowEnabled = enabled
+            appPrefs.edit().putBoolean("writingFollow", enabled).apply()
+        }
         writingFollowPaused = false
-        appPrefs.edit().putBoolean("writingFollow", enabled).apply()
         followView?.let { view ->
+            view.canvasWritingSession = if (page.infinite) canvasResponse else null
+            view.followPreferences = canvasResponse?.preferences(followPreferences) ?: followPreferences
             view.resumeWritingFollow()
-            view.followEnabled = enabled
+            view.followEnabled = enabled && overviewReturn == null
         }
     }
     fun applyStylusShortcut(action: StylusShortcut) {
@@ -336,8 +362,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             StylusShortcutEffect.OpenPalette -> palette = true
             StylusShortcutEffect.Undo -> model.undo()
             StylusShortcutEffect.NextLine -> {
-                if (!writingFollowEnabled) setWritingFollow(true)
-                if (!peekOpen) followView?.nextWritingLine()
+                // A next-line shortcut must not silently put free canvas work into prose mode.
+                if (!writingFollowEnabled && !page.infinite) setWritingFollow(true)
+                if (!peekOpen && overviewReturn == null) followView?.nextWritingLine()
             }
             StylusShortcutEffect.None -> Unit
         }
@@ -358,17 +385,18 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
-    LaunchedEffect(followPreferences, writingHand, tool) { followView?.suspendWritingFollow(clearBack = false) }
+    LaunchedEffect(effectiveFollowPreferences, writingHand, tool) { followView?.suspendWritingFollow(clearBack = false) }
     fun configureFollow(view: InkView) {
-        view.followPreferences = followPreferences
-        view.writingRegions = writingRegions
+        view.canvasWritingSession = if (page.infinite) canvasResponse else null
+        view.followPreferences = effectiveFollowPreferences
+        view.writingRegions = if (page.infinite) emptyList() else writingRegions
         view.onWritingRegions = { regions ->
             writingRegions = regions
             appPrefs.edit().putString("$regionKey.areas", regions.joinToString(";") {
                 "${it.left},${it.top},${it.right},${it.bottom}"
             }).apply()
         }
-        view.writingRegion = writingRegion
+        view.writingRegion = if (page.infinite) null else writingRegion
         view.onWritingRegion = { region ->
             writingRegion = region
             val edit = appPrefs.edit()
@@ -528,10 +556,22 @@ private fun paperLabel(p: Paper): String = when (p) {
         documentZoom = 1f
         documentPan = 0f
     }
-    /** Zooms the infinite canvas out to everything drawn on it, replacing the old minimap. */
+    fun returnToWorking() {
+        val previous = overviewReturn ?: return
+        val view = activeInkView ?: return
+        if (view.isWritingGesture) return
+        view.returnToCanvasView(previous)
+        overviewReturn = null
+    }
+    /** Inspect all working without losing the exact position and zoom being used. */
     fun fitAllContent() {
         if (!page.infinite || !page.loaded) return
-        activeInkView?.fitCanvas(
+        val view = activeInkView ?: return
+        if (view.isWritingGesture) return
+        if (overviewReturn != null) { returnToWorking(); return }
+        overviewReturn = view.canvasView()
+        view.followEnabled = false
+        view.fitCanvas(
             InkGeometry.contentBounds(page.strokes, page.texts, page.images, { InkRenderer.textHeight(it) }, page.width, page.height)
         )
     }
@@ -863,7 +903,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
+                    followEnabled = writingFollowEnabled && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
@@ -1018,7 +1058,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                                 onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                                followEnabled = writingFollowEnabled && item.id == page.id, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
+                                followEnabled = writingFollowEnabled && item.id == page.id && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
                                 autoDetectAnswerAreas = autoDetectAnswerAreas,
                                 inputBlocked = peekOpen, onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
@@ -1122,7 +1162,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             // Secondary actions overflow in narrow companion panes instead of shrinking targets.
             // Peek has a 48dp hold target, wider than the other 40dp controls. Include it
             // and the actual outer inset when deciding whether the full group fits.
-            val followToolbarWidth = 40.dp * 5 + 48.dp + 8.dp
+            val responseTextButton = page.infinite && maxWidth >= 420.dp
+            val showOverviewControl = page.infinite && maxWidth >= 220.dp
+            val followToolbarWidth = 40.dp * 5 + 48.dp + 8.dp + (if (responseTextButton) 120.dp else 0.dp) + (if (page.infinite) 40.dp else 0.dp)
             val followInset = if (maxWidth < 180.dp) FolioSpacing.dp4 else FloatingToolbarDefaults.ScreenOffset
             val overflowFollowActions = maxWidth - followInset * 2 < followToolbarWidth
             fun toggleFollowPause() {
@@ -1138,15 +1180,24 @@ private fun paperLabel(p: Paper): String = when (p) {
                     .zIndex(11f),
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
             ) {
-                WritingFollowControl(
-                    Icons.Rounded.SwipeRight,
-                    if (writingFollowEnabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
-                    enabled = !peekOpen, active = writingFollowEnabled,
+                val responseLabel = if (writingFollowEnabled) "Finish response" else "Write a response"
+                if (responseTextButton) TextButton(
+                    onClick = { setWritingFollow(!writingFollowEnabled) }, enabled = !peekOpen && overviewReturn == null,
+                ) { Text(responseLabel) }
+                else WritingFollowControl(
+                    if (page.infinite) Icons.Rounded.TextFields else Icons.Rounded.SwipeRight,
+                    if (page.infinite) responseLabel else if (writingFollowEnabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
+                    enabled = !peekOpen && overviewReturn == null, active = writingFollowEnabled,
                     onClick = { setWritingFollow(!writingFollowEnabled) }
+                )
+                if (showOverviewControl) WritingFollowControl(
+                    if (overviewReturn == null) Icons.Rounded.FitScreen else Icons.AutoMirrored.Rounded.ArrowBack,
+                    if (overviewReturn == null) "See all working" else "Return to working",
+                    enabled = !peekOpen, active = overviewReturn != null, onClick = ::fitAllContent,
                 )
                 if (writingFollowEnabled && !overflowFollowActions) {
                     WritingFollowControl(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next writing line",
-                        enabled = !peekOpen, onClick = { followView?.nextWritingLine() })
+                        enabled = !peekOpen && overviewReturn == null, onClick = { followView?.nextWritingLine() })
                     WritingFollowControl(Icons.AutoMirrored.Rounded.Undo, "Undo the last follow move",
                         enabled = !peekOpen && followStatus.canGoBack, onClick = { followView?.backWritingView() })
                     WritingFollowControl(
@@ -1162,6 +1213,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                     WritingFollowControl(Icons.Rounded.Tune, "Writing follow and peek options",
                         enabled = !peekOpen, onClick = { followMenu = true })
                     DropdownMenu(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches()) {
+                        if (page.infinite) {
+                            DropdownMenuItem({ Text(responseLabel) },
+                                { setWritingFollow(!writingFollowEnabled); followMenu = false },
+                                enabled = overviewReturn == null,
+                                leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
+                            Text("Use a response column for paragraphs. Leave it off for maths, short answers and diagrams.",
+                                Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.bodySmall)
+                            if (canvasResponse != null) DropdownMenuItem({ Text("Start a new column here") },
+                                { setWritingFollow(true); followMenu = false }, enabled = overviewReturn == null)
+                            DropdownMenuItem({ Text(if (overviewReturn == null) "See all working" else "Return to working") },
+                                { fitAllContent(); followMenu = false })
+                        }
                         if (writingFollowEnabled) {
                             Text(followStatus.message,
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1170,6 +1234,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             if (overflowFollowActions) {
                                 DropdownMenuItem({ Text("Next writing line") },
                                     { followView?.nextWritingLine(); followMenu = false },
+                                    enabled = overviewReturn == null,
                                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardReturn, null) })
                                 DropdownMenuItem({ Text(if (followStatus.paused) "Resume writing follow" else "Pause writing follow") },
                                     { toggleFollowPause(); followMenu = false },
@@ -1181,7 +1246,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                             HorizontalDivider()
                         }
-                        DropdownMenuItem(
+                        if (!page.infinite) DropdownMenuItem(
                             { Text("Writing: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
                             {
                                 followPreferences = followPreferences.copy(
@@ -1198,9 +1263,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             },
                             leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
                         )
-                        SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
-                            DropdownMenuItem({ Text("Select answer area") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
-                            DropdownMenuItem({ Text("Detect answer areas") }, { writingFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                        if (!page.infinite) SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
+                            DropdownMenuItem({ Text("Select answer area") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
+                            DropdownMenuItem({ Text("Detect answer areas") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
                             DropdownMenuItem(
                                 text = {
                                     Column {
@@ -1213,7 +1278,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     autoDetectAnswerAreas = !autoDetectAnswerAreas
                                     val edit = appPrefs.edit().putBoolean("follow.autoDetectAnswerAreas", autoDetectAnswerAreas)
                                     if (autoDetectAnswerAreas) {
-                                        writingFollowEnabled = true
+                                        pageFollowEnabled = true
                                         edit.putBoolean("writingFollow", true)
                                     }
                                     edit.apply()
@@ -1229,7 +1294,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 })
                             if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
                         }
-                        DropdownMenuItem({ Text("Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
+                        if (!page.infinite || canvasResponse != null) DropdownMenuItem({ Text(if (page.infinite) "Response settings…" else "Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()
                         Text("Peek view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

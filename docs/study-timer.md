@@ -35,6 +35,13 @@ leaving the editor for the library, backgrounding the app or turning the screen 
 notebooks does not park it. A session started from the Study page is unattended and keeps
 running in the background. Starting an exam timer parks a running session as well.
 
+An exam's Focal session counts reading and writing time, excluding pauses. Its elapsed
+timer starts during reading and continues across the phase change; finishing during reading
+saves the time spent so far. The attempt's writing-time record still measures writing only.
+The pen-inactivity stop applies only during writing, with its idle allowance beginning when
+writing starts. Reading continues without pen strokes; manual pauses and leaving the editor
+still park the exam clock.
+
 Status is explicit, via `FocalFocus.parkReason` (persisted in `focal-study.json`, optional, so
 older files load unchanged): *Paused* (by hand), *Stopped when you left the pages*, *Recovered
 after Folio closed* (the last durable checkpoint was restored; up to 30 s of work lost) and
@@ -50,14 +57,22 @@ save failures are visible and retryable. Remote errors leave sessions pending fo
 Focal lifecycle commands use the existing canonical mutation API. Standalone timers replay
 all durable intervals just like notebook-linked timers, including offline pause/resume
 boundaries. Manual logs use the canonical `log` action with an explicit finished block;
-they never synthesize a live timer. See [sync.md](sync.md) for transport and receipt rules.
+they never synthesize a live timer.
+
+Canonical session rows (Focal migration `0020`) have no `state` column: they carry a
+`completed` flag, `cancelled_at` marks a deleted session, and running, paused and scheduled
+(Folio's "planned") are derived from the open interval, `paused_at` and the absence of a
+start (`focalStateOf`). A scheduled session's segment is its planned slot, so Folio ignores it
+as timer history and a start replaces it. A completed session is no longer final: Folio can
+delete it with `cancel`; only a deleted row answers `session_terminal`. Rows cached by an older
+build keep their `state` and are still read. See [sync.md](sync.md) for transport and receipt rules.
 Cross-app active sessions can be paused, resumed, finished or discarded; Folio prevents
 starting/resuming a second running session locally (concurrent remote starts remain possible).
 History includes reflections, notebook context and per-entry sync state and expands in batches.
 
 ## Release validation
 
-Run `./gradlew :app:assembleDebug :app:lintDebug` and `node tools/katex-smoke.cjs`.
+Run `./build.sh -p`, `node tools/focal-study-smoke.cjs` and `node tools/katex-smoke.cjs`.
 Before release, verify on an Android device with a Focal test account:
 
 1. Start without a notebook while signed out. Navigate away/back, rotate, and background
@@ -75,7 +90,12 @@ Before release, verify on an Android device with a Focal test account:
 5. Sign out with a running session, then sign in as a different user. The old timer and
    history must not appear or upload under the new account; return to the old user to resolve it.
 6. Start an exam timer: regular study is parked and cannot resume until the exam stops.
-   Verify reading time and pauses are not counted as ordinary study.
+   Verify the Focal session timer includes reading and writing, excludes pauses, and preserves
+   the duration across pause/resume in either phase. Finish once during reading and once after
+   writing; confirm the saved Focal duration on another client. Exams remain separate from
+   the regular-study daily total.
+   With a short inactivity limit, let reading finish without pen strokes: it must keep running
+   and allow the full inactivity interval after writing begins before parking.
 7. Check midnight-spanning study, custom subjects, empty history, many sessions, large text,
    narrow phone/landscape/tablet layouts, TalkBack controls, and discard cancellation.
 8. With insufficient device storage, confirm the save error remains visible and Retry saves

@@ -50,16 +50,18 @@ fun FollowSettingsDialog(
     onPreferences: (FollowPreferences) -> Unit,
     onHand: (WritingHand) -> Unit,
     onDismiss: () -> Unit,
+    proseOnly: Boolean = false,
 ) {
     var advanced by rememberSaveable { mutableStateOf(false) }
-    FolioPanel(title = "Writing follow", onDismissRequest = onDismiss) {
+    FolioPanel(title = if (proseOnly) "Write a response" else "Writing follow", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
             ) {
                 FollowSectionTitle("Choose how following feels")
-                Text("Write naturally. The page moves after your configured pause and holds still for corrections. Use Pause in the editor to keep the view still.",
+                Text(if (proseOnly) "Write paragraphs inside the marked column. Use Next line when ready. Zooming and panning keep the column in place; Finish response returns to free working."
+                    else "Write naturally. The page moves after your configured pause and holds still for corrections. Use Pause in the editor to keep the view still.",
                     style = MaterialTheme.typography.bodyMedium)
                 val presets = listOf("Relaxed" to 0f, "Balanced" to .5f, "Responsive" to 1f)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -74,47 +76,50 @@ fun FollowSettingsDialog(
                 FollowSliderRow("Following feel", presetName,
                     "Relaxed waits longer and leaves more room before moving. Responsive follows sooner with a quicker glide. Changes timing and movement margins together.",
                     feel, { onPreferences(FollowComfort.apply(preferences, it)) }, 0f..1f)
-                FollowPreview(preferences, writingHand)
+                FollowPreview(preferences, writingHand, proseOnly)
                 FollowTimingPreview(preferences)
                 Text("Presets keep your hand, reading direction, writing position and automatic-return choice.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FollowToggle("Automatic line return", preferences.automaticReturn, enabled = preferences.mode == FollowMode.TEXT) {
                     onPreferences(preferences.copy(automaticReturn = it))
                 }
-                Text(if (preferences.mode == FollowMode.TEXT)
-                    "Returns after writing across a line and pausing near its edge. Touch down to stop. On an infinite canvas, the visible writing lane sets the line length; you can also select an answer area."
+                Text(if (proseOnly) "Optional for this response only. Returns after writing to the column edge and pausing. Touch down to stop. Each new response starts with manual returns."
+                    else if (preferences.mode == FollowMode.TEXT)
+                    "Returns after writing across a line and pausing near its edge. Touch down to stop."
                     else "Maths moves down as your working grows. Tap Next line when you want a new row.",
                     style = MaterialTheme.typography.bodySmall)
 
                 // 1 · What are you writing?
-                FollowSectionTitle("What are you writing?")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
-                ) {
-                    FilterChip(
-                        selected = preferences.mode == FollowMode.TEXT,
-                        onClick = { onPreferences(preferences.copy(mode = FollowMode.TEXT)) },
-                        label = { Text("Text") },
+                if (!proseOnly) {
+                    FollowSectionTitle("What are you writing?")
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
+                    ) {
+                        FilterChip(
+                            selected = preferences.mode == FollowMode.TEXT,
+                            onClick = { onPreferences(preferences.copy(mode = FollowMode.TEXT)) },
+                            label = { Text("Text") },
+                        )
+                        FilterChip(
+                            selected = preferences.mode == FollowMode.MATH,
+                            onClick = { onPreferences(preferences.copy(mode = FollowMode.MATH)) },
+                            label = { Text("Maths") },
+                        )
+                    }
+                    Text(
+                        if (preferences.mode == FollowMode.TEXT)
+                            "Follow across a line, then use Next line or enable automatic return. " +
+                                "Descenders and joined-up words stay on the same line; tall working and long underlines hold the view."
+                        else
+                            "Fractions, radicals and long equations reveal room below your working after a pause. The horizontal position stays fixed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    FilterChip(
-                        selected = preferences.mode == FollowMode.MATH,
-                        onClick = { onPreferences(preferences.copy(mode = FollowMode.MATH)) },
-                        label = { Text("Maths") },
-                    )
+
+                    HorizontalDivider()
+
                 }
-                Text(
-                    if (preferences.mode == FollowMode.TEXT)
-                        "Follow across a line, then use Next line or enable automatic return. " +
-                            "Descenders and joined-up words stay on the same line; tall working and long underlines hold the view."
-                    else
-                        "Fractions, radicals and long equations reveal room below your working after a pause. The horizontal position stays fixed.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                HorizontalDivider()
-
                 // 2 · Reading direction + pen hand (kept together: both confuse users when split).
                 FollowSectionTitle("Writing direction")
                 FlowRow(
@@ -209,7 +214,7 @@ fun FollowSettingsDialog(
                         else "Next line uses the spacing below where there are no printed lines.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        FollowPreferences.spacingLabel(preferences.spacing),
+                        if (proseOnly) "Line spacing" else FollowPreferences.spacingLabel(preferences.spacing),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -220,7 +225,8 @@ fun FollowSettingsDialog(
                         steps = 19,
                     )
                     Text(
-                        "Millimetres on a printed A4 page. Example: 7 mm matches ruled paper, 8 mm is the relaxed default. " +
+                        if (proseOnly) "Adjust the space between lines. Learned spacing takes over after two natural line breaks."
+                        else "Millimetres on a printed A4 page. Example: 7 mm matches ruled paper, 8 mm is the relaxed default. " +
                             "Only used where the page has no printed lines.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -229,7 +235,7 @@ fun FollowSettingsDialog(
                         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                     ) {
-                        FollowPreferences.spacingPresets.forEach { (name, units) ->
+                        if (!proseOnly) FollowPreferences.spacingPresets.forEach { (name, units) ->
                             FilterChip(
                                 selected = preferences.spacing == units,
                                 onClick = { onPreferences(preferences.copy(spacing = units)) },
@@ -244,9 +250,10 @@ fun FollowSettingsDialog(
                     FollowSectionTitle("Tracking controls")
                     FollowToggle("Follow horizontally in text mode", preferences.horizontalFollow) { onPreferences(preferences.copy(horizontalFollow = it)) }
                     FollowToggle("Follow vertically", preferences.verticalFollow) { onPreferences(preferences.copy(verticalFollow = it)) }
-                    FollowToggle("Switch areas when I write in them", preferences.autoSwitchAreas) { onPreferences(preferences.copy(autoSwitchAreas = it)) }
-                    Text("Turn area switching off to keep the selected answer area locked. Movement switches affect following within a line; Next line still moves to the next line.", style = MaterialTheme.typography.bodySmall)
-                    FollowSliderRow("Minimum zoom", "${"%.1f".format(preferences.minimumZoom)}×", "Automatic movement starts at this zoom level.", preferences.minimumZoom,
+                    if (!proseOnly) FollowToggle("Switch areas when I write in them", preferences.autoSwitchAreas) { onPreferences(preferences.copy(autoSwitchAreas = it)) }
+                    Text(if (proseOnly) "Movement switches affect following within a line; Next line still returns to the response column."
+                        else "Turn area switching off to keep the selected answer area locked. Movement switches affect following within a line; Next line still moves to the next line.", style = MaterialTheme.typography.bodySmall)
+                    if (!proseOnly) FollowSliderRow("Minimum zoom", "${"%.1f".format(preferences.minimumZoom)}×", "Automatic movement starts at this zoom level.", preferences.minimumZoom,
                         { onPreferences(preferences.copy(minimumZoom = it)) }, 1f..3f)
                     FollowSliderRow("Horizontal trigger", "${(preferences.edgeThreshold * 100).roundToInt()}%", "Distance across the view before following; mirrored for right-to-left writing.", preferences.edgeThreshold,
                         { onPreferences(preferences.copy(edgeThreshold = it)) }, 0.55f..0.95f)
@@ -342,7 +349,7 @@ private fun FollowSliderRow(
  * the faint lines show blank-page spacing, the arrow shows reading direction.
  */
 @Composable
-private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand) {
+private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand, proseOnly: Boolean = false) {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Text("Live preview · movement zones", style = MaterialTheme.typography.labelMedium)
@@ -409,7 +416,8 @@ private fun FollowPreview(preferences: FollowPreferences, hand: WritingHand) {
                 }
             }
             Text(
-                if (preferences.mode == FollowMode.TEXT)
+                if (proseOnly) "Shaded edges trigger following after a pause. The marked response column stays fixed when you zoom or pan."
+                else if (preferences.mode == FollowMode.TEXT)
                     "Shaded edges trigger following after a pause. Dot and dashed lines show the landing position. Active from ${"%.1f".format(preferences.minimumZoom)}× zoom."
                 else "Shaded area triggers vertical following after a pause. Maths keeps the horizontal position fixed.",
                 style = MaterialTheme.typography.bodySmall,
