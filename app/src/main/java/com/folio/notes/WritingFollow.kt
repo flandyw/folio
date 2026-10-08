@@ -29,6 +29,13 @@ data class WritingFollowState(
     val textStartX: Float? = null,
     /** Survives pen-down interruptions until the new line has actually been placed. */
     val needsPlacement: Boolean = false,
+    /**
+     * Stroke heights of accepted body samples across lines. The writer's hand keeps its size
+     * through returns, new lines and navigation, so a fresh line does not fall back to a guess.
+     */
+    val heightSamples: List<Float> = emptyList(),
+    /** Where recent full lines ended (furthest frontier), to learn the writer's own margin. */
+    val lineEnds: List<Float> = emptyList(),
 )
 enum class WritingHand(val direction: Float) { RIGHT(1f), LEFT(-1f) }
 enum class WritingProgress { NONE, SAME_LINE, NEW_LINE }
@@ -94,7 +101,8 @@ class WritingFollow {
     }
 
     fun suspend(now: Long) {
-        state = WritingFollowState(suspendedUntil = now + 1500, lineSpacings = state.lineSpacings)
+        state = WritingFollowState(suspendedUntil = now + 1500, lineSpacings = state.lineSpacings,
+            heightSamples = state.heightSamples, lineEnds = state.lineEnds)
     }
 
     /** Learn spacing only from confirmed natural line breaks; a skipped line cannot set the pace. */
@@ -103,7 +111,8 @@ class WritingFollow {
         if (adaptive && learned.size >= 2) return learned[(learned.size - 1) / 2]
         // Before any line break is learned, large handwriting (a zoomed-out canvas, a big hand)
         // must not land the next line on top of this one: room grows with the writing itself.
-        val sized = if (adaptive && state.recent.size >= MIN_SIZED_SAMPLES) laneHeight() * SPACING_PER_HEIGHT else 0f
+        val sized = if (adaptive && (state.recent.size + state.heightSamples.size) >= MIN_SIZED_SAMPLES)
+            laneHeight() * SPACING_PER_HEIGHT else 0f
         return maxOf(fallback, sized).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING)
     }
 
@@ -151,9 +160,21 @@ class WritingFollow {
         val baseline = state.baselineY ?: return null
         if (preferences.mode != FollowMode.TEXT || state.needsPlacement || state.candidateLane != null || !readyForReturn()) return null
         val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
-        if (frontier == null || !FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin)) return null
+        if (frontier == null || !(FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin) ||
+                reachedLearnedEnd(frontier, region, preferences.direction))) return null
         return FollowNavigation.next(baseline, region, guides, lineSpacing(preferences.spacing, preferences.adaptiveSpacing),
             state.textStartX ?: columnStart ?: state.lineStartX, preferences.direction)
+    }
+
+    /**
+     * The frontier has reached where this writer's full lines usually end, inside the area. A
+     * writer who keeps a margin short of the area's edge gets their return there, not never.
+     */
+    fun reachedLearnedEnd(frontier: Float, region: WritingLane, direction: WritingDirection): Boolean {
+        val end = learnedLineEnd(direction) ?: return false
+        if (end < region.left || end > region.right) return false
+        val slack = laneHeight() * .75f
+        return if (direction == WritingDirection.LTR) frontier >= end - slack else frontier <= end + slack
     }
 
     /**
@@ -303,6 +324,7 @@ class WritingFollow {
                 return WritingProgress.NONE
             }
             val recent = if (confirms) listOf(last!!, box) else listOf(box)
+            recordLineEnd(preferences.direction)
             accept(box, recent, true, preferences.direction, guide?.y)
             return WritingProgress.NEW_LINE
         }
@@ -330,7 +352,9 @@ class WritingFollow {
         val first = recent.firstOrNull() ?: box
         val start = if (direction == WritingDirection.LTR) first.left else first.right
         val newLine = changedLane || state.lineStartX == null
+        val sampled = recent.lastOrNull() === box && box.height > 0f
         state = state.copy(
+            heightSamples = if (sampled) (state.heightSamples + box.height).takeLast(MAX_HAND_SAMPLES) else state.heightSamples,
             baselineY = baseline, recent = recent, candidateLane = null, candidateAt = null,
             lineStartX = if (newLine) start else state.lineStartX,
             markerEdge = if (newLine) (if (direction == WritingDirection.LTR) first.right else first.left) else state.markerEdge,
@@ -351,8 +375,38 @@ class WritingFollow {
     }
     /** Median stroke height of the current lane, in page units; drives line spacing. */
     fun laneHeight(): Float {
-        val heights = state.recent.map { it.bottom - it.top }.sorted()
+        val line = state.recent.map { it.bottom - it.top }
+        // A line's own strokes decide once there are a few; until then the writer's hand,
+        // learned from earlier lines, fills in rather than a fixed guess.
+        val heights = (if (line.size >= 3) line else line + state.heightSamples.takeLast(HAND_SAMPLES)).sorted()
         return heights.getOrNull((heights.size - 1) / 2)?.coerceAtLeast(4f) ?: 24f
+    }
+
+    /** The writer's typical stroke height, or null before any has been seen. */
+    fun handHeight(): Float? = state.heightSamples.takeIf { it.isNotEmpty() }?.sorted()?.let { it[(it.size - 1) / 2] }
+
+    /**
+     * Where this writer ends full lines, learned from the line ends they produced: the densest
+     * cluster of recent ends, so a short final line of a paragraph or one long word does not count.
+     */
+    fun learnedLineEnd(direction: WritingDirection): Float? {
+        val ends = state.lineEnds
+        if (ends.size < 2) return null
+        val tolerance = maxOf(24f, laneHeight() * 2.5f)
+        val far = if (direction == WritingDirection.LTR) 1f else -1f
+        val best = ends.maxWithOrNull(compareBy<Float>({ e -> ends.count { abs(it - e) <= tolerance } }, { it * far }))!!
+        val cluster = ends.filter { abs(it - best) <= tolerance }.sorted()
+        return if (cluster.size < 2) null else cluster[(cluster.size - 1) / 2]
+    }
+
+    /** Records the end of a line the writer actually finished (a natural break or a return). */
+    private fun recordLineEnd(direction: WritingDirection) {
+        val left = state.frontierLeft ?: return
+        val right = state.frontierRight ?: return
+        // A short line (a heading, a list item, a paragraph's last line) says nothing about the margin.
+        if (right - left < maxOf(64f, laneHeight() * 6f)) return
+        val end = if (direction == WritingDirection.LTR) right else left
+        state = state.copy(lineEnds = (state.lineEnds + end).takeLast(6))
     }
     /** A return is possible only at a detected rule's endpoint with a real rule below it. */
     fun advanceFor(points: List<InkPoint>, guides: List<WritingGuide>, zoom: Float,
@@ -372,7 +426,9 @@ class WritingFollow {
         return if (atEnd) WritingAdvance(line, next) else null
     }
 
-    fun arrived(advance: WritingAdvance) {
+    fun arrived(advance: WritingAdvance, direction: WritingDirection = WritingDirection.LTR) {
+        // Going back up a line is a correction, not the end of a line.
+        if (advance.to.y > advance.from.y) recordLineEnd(direction)
         state = state.copy(baselineY = advance.to.y, recent = emptyList(), completedGuide = advance.from,
             frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null,
             lineStrokeCount = 0, markerEdge = null, needsPlacement = false)
@@ -390,6 +446,9 @@ class WritingFollow {
         const val SPACING_PER_HEIGHT = 1.6f
         /** Strokes needed before their height is trusted to size the line spacing. */
         const val MIN_SIZED_SAMPLES = 3
+        /** Earlier-line heights that stand in while a line has fewer than three of its own. */
+        const val HAND_SAMPLES = 8
+        const val MAX_HAND_SAMPLES = 24
     }
 }
 

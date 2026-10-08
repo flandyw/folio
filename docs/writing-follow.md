@@ -15,9 +15,16 @@ absolute writing height, so stopping halfway and resuming cannot apply a second 
 Actual consumed pan determines whether a return arrived; horizontal movement alone cannot advance
 the tracked baseline when vertical scrolling is clamped. Back records only movement actually applied.
 
-Sideways glides and new-line placement use half the configured return pause. Automatic returns
-use the full configured pause. Timing is fixed: stroke history never changes it, and the visible
-edge does not shorten the pause or accelerate the glide. Every glide honours
+Automatic returns use the full configured pause. Sideways glides and new-line placement wait at
+most half of it, but adapt to the writer (`FollowRhythm`): a fixed wait outlasted a fluent writer's
+pause between words, so every touch-down cancelled the glide and the view only moved when they
+stopped. Pen-up pauses of 30–1500 ms are learned; once six are known the wait is at most 70% of
+the typical word pause (their 75th percentile). Each wait cancelled by touch-down before moving
+shortens the next by a third, until a glide moves. Writing near the visible edge (past the follow
+trigger on either axis) shortens the wait by up to 75%; new-line placement is not hurried. The wait
+never drops below 90 ms or exceeds the configured half pause, so a slow writer is unaffected, and
+navigation resets the cancellation count but keeps the learned rhythm. Glide speed is unchanged:
+the visible edge never accelerates the glide itself. Every glide honours
 the configured duration as a minimum and takes at least 700 ms per viewport of travel on
 either axis (a half-screen pan takes at least 350 ms); *Next line speed* (`follow.lineSpeedMs`, 250–1500 ms,
 default 700) changes that pace for next-line moves only. Missed frames advance the animation by at
@@ -25,6 +32,24 @@ most 32 ms, so a busy frame slows movement instead of catching up in a jump. Dot
 near the final word, or anywhere along the stroke just written (a cursive word is dotted and crossed
 after it is finished), can resume an interrupted request after a fresh pen-up pause; corrections
 to earlier words hold the view. Rejected palm contacts do not cancel a pending glide.
+
+## Handwriting height and the writer's margin
+
+A line's height is the median of its own body strokes once it has three; until then the writer's
+hand fills in: the last 24 body-sample heights survive returns, natural new lines, navigation and
+tool changes (`WritingFollowState.heightSamples`), so the first strokes of a line, the line-change
+threshold and spacing no longer fall back to a fixed 24-unit guess. Only a page change forgets it.
+
+Full lines teach the writer's margin (`lineEnds`, `learnedLineEnd`). The end of a line is recorded
+on a natural new line or a downward return when the line spans at least six letter heights; the
+densest cluster of the last six ends (within 2.5 letter heights) is the margin, so a paragraph's
+short final line or one overlong word does not move it. When the frontier reaches that margin
+inside the area, the line counts as finished exactly as at the area's edge: automatic return
+counts down, or *Next line ready* is shown. A writer who stops short of the column or page edge
+therefore still gets their returns. Going up a line is a correction and records nothing.
+
+Changing tool (eraser, lasso, highlighter and back) only stops movement in progress. The baseline,
+frontier and Back history stay, so erasing a word mid-line and writing on continues the same line.
 
 ## Navigation, feedback and accessibility
 
@@ -171,7 +196,14 @@ and an infinite canvas. Repeat at a comfortable writing zoom and with automatic 
    a return countdown: the return must cancel and not fire until the line reaches the end again.
    Watch the landing marker appear during the countdown and vanish on the next word. Write outside
    an answer area: the hint should show briefly. Turn on *Remove animations*: moves should jump.
-8. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should
+8. Write a paragraph quickly without pausing between words: sideways following should happen
+   within the first line or two, during word gaps, rather than only when you stop. Write slowly:
+   waits should not get shorter than configured. Keep a margin well inside a wide column for three
+   full lines with automatic return on: the fourth line should return at your margin. Erase a word
+   mid-line with the eraser, switch back to the pen and continue: the line must continue without
+   a new placement. Write very small and very large: the first stroke after each return must stay
+   on its line.
+9. In Maths mode, grow a fraction/equation downward and use Next line. Horizontal follow should
    remain off. Check Pause/Resume, both follow-axis toggles, fixed/adaptive timing, and shape tidy.
 
 These traces exercise geometry and state transitions, but they do not substitute for real stylus,

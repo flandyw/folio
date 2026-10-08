@@ -394,7 +394,9 @@ private fun paperLabel(p: Paper): String = when (p) {
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(tool, page.id) { selection = null }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
-    LaunchedEffect(effectiveFollowPreferences, writingHand, tool) { followView?.suspendWritingFollow(clearBack = false) }
+    LaunchedEffect(effectiveFollowPreferences, writingHand) { followView?.suspendWritingFollow(clearBack = false) }
+    // Changing tool mid-line (erase a word, then write again) keeps the line; it only stops movement.
+    LaunchedEffect(tool) { followView?.holdWritingFollow() }
     fun configureFollow(view: InkView) {
         view.canvasWritingSession = if (page.infinite) canvasResponse else null
         view.followPreferences = effectiveFollowPreferences

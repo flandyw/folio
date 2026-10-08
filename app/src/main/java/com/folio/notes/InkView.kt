@@ -324,6 +324,7 @@ class InkView(context: Context) : View(context) {
     var showAnswerAreas = true
         set(value) { if (field != value) { field = value; invalidate() } }
     val writingFollow = WritingFollow()
+    private val followRhythm = FollowRhythm()
     private var guideRegions: List<WritingLane> = emptyList()
     var writingGuides: List<WritingGuide> = emptyList()
         set(value) {
@@ -519,11 +520,22 @@ class InkView(context: Context) : View(context) {
         writingFollow.state = writingFollow.state.copy(suspendedUntil = 0, candidateLane = null, candidateAt = null)
         reportFollowStatus("Write to start following")
     }
+    /**
+     * Stops any movement but keeps the line being written: switching to the eraser or lasso and
+     * back is part of writing, not navigation, so the baseline, frontier and Back history stay.
+     */
+    fun holdWritingFollow() {
+        if (pendingReturn == null && !followGlide.active && lineAdvance == null) return
+        cancelFollowMotion()
+        landingGuide = null
+        reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Held · write to continue")
+    }
     fun suspendWritingFollow(clearBack: Boolean = true) {
         followPaused = true
         cancelFollowMotion()
         if (clearBack) followBack.clear()
         landingGuide = null
+        followRhythm.reset()
         writingFollow.suspend(SystemClock.uptimeMillis())
         if (page.infinite) followLastPoint = null
         reportFollowStatus(if (followManuallyPaused) "Paused · tap Resume when ready" else "Follow paused · write to resume")
@@ -597,9 +609,10 @@ class InkView(context: Context) : View(context) {
         val advance = lineAdvance
         val placing = advance == null && writingFollow.state.needsPlacement
         val arrived = advance != null && followGlide.reachedLine
-        if (arrived) { writingFollow.arrived(advance!!); landingGuide = advance.to }
+        if (arrived) { writingFollow.arrived(advance!!, followPreferences.direction); landingGuide = advance.to }
         if (advance == null) writingFollow.placed()
         val moved = followGlide.moved
+        if (moved) followRhythm.glided()
         cancelFollowMotion()
         val blocked = !followManuallyPaused && !arrived && (!moved || advance != null)
         reportFollowStatus(when {
@@ -1303,6 +1316,10 @@ class InkView(context: Context) : View(context) {
             if (pendingReturn != null) { reportFollowStatus("Return cancelled · keep writing"); landingGuide = null }
             else if (lineAdvance != null || followGlide.moved) reportFollowStatus("Movement stopped · keep writing")
             val resume = pendingReturn != null || followGlide.active
+            // A sideways glide still waiting out its pause when the pen came down was too slow
+            // for this writer; the next one waits less.
+            if (followGlide.active && !followGlide.moved && lineAdvance == null) followRhythm.interrupted()
+            if (tool == Tool.PEN && event.actionMasked == MotionEvent.ACTION_DOWN) followRhythm.touched(SystemClock.uptimeMillis())
             cancelFollowMotion()
             resumeFollowAfterMark = resume
         }
@@ -1748,6 +1765,7 @@ class InkView(context: Context) : View(context) {
     private fun followCompletedStroke(drawn: Stroke) {
         val box = FollowNavigation.bounds(drawn.points) ?: return
         val now = SystemClock.uptimeMillis()
+        followRhythm.lifted(now)
         val previousArea = if (writingRegion == null && writingFollow.state.baselineY != null && writingGuides.isNotEmpty())
             followRegion() else null
         val guide = writingFollow.guideFor(box, writingGuides, followPreferences)
@@ -1835,7 +1853,10 @@ class InkView(context: Context) : View(context) {
             }
             return
         }
-        val delay = followPreferences.glideDelayMs
+        // The writer's own word pause, shorter after cancelled waits and near the visible edge.
+        val urgency = FollowRhythm.urgency(fraction, (sy - followVisible.top) / followVisible.height().coerceAtLeast(1),
+            followPreferences.edgeThreshold, followPreferences.direction)
+        val delay = followRhythm.glideDelay(followPreferences.glideDelayMs, if (placing) 0f else urgency)
         followGlide.start(dx, dy, now, delay, followPreferences.glideDurationMs,
             followVisible.width().toFloat(), followVisible.height().toFloat(), instant = reducedMotion)
         captureFollowBack = true

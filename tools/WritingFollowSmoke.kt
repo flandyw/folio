@@ -168,6 +168,92 @@ fun main() {
         val step = glide.step(16)
         check(step.finished && step.dx == -300f && step.dy == 120f)
     }
+    scenario("Glides wait for a share of the writer's own word pause, not a pause they never take") {
+        val rhythm = FollowRhythm()
+        check(rhythm.glideDelay(325) == 325)
+        // A fluent writer: short lifts inside words, ~260 ms between words.
+        var now = 0L
+        repeat(12) { i ->
+            rhythm.lifted(now); now += if (i % 3 == 2) 260L else 90L; rhythm.touched(now); now += 400
+        }
+        check(rhythm.wordPause() == 260L)
+        val fluent = rhythm.glideDelay(325)
+        check(fluent < 260 && fluent >= FollowRhythm.MIN_DELAY_MS) { "Delay $fluent outlasts the word pause" }
+        // Long thinking pauses and pen hovers are not part of the rhythm.
+        rhythm.lifted(now); rhythm.touched(now + 5000); check(rhythm.wordPause() == 260L)
+        // Each cancelled wait shortens the next; a glide that moved restores the normal wait.
+        rhythm.interrupted(); val once = rhythm.glideDelay(325)
+        rhythm.interrupted(); val twice = rhythm.glideDelay(325)
+        check(once < fluent && twice < once && twice >= FollowRhythm.MIN_DELAY_MS)
+        rhythm.glided(); check(rhythm.glideDelay(325) == fluent)
+        // A slow, deliberate writer never waits longer than configured.
+        val slow = FollowRhythm()
+        repeat(10) { slow.lifted(it * 2000L); slow.touched(it * 2000L + 1200) }
+        check(slow.glideDelay(325) == 325)
+    }
+    scenario("Writing at the visible edge shortens the wait; room to spare does not") {
+        for (direction in WritingDirection.entries) {
+            val ltr = direction == WritingDirection.LTR
+            fun at(x: Float) = if (ltr) x else 1f - x
+            check(FollowRhythm.urgency(at(.5f), .5f, .72f, direction) == 0f)
+            check(FollowRhythm.urgency(at(.97f), .5f, .72f, direction) > .999f)
+            val mid = FollowRhythm.urgency(at(.85f), .5f, .72f, direction)
+            check(mid > 0f && mid < 1f)
+        }
+        check(FollowRhythm.urgency(.5f, .96f, .72f, WritingDirection.LTR) > .999f)
+        check(FollowRhythm.urgency(Float.NaN, Float.NaN, .72f, WritingDirection.LTR) == 0f)
+        val rhythm = FollowRhythm()
+        check(rhythm.glideDelay(325, 1f) < rhythm.glideDelay(325, .5f) && rhythm.glideDelay(325, .5f) < 325)
+    }
+    scenario("Handwriting height carries across returns, new lines and navigation") {
+        for (height in listOf(6f, 12f, 30f)) {
+            val follow = WritingFollow()
+            val p = prefs.copy(spacing = maxOf(16f, height * 2.5f))
+            listOf(40f, 80f, 120f, 160f).forEachIndexed { i, x ->
+                follow.completed(letter(x, 100f - height, 100f, height), i * 200L, p)
+            }
+            check(abs(follow.laneHeight() - height) < .01f)
+            follow.arrived(FollowNavigation.next(100f, WritingLane(0f, 0f, 400f, 600f), emptyList(), p.spacing)!!)
+            check(abs(follow.laneHeight() - height) < .01f) { "Return forgot a $height hand" }
+            follow.suspend(1000)
+            check(abs(follow.laneHeight() - height) < .01f) { "Navigation forgot a $height hand" }
+            check(abs(follow.handHeight()!! - height) < .01f)
+        }
+        check(WritingFollow().laneHeight() == 24f && WritingFollow().handHeight() == null)
+    }
+    scenario("The writer's own margin is learned from full lines and triggers the return there") {
+        for (direction in WritingDirection.entries) {
+            val ltr = direction == WritingDirection.LTR
+            val custom = prefs.copy(direction = direction)
+            val region = if (ltr) WritingLane(36f, 0f, 600f, 2000f) else WritingLane(-600f, 0f, 0f, 2000f)
+            val follow = WritingFollow()
+            var now = 0L
+            fun line(baseline: Float, end: Float) {
+                // Letters from the start column to [end], on [baseline], with a confirmed new-line opening.
+                val xs = if (ltr) generateSequence(40f) { it + 20f }.takeWhile { it + 16f <= end }.toList()
+                    else generateSequence(-56f) { it - 20f }.takeWhile { it >= end }.toList()
+                xs.forEach { x -> follow.completed(letter(x, baseline - 12f, baseline), now, custom); now += 200 }
+            }
+            line(100f, if (ltr) 400f else -400f)
+            follow.arrived(FollowNavigation.next(follow.state.baselineY!!, region, emptyList(), 32f, follow.state.lineStartX, direction)!!, direction)
+            line(132f, if (ltr) 410f else -410f)
+            follow.arrived(FollowNavigation.next(follow.state.baselineY!!, region, emptyList(), 32f, follow.state.lineStartX, direction)!!, direction)
+            // A short paragraph end does not move the learned margin.
+            line(164f, if (ltr) 140f else -140f)
+            follow.arrived(FollowNavigation.next(follow.state.baselineY!!, region, emptyList(), 32f, follow.state.lineStartX, direction)!!, direction)
+            val end = follow.learnedLineEnd(direction)!!
+            check(if (ltr) end in 390f..412f else end in -412f..-390f) { "Learned $end" }
+            // Far from the area edge, the line still returns where this writer stops.
+            line(196f, if (ltr) 400f else -400f)
+            check(follow.returnFor(region, emptyList(), custom) != null)
+            // Mid-line it does not.
+            val early = WritingFollow().also { it.state = follow.state.copy(
+                frontierRight = if (ltr) 250f else follow.state.frontierRight, frontierLeft = if (ltr) follow.state.frontierLeft else -250f) }
+            check(early.returnFor(region, emptyList(), custom) == null)
+        }
+        // One line is not a margin.
+        check(WritingFollow().apply { state = state.copy(lineEnds = listOf(400f)) }.learnedLineEnd(WritingDirection.LTR) == null)
+    }
     scenario("Invalid viewports cannot authorize a canvas writing session") {
         check(CanvasWritingSession.start(WritingLane(0f, 0f, 0f, 300f), prefs) == null)
         check(CanvasWritingSession.start(WritingLane(Float.NaN, 0f, 300f, 300f), prefs) == null)
