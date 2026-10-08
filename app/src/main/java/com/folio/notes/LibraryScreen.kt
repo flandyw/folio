@@ -161,9 +161,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     val selection = remember(selectedIds, visibleIds) { selectedIds.filter { it in visibleIds }.toSet() }
     LaunchedEffect(visibleIds, libraryDrag.active) { if (!libraryDrag.active) selectedIds = selectedIds.filter { it in visibleIds } }
     fun clearQuery() { query = ""; debouncedQuery = "" }
-    fun showPlace(target: LibraryPlace) { place = target; tag = null; model.folder(null) }
-    fun showTag(label: String) { tag = if (tag.equals(label, true)) null else label; model.folder(null) }
-    fun browse(id: String?) { tag = null; clearQuery(); model.folder(id); focusManager.clearFocus() }
+    fun showPlace(target: LibraryPlace) { section = LibrarySection.LIBRARY; place = target; tag = null; model.folder(null) }
+    fun showTag(label: String) { tag = if (section == LibrarySection.LIBRARY && tag.equals(label, true)) null else label; section = LibrarySection.LIBRARY; model.folder(null) }
+    fun browse(id: String?) { section = LibrarySection.LIBRARY; tag = null; clearQuery(); model.folder(id); focusManager.clearFocus() }
     fun toggleExpanded(id: String) { expandedFolders = if (id in expandedFolders) expandedFolders - id else expandedFolders + id }
     // Hovering a drag over a folder opens it; the top level opens spatially, as Unfiled plus folders.
     fun browseForDrag(id: String?) {
@@ -259,7 +259,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         }
                     }
                 ) {
-                    RailItem("Library", Icons.Rounded.GridView, !otherPane && (pickingNotebook || section == LibrarySection.LIBRARY)) { libraryHome() }
+                    RailItem("Library", Icons.Rounded.GridView, !otherPane && (pickingNotebook || section != LibrarySection.PROGRESS)) { libraryHome() }
                     if (!pickingNotebook) {
                         RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
                         RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
@@ -269,7 +269,6 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                     Spacer(Modifier.height(FolioSpacing.dp4))
                     HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
                     Spacer(Modifier.weight(1f))
-                    if (!pickingNotebook) RailItem("Files", Icons.Rounded.TabletAndroid, !otherPane && section == LibrarySection.FILES) { selecting = false; selectedIds = emptyList(); section = LibrarySection.FILES; onLibrary() }
                     RailItem("Import PDF", Icons.Rounded.PictureAsPdf, false, onImport)
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
@@ -286,7 +285,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         mistakesContent { reviewMode = it }
                     }
                 }
-                if (!otherPane && (pickingNotebook || section == LibrarySection.LIBRARY)) Column(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
+                if (!otherPane && (pickingNotebook || section != LibrarySection.PROGRESS)) Column(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
                     FolioScreenHeading("Library") {
                         if (!wide) Box {
                             // M3e split button: tap creates a notebook, the trailing half opens
@@ -309,7 +308,20 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                             onPlace = { showPlace(it) }, onFolder = { browse(it) }, onExpand = { toggleExpanded(it) }, onTag = { showTag(it) },
                             onHoverOpen = { browseForDrag(it) }, onNewFolder = { startNewFolder(null) },
                             onFiles = if (pickingNotebook) null else ({ selecting = false; selectedIds = emptyList(); section = LibrarySection.FILES }),
-                            onFinishDrag = ::finishDrag)
+                            onFinishDrag = ::finishDrag, filesActive = section == LibrarySection.FILES)
+                        if (!pickingNotebook && section == LibrarySection.FILES) Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Row(Modifier.padding(horizontal = FolioDestinationInset), verticalAlignment = Alignment.CenterVertically) {
+                                if (!wide) IconButton({ section = LibrarySection.LIBRARY }, shapes = IconButtonDefaults.shapes()) {
+                                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks")
+                                }
+                                Text("Tablet files", style = MaterialTheme.typography.titleLarge)
+                            }
+                            Box(Modifier.weight(1f)) {
+                                destinationState.SaveableStateProvider("files") {
+                                    DeviceExplorer(state, model, onImport, onImportArchive) { section = LibrarySection.LIBRARY }
+                                }
+                            }
+                        } else {
                     // Dropping on the shelf's own background files into whatever it is showing.
                     val backgroundDrop = when {
                         searchActive -> null
@@ -481,9 +493,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                             }
                         }
                     }
-                    // Folders come first, as in a file manager: open on tap, drop notebooks on them,
-                    // hold and move to refile the whole folder.
-                    if (folders.isNotEmpty()) {
+                    // Only narrow windows need folder tiles; the wide sidebar owns the folder tree.
+                    if (!wide && folders.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }, key = "folders-label") { LibraryGroupLabel("Folders · ${folders.size}") }
                         items(folders, key = { "folder:${it.id}" }, span = { GridItemSpan(if (listView || maxLineSpan < 4) maxLineSpan else 2) }) { folder ->
                             FolderTile(folder.name,
@@ -499,7 +510,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         }
                         if (notes.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "notes-label") { LibraryGroupLabel("Notebooks · ${notes.size}") }
                     }
-                    if (notes.isEmpty() && folders.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
+                    if (notes.isEmpty() && (wide || folders.isEmpty())) item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
                         Surface(shape = FolioShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                                 Box(Modifier.size(124.dp, 140.dp)) { NotebookCover(Notebook(title = "Your next idea", cover = 1), Modifier.fillMaxSize()) }
@@ -583,15 +594,6 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                 }
                     }
                 }
-                if (!otherPane && !pickingNotebook && section == LibrarySection.FILES) Column(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
-                    FolioScreenHeading("Tablet files", leading = {
-                        IconButton({ section = LibrarySection.LIBRARY }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") }
-                    })
-                    Box(Modifier.weight(1f)) {
-                        destinationState.SaveableStateProvider("files") {
-                            DeviceExplorer(state, model, onImport, onImportArchive) { section = LibrarySection.LIBRARY }
-                        }
-                    }
                 }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
                     com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().then(entrance),

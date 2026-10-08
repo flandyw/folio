@@ -123,7 +123,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
     var newestDueFirst by rememberSaveable { mutableStateOf(false) }
-    var showDueSort by remember { mutableStateOf(false) }
+    var focusSubject by rememberSaveable { mutableStateOf("") }
     var sessionTotal by rememberSaveable { mutableIntStateOf(0) }
     var sessionCompleted by rememberSaveable { mutableIntStateOf(0) }
     var showSummary by rememberSaveable { mutableStateOf(false) }
@@ -137,15 +137,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val orderedDue = remember(due, newestDueFirst) { if (newestDueFirst) due.asReversed() else due }
     val overdue = remember(mistakes, clockNow) { MistakeScheduler.getOverdueMistakes(mistakes, clockNow) }
     val overdueIds = remember(overdue) { overdue.map { it.id }.toSet() }
-    // The Overdue header counts the overdue queue itself, so it can never disagree with the
-    // Library chip or drop a card because it was missing from the due-now list.
-    val dueGroups = remember(orderedDue, overdue, overdueIds) {
-        val orderedOverdue = overdue.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
-        val shownOverdue = if (newestDueFirst) orderedOverdue.asReversed() else orderedOverdue
-        listOf("Overdue" to shownOverdue, "Due today" to orderedDue.filter { it.id !in overdueIds })
-            .filter { it.second.isNotEmpty() }
+    // Today can focus one subject; a focus whose questions are all done falls back to everything.
+    fun subjectOf(m: ExamTrackMistake) = state.cache.contexts[m.attemptId]?.subject.orEmpty().ifBlank { MistakeToday.UNSORTED }
+    val dueSubjects = remember(due, state.cache.contexts) { MistakeToday.subjects(due, ::subjectOf) }
+    val todayFocus = focusSubject.takeIf { f -> dueSubjects.any { it.first == f } }.orEmpty()
+    val focusedDue = remember(orderedDue, todayFocus, state.cache.contexts) {
+        if (todayFocus.isBlank()) orderedDue else orderedDue.filter { subjectOf(it) == todayFocus }
     }
-    val dueOrderLabel = if (newestDueFirst) "Newest due first" else "Oldest due first"
+    // The Overdue heading counts the overdue queue itself, so it can never disagree with the
+    // Library chip or drop a card because it was missing from the due-now list.
+    val focusedOverdue = remember(overdue, newestDueFirst, todayFocus, state.cache.contexts) {
+        val ordered = overdue.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+            .filter { todayFocus.isBlank() || subjectOf(it) == todayFocus }
+        if (newestDueFirst) ordered.asReversed() else ordered
+    }
+    val todayStats = remember(mistakes, schedules, clockNow) { MistakeToday.stats(mistakes, schedules, clockNow) }
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
     LaunchedEffect(Unit) { model.requestSync() }
@@ -455,6 +461,28 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             )
         }
     }
+    @Composable fun SyncBanner() {
+        Surface(onClick = onAccount, shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                // M3e contained loading indicator while a sync is actually running.
+                if (state.status == "Syncing…") ContainedLoadingIndicator(Modifier.size(22.dp))
+                Text(
+                    if (isSyncTrouble(state.status)) state.status
+                    else "${state.cache.pending.size} reviews saved locally · view sync",
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(onClick = model::dismissStatus, shapes = ButtonDefaults.shapes()) {
+                    Text("Dismiss")
+                }
+            }
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val layout = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
         val split = layout.splitLibrary && destination == "Library" && state.userId != null
@@ -467,6 +495,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
         val toolbarClearance = bottomInset + if (showDestinations) toolbarHeight + FolioSpacing.dp32 else 0.dp
         val contentInset = FolioDestinationInset
+        val todayView = destination == "Today" && state.userId != null && !standaloneDetail
+        val showSyncBanner = isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()
         Scaffold(
             // The shell consumes the top inset. Draw the body to the bottom edge; navigation/IME
             // clearance belongs to scroll padding and the floating toolbar, never a full-width bar.
@@ -487,7 +517,46 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    LazyVerticalGrid(
+                    if (todayView) Column(Modifier.weight(1f).fillMaxHeight()) {
+                        if (showSyncBanner) Box(Modifier.padding(start = contentInset, end = contentInset, bottom = FolioSpacing.dp12)) { SyncBanner() }
+                        MistakesTodayView(
+                            content = TodayContent(
+                                stats = todayStats,
+                                totalCards = mistakes.size,
+                                allDue = due.size,
+                                overdue = focusedOverdue,
+                                dueToday = focusedDue.filter { it.id !in overdueIds },
+                                resume = mistakes.filter { it.id in unfinishedByMistake && !it.suspended }.take(4),
+                                subjects = dueSubjects,
+                                focus = todayFocus,
+                                limit = sessionLimit,
+                                order = when { shuffle -> TodayOrder.SHUFFLE; newestDueFirst -> TodayOrder.NEWEST; else -> TodayOrder.OLDEST },
+                                completed = sessionCompleted.takeIf { showSummary },
+                                pending = state.cache.pending.size,
+                                contexts = state.cache.contexts,
+                                schedules = schedules,
+                                attempts = attemptCountMap,
+                                working = working,
+                                now = clockNow,
+                            ),
+                            actions = TodayActions(
+                                onStart = { startSession(focusedDue) },
+                                onBrowse = { destination = "Library" },
+                                onFocus = { focusSubject = it },
+                                onLimit = { sessionLimit = it },
+                                onOrder = { order -> shuffle = order == TodayOrder.SHUFFLE; if (order != TodayOrder.SHUFFLE) newestDueFirst = order == TodayOrder.NEWEST },
+                                onDismissSummary = { showSummary = false },
+                                onOpen = { m -> detail = m.id; destination = "Library" },
+                                onPractice = { m -> reviewQueue = emptyList(); start(m) },
+                                onDelete = { m -> deleteCard(m.id) },
+                            ),
+                            wide = layout.splitToday,
+                            columns = layout.columns,
+                            inset = contentInset,
+                            bottomPadding = toolbarClearance,
+                            listState = listState,
+                        )
+                    } else LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
                         modifier = Modifier.weight(if (split) .42f else 1f).fillMaxHeight(),
                         state = if (standaloneDetail) detailListState else listState,
@@ -517,106 +586,32 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem { FocalAccountContent(model) }
                             fullWidthItem { OfflineNoteCard() }
                         } else {
-                            if (isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()) fullWidthItem {
-                                Surface(onClick = onAccount, shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
-                                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        // M3e contained loading indicator while a sync is actually running.
-                                        if (state.status == "Syncing…") ContainedLoadingIndicator(Modifier.size(22.dp))
-                                        Text(
-                                            if (isSyncTrouble(state.status)) state.status
-                                            else "${state.cache.pending.size} reviews saved locally · view sync",
-                                            Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        TextButton(onClick = model::dismissStatus, shapes = ButtonDefaults.shapes()) {
-                                            Text("Dismiss")
-                                        }
+                            if (showSyncBanner) fullWidthItem { SyncBanner() }
+                            fullWidthItem {
+                                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
+                                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                    singleLine = true, shape = FolioShapes.large)
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                    listOf("All" to mistakes.size, "Due" to due.size, "Overdue" to overdue.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
+                                        FilterChipWithCount(label, count, filter == label) { filter = label }
                                     }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                                    TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                    if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
+                                }
+                                if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                                    Text("Review ${minOf(reviewCandidates.size, sessionLimit)} matching due questions")
                                 }
                             }
-                            if (destination != "Library") {
-                                if (showSummary) fullWidthItem {
-                                    SessionSummary(sessionCompleted, state.cache.pending.size) { showSummary = false; destination = "Library" }
-                                }
-                                fullWidthItem {
-                                    ReviewDashboard(due.size, mistakes.size, sessionLimit, { sessionLimit = it }, shuffle, { shuffle = !shuffle }, working,
-                                        onReview = { startSession(orderedDue) }, onBrowse = { destination = "Library" }, orderLabel = dueOrderLabel)
-                                }
-                                val unfinished = mistakes.filter { it.id in unfinishedByMistake && !it.suspended }
-                                if (unfinished.isNotEmpty()) {
-                                    fullWidthItem { Text("Pick up where you left off", style = MaterialTheme.typography.titleLarge) }
-                                    items(unfinished.take(3), key = { "resume-${it.id}" }) { m ->
-                                        MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], true, attemptCountMap[m.id] ?: 0,
-                                            { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) }, now = clockNow)
-                                    }
-                                }
-                                if (due.isNotEmpty()) {
-                                    fullWidthItem {
-                                        Column(Modifier.padding(top = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text("Due for review", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                                                Text("${due.size} ${if (due.size == 1) "question" else "questions"}",
-                                                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                            Box {
-                                                TextButton({ showDueSort = true }, shapes = ButtonDefaults.shapes()) {
-                                                    Text(dueOrderLabel, color = MaterialTheme.colorScheme.onSurface)
-                                                    Icon(Icons.Rounded.ArrowDropDown, null)
-                                                }
-                                                DropdownMenu(showDueSort, { showDueSort = false }) {
-                                                    DropdownMenuItem({ Text("Oldest due first") }, { newestDueFirst = false; showDueSort = false })
-                                                    DropdownMenuItem({ Text("Newest due first") }, { newestDueFirst = true; showDueSort = false })
-                                                }
-                                            }
-                                        }
-                                    }
-                                    dueGroups.forEach { (label, cards) ->
-                                        fullWidthItem {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                                                    color = if (label == "Overdue") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                                                Text("${cards.size} ${if (cards.size == 1) "question" else "questions"}",
-                                                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                        items(cards, key = { "due-${it.id}" }) { m ->
-                                            MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], false, attemptCountMap[m.id] ?: 0,
-                                                { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, onDelete = { deleteCard(m.id) }, now = clockNow)
-                                        }
-                                    }
-                                }
-                            } else {
-                                fullWidthItem {
-                                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
-                                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                        trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
-                                        singleLine = true, shape = FolioShapes.large)
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                        listOf("All" to mistakes.size, "Due" to due.size, "Overdue" to overdue.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
-                                            FilterChipWithCount(label, count, filter == label) { filter = label }
-                                        }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
-                                        if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
-                                    }
-                                    if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                                        Text("Review ${minOf(reviewCandidates.size, sessionLimit)} matching due questions")
-                                    }
-                                }
-                                if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), ::clearFilters) }
-                                items(visible, key = { it.id }) { m ->
-                                    MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
-                                        attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
-                                        onDelete = { deleteCard(m.id) }, now = clockNow)
-                                }
+                            if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), ::clearFilters) }
+                            items(visible, key = { it.id }) { m ->
+                                MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
+                                    attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
+                                    onDelete = { deleteCard(m.id) }, now = clockNow)
                             }
                         }
                     }

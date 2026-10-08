@@ -54,24 +54,28 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 }
 
 /**
- * The wide library's side panel: places, the whole folder tree and tags, then Tablet files. Every
- * row is a drop target, and folder rows are drag sources too, so a subtree can be refiled in place.
+ * The wide library's shared side panel: Tablet files, notebook places, folders and tags.
+ * Folder rows accept notebook drops and expand on hover without replacing the source grid.
  */
 @Composable internal fun LibrarySidebar(
     folders: List<Folder>, openFolder: String?, place: LibraryPlace, tag: String?, tags: List<String>,
     expanded: Set<String>, counts: LibraryCounts, drag: NotebookDragState?,
     onPlace: (LibraryPlace) -> Unit, onFolder: (String) -> Unit, onExpand: (String) -> Unit, onTag: (String) -> Unit,
     onHoverOpen: (String?) -> Unit, onNewFolder: () -> Unit, onFiles: (() -> Unit)?, onFinishDrag: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier, filesActive: Boolean = false,
 ) {
     val list = rememberLazyListState()
     val rows = remember(folders, expanded) { LibraryBrowse.tree(folders, expanded) }
     val parents = remember(folders) { folders.mapNotNull { it.parentId }.toSet() }
-    val home = openFolder == null && tag == null
+    val home = !filesActive && openFolder == null && tag == null
     Surface(modifier.width(256.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12),
         shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         LazyColumn(Modifier.then(if (drag != null) Modifier.notebookDragScroll(drag) { list.scrollBy(it) } else Modifier),
             state = list, contentPadding = PaddingValues(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            if (onFiles != null) {
+                item(key = "files") { LibrarySidebarRow("Tablet files", Icons.Rounded.TabletAndroid, filesActive, onClick = onFiles) }
+                item(key = "files-divider") { HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8, horizontal = FolioSpacing.dp8)) }
+            }
             items(LibraryPlace.entries, key = { "place:${it.name}" }) { item ->
                 LibrarySidebarRow(item.label, item.icon(), home && place == item,
                     count = when (item) { LibraryPlace.ALL -> counts.all; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 },
@@ -87,23 +91,19 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(rows, key = { "folder:${it.first.id}" }) { (folder, depth) ->
-                LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, openFolder == folder.id,
+                LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, !filesActive && openFolder == folder.id,
                     count = counts.byFolder[folder.id] ?: 0, depth = depth,
                     expanded = if (folder.id in parents) folder.id in expanded else null, onExpand = { onExpand(folder.id) },
                     modifier = Modifier.notebookDragSource(drag, onFinishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
                         .graphicsLayer { alpha = if ((drag?.payload as? NotebookDragPayload.Folder)?.id == folder.id) .45f else 1f }
-                        .notebookDropTarget(drag, NotebookDropDestination.Folder(folder.id, folder.name), onHoverOpen = { onHoverOpen(folder.id) })) { onFolder(folder.id) }
+                        .notebookDropTarget(drag, NotebookDropDestination.Folder(folder.id, folder.name), onHoverOpen = { if (folder.id in parents && folder.id !in expanded) onExpand(folder.id) })) { onFolder(folder.id) }
             }
             if (tags.isNotEmpty()) {
                 item(key = "tags") { LibrarySidebarHeading("Tags") }
                 items(tags, key = { "tag:$it" }) { label ->
-                    LibrarySidebarRow(label, Icons.Rounded.Sell, tag.equals(label, true), count = counts.tag(label),
+                    LibrarySidebarRow(label, Icons.Rounded.Sell, !filesActive && tag.equals(label, true), count = counts.tag(label),
                         modifier = Modifier.notebookDropTarget(drag, NotebookDropDestination.Tag(label))) { onTag(label) }
                 }
-            }
-            if (onFiles != null) {
-                item(key = "files-divider") { HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8, horizontal = FolioSpacing.dp8)) }
-                item(key = "files") { LibrarySidebarRow("Tablet files", Icons.Rounded.TabletAndroid, false, onClick = onFiles) }
             }
         }
     }

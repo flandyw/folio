@@ -16,79 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioButtonGroup
 import com.folio.notes.FolioShapes
 import com.folio.notes.FolioSpacing
 import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
 import com.folio.notes.rememberLongPressGuard
-
-@Composable internal fun ReviewDashboard(
-    due: Int, total: Int, limit: Int, onLimit: (Int) -> Unit, shuffle: Boolean,
-    onShuffle: () -> Unit, working: Boolean, onReview: () -> Unit, onBrowse: () -> Unit,
-    orderLabel: String = "Oldest due first",
-) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val horizontal = maxWidth >= 700.dp
-        @Composable fun Introduction(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Text(when { total == 0 -> "Turn mistakes into understanding."; due == 0 -> "You're caught up."; due == 1 -> "1 question due"; else -> "$due questions due" },
-                    style = MaterialTheme.typography.titleLarge)
-                Text(when { total == 0 -> "Log a mistake in Focal, then sync your questions here."; due == 0 -> "Explore your library, or return when your next review is due."; else -> "Read → work it out → compare" }, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        @Composable fun SessionChoices(modifier: Modifier = Modifier) {
-            // M3e connected button group: one choice for the session size, plus the shuffle toggle.
-            FolioButtonGroup(modifier) {
-                listOf(5, 10, Int.MAX_VALUE).forEach { count ->
-                    toggleableItem(limit == count, if (count == Int.MAX_VALUE) "All due" else "$count", { onLimit(count) })
-                }
-                toggleableItem(shuffle, "Shuffle", { onShuffle() },
-                    icon = { Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)) })
-            }
-        }
-        @Composable fun SessionControls(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                if (due > 0) {
-                    SessionChoices()
-                    Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
-                        if (working) LoadingIndicator(Modifier.size(20.dp))
-                        else Icon(Icons.Rounded.PlayArrow, null)
-                        Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (working) "Opening your page…" else "Start ${minOf(due, limit)} questions")
-                    }
-                    Text(if (shuffle) "Random order" else orderLabel, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer)
-                } else OutlinedButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Explore your library"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) }
-            }
-        }
-        Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Introduction(Modifier.fillMaxWidth())
-                if (horizontal && due > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    SessionChoices(Modifier.weight(1f))
-                    Button(onReview, enabled = !working, modifier = Modifier.widthIn(min = 220.dp, max = 280.dp), shapes = ButtonDefaults.shapes()) {
-                        if (working) LoadingIndicator(Modifier.size(20.dp)) else Icon(Icons.Rounded.PlayArrow, null)
-                        Spacer(Modifier.width(FolioSpacing.dp8))
-                        Text(if (working) "Opening…" else "Start ${minOf(due, limit)} questions")
-                    }
-                } else SessionControls(Modifier.fillMaxWidth())
-            }
-        }
-    }
-}
-
-@Composable internal fun SessionSummary(completed: Int, pending: Int, onBrowse: () -> Unit) {
-    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.tertiaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(Icons.Rounded.CheckCircle, null)
-            Text("Session complete", style = MaterialTheme.typography.headlineSmall)
-            Text("$completed questions reviewed. Your handwriting and ratings are saved.")
-            if (pending > 0) Text("$pending ratings waiting to sync. You can safely leave this screen.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onBrowse, shapes = ButtonDefaults.shapes()) { Text("Back to your library") }
-        }
-    }
-}
 
 @Composable internal fun MistakeFilterOptions(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
     if (options.isEmpty()) return
