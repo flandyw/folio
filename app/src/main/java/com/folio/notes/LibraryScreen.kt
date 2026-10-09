@@ -133,6 +133,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     var newFolderParent by remember { mutableStateOf<String?>(null) }
     var renameFolder by remember { mutableStateOf<Folder?>(null) }
     var moveFolder by remember { mutableStateOf<Folder?>(null) }
+    var colourFolder by remember { mutableStateOf<Folder?>(null) }
     var deleteFolder by remember { mutableStateOf<Folder?>(null) }
     val examFilter = state.examFilter
     val openFolder = state.folders.find { it.id == state.folderId }
@@ -368,7 +369,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                 if (openFolder != null && !pickingNotebook) Box {
                                     IconButton({ folderMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${openFolder.name}") }
                                     if (folderMenu) FolioActionPopover(openFolder.name, { folderMenu = false }) {
-                                        FolderMenuItems({ folderMenu = false }, { startNewFolder(openFolder.id) }, { renameFolder = openFolder }, { moveFolder = openFolder }, { deleteFolder = openFolder })
+                                        FolderMenuItems({ folderMenu = false }, { startNewFolder(openFolder.id) }, { renameFolder = openFolder }, { colourFolder = openFolder }, { moveFolder = openFolder }, { deleteFolder = openFolder })
                                     }
                                 }
                             }
@@ -509,7 +510,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                     if (!showSidebar && folders.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }, key = "folders-label") { LibraryGroupLabel("Folders · ${folders.size}") }
                         items(folders, key = { "folder:${it.id}" }, span = { GridItemSpan(if (listView || maxLineSpan < 4) maxLineSpan else 2) }) { folder ->
-                            FolderTile(folder.name,
+                            FolderTile(folder.name, tint = FolderPalette.color(folder.color), detail =
                                 if (searchActive) LibraryFolders.label(state.folders, folder.parentId).ifEmpty { "Library" } else counts.folderDetail(folder),
                                 onClick = { browse(folder.id) },
                                 modifier = Modifier.notebookDragSource(drag, ::finishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
@@ -517,7 +518,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     .notebookDropTarget(drag, NotebookDropDestination.Folder(folder.id, folder.name), onHoverOpen = { browseForDrag(folder.id) })
                                     .then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())),
                                 menu = if (pickingNotebook) null else { close ->
-                                    FolderMenuItems(close, { startNewFolder(folder.id) }, { renameFolder = folder }, { moveFolder = folder }, { deleteFolder = folder })
+                                    FolderMenuItems(close, { startNewFolder(folder.id) }, { renameFolder = folder }, { colourFolder = folder }, { moveFolder = folder }, { deleteFolder = folder })
                                 })
                         }
                         if (notes.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "notes-label") { LibraryGroupLabel("Notebooks · ${notes.size}") }
@@ -763,6 +764,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         onMove = { if (model.moveFolder(folder.id, it)) moveFolder = null }, onCreateAndMove = { false }, onDismiss = { moveFolder = null },
         rootLabel = "Library", allowCreate = false, excluded = LibraryFolders.descendants(state.folders, folder.id)) }
     rename?.let { note -> NameDialog("Rename notebook", "A name that feels right.", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
+    colourFolder?.let { stale -> state.folders.find { it.id == stale.id }?.let { folder -> FolderColourDialog(folder, { model.recolorFolder(folder.id, it) }, { colourFolder = null }) } }
     renameFolder?.let { folder -> NameDialog("Rename folder", "Keep your workspace organized.", folder.name, "Save", { renameFolder = null }) { if (model.renameFolder(folder, it)) renameFolder = null } }
     deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Its notebooks and subfolders move to ${LibraryFolders.label(state.folders, folder.parentId).ifEmpty { "Library" }}. Your notebooks will be kept.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> LibraryMovePanel("Move ${note.title}", state.folders, note.folderId, single = true,

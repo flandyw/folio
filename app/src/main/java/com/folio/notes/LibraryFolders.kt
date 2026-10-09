@@ -64,9 +64,10 @@ object LibraryFolders {
 object FolderCodec {
     fun encode(folder: Folder) = JSONObject().put("id", folder.id).put("name", folder.name).apply {
         folder.parentId?.let { put("parent", it) }
+        if (folder.color != 0) put("color", folder.color)
     }
     fun decode(value: JSONObject) = Folder(value.getString("id"), value.getString("name"),
-        value.optString("parent", "").takeIf { it.isNotEmpty() && it != "null" })
+        value.optString("parent", "").takeIf { it.isNotEmpty() && it != "null" }, value.optInt("color", 0).coerceAtLeast(0))
 }
 
 object NotebookTags {

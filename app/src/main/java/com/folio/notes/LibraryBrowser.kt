@@ -92,7 +92,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
             }
             items(rows, key = { "folder:${it.first.id}" }) { (folder, depth) ->
                 LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, !filesActive && openFolder == folder.id,
-                    count = counts.byFolder[folder.id] ?: 0, depth = depth,
+                    count = counts.byFolder[folder.id] ?: 0, depth = depth, iconTint = FolderPalette.color(folder.color),
                     expanded = if (folder.id in parents) folder.id in expanded else null, onExpand = { onExpand(folder.id) },
                     modifier = Modifier.notebookDragSource(drag, onFinishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
                         .graphicsLayer { alpha = if ((drag?.payload as? NotebookDragPayload.Folder)?.id == folder.id) .45f else 1f }
@@ -119,26 +119,24 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 /** One sidebar row; tree rows pass [depth] and, when they have children, [expanded]. */
 @Composable internal fun LibrarySidebarRow(
     label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, count: Int? = null,
-    depth: Int? = null, expanded: Boolean? = null, onExpand: () -> Unit = {}, onClick: () -> Unit,
+    iconTint: Color? = null, depth: Int? = null, expanded: Boolean? = null, onExpand: () -> Unit = {}, onClick: () -> Unit,
 ) {
     Surface(onClick = onClick, shape = FolioShapes.large,
         color = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         modifier = modifier.fillMaxWidth().semantics { selected = active }) {
-        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = if (depth == null) FolioSpacing.dp12 else FolioSpacing.dp4 + 14.dp * depth, end = FolioSpacing.dp12),
+        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = FolioSpacing.dp12 + 14.dp * (depth ?: 0), end = if (expanded != null) FolioSpacing.dp4 else FolioSpacing.dp12),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            if (depth != null) {
-                if (expanded != null) {
-                    val turn by animateFloatAsState(if (expanded) 90f else 0f, folioSpring(), label = "folderDisclosure")
-                    IconButton(onExpand, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.ChevronRight, if (expanded) "Collapse $label" else "Expand $label", Modifier.size(18.dp).rotate(turn))
-                    }
-                } else Spacer(Modifier.width(FolioTouch.target))
-            }
-            Icon(icon, null, Modifier.size(20.dp))
+            if (iconTint != null) Icon(icon, null, Modifier.size(20.dp), tint = iconTint) else Icon(icon, null, Modifier.size(20.dp))
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (count != null && count > 0) Text("$count", style = MaterialTheme.typography.labelMedium,
                 color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (expanded != null) {
+                val turn by animateFloatAsState(if (expanded) 90f else 0f, folioSpring(), label = "folderDisclosure")
+                IconButton(onExpand, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.ChevronRight, if (expanded) "Collapse $label" else "Expand $label", Modifier.size(18.dp).rotate(turn))
+                }
+            }
         }
     }
 }
@@ -167,14 +165,14 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 
 /** A folder in the shelf: open on tap, hold and move to refile its subtree, drop notebooks on it. */
 @Composable internal fun FolderTile(
-    name: String, detail: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+    name: String, detail: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color? = null,
     menu: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
 ) {
     Surface(onClick = onClick, modifier = modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(Icons.Rounded.Folder, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            Surface(shape = FolioShapes.medium, color = tint?.copy(alpha = .22f) ?: MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(Icons.Rounded.Folder, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = tint ?: MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -192,9 +190,32 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
 }
 
 /** The same four folder actions wherever a folder offers a menu. */
-@Composable internal fun FolderMenuItems(close: () -> Unit, onNewInside: () -> Unit, onRename: () -> Unit, onMove: () -> Unit, onRemove: () -> Unit) {
+@Composable internal fun FolderMenuItems(close: () -> Unit, onNewInside: () -> Unit, onRename: () -> Unit, onColour: () -> Unit, onMove: () -> Unit, onRemove: () -> Unit) {
     PopoverRow(Icons.Rounded.CreateNewFolder, "New folder inside") { close(); onNewInside() }
     PopoverRow(Icons.Rounded.Edit, "Rename folder") { close(); onRename() }
+    PopoverRow(Icons.Rounded.Palette, "Folder colour") { close(); onColour() }
     PopoverRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move folder") { close(); onMove() }
     PopoverRow(Icons.Rounded.DeleteOutline, "Remove folder", destructive = true) { close(); onRemove() }
+}
+
+/** Folder colours are palette indices stored on the folder; 0 keeps the theme's default tint. */
+object FolderPalette {
+    val colors = listOf(Color(0xFFE57373), Color(0xFFF2994A), Color(0xFFE5B800), Color(0xFF66BB6A), Color(0xFF26A69A), Color(0xFF42A5F5), Color(0xFF7E8CE0), Color(0xFFBA68C8), Color(0xFFEC7FA9), Color(0xFF8D8D8D))
+    val names = listOf("Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Indigo", "Purple", "Pink", "Grey")
+    fun color(index: Int): Color? = if (index in 1..colors.size) colors[index - 1] else null
+}
+
+@Composable internal fun FolderColourDialog(folder: Folder, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Colour for ${folder.name}") }, text = {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            (0..FolderPalette.colors.size).forEach { index ->
+                val tint = FolderPalette.color(index)
+                val label = if (index == 0) "Default" else FolderPalette.names[index - 1]
+                IconButton({ onPick(index); onDismiss() }, modifier = Modifier.size(FolioTouch.target).semantics { selected = folder.color == index }) {
+                    Icon(if (folder.color == index) Icons.Rounded.CheckCircle else Icons.Rounded.Folder, label, Modifier.size(28.dp),
+                        tint = tint ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }, confirmButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Close") } })
 }

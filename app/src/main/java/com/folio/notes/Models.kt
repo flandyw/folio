@@ -369,7 +369,8 @@ data class Notebook(
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
 }
-data class Folder(val id: String = UUID.randomUUID().toString(), val name: String, val parentId: String? = null)
+/** [color] is an index into `FolderPalette`; 0 is the default look, so older libraries need no migration. */
+data class Folder(val id: String = UUID.randomUUID().toString(), val name: String, val parentId: String? = null, val color: Int = 0)
 
 /** A new page identity keeps copied ink and PDF backgrounds independent in undo history. */
 /** Appends an attempt, or replaces one with the same id where it sits, keeping the history in order. */

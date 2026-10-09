@@ -611,6 +611,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         enqueue { repository.saveFolders(folders) }
         return true
     }
+    fun recolorFolder(id: String, color: Int) {
+        val folders = _state.value.folders.map { if (it.id == id) it.copy(color = color.coerceAtLeast(0)) else it }
+        _state.update { it.copy(folders = folders) }
+        enqueue { repository.saveFolders(folders) }
+    }
     fun moveFolder(id: String, parentId: String?): Boolean {
         val state = _state.value
         val folder = state.folders.find { it.id == id } ?: return false
