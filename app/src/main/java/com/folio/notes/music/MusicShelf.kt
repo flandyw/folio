@@ -125,9 +125,11 @@ internal fun organizeScores(
     query: String,
     sort: MusicSort,
     filter: MusicFilter = MusicFilter(),
+    folder: String? = null,
 ): List<MusicScore> {
     val composer = filter.composer.trim()
     val filtered = scores
+        .filter { folder == null || it.folder == folder }
         .filter { !filter.favoritesOnly || it.starred }
         .filter { !filter.annotatedOnly || it.annotationCount() > 0 }
         .filter { !filter.unfinishedOnly || it.isUnfinished() }

@@ -60,11 +60,15 @@ internal data class MusicScore(
     val pencil: List<Int> = emptyList(),
     /** Where a new score's pencil marks come from on its first open: pages of another score's notebook. */
     val seed: MusicSeed? = null,
+    /** The shelf folder this score is filed in; null = unfiled. Only written when set. */
+    val folder: String? = null,
 )
 /** Copy [pages] (indexes into the source score, in order) from the source score's notebook. */
 internal data class MusicSeed(val from: String, val pages: List<Int>)
 internal data class MusicSet(val id: String, val name: String, val scores: List<String> = emptyList())
-internal data class MusicLibrary(val scores: List<MusicScore> = emptyList(), val sets: List<MusicSet> = emptyList())
+/** A flat shelf folder. Sets gather scores for playing; folders file them, one folder per score. */
+internal data class MusicFolder(val id: String, val name: String)
+internal data class MusicLibrary(val scores: List<MusicScore> = emptyList(), val sets: List<MusicSet> = emptyList(), val folders: List<MusicFolder> = emptyList())
 
 /** Pencil marks on one page of a score. */
 internal fun MusicScore.pencilOn(page: Int): Int = pencil.getOrNull(page) ?: 0
@@ -76,6 +80,8 @@ internal object MusicCodec {
     fun decode(text: String): MusicLibrary {
         val json = JSONObject(text)
         require(json.getInt("version") == 1) { "This music library needs a newer Folio version" }
+        val folders = json.optJSONArray("folders").objects().map { MusicFolder(it.getString("id"), it.getString("name")) }
+        val folderIds = folders.map { it.id }.toSet()
         return MusicLibrary(json.getJSONArray("scores").objects().map { s ->
             val id = s.getString("id")
             require(validMusicId(id)) { "Invalid score ID" }
@@ -98,6 +104,7 @@ internal object MusicCodec {
                         stroke.optString("style", MUSIC_SOLID))
                 }.filter { it.page in 0 until pages },
                 opened = s.optLong("opened").coerceAtLeast(0),
+                folder = s.optString("folder").takeIf { it in folderIds },
                 pencil = s.optJSONArray("pencil")?.let { a -> (0 until minOf(a.length(), pages)).map { a.getInt(it).coerceAtLeast(0) } } ?: emptyList(),
                 seed = s.optJSONObject("seed")?.let { o ->
                     val from = o.optString("from")
@@ -114,7 +121,7 @@ internal object MusicCodec {
         }, json.getJSONArray("sets").objects().map { s ->
             val ids = s.getJSONArray("scores")
             MusicSet(s.getString("id"), s.getString("name"), (0 until ids.length()).map { ids.getString(it) })
-        })
+        }, folders)
     }
 
     fun encode(library: MusicLibrary): String {
@@ -127,10 +134,14 @@ internal object MusicCodec {
                 // Only scores that carry labels mention them, so untouched indexes keep their shape.
                 .apply { if (s.texts.isNotEmpty()) put("texts", JSONArray(s.texts.map { textJson(it) })) }
                 .apply { if (s.pencil.any { it > 0 }) put("pencil", JSONArray(s.pencil)) }
+                .apply { s.folder?.let { put("folder", it) } }
                 .apply { s.seed?.let { put("seed", JSONObject().put("from", it.from).put("pages", JSONArray(it.pages))) } }
         })).put("sets", JSONArray(library.sets.map {
             JSONObject().put("id", it.id).put("name", it.name).put("scores", JSONArray(it.scores))
-        })).toString()
+        }))
+            // Only a shelf that uses folders mentions them, so an untouched index keeps its shape.
+            .apply { if (library.folders.isNotEmpty()) put("folders", JSONArray(library.folders.map { JSONObject().put("id", it.id).put("name", it.name) })) }
+            .toString()
     }
 
     /** A plain blue pen stroke writes no style keys, so an older Folio still reads the score. */

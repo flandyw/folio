@@ -27,6 +27,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import com.folio.notes.FolioSwipeRow
+import com.folio.notes.SwipeAction
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -107,13 +109,20 @@ import kotlinx.coroutines.withContext
     var deleteSet by rememberSaveable { mutableStateOf<String?>(null) }
     var addScoresTo by rememberSaveable { mutableStateOf<String?>(null) }
     var setsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderMenu by remember { mutableStateOf<String?>(null) }
+    // Scores waiting to be filed into a folder that is still being named.
+    var newFolderWith by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    var renameFolder by rememberSaveable { mutableStateOf<String?>(null) }
+    var deleteFolder by rememberSaveable { mutableStateOf<String?>(null) }
+    var moveFor by rememberSaveable { mutableStateOf<String?>(null) }
     var details by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteScore by rememberSaveable { mutableStateOf<String?>(null) }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     // Hoisted above the reader so closing a score returns to the same place on the shelf.
     val gridState = rememberLazyGridState()
-    var shelfInputs by remember { mutableStateOf(listOf<Any?>(setId, favorites, query.trim(), sort, composer, annotatedOnly, unfinishedOnly)) }
+    var shelfInputs by remember { mutableStateOf(listOf<Any?>(setId, folderId, favorites, query.trim(), sort, composer, annotatedOnly, unfinishedOnly)) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), model::import)
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val id = exportId
@@ -141,7 +150,7 @@ import kotlinx.coroutines.withContext
         context.startActivity(android.content.Intent.createChooser(share, "Share running order"))
     }
     fun open(score: MusicScore, set: String?) { activeId = score.id; playingSet = set; model.opened(score.id) }
-    fun clearScope() { query = ""; favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null; setId = null; focusManager.clearFocus() }
+    fun clearScope() { query = ""; favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null; setId = null; folderId = null; focusManager.clearFocus() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); model.clearMessage() } }
     val active = library.scores.find { it.id == activeId }
     LaunchedEffect(active != null) { onReaderMode(active != null) }
@@ -151,6 +160,7 @@ import kotlinx.coroutines.withContext
             activeId != null -> { activeId = null; playingSet = null }
             query.isNotEmpty() -> { query = ""; focusManager.clearFocus() }
             setId != null -> setId = null
+            folderId != null -> folderId = null
             favorites -> favorites = false
             composer != null -> composer = null
             annotatedOnly -> annotatedOnly = false
@@ -174,18 +184,19 @@ import kotlinx.coroutines.withContext
             val selectedSet = library.sets.find { it.id == setId }
             val trimmed = query.trim()
             val filter = MusicFilter(favoritesOnly = favorites, annotatedOnly = annotatedOnly, unfinishedOnly = unfinishedOnly, composer = composer.orEmpty())
-            val shown = remember(library, selectedSet, trimmed, sort, filter) {
+            val shown = remember(library, selectedSet, trimmed, sort, filter, folderId) {
                 // A set list keeps its running order; a plain shelf obeys the chosen sort and filters.
                 if (selectedSet != null) selectedSet.scoresIn(library).filter { it.matchesQuery(trimmed) }
-                else organizeScores(library.scores, trimmed, sort, filter)
+                else organizeScores(library.scores, trimmed, sort, filter, folderId)
             }
-            val scoped = trimmed.isNotEmpty() || filter.active || selectedSet != null
+            val selectedFolder = library.folders.find { it.id == folderId }
+            val scoped = trimmed.isNotEmpty() || filter.active || selectedSet != null || selectedFolder != null
             val starredCount = library.scores.count { it.starred }
             val shelfPages = shown.sumOf { it.pages }
             val shelfMarks = shown.sumOf { it.annotationCount() }
             val composers = composerNames(library.scores)
             val rows = listView || selectedSet != null
-            val inputs = listOf(setId, favorites, trimmed, sort, composer, annotatedOnly, unfinishedOnly)
+            val inputs = listOf(setId, folderId, favorites, trimmed, sort, composer, annotatedOnly, unfinishedOnly)
             LaunchedEffect(inputs) {
                 // Only a new scope starts at the top; returning from a score keeps the position.
                 if (inputs != shelfInputs) { shelfInputs = inputs; gridState.scrollToItem(0) }
@@ -206,6 +217,8 @@ import kotlinx.coroutines.withContext
                             FolioMenuPopover(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add to music") {
                                 FolioMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
                                     leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) }, enabled = !state.busy)
+                                FolioMenuItem({ Text("New folder") }, { importMenu = false; newFolderWith = emptyList() },
+                                    leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
                                 FolioMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                             }
@@ -258,17 +271,31 @@ import kotlinx.coroutines.withContext
                                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
                             // Set lists sit where folders do on the notebook shelf, menu and all.
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                FilterChip(selectedSet == null && !favorites, { setId = null; favorites = false }, { Text("All scores") },
+                                FilterChip(selectedSet == null && !favorites && selectedFolder == null, { setId = null; favorites = false; folderId = null }, { Text("All scores") },
                                     leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null, Modifier.size(16.dp)) })
-                                FilterChip(selectedSet == null && favorites, { setId = null; favorites = !favorites },
+                                FilterChip(selectedSet == null && favorites, { setId = null; folderId = null; favorites = !favorites },
                                     { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") },
                                     leadingIcon = { Icon(Icons.Rounded.StarOutline, null, Modifier.size(16.dp)) })
                                 FilterChip(annotatedOnly, { annotatedOnly = !annotatedOnly; setId = null }, { Text("Annotated") },
                                     leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) })
                                 FilterChip(unfinishedOnly, { unfinishedOnly = !unfinishedOnly; setId = null }, { Text("Unfinished") },
                                     leadingIcon = { Icon(Icons.Rounded.Pending, null, Modifier.size(16.dp)) })
+                                library.folders.forEach { folder -> Box {
+                                    FilterChip(folder.id == folderId && selectedSet == null, { setId = null; favorites = false; folderId = if (folder.id == folderId) null else folder.id },
+                                        { Text("${folder.name} · ${library.scores.count { it.folder == folder.id }}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        leadingIcon = { Icon(if (folder.id == folderId) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, null, Modifier.size(16.dp)) },
+                                        trailingIcon = {
+                                            IconButton({ folderMenu = folder.id }, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) {
+                                                Icon(Icons.Rounded.MoreVert, "Options for ${folder.name}", Modifier.size(18.dp))
+                                            }
+                                        })
+                                    FolioMenuPopover(folderMenu == folder.id, { folderMenu = null }, modifier = Modifier.guardUiTouches(), title = "Folder") {
+                                        FolioMenuItem({ Text("Rename folder") }, { folderMenu = null; renameFolder = folder.id }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                        FolioMenuItem({ Text("Delete folder") }, { folderMenu = null; deleteFolder = folder.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+                                    }
+                                } }
                                 library.sets.forEach { set -> Box {
-                                    FilterChip(set.id == setId, { setId = if (set.id == setId) null else set.id; favorites = false },
+                                    FilterChip(set.id == setId, { setId = if (set.id == setId) null else set.id; favorites = false; folderId = null },
                                         { Text("${set.name} · ${set.scores.size}") },
                                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, Modifier.size(16.dp)) },
                                         trailingIcon = {
@@ -282,6 +309,7 @@ import kotlinx.coroutines.withContext
                                         FolioMenuItem({ Text("Delete set list") }, { setMenu = null; deleteSet = set.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
                                     }
                                 } }
+                                AssistChip({ newFolderWith = emptyList() }, { Text("New folder") }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(16.dp)) })
                                 AssistChip({ newSetWith = emptyList() }, { Text("New set list") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
                                 // Composers become their own filters once a shelf holds more than one voice.
                                 if (composers.size > 1) composers.forEach { name ->
@@ -299,7 +327,7 @@ import kotlinx.coroutines.withContext
                                 onShuffle = { model.set(selectedSet.id) { it.copy(scores = shuffledOrder(it.scores)) } },
                                 onShare = { shareSet(selectedSet) })
                             else Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (trimmed.isNotEmpty()) "Search results" else if (favorites) "Favorites" else "Your scores", Modifier.weight(1f),
+                                Text(if (trimmed.isNotEmpty()) "Search results" else if (selectedFolder != null) selectedFolder.name else if (favorites) "Favorites" else "Your scores", Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -344,6 +372,7 @@ import kotlinx.coroutines.withContext
                                     trimmed.isNotEmpty() -> "No scores match “$trimmed”"
                                     filter.active -> "No scores match these filters"
                                     selectedSet != null -> "Build the running order"
+                                    selectedFolder != null -> "This folder is empty"
                                     favorites -> "Keep your go-to pieces close"
                                     else -> "Your repertoire lives here."
                                 }, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
@@ -351,6 +380,7 @@ import kotlinx.coroutines.withContext
                                     trimmed.isNotEmpty() -> "Try a title, composer or instrument."
                                     filter.active -> "Clear the filters to see your whole shelf."
                                     selectedSet != null -> "Add scores in the order you'll play them."
+                                    selectedFolder != null -> "Use a score's menu and choose Move to folder."
                                     favorites -> "Tap the star on a score to find it here."
                                     else -> "Bring in sheet music PDFs. Folio keeps its own copy,\nso every score is ready offline."
                                 }, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -373,7 +403,7 @@ import kotlinx.coroutines.withContext
                             onOpen = { open(score, selectedSet.id) },
                             onUp = if (order && index > 0) ({ model.move(selectedSet.id, score.id, -1) }) else null,
                             onDown = if (order && index < shown.lastIndex) ({ model.move(selectedSet.id, score.id, 1) }) else null) {
-                            ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id },
+                            ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id }, onMove = { moveFor = score.id },
                                 onExtract = { model.reviewExisting(score.id) }, onExport = { exportScore(score) }, onDelete = { deleteScore = score.id },
                                 onDuplicate = { model.duplicate(score.id) },
                                 onRemoveFromSet = { model.set(selectedSet.id) { it.copy(scores = it.scores - score.id) } })
@@ -382,12 +412,12 @@ import kotlinx.coroutines.withContext
                     else -> items(shown, key = { it.id }) { score ->
                         val star = { model.score(score.id) { it.copy(starred = !it.starred) } }
                         val menu: @Composable () -> Unit = {
-                            ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id },
+                            ScoreMenu(score, state.busy, onDetails = { details = score.id }, onSets = { setsFor = score.id }, onMove = { moveFor = score.id },
                                 onExtract = { model.reviewExisting(score.id) }, onExport = { exportScore(score) }, onDelete = { deleteScore = score.id },
                                 onDuplicate = { model.duplicate(score.id) })
                         }
                         val placement = if (wide) Modifier else Modifier.animateItem(placementSpec = com.folio.notes.folioSpring())
-                        if (rows) ScoreRow(score, model, placement, { open(score, null) }, star, menu)
+                        if (rows) ScoreRow(score, model, placement, { open(score, null) }, star, { deleteScore = score.id }, menu)
                         else ScoreCard(score, model, placement, { open(score, null) }, star, menu)
                     }
                 }
@@ -402,6 +432,24 @@ import kotlinx.coroutines.withContext
         NameDialog("New set list", "Name it after the concert, service or gig.", "", "Create set list", { newSetWith = null }) {
             model.newSet(it, scores); newSetWith = null
         }
+    }
+    newFolderWith?.let { scores ->
+        NameDialog("New folder", "Group scores by ensemble, term or composer.", "", "Create folder", { newFolderWith = null }) {
+            model.newFolder(it, scores); newFolderWith = null
+        }
+    }
+    library.folders.find { it.id == renameFolder }?.let { folder ->
+        NameDialog("Rename folder", "Scores inside keep their place.", folder.name, "Save", { renameFolder = null }) { name ->
+            model.renameFolder(folder.id, name); renameFolder = null
+        }
+    }
+    library.folders.find { it.id == deleteFolder }?.let { folder ->
+        val inside = library.scores.count { it.folder == folder.id }
+        ConfirmDelete("Delete “${folder.name}”?", "The folder is removed. Its $inside ${if (inside == 1) "score stays" else "scores stay"} in Music, unfiled.",
+            "Delete folder", { deleteFolder = null }) { model.deleteFolder(folder.id); if (folderId == folder.id) folderId = null; deleteFolder = null }
+    }
+    library.scores.find { it.id == moveFor }?.let { score ->
+        FolderPickerPanel(score, library.folders, model, onNewFolder = { moveFor = null; newFolderWith = listOf(score.id) }) { moveFor = null }
     }
     library.sets.find { it.id == renameSet }?.let { set ->
         NameDialog("Rename set list", "Keep your concerts easy to find.", set.name, "Save", { renameSet = null }) { name ->
@@ -503,8 +551,11 @@ import kotlinx.coroutines.withContext
     }
 }
 
-@Composable private fun ScoreRow(score: MusicScore, model: MusicViewModel, modifier: Modifier, open: () -> Unit, star: () -> Unit, menu: @Composable () -> Unit) {
-    Surface(onClick = open, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
+@Composable private fun ScoreRow(score: MusicScore, model: MusicViewModel, modifier: Modifier, open: () -> Unit, star: () -> Unit, delete: () -> Unit, menu: @Composable () -> Unit) {
+    FolioSwipeRow(modifier, shape = FolioShapes.large,
+        startToEnd = SwipeAction(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites", perform = star),
+        endToStart = SwipeAction(Icons.Rounded.DeleteOutline, "Delete score", destructive = true, perform = delete)) {
+    Surface(onClick = open, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Box {
             Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -522,6 +573,7 @@ import kotlinx.coroutines.withContext
             if (score.readingProgress() > 0f) LinearProgressIndicator(progress = { score.readingProgress() },
                 modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp))
         }
+    }
     }
 }
 
@@ -547,13 +599,14 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable private fun ScoreMenu(score: MusicScore, busy: Boolean, onDetails: () -> Unit, onSets: () -> Unit, onExtract: () -> Unit,
-    onExport: () -> Unit, onDelete: () -> Unit, onDuplicate: () -> Unit, onRemoveFromSet: (() -> Unit)? = null) {
+    onExport: () -> Unit, onDelete: () -> Unit, onDuplicate: () -> Unit, onMove: () -> Unit, onRemoveFromSet: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${score.title}") }
         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Score actions") {
             FolioMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
             FolioMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+            FolioMenuItem({ Text("Move to folder") }, { menu = false; onMove() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
             FolioMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
             if (onRemoveFromSet != null) FolioMenuItem({ Text("Remove from this set list") }, { menu = false; onRemoveFromSet() },
                 leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, destructive = true)
@@ -716,6 +769,33 @@ private fun scoreMeta(score: MusicScore): String {
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {
             Button(dismiss, shapes = ButtonDefaults.shapes()) { Text("Done") }
+        }
+    }
+}
+
+@Composable private fun FolderPickerPanel(score: MusicScore, folders: List<MusicFolder>, model: MusicViewModel, onNewFolder: () -> Unit, dismiss: () -> Unit) {
+    FolioPanel("Move to folder", dismiss) {
+        Text(score.title, Modifier.padding(horizontal = FolioSpacing.dp24), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12)) {
+            PickRow(score.folder == null, "No folder", "Keep it on the main shelf", {
+                Icon(Icons.Rounded.LibraryMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }) { model.moveToFolder(setOf(score.id), null); dismiss() }
+            folders.forEach { folder ->
+                PickRow(score.folder == folder.id, folder.name, "Folder", {
+                    Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }) { model.moveToFolder(setOf(score.id), folder.id); dismiss() }
+            }
+            Surface(onClick = onNewFolder, shape = FolioShapes.large, color = Color.Transparent) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    Icon(Icons.Rounded.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary)
+                    Text("New folder with this score", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {
+            TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
         }
     }
 }

@@ -27,6 +27,8 @@ No-op, missing, self/descendant, duplicate-sibling-name and tag-limit destinatio
 
 ## Tablet files
 
+**Swipe actions.** In the Library's list view a notebook row swipes right to favourite and left to delete (the usual confirmation still appears; a swipe never removes anything by itself). In Tablet files a row *slides open* instead (`FolioRevealRow`, `SwipeActions.kt`) to uncover Import, Share, Rename and Delete for what that file supports; only one row is open at a time, tapping an open row closes it, and Delete asks in a popover anchored to its button. Sliding is off while selecting or while a change is running. The same actions stay in each row's menu.
+
 **Enable all files access** opens Folio’s Android storage-access settings on Android 11+. Enable **Allow access to manage all files** once, then Explorer opens internal storage directly and lists mounted SD/USB volumes. The permission is checked again on resume, so granting or revoking it is reflected without restarting Folio. Android 8–10 uses legacy shared-storage runtime permissions (and the Android 10 legacy-storage flag). Android still protects other apps’ private directories.
 
 **Connect folder** remains available for cloud/document providers and uses Android’s Storage Access Framework. Folio remembers up to 32 explicitly selected trees and their persisted access. The system controls which locations can be selected; for individual files in Downloads or restricted roots, the existing PDF/Folio file pickers remain available. Local storage, SD cards, and installed document providers can participate. The manifest declares `MANAGE_EXTERNAL_STORAGE`; the user must explicitly grant it in Android settings.

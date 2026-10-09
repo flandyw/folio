@@ -28,6 +28,13 @@ accessibility label adds the pencil marks). The score menu holds details and reh
 unopened), part extraction, export and delete. Back clears the composer and filter chips before it
 leaves Music.
 
+**Folders** file scores on the shelf: one folder per score, flat (no nesting), shown as chips beside
+the set lists, each with a rename/delete menu. A score's menu has **Move to folder**; **New folder**
+is in the Import menu and at the end of the chip row. Deleting a folder only unfiles its scores. The
+index gains an optional top-level `folders` array and a `folder` key on filed scores, both written only
+when used, so an index that never used folders keeps its old shape and an older Folio still opens it.
+In list view a score row swipes right to favourite and left to delete (which asks first).
+
 Selecting a set list shows its header (score and page counts, an estimated running time at roughly
 half a minute a page, **Play set**, **Add scores**, **Reverse**, **Shuffle** and **Share**) and the
 running order with numbered positions and **earlier / later** arrows. **Reverse** flips the order,

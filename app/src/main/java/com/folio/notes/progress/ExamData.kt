@@ -185,9 +185,11 @@ val Notebook.countsAsExam: Boolean get() = exam.type?.isExam != false
 fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.filter { it.countsAsExam }.flatMap { note -> note.attempts.mapNotNull { a ->
     val max = a.total ?: note.exam.marksTotal ?: return@mapNotNull null
     val subject = focalNotebookSubject(note)
+    // Focal's web app reads completedAt as a plain YYYY-MM-DD (it appends T00:00:00 itself), so an instant here shows as "Invalid Date" there.
+    val day = java.time.Instant.ofEpochMilli(a.date).atZone(ZoneId.systemDefault()).toLocalDate()
     val raw = JSONObject().put("id", a.id).put("subject", subject).put("provider", note.exam.company)
-        .put("title", note.title).put("examYear", note.exam.year ?: examDate(isoTime(a.date))!!.year)
-        .put("paper", note.exam.type?.label ?: "Exam").put("completedAt", isoTime(a.date))
+        .put("title", note.title).put("examYear", note.exam.year ?: day.year)
+        .put("paper", note.exam.type?.label ?: "Exam").put("completedAt", day.toString())
         .put("rawScore", a.score).put("rawMax", max).put("createdAt", isoTime(a.date))
         .put("updatedAt", isoTime(a.date)).put("referenceId", JSONObject.NULL).put("folioNotebookId", note.id)
     a.secondsTaken?.let { raw.put("timing", JSONObject().put("actualWritingSeconds", it)

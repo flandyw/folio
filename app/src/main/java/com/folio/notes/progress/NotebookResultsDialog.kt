@@ -46,11 +46,10 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
 
     fun encode(): JSONObject {
         val original = JSONObject(source)
-        // Keep the notebook's own timestamp unless the date was changed, so an unedited result stays byte-for-byte what the notebook recorded.
-        val sameDay = date.trim() == original.optString("completedAt").take(10)
+        // Always a plain YYYY-MM-DD: Focal's web app cannot read a full timestamp here.
         return original.put("title", title.trim()).put("subject", subject.trim()).put("provider", provider.trim())
             .put("examYear", year.trim().toInt()).put("paper", paper.trim())
-            .put("completedAt", if (sameDay) original.getString("completedAt") else date.trim())
+            .put("completedAt", date.trim())
             .put("rawScore", score.trim().toDouble()).put("rawMax", max.trim().toDouble())
     }
 

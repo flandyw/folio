@@ -265,6 +265,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                     }
                     if (changing) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) { LoadingIndicator(Modifier.size(32.dp)); Text("Updating files…", style = MaterialTheme.typography.bodySmall) }
                 }
+                var revealedUri by remember(current) { mutableStateOf<String?>(null) }
                 val scroll = androidx.compose.foundation.lazy.rememberLazyListState()
                 LaunchedEffect(current, query, sort, pdfOnly, showHiddenFolders) { scroll.scrollToItem(0) }
                 LazyColumn(state = scroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -314,8 +315,30 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 if (file.size >= 0) add(Formatter.formatShortFileSize(context, file.size))
                                 if (file.modified > 0) add(libraryLastEditedLabel(file.modified))
                             }.joinToString(" · ")
+                            var confirmDelete by remember { mutableStateOf(false) }
+                            val canImport = !file.directory && (file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual
+                            val canRename = file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)
+                            val canDelete = file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)
+                            val key = file.uri.toString()
+                            FolioRevealRow(revealed = revealedUri == key, onRevealedChange = { open -> revealedUri = if (open) key else if (revealedUri == key) null else revealedUri },
+                                actionCount = listOf(canImport, !file.directory, canRename, canDelete).count { it },
+                                enabled = !selecting && !changing, shape = FolioShapes.large,
+                                actions = {
+                                    if (canImport) RevealActionButton(Icons.Rounded.Download, "Import") { revealedUri = null; importFile = file }
+                                    if (!file.directory) RevealActionButton(Icons.Rounded.Share, "Share") { revealedUri = null; launchFile(file, true) }
+                                    if (canRename) RevealActionButton(Icons.Rounded.Edit, "Rename") { revealedUri = null; rename = file }
+                                    if (canDelete) Box(Modifier.width(RevealActionWidth).fillMaxHeight()) {
+                                        RevealActionButton(Icons.Rounded.DeleteOutline, "Delete", destructive = true) { confirmDelete = true }
+                                        FolioMenuPopover(confirmDelete, { confirmDelete = false }, modifier = Modifier.guardUiTouches(), title = "Delete “${file.name}”?") {
+                                            Text(if (file.directory) "This deletes the folder and its contents. It can't be undone in Folio." else "This deletes the original file from this location. It can't be undone in Folio.",
+                                                Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            FolioMenuItem({ Text("Delete") }, { confirmDelete = false; revealedUri = null; mutate("Deleted") { files.delete(file) } }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+                                            FolioMenuItem({ Text("Keep") }, { confirmDelete = false })
+                                        }
+                                    }
+                                }) {
                             Surface(shape = FolioShapes.large, color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                                modifier = Modifier.semantics { if (selecting && !file.directory) this.selected = selected }.combinedClickable(enabled = !changing,
+                                modifier = Modifier.fillMaxWidth().semantics { if (selecting && !file.directory) this.selected = selected }.combinedClickable(enabled = !changing,
                                     onClickLabel = if (file.directory) "Open ${file.name}" else if (selecting) "Select ${file.name}" else "Open ${file.name}",
                                     onClick = {
                                         when {
@@ -343,7 +366,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                             if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
                                         }
                                     } }, colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow))
-                            }
+                            }                            }
                         }
                     }
                 }

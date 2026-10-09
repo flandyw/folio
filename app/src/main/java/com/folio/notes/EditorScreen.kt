@@ -2605,7 +2605,10 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     noteId: String, thumbnails: PageThumbnailCache
 ) {
     var menu by remember { mutableStateOf(false) }
-    Surface(onClick = onOpen, shape = FolioShapes.extraLarge, modifier = modifier.fillMaxWidth(),
+    FolioSwipeRow(modifier.fillMaxWidth(), shape = FolioShapes.extraLarge,
+        startToEnd = SwipeAction(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (page.bookmarked) "Remove bookmark" else "Bookmark page", perform = onBookmark),
+        endToStart = if (canDelete) SwipeAction(Icons.Rounded.DeleteOutline, "Delete page", destructive = true, perform = onDelete) else null) {
+    Surface(onClick = onOpen, shape = FolioShapes.extraLarge, modifier = Modifier.fillMaxSize(),
         color = if (current) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = if (dragging) 6.dp else 1.dp, tonalElevation = if (current) 1.dp else 0.dp,
         border = BorderStroke(
@@ -2651,6 +2654,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                     onInsert = onInsert, onDuplicate = onDuplicate, onDelete = onDelete)
             }
         }
+    }
     }
 }
 

@@ -568,10 +568,15 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                             else MaterialTheme.colorScheme.surfaceContainerLow,
                             animationSpec = folioSpring(), label = "notebookSelection",
                         )
-                        if (listView) Surface(
+                        if (listView) FolioSwipeRow(
+                            dragModifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection },
+                            shape = FolioShapes.large,
+                            startToEnd = if (selecting || pickingNotebook) null else SwipeAction(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") { model.star(note) },
+                            endToStart = if (selecting || pickingNotebook) null else SwipeAction(Icons.Rounded.DeleteOutline, "Delete notebook", destructive = true) { delete = note },
+                        ) { Surface(
                             shape = FolioShapes.large,
                             color = selectionColor,
-                            modifier = dragModifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection }.combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
+                            modifier = Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = longPress)
                         ) {
                                 Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     if (selecting) {
@@ -589,7 +594,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                         NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title)
                                     }
                                 }
-                            } else NotebookCard(
+                            } } else NotebookCard(
                                 note, model.thumbnails, folder, open, { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); model.star(note) },
                                 { rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note },
                                 selecting, note.pages.count { it.redoFlag },

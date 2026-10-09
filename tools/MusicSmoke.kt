@@ -11,6 +11,13 @@ fun main() {
     val library = MusicLibrary(listOf(first, second), listOf(MusicSet("concert", "Concert", listOf(second.id, first.id))))
     check(MusicCodec.decode(MusicCodec.encode(library)) == library) { "Music round trip lost score or performance data" }
     check(MusicCodec.decode(MusicCodec.encode(MusicLibrary())) == MusicLibrary())
+    val filed = MusicLibrary(listOf(MusicScore("11111111-1111-4111-8111-111111111111", "A", 2, folder = "f1"),
+        MusicScore("22222222-2222-4222-8222-222222222222", "B", 2)), folders = listOf(MusicFolder("f1", "Choir")))
+    check(MusicCodec.decode(MusicCodec.encode(filed)) == filed) { "Folders lost on reload" }
+    check(!MusicCodec.encode(MusicLibrary()).contains("folders")) { "An unused folder list changed the index shape" }
+    check(organizeScores(filed.scores, "", MusicSort.TITLE, folder = "f1").map { it.title } == listOf("A")) { "Folder scope did not narrow the shelf" }
+    val orphan = JSONObject(MusicCodec.encode(filed)).also { it.remove("folders") }
+    check(MusicCodec.decode(orphan.toString()).scores.all { it.folder == null }) { "A score kept a folder that no longer exists" }
     val played = library.copy(scores = listOf(first.copy(opened = 1_760_000_000_000L), second))
     check(MusicCodec.decode(MusicCodec.encode(played)) == played) { "Last-played time lost" }
     val legacy = JSONObject(MusicCodec.encode(played)).also { it.getJSONArray("scores").getJSONObject(0).remove("opened") }

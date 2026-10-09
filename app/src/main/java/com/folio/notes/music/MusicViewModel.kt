@@ -127,6 +127,18 @@ internal class MusicViewModel(application: Application) : AndroidViewModel(appli
     fun newSet(name: String, scores: List<String> = emptyList()) = edit { it.copy(sets = it.sets + MusicSet(UUID.randomUUID().toString(), name.trim(), scores)) }
     fun set(id: String, change: (MusicSet) -> MusicSet) = edit { it.copy(sets = it.sets.map { s -> if (s.id == id) change(s) else s }) }
     fun deleteSet(id: String) = edit { it.copy(sets = it.sets.filterNot { s -> s.id == id }) }
+    fun newFolder(name: String, scores: List<String> = emptyList()) = edit { library ->
+        val folder = MusicFolder(UUID.randomUUID().toString(), name.trim())
+        library.copy(folders = library.folders + folder, scores = library.scores.map { if (it.id in scores) it.copy(folder = folder.id) else it })
+    }
+    fun renameFolder(id: String, name: String) = edit { it.copy(folders = it.folders.map { f -> if (f.id == id) f.copy(name = name.trim()) else f }) }
+    /** Removing a folder only unfiles its scores; nothing in it is deleted. */
+    fun deleteFolder(id: String) = edit { library ->
+        library.copy(folders = library.folders.filterNot { it.id == id }, scores = library.scores.map { if (it.folder == id) it.copy(folder = null) else it })
+    }
+    fun moveToFolder(scoreIds: Set<String>, folder: String?) = edit { library ->
+        library.copy(scores = library.scores.map { if (it.id in scoreIds) it.copy(folder = folder?.takeIf { f -> library.folders.any { it.id == f } }) else it })
+    }
     fun export(id: String, uri: Uri) { work.trySend {
         withContext(Dispatchers.IO) { store.export(id, uri) }
         mutable.value = mutable.value.copy(message = "Original PDF exported (pencil annotations stay in Music)")
