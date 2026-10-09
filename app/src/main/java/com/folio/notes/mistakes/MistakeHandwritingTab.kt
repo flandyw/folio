@@ -2,6 +2,9 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -308,9 +311,9 @@ private fun HandwritingNotebookRow(
             }
         }
     }
-    DropdownMenu(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches()) {
-        DropdownMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
-        DropdownMenuItem({ Text("Delete practice page") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+    FolioMenuPopover(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches(), title = "Practice page") {
+        FolioMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+        FolioMenuItem({ Text("Delete practice page") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
     }
     }
     if (confirmDelete) {

@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -200,10 +203,10 @@ import kotlinx.coroutines.withContext
                                     Icon(Icons.Rounded.ArrowDropDown, "More ways to add music")
                                 } },
                             )
-                            DropdownMenu(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches()) {
-                                DropdownMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
+                            FolioMenuPopover(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add to music") {
+                                FolioMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
                                     leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null) }, enabled = !state.busy)
-                                DropdownMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
+                                FolioMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
                             }
                         }
@@ -273,10 +276,10 @@ import kotlinx.coroutines.withContext
                                                 Icon(Icons.Rounded.MoreVert, "Options for ${set.name}", Modifier.size(18.dp))
                                             }
                                         })
-                                    DropdownMenu(setMenu == set.id, { setMenu = null }, modifier = Modifier.guardUiTouches()) {
-                                        DropdownMenuItem({ Text("Rename set list") }, { setMenu = null; renameSet = set.id }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                        DropdownMenuItem({ Text("Duplicate set list") }, { setMenu = null; model.newSet("${set.name} copy", set.scores) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                        DropdownMenuItem({ Text("Delete set list") }, { setMenu = null; deleteSet = set.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                                    FolioMenuPopover(setMenu == set.id, { setMenu = null }, modifier = Modifier.guardUiTouches(), title = "Set list") {
+                                        FolioMenuItem({ Text("Rename set list") }, { setMenu = null; renameSet = set.id }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                        FolioMenuItem({ Text("Duplicate set list") }, { setMenu = null; model.newSet("${set.name} copy", set.scores) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                        FolioMenuItem({ Text("Delete set list") }, { setMenu = null; deleteSet = set.id }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
                                     }
                                 } }
                                 AssistChip({ newSetWith = emptyList() }, { Text("New set list") }, leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)) })
@@ -308,9 +311,9 @@ import kotlinx.coroutines.withContext
                                     TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) {
                                         Icon(Icons.AutoMirrored.Rounded.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1)
                                     }
-                                    DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) {
+                                    FolioMenuPopover(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches(), title = "Sort scores") {
                                         MusicSort.entries.forEach { option ->
-                                            DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) })
+                                            FolioMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, selected = sort == option)
                                         }
                                     }
                                 }
@@ -444,9 +447,9 @@ import kotlinx.coroutines.withContext
                 }
                 Box {
                     IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Set list options") }
-                    DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                        DropdownMenuItem({ Text("Rename set list") }, { menu = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                        DropdownMenuItem({ Text("Delete set list") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                    FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Set list") {
+                        FolioMenuItem({ Text("Rename set list") }, { menu = false; onRename() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                        FolioMenuItem({ Text("Delete set list") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
                     }
                 }
             }
@@ -548,15 +551,15 @@ import kotlinx.coroutines.withContext
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${score.title}") }
-        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-            DropdownMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
-            DropdownMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-            DropdownMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-            if (onRemoveFromSet != null) DropdownMenuItem({ Text("Remove from this set list") }, { menu = false; onRemoveFromSet() },
-                leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) })
-            DropdownMenuItem({ Text("Extract instrument parts") }, { menu = false; onExtract() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
-            DropdownMenuItem({ Text("Export original PDF") }, { menu = false; onExport() }, leadingIcon = { Icon(Icons.Rounded.IosShare, null) })
-            DropdownMenuItem({ Text("Delete") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Score actions") {
+            FolioMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
+            FolioMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+            FolioMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+            if (onRemoveFromSet != null) FolioMenuItem({ Text("Remove from this set list") }, { menu = false; onRemoveFromSet() },
+                leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, destructive = true)
+            FolioMenuItem({ Text("Extract instrument parts") }, { menu = false; onExtract() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
+            FolioMenuItem({ Text("Export original PDF") }, { menu = false; onExport() }, leadingIcon = { Icon(Icons.Rounded.IosShare, null) })
+            FolioMenuItem({ Text("Delete") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
         }
     }
 }

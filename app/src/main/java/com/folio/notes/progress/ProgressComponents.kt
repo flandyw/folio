@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -147,10 +150,10 @@ internal fun friendlyDate(value: String): String = examDate(value)?.let { date -
             Modifier.widthIn(max = 220.dp),
             leadingIcon = icon?.let { { Icon(it, null, Modifier.size(FilterChipDefaults.IconSize)) } },
             trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(FilterChipDefaults.IconSize)) })
-        DropdownMenu(expanded, { expanded = false }, Modifier.heightIn(max = 360.dp).guardUiTouches()) {
+        FolioMenuPopover(expanded, { expanded = false }, Modifier.heightIn(max = 360.dp).guardUiTouches(), title = label) {
             options.forEach { option ->
-                DropdownMenuItem({ Text(option) }, { onChange(option); expanded = false },
-                    trailingIcon = { if (option == value) Icon(Icons.Rounded.Check, null) })
+                FolioMenuItem({ Text(option) }, { onChange(option); expanded = false },
+                    selected = option == value)
             }
         }
     }

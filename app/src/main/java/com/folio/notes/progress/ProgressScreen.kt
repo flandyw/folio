@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import com.folio.notes.FolioSpacing
 import com.folio.notes.EmptyHint
 import android.content.ClipData
@@ -569,12 +572,12 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton({ open = true }, enabled = enabled) { Icon(Icons.Rounded.MoreVert, "Actions for $title") }
-        DropdownMenu(open, { open = false }, Modifier.guardUiTouches()) {
-            DropdownMenuItem({ Text("Edit result") }, { open = false; onEdit() }, enabled = editable, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-            DropdownMenuItem({ Text("Add mistake") }, { open = false; onMistake() }, leadingIcon = { Icon(Icons.Rounded.AddTask, null) })
+        FolioMenuPopover(open, { open = false }, Modifier.guardUiTouches(), title = "Result actions") {
+            FolioMenuItem({ Text("Edit result") }, { open = false; onEdit() }, enabled = editable, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            FolioMenuItem({ Text("Add mistake") }, { open = false; onMistake() }, leadingIcon = { Icon(Icons.Rounded.AddTask, null) })
             HorizontalDivider()
-            DropdownMenuItem({ Text("Delete", color = MaterialTheme.colorScheme.error) }, { open = false; onDelete() },
-                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) })
+            FolioMenuItem({ Text("Delete", color = MaterialTheme.colorScheme.error) }, { open = false; onDelete() },
+                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
         }
     }
 }
@@ -664,14 +667,14 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
                 Spacer(Modifier.weight(1f))
                 Box {
                     IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More for ${exam.subject} ${exam.year} ${exam.paper}") }
-                    DropdownMenu(menu, { menu = false }, Modifier.guardUiTouches()) {
-                        DropdownMenuItem({ Text("Start timed sitting") }, { menu = false; onTimed() }, enabled = enabled, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
-                        if (logged != null) DropdownMenuItem({ Text("Compare result") }, { menu = false; onResult(logged.id) }, leadingIcon = { Icon(Icons.Rounded.Insights, null) })
-                        else DropdownMenuItem({ Text(if (done) "Mark not done" else "Mark done") }, { menu = false; onToggle() }, enabled = enabled,
+                    FolioMenuPopover(menu, { menu = false }, Modifier.guardUiTouches(), title = "Exam actions") {
+                        FolioMenuItem({ Text("Start timed sitting") }, { menu = false; onTimed() }, enabled = enabled, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
+                        if (logged != null) FolioMenuItem({ Text("Compare result") }, { menu = false; onResult(logged.id) }, leadingIcon = { Icon(Icons.Rounded.Insights, null) })
+                        else FolioMenuItem({ Text(if (done) "Mark not done" else "Mark done") }, { menu = false; onToggle() }, enabled = enabled,
                             leadingIcon = { Icon(if (done) Icons.Rounded.RemoveDone else Icons.Rounded.TaskAlt, null) })
                         if (exam.companions.isNotEmpty()) HorizontalDivider()
                         exam.companions.forEach { resource ->
-                            DropdownMenuItem({ Text(when (resource.kind) { "report" -> "Examiner report"; "specification" -> "Specifications"; else -> "Sample paper" }) },
+                            FolioMenuItem({ Text(when (resource.kind) { "report" -> "Examiner report"; "specification" -> "Specifications"; else -> "Sample paper" }) },
                                 { menu = false; open(resource.url) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, null) })
                         }
                     }

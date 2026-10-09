@@ -5,7 +5,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -40,22 +39,12 @@ import androidx.compose.ui.unit.dp
     }
 }
 
-/** One full-width action row in a popover; at least 44dp tall so it stays easy to hit. */
+/** The same inset action rows in both the editor palettes and the app's menus. */
 @Composable internal fun PopoverRow(
     icon: ImageVector?, label: String, enabled: Boolean = true, destructive: Boolean = false, onClick: () -> Unit
 ) {
-    val tint = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Surface(onClick, enabled = enabled, shape = FolioShapes.medium, color = Color.Transparent, contentColor = tint) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp8),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            if (icon != null) Icon(icon, null, Modifier.size(20.dp)) else Spacer(Modifier.width(20.dp))
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
+    FolioMenuItem(text = { Text(label) }, onClick = onClick,
+        leadingIcon = icon?.let { { Icon(it, null) } }, enabled = enabled, destructive = destructive)
 }
 
 /** A labelled run of rows; every group of a popover is visible at once instead of nested. */

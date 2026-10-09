@@ -223,11 +223,11 @@ internal fun FocalStudyContent(
                         Text(selectedNote?.title ?: "No notebook", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Icon(Icons.Rounded.ExpandMore, null)
                     }
-                    DropdownMenu(notebookMenu, { notebookMenu = false }) {
-                        DropdownMenuItem({ Text("No notebook") }, { notebookId = null; notebookMenu = false })
+                    FolioMenuPopover(notebookMenu, { notebookMenu = false }, title = "Session notebook") {
+                        FolioMenuItem({ Text("No notebook") }, { notebookId = null; notebookMenu = false }, selected = notebookId == null)
                         notebooks.sortedBy { it.title.lowercase() }.forEach { item ->
-                            DropdownMenuItem({ Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                { notebookId = item.id; notebookMenu = false })
+                            FolioMenuItem({ Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                { notebookId = item.id; notebookMenu = false }, selected = notebookId == item.id)
                         }
                     }
                 }
@@ -637,9 +637,9 @@ private fun SubjectPicker(subjects: List<FocalSubject>, selected: String?, onSel
                 Text(subjects.firstOrNull { it.id == selected }?.name ?: "No subject", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Icon(Icons.Rounded.ExpandMore, null)
             }
-            DropdownMenu(open, { open = false }) {
-                DropdownMenuItem({ Text("No subject") }, { onSelect(null); open = false })
-                subjects.forEach { DropdownMenuItem({ Text(it.name) }, { onSelect(it.id); open = false }) }
+            FolioMenuPopover(open, { open = false }, title = "Subject") {
+                FolioMenuItem({ Text("No subject") }, { onSelect(null); open = false }, selected = selected == null)
+                subjects.forEach { FolioMenuItem({ Text(it.name) }, { onSelect(it.id); open = false }, selected = selected == it.id) }
             }
         }
     } else {

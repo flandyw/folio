@@ -233,25 +233,25 @@ import kotlin.math.roundToInt
                     IconButton({ paneView?.zoomReference(1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomIn, "Zoom in") }
                     Box {
                         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Pane options") }
-                        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { menu = false; model.swapPaneSides() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
-                        DropdownMenuItem({ Text("Pane and split options") }, { menu = false; onPaneOptions() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Reference pane") {
+                            FolioMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { menu = false; model.swapPaneSides() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
+                        FolioMenuItem({ Text("Pane and split options") }, { menu = false; onPaneOptions() }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                             HorizontalDivider()
-                            DropdownMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                            DropdownMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
-                            DropdownMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
-                            DropdownMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
+                            FolioMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
+                            FolioMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
+                            FolioMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
+                            FolioMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
                             HorizontalDivider()
-                            DropdownMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-                            DropdownMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                            DropdownMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
+                            FolioMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
+                            FolioMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            FolioMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
                             HorizontalDivider()
-                            DropdownMenuItem(
+                            FolioMenuItem(
                                 { Text(if (filmstripOn) "Hide page previews" else "Show page previews") },
                                 { menu = false; filmstripOn = !filmstripOn },
                                 leadingIcon = { Icon(if (filmstripOn) Icons.Rounded.ViewAgenda else Icons.Rounded.PhotoLibrary, null) }
                             )
-                            if (links.isNotEmpty()) DropdownMenuItem(
+                            if (links.isNotEmpty()) FolioMenuItem(
                                 { Text(if (linksOn) "Ignore PDF links" else "Follow PDF links") },
                                 { menu = false; linksOn = !linksOn },
                                 leadingIcon = { Icon(if (linksOn) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }

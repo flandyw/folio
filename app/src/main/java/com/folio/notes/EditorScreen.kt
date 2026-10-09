@@ -1313,18 +1313,18 @@ private fun paperLabel(p: Paper): String = when (p) {
                     val openSub: (FollowSub) -> Unit = { followSub = if (followSub == it) null else it }
                     WritingFollowControl(Icons.Rounded.Tune, "Writing follow and peek options",
                         enabled = !peekOpen, onClick = { followMenu = true })
-                    DropdownMenu(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches()) {
+                    FolioMenuPopover(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches(), title = "Writing & peek") {
                         if (page.infinite) {
-                            DropdownMenuItem({ Text(responseLabel) },
+                            FolioMenuItem({ Text(responseLabel) },
                                 { setWritingFollow(!writingFollowEnabled); followMenu = false },
                                 enabled = overviewReturn == null,
                                 leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
                             Text("Use a response column for paragraphs. Leave it off for maths, short answers and diagrams.",
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                                 style = MaterialTheme.typography.bodySmall)
-                            if (canvasResponse != null) DropdownMenuItem({ Text("Start a new column here") },
+                            if (canvasResponse != null) FolioMenuItem({ Text("Start a new column here") },
                                 { setWritingFollow(true); followMenu = false }, enabled = overviewReturn == null)
-                            DropdownMenuItem({ Text(if (overviewReturn == null) "See all working" else "Return to working") },
+                            FolioMenuItem({ Text(if (overviewReturn == null) "See all working" else "Return to working") },
                                 { fitAllContent(); followMenu = false })
                         }
                         if (writingFollowEnabled) {
@@ -1332,27 +1332,27 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            DropdownMenuItem({ Text("Previous writing line") },
+                            FolioMenuItem({ Text("Previous writing line") },
                                 { followView?.previousWritingLine(); followMenu = false },
                                 enabled = overviewReturn == null,
                                 leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
                                 trailingIcon = { Text("Alt+↑", style = MaterialTheme.typography.labelSmall) })
                             if (overflowFollowActions) {
-                                DropdownMenuItem({ Text("Next writing line") },
+                                FolioMenuItem({ Text("Next writing line") },
                                     { followView?.nextWritingLine(); followMenu = false },
                                     enabled = overviewReturn == null,
                                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardReturn, null) })
-                                DropdownMenuItem({ Text(if (followStatus.paused) "Resume writing follow" else "Pause writing follow") },
+                                FolioMenuItem({ Text(if (followStatus.paused) "Resume writing follow" else "Pause writing follow") },
                                     { toggleFollowPause(); followMenu = false },
                                     leadingIcon = { Icon(if (followStatus.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null) })
-                                DropdownMenuItem({ Text("Undo the last follow move") },
+                                FolioMenuItem({ Text("Undo the last follow move") },
                                     { followView?.backWritingView(); followMenu = false },
                                     enabled = followStatus.canGoBack,
                                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
                             }
                             HorizontalDivider()
                         }
-                        if (!page.infinite) DropdownMenuItem(
+                        if (!page.infinite) FolioMenuItem(
                             { Text("Writing: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
                             {
                                 followPreferences = followPreferences.copy(
@@ -1361,7 +1361,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             },
                             leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) }
                         )
-                        DropdownMenuItem(
+                        FolioMenuItem(
                             { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
                             {
                                 setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
@@ -1370,9 +1370,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                             leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
                         )
                         if (!page.infinite) SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
-                            DropdownMenuItem({ Text("Select answer area") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
-                            DropdownMenuItem({ Text("Detect answer areas") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
-                            DropdownMenuItem(
+                            FolioMenuItem({ Text("Select answer area") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
+                            FolioMenuItem({ Text("Detect answer areas") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
+                            FolioMenuItem(
                                 text = {
                                     Column {
                                         Text("Auto-detect answer areas")
@@ -1390,7 +1390,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     edit.apply()
                                     followMenu = false
                                 })
-                            DropdownMenuItem(
+                            FolioMenuItem(
                                 text = { Text("Show answer area box") },
                                 trailingIcon = { Checkbox(checked = showAnswerAreas, onCheckedChange = null) },
                                 onClick = {
@@ -1398,33 +1398,33 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     appPrefs.edit().putBoolean("follow.showAnswerAreas", showAnswerAreas).apply()
                                     followMenu = false
                                 })
-                            if (writingRegion != null) DropdownMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
+                            if (writingRegion != null) FolioMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
                         }
-                        if (!page.infinite || canvasResponse != null) DropdownMenuItem({ Text(if (page.infinite) "Response settings…" else "Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
+                        if (!page.infinite || canvasResponse != null) FolioMenuItem({ Text(if (page.infinite) "Response settings…" else "Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()
                         Text("Peek view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        DropdownMenuItem(
+                        FolioMenuItem(
                             { Text(if (pinnedPeek == null) "Pin this view" else "Replace with this view") },
                             { pinPeekView(wholePage = false); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
                         )
-                        DropdownMenuItem(
+                        FolioMenuItem(
                             { Text("Pin this whole page") },
                             { pinPeekView(wholePage = true); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.FitScreen, null) }
                         )
-                        DropdownMenuItem(
+                        FolioMenuItem(
                             { Text(if (autoPeek) "Auto peek: whole page (on)" else "Auto peek: whole page (off)") },
                             { autoPeek = !autoPeek; appPrefs.edit().putBoolean(AppPrefs.AUTO_PEEK, autoPeek).apply(); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Visibility, null) }
                         )
-                        if (pinnedPeek != null) DropdownMenuItem(
+                        if (pinnedPeek != null) FolioMenuItem(
                             { Text("Remove peek view") },
                             { model.setPeekAnchor(null); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Close, null) }
-                        )
+                        , destructive = true)
                     }
                 }
                 if (peekAnchor == null) {

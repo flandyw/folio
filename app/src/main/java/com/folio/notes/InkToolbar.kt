@@ -275,9 +275,9 @@ import kotlin.math.roundToInt
                                 },
                                 modifier = Modifier.widthIn(max = 112.dp).height(32.dp).longPressAction(stripGuard) { claimStripLongPress(); presetMenu = preset.id }
                             )
-                            DropdownMenu(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches()) {
-                                DropdownMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(Icons.Rounded.PushPin, null) })
-                                DropdownMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                            FolioMenuPopover(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches(), title = "Pinned preset") {
+                                FolioMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(Icons.Rounded.PushPin, null) })
+                                FolioMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                             }
                         }
                     }
@@ -308,37 +308,37 @@ import kotlin.math.roundToInt
                 ShapePickerPopover(tool, shapes = shapeTools, onPick = { value -> chooseShape(value); shapePicker = false },
                     onDismiss = { shapePicker = false })
             }
-            DropdownMenu(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches()) {
-                if (!showUndo) DropdownMenuItem({ Text("Undo") }, { undo(); shapes = false }, enabled = canUndo,
+            FolioMenuPopover(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
+                if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); shapes = false }, enabled = canUndo,
                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
                 if (compactTools) {
-                    DropdownMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
+                    FolioMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
                     HorizontalDivider()
                 }
                 if (overflow.isNotEmpty()) MenuSectionHeader("Tools")
                 overflow.forEach { slot ->
                     if (slot == ToolbarSlot.SHAPES) {
-                        DropdownMenuItem({ Text("Shapes") }, { shapes = false; onPalette(false); shapePicker = true },
+                        FolioMenuItem({ Text("Shapes") }, { shapes = false; onPalette(false); shapePicker = true },
                             leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) },
                             trailingIcon = { Icon(Icons.Rounded.ChevronRight, null) })
                     } else {
                         val first = slot.tools.first()
-                        DropdownMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
+                        FolioMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
                             leadingIcon = { Icon(toolbarSlotIcon(slot, tool, lastShape), null) },
-                            trailingIcon = { if (tool in slot.tools) Icon(Icons.Rounded.Check, "Selected") })
+                            selected = tool in slot.tools)
                     }
                 }
                 if (overflow.isNotEmpty()) HorizontalDivider()
                 if (!showExtras) actions.forEach { action ->
-                    DropdownMenuItem({ Text(action.label) }, { action.onClick(); shapes = false },
+                    FolioMenuItem({ Text(action.label) }, { action.onClick(); shapes = false },
                         leadingIcon = { Icon(action.icon, null) })
                 }
                 if (presets.isNotEmpty() && onApplyPreset != null) {
                     SubmenuItem("Presets…", Icons.Rounded.Bookmark, toolSub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
                         MenuSectionHeader("Presets")
                         presets.forEach { preset ->
-                            DropdownMenuItem(
+                            FolioMenuItem(
                                 { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
                                 { onApplyPreset(preset); shapes = false },
                                 leadingIcon = { Icon(Icons.Rounded.Bookmark, null) }
@@ -349,21 +349,21 @@ import kotlin.math.roundToInt
                 // Everything that tunes how a tool behaves lives in one submenu; select all is on the page's long-press menu.
                 SubmenuItem("Behaviour…", Icons.Rounded.Tune, toolSub == ToolSub.TOOL, { openSub(ToolSub.TOOL) }) {
                     if (!isDrawing && tool != Tool.ERASER) {
-                        if (onSnap != null) DropdownMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
-                        if (onShapeMeasurements != null) DropdownMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
+                        if (onSnap != null) FolioMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
+                        if (onShapeMeasurements != null) FolioMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
                     }
                     if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                        if (onEraserSingleStroke != null) DropdownMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
-                        if (onEraserPressure != null) DropdownMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
-                        if (onEraserWholeStroke != null) DropdownMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
-                        if (onScribbleToErase != null) DropdownMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
+                        if (onEraserSingleStroke != null) FolioMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
+                        if (onEraserPressure != null) FolioMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
+                        if (onEraserWholeStroke != null) FolioMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
+                        if (onScribbleToErase != null) FolioMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
                     }
-                    if (isShape) DropdownMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, {
+                    if (isShape) FolioMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, {
                         onOptions(options.copy(style = options.style.next()))
                     }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
-                    if (onMultiTouchUndo != null) DropdownMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
+                    if (onMultiTouchUndo != null) FolioMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
                 }
-                if (toolbarLayoutState != null) DropdownMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
             }
         }
     }

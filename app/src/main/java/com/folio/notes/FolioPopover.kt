@@ -40,8 +40,7 @@ import androidx.compose.ui.window.PopupProperties
     }
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true, dismissOnClickOutside = true, dismissOnBackPress = true)) {
-        Surface(
-            shape = FolioShapes.large, tonalElevation = 3.dp, shadowElevation = 8.dp,
+        FolioPopoverSurface(
             modifier = modifier.guardUiTouches().widthIn(min = 260.dp, max = 340.dp).imePadding()
         ) {
             Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {

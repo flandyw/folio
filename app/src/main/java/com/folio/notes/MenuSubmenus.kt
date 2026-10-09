@@ -5,8 +5,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material3.Surface
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,7 +39,7 @@ internal class SubmenuPositionProvider(private val margin: Int, private val gap:
 }
 
 /**
- * A menu row that opens a second-level menu beside itself. Material 3 has no submenu, so the child
+ * A popover row that opens a second-level popover beside itself. The child
  * menu is anchored to this row's measured bounds; the caller dismisses its own
  * menu, so any action run from the submenu should close both.
  */
@@ -75,7 +73,7 @@ internal fun SubmenuItem(
         }
     }
     Box {
-        DropdownMenuItem(
+        FolioMenuItem(
             text = { Text(label) },
             onClick = { onExpandedChange(!expanded) },
             leadingIcon = { Icon(icon, null) },
@@ -87,11 +85,12 @@ internal fun SubmenuItem(
             onDismissRequest = { onExpandedChange(false) },
             properties = PopupProperties(focusable = true)
         ) {
-            Surface(shape = MaterialTheme.shapes.extraSmall,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                shadowElevation = 3.dp) {
-                Column(Modifier.guardUiTouches().width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 320.dp)
-                    .verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) { content() }
+            BoxWithConstraints {
+                FolioPopoverSurface(Modifier.width(minOf(300.dp, (maxWidth - 24.dp).coerceAtLeast(0.dp)))
+                    .heightIn(max = (maxHeight - 24.dp).coerceAtLeast(0.dp))) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
+                }
             }
         }
     }

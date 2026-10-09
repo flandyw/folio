@@ -133,10 +133,10 @@ private fun ImportDestination(folder: String?, folders: List<Folder>, onSelect: 
                 Icon(Icons.Rounded.ExpandMore, "Choose destination")
             }
         }
-        DropdownMenu(expanded, { expanded = false }, Modifier.heightIn(max = 320.dp).guardUiTouches()) {
+        FolioMenuPopover(expanded, { expanded = false }, Modifier.heightIn(max = 320.dp).guardUiTouches(), title = "Save to") {
             (listOf(null to "Library · no folder") + folders.map { it.id to LibraryFolders.label(folders, it.id) }).forEach { (id, name) ->
-                DropdownMenuItem({ Text(name) }, { onSelect(id); expanded = false },
-                    leadingIcon = { Icon(if (folder == id) Icons.Rounded.Check else Icons.Rounded.Folder, null) })
+                FolioMenuItem({ Text(name) }, { onSelect(id); expanded = false },
+                    leadingIcon = { Icon(Icons.Rounded.Folder, null) }, selected = folder == id)
             }
         }
     }
@@ -293,10 +293,10 @@ private fun ImportExamFields(item: PendingPdfImport, onUpdate: (PendingPdfImport
                 Text(tags.type?.label ?: "Assessment type · optional", Modifier.weight(1f))
                 Icon(Icons.Rounded.ExpandMore, null)
             }
-            DropdownMenu(expanded, { expanded = false }, modifier = Modifier.guardUiTouches()) {
+            FolioMenuPopover(expanded, { expanded = false }, modifier = Modifier.guardUiTouches(), title = "Assessment type") {
                 (listOf(null) + ExamType.entries).forEach { type ->
-                    DropdownMenuItem({ Text(type?.label ?: "No assessment type") }, { update { it.copy(type = type) }; expanded = false },
-                        leadingIcon = if (type == tags.type) {{ Icon(Icons.Rounded.Check, null) }} else null)
+                    FolioMenuItem({ Text(type?.label ?: "No assessment type") }, { update { it.copy(type = type) }; expanded = false },
+                        selected = type == tags.type)
                 }
             }
         }

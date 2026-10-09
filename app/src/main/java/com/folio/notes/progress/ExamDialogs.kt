@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import com.folio.notes.FolioSpacing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -34,8 +37,8 @@ import org.json.JSONObject
         if (editable) OutlinedTextField(value, onChange, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             trailingIcon = { if (options.isNotEmpty()) TextButton({ expanded = true }) { Text("Choose") } })
         else OutlinedButton({ expanded = true }, enabled = options.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("$label: ${value.ifBlank { "Choose…" }}") }
-        DropdownMenu(expanded, { expanded = false }, modifier = Modifier.heightIn(max = 320.dp)) {
-            options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onChange(option); expanded = false }) }
+        FolioMenuPopover(expanded, { expanded = false }, modifier = Modifier.heightIn(max = 320.dp), title = label) {
+            options.forEach { option -> FolioMenuItem(text = { Text(option) }, onClick = { onChange(option); expanded = false }, selected = option == value) }
         }
     }
 }

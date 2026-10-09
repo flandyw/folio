@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -81,14 +84,14 @@ import com.folio.notes.rememberLongPressGuard
             }
         }
     }
-        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-            DropdownMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
-            if (!mistake.suspended) DropdownMenuItem(
+        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Review card") {
+            FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+            if (!mistake.suspended) FolioMenuItem(
                 { Text(if (resume) "Continue handwritten review" else "Practise this question") },
                 { menu = false; onPractice() },
                 leadingIcon = { Icon(Icons.Rounded.Edit, null) }
             )
-            if (onDelete != null) DropdownMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+            if (onDelete != null) FolioMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
         }
     }
 }

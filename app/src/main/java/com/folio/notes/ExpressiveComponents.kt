@@ -35,12 +35,12 @@ import androidx.compose.ui.unit.dp
                 FilledIconButton({ overflow.show() }, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.MoreVert, "More options", Modifier.size(18.dp))
                 }
-                DropdownMenu(overflow.isExpanded, overflow::dismiss, modifier = Modifier.guardUiTouches()) {
+                FolioMenuPopover(overflow.isExpanded, overflow::dismiss, modifier = Modifier.guardUiTouches(), title = "More actions") {
                     if (menuItems.isEmpty()) {
-                        DropdownMenuItem({ Text("Nothing else") }, {}, enabled = false)
+                        FolioMenuItem({ Text("Nothing else") }, {}, enabled = false)
                     }
                     menuItems.forEach { (label, action) ->
-                        DropdownMenuItem({ Text(label) }, { overflow.dismiss(); action() })
+                        FolioMenuItem({ Text(label) }, { overflow.dismiss(); action() })
                     }
                 }
             }

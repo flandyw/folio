@@ -237,7 +237,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 leadingIcon = { Icon(if (showHiddenFolders) Icons.Rounded.Check else Icons.Rounded.VisibilityOff, null, Modifier.size(18.dp)) })
                             Box {
                                 TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label) }
-                                DropdownMenu(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches()) { FileSort.entries.forEach { option -> DropdownMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, trailingIcon = { if (sort == option) Icon(Icons.Rounded.Check, null) }) } }
+                                FolioMenuPopover(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches(), title = "Sort files") { FileSort.entries.forEach { option -> FolioMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, selected = sort == option) } }
                             }
                             TextButton({ selecting = !selecting; selectedUris = emptyList() }, enabled = !loading && !changing && (selecting || visible.any { !it.directory }), shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
                         }
@@ -276,11 +276,11 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) }, trailing = {
                                     Box {
                                         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Location options") }
-                                        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
-                                            if (Uri.parse(location.tree).scheme == "file") DropdownMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
+                                        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Storage location") {
+                                            if (Uri.parse(location.tree).scheme == "file") FolioMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
                                             else {
-                                                DropdownMenuItem({ Text("Reconnect") }, { menu = false; picker.launch(Uri.parse(location.tree)) })
-                                                DropdownMenuItem({ Text("Disconnect") }, { menu = false; forget = location })
+                                                FolioMenuItem({ Text("Reconnect") }, { menu = false; picker.launch(Uri.parse(location.tree)) })
+                                                FolioMenuItem({ Text("Disconnect") }, { menu = false; forget = location })
                                             }
                                         }
                                     }
@@ -329,18 +329,18 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                     leadingContent = { if (selecting && !file.directory) Checkbox(selected, { toggle(file) }, Modifier.semanticsLabel("Select ${file.name}"), enabled = !changing) else Icon(if (file.directory) Icons.Rounded.Folder else if (file.pdf) Icons.Rounded.PictureAsPdf else if (file.folio) Icons.AutoMirrored.Rounded.MenuBook else Icons.AutoMirrored.Rounded.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
                                     trailingContent = { if (!selecting) Box {
                                         IconButton({ menu = true }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${file.name}") }
-                                        DropdownMenu(menu, { menu = false }, modifier = Modifier.guardUiTouches()) {
+                                        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "File actions") {
                                             if (!file.directory) {
-                                                if ((file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual) DropdownMenuItem({ Text("Import to Folio") }, { menu = false; importFile = file }, enabled = !state.busy && !state.loading && !state.loadFailed)
-                                                DropdownMenuItem({ Text("Open with…") }, { menu = false; launchFile(file) })
+                                                if ((file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual) FolioMenuItem({ Text("Import to Folio") }, { menu = false; importFile = file }, enabled = !state.busy && !state.loading && !state.loadFailed)
+                                                FolioMenuItem({ Text("Open with…") }, { menu = false; launchFile(file) })
                                                 if (!file.virtual) {
-                                                    DropdownMenuItem({ Text("Copy") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), false) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                                    if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) DropdownMenuItem({ Text("Move") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), true) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
+                                                    FolioMenuItem({ Text("Copy") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), false) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                                    if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Move") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), true) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
                                                 }
-                                                DropdownMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
+                                                FolioMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
                                             }
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) DropdownMenuItem({ Text("Rename") }, { menu = false; rename = file }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) DropdownMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) })
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) FolioMenuItem({ Text("Rename") }, { menu = false; rename = file }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
                                         }
                                     } }, colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow))
                             }

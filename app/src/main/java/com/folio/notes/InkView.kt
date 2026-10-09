@@ -1222,7 +1222,7 @@ class InkView(context: Context) : View(context) {
             canvas.drawLine(column.left, top, column.left, bottom, writingRegionPaint)
             canvas.drawLine(column.right, top, column.right, bottom, writingRegionPaint)
         }
-        val areas = (if (showAnswerAreas) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
+        val areas = (if (showAnswerAreas && followEnabled) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
         if (areas.isNotEmpty()) {
             // A constant on-screen dash and width, whatever the zoom: sized in dp and divided by the canvas scale.
             val unit = selectionUiUnit()

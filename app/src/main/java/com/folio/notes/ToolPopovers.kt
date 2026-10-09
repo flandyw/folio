@@ -13,8 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.*
@@ -111,7 +109,7 @@ class WidthPresetState(private val prefs: SharedPreferences) {
 }
 
 /** Centres under the anchor, flipping above when there is no room beneath, and stays inside the window. */
-private class PopoverPositionProvider(private val margin: Int, private val gap: Int) : PopupPositionProvider {
+internal class PopoverPositionProvider(private val margin: Int, private val gap: Int) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val maxX = (windowSize.width - margin - popupContentSize.width).coerceAtLeast(margin)
         val x = (anchorBounds.center.x - popupContentSize.width / 2).coerceIn(margin, maxX)
@@ -147,14 +145,9 @@ private class PopoverPositionProvider(private val margin: Int, private val gap: 
     val maxHeight = (configuration.screenHeightDp * 0.72f).dp
     val availableWidth = (configuration.screenWidthDp.dp - FolioSpacing.dp32).coerceAtLeast(0.dp)
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        Surface(
-            modifier = modifier.guardUiTouches().graphicsLayer {
-                alpha = progress.coerceIn(0f, 1f)
-                scaleX = .94f + .06f * progress; scaleY = scaleX
-                transformOrigin = TransformOrigin(.5f, 0f)
-            }.width(minOf(width, availableWidth)).heightIn(max = maxHeight),
-            shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 3.dp, shadowElevation = 12.dp
+        FolioPopoverSurface(
+            modifier = modifier.width(minOf(width, availableWidth)).heightIn(max = maxHeight),
+            progress = progress,
         ) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), content = content)
         }

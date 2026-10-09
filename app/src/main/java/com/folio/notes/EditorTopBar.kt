@@ -133,24 +133,24 @@ internal val EditorFloatingGroupHeight = 46.dp
                     if (showBack) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     if (foldNav) Box {
                         DockButton(Icons.Rounded.MoreHoriz, "Pages, search and layers", { navMenu = true })
-                        DropdownMenu(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches()) {
+                        FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
                             val closeThen: (() -> Unit) -> Unit = { navMenu = false; it() }
-                            DropdownMenuItem({ Text("Browse pages") }, { closeThen(onPages) }, leadingIcon = { Icon(Icons.Rounded.GridView, null) })
-                            DropdownMenuItem({ Text("Blank page after this") }, { closeThen(onInsertPage) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Blank page at end") }, { closeThen(onAdd) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            DropdownMenuItem({ Text("Duplicate this page") }, { closeThen(onDuplicatePage) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                            DropdownMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                            DropdownMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
+                            FolioMenuItem({ Text("Browse pages") }, { closeThen(onPages) }, leadingIcon = { Icon(Icons.Rounded.GridView, null) })
+                            FolioMenuItem({ Text("Blank page after this") }, { closeThen(onInsertPage) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            FolioMenuItem({ Text("Blank page at end") }, { closeThen(onAdd) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            FolioMenuItem({ Text("Duplicate this page") }, { closeThen(onDuplicatePage) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                            FolioMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            FolioMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
                         }
                         layersPopover()
                     } else {
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     Box {
                         DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
-                        DropdownMenu(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches()) {
-                            DropdownMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            DropdownMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            DropdownMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                        FolioMenuPopover(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add a page") {
+                            FolioMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            FolioMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                         }
                     }
                     DockButton(Icons.Rounded.Search, "Find in notes", onSearch)

@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.FolioMenuPopover
+import com.folio.notes.FolioMenuItem
+
 import com.folio.notes.EmptyHint
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
@@ -255,16 +258,16 @@ private const val FORM_ADD = -1
                             }
                             Box {
                                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More for $s") }
-                                DropdownMenu(menu, { menu = false }) {
-                                    DropdownMenuItem({ Text("Sort oldest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, true)) },
+                                FolioMenuPopover(menu, { menu = false }, title = "Subject actions") {
+                                    FolioMenuItem({ Text("Sort oldest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, true)) },
                                         leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
-                                    DropdownMenuItem({ Text("Sort newest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, false)) },
+                                    FolioMenuItem({ Text("Sort newest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, false)) },
                                         leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
-                                    DropdownMenuItem({ Text("Add a paper") }, { menu = false; subject = s; openForm(FORM_ADD); subject = s; suggest() },
+                                    FolioMenuItem({ Text("Add a paper") }, { menu = false; subject = s; openForm(FORM_ADD); subject = s; suggest() },
                                         leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                                    DropdownMenuItem({ Text("Remove subject", color = MaterialTheme.colorScheme.error) },
+                                    FolioMenuItem({ Text("Remove subject", color = MaterialTheme.colorScheme.error) },
                                         { menu = false; commit(ProgressionEdit.removeSubject(papers, s), "Removed $s.") },
-                                        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) })
+                                        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
                                 }
                             }
                         }
@@ -284,17 +287,17 @@ private const val FORM_ADD = -1
                                         }
                                         Box {
                                             IconButton({ rowMenu = true }) { Icon(Icons.Rounded.MoreVert, "More for ${exam.optString("provider")} ${exam.optInt("examYear")} ${exam.optString("paper")}") }
-                                            DropdownMenu(rowMenu, { rowMenu = false }) {
-                                                DropdownMenuItem({ Text("Edit") }, { rowMenu = false; openForm(index) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                                DropdownMenuItem({ Text("Move up") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, -1)) },
+                                            FolioMenuPopover(rowMenu, { rowMenu = false }, title = "Paper actions") {
+                                                FolioMenuItem({ Text("Edit") }, { rowMenu = false; openForm(index) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                                FolioMenuItem({ Text("Move up") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, -1)) },
                                                     leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
-                                                DropdownMenuItem({ Text("Move down") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, 1)) },
+                                                FolioMenuItem({ Text("Move down") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, 1)) },
                                                     leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
-                                                DropdownMenuItem({ Text("Duplicate to next year") }, { rowMenu = false
+                                                FolioMenuItem({ Text("Duplicate to next year") }, { rowMenu = false
                                                     ProgressionEdit.duplicate(papers, index)?.let { commit(it) } ?: run { error = "No free year to duplicate into." } },
                                                     leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                                DropdownMenuItem({ Text("Remove", color = MaterialTheme.colorScheme.error) }, { rowMenu = false; commit(papers.filterIndexed { i, _ -> i != index }, "Removed a paper.") },
-                                                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) })
+                                                FolioMenuItem({ Text("Remove", color = MaterialTheme.colorScheme.error) }, { rowMenu = false; commit(papers.filterIndexed { i, _ -> i != index }, "Removed a paper.") },
+                                                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
                                             }
                                         }
                                     }
