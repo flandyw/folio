@@ -57,6 +57,7 @@ object InkCodec {
             if (t.layer != 0) put("layer", t.layer)
             if (t.isSticky) {
                 put("stickyHeight", t.stickyHeight)
+                if (t.stickyColor != 0) put("stickyColor", t.stickyColor)
                 if (t.stickyInk.isNotEmpty()) put("stickyInk", encodeStrokes(t.stickyInk))
             }
         }) }
@@ -75,7 +76,8 @@ object InkCodec {
                     .coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY),
                 t.optInt("layer", 0),
                 t.optDouble("stickyHeight", 0.0).toFloat().let { if (it.isFinite()) it.coerceIn(0f, 10000f) else 0f },
-                decodeStrokes(t.optJSONArray("stickyInk")))
+                decodeStrokes(t.optJSONArray("stickyInk")),
+                t.optInt("stickyColor", 0))
         }
     }
 

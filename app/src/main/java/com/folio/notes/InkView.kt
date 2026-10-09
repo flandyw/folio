@@ -167,6 +167,9 @@ class InkView(context: Context) : View(context) {
     fun finishStickyTyping() { stickyNotes.focused()?.let { stickyNotes.focus(it) } }
     fun setStickyText(id: String, text: String) = stickyNotes.setText(id, text)
     fun deleteSticky(id: String) = stickyNotes.delete(id)
+    fun recolorSticky(id: String) = stickyNotes.recolor(id)
+    fun clearStickyInk(id: String) = stickyNotes.clearInk(id)
+    fun duplicateSticky(id: String) = stickyNotes.duplicate(id)
     private var stickyFrameReported: Rect? = null
     private val stickyNotes = StickyNoteInput(this, { page }, { texts ->
         page = page.copy(texts = texts)
@@ -1244,12 +1247,12 @@ class InkView(context: Context) : View(context) {
         }
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
         val selectedStickies = selectedTexts.filter { it.isSticky }
-        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } }, selectionUiUnit())
+        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } }, selectionUiUnit(), layered.strokes)
         if (selectedStickies.isNotEmpty()) {
             canvas.save()
             if (previewing) canvas.concat(selectionPreviewMatrix)
             canvas.translate(selectionDx, selectionDy)
-            selectedStickies.forEach { InkRenderer.text(canvas, it); drawTextBox(canvas, it) }
+            selectedStickies.forEach { InkRenderer.text(canvas, it, layered.strokes); drawTextBox(canvas, it) }
             canvas.restore()
         }
         followStickyFrame()
@@ -1315,7 +1318,8 @@ class InkView(context: Context) : View(context) {
             val pen = isStylus(event, 0)
             if (pen) stylus = true
             if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, activeLayer,
-                    inkColor, inkWidth, inkOpacity, eraserWholeStroke)) {
+                    inkColor, inkWidth, inkOpacity, eraserWholeStroke,
+                    eraserPressureEnabled && stylus, page.strokes)) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) { onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable) }
                 if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) stylus = false
                 return true

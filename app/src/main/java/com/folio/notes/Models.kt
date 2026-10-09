@@ -16,6 +16,8 @@ object ScribbleSensitivity {
         else -> 2
     }
     fun passes(value: Float) = if (normalize(value) < .25f) 3 else 2
+    /** Share of a stroke's length the scrub must wipe before the whole stroke goes. */
+    fun coverage(value: Float) = .5f - .15f * normalize(value)
 }
 
 enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA, STICKY_NOTE }
@@ -108,7 +110,9 @@ data class TextBox(
     val layer: Int = 0,
     /** A sticky owns its local ink; ordinary text keeps these absent from the codec. */
     val stickyHeight: Float = 0f,
-    val stickyInk: List<Stroke> = emptyList()
+    val stickyInk: List<Stroke> = emptyList(),
+    /** Paper colour of a sticky; 0 is the classic yellow. */
+    val stickyColor: Int = 0
 ) {
     val isSticky: Boolean get() = stickyHeight > 0f
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
@@ -1247,6 +1251,8 @@ object InkGeometry {
         // Use a narrow contact tolerance even for a broad highlighter or legacy erase radius.
         val contactRadius = min(radius.coerceAtLeast(0f), 2f)
         val needed = ScribbleSensitivity.passes(ease)
+        val coverage = ScribbleSensitivity.coverage(ease)
+        val halo = scribbleHalo(sweeps, bounds)
         var survivors: ArrayList<Stroke>? = null
         for (index in strokes.indices) {
             val target = strokes[index]
@@ -1270,7 +1276,8 @@ object InkGeometry {
                 // A curved pass may touch the target many times, but still counts only once.
                 if (anySegment(sweeps[i]) { a, b -> legHits(a, b, path, reach) } && ++passes >= needed) break
             }
-            if (passes >= needed) {
+            // Touching is not enough: hatching or a stray flick across a long line must not delete it.
+            if (passes >= needed && covered(path, bounds, halo + target.width / 2f) >= coverage) {
                 if (survivors == null) {
                     survivors = ArrayList(strokes.size - 1)
                     for (prior in 0 until index) survivors.add(strokes[prior])
@@ -1278,6 +1285,36 @@ object InkGeometry {
             } else survivors?.add(target)
         }
         return survivors ?: strokes
+    }
+
+    /** How far past its extremes a scrub visibly wipes: about the gap between its lines. */
+    private fun scribbleHalo(sweeps: List<List<InkPoint>>, box: FloatArray): Float {
+        var length = 0f
+        for (sweep in sweeps) for (i in 1 until sweep.size) length += distance(sweep[i - 1], sweep[i])
+        if (length <= 0f) return 3f
+        val area = (box[2] - box[0]).coerceAtLeast(4f) * (box[3] - box[1]).coerceAtLeast(4f)
+        return (area / length * .75f).coerceIn(3f, 18f)
+    }
+
+    /** Share of [path]'s length inside the region the scrub swept ([box] grown by [margin]); 1 for a point. */
+    private fun covered(path: List<InkPoint>, box: FloatArray, margin: Float): Float {
+        fun inside(x: Float, y: Float) = x >= box[0] - margin && x <= box[2] + margin &&
+            y >= box[1] - margin && y <= box[3] + margin
+        if (path.size == 1) return if (inside(path[0].x, path[0].y)) 1f else 0f
+        var total = 0f; var hit = 0f
+        for (i in 1 until path.size) {
+            val a = path[i - 1]; val b = path[i]
+            val len = distance(a, b)
+            if (len <= 0f) continue
+            val steps = ceil(len / max(margin, 1f)).toInt().coerceIn(1, 64)
+            val piece = len / steps
+            for (n in 0 until steps) {
+                val t = (n + .5f) / steps
+                total += piece
+                if (inside(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) hit += piece
+            }
+        }
+        return if (total <= 0f) 1f else hit / total
     }
 
     /** Variant of [erase] where each centre has its own radius (for pressure-varying eraser). */

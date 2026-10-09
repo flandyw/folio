@@ -616,7 +616,7 @@ object InkRenderer {
             }
             page.texts.forEach {
                 val h = textHeight(it)
-                if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
+                if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it, if (it.isSticky) page.strokes else emptyList())
             }
         }
     }
@@ -791,13 +791,30 @@ object InkRenderer {
     /** The box's rendered height, used for hit-testing and for the drag outline. */
     fun textHeight(box: TextBox): Float = if (box.isSticky) box.stickyHeight else textLayout(box).height.toFloat()
 
-    fun text(canvas: Canvas, box: TextBox) {
+    /**
+     * [beneath] is the page's own ink: a sticky is paper, so page strokes that run under it show
+     * through on the paper, below the note's ink and words. Note ink is not clipped to the note,
+     * so a stroke can leave it and carry on across the page.
+     */
+    fun text(canvas: Canvas, box: TextBox, beneath: List<Stroke> = emptyList()) {
         canvas.save()
         canvas.translate(box.x, box.y)
         if (box.isSticky) {
+            stickyFill.color = StickyNotes.fill(box.stickyColor)
+            stickyEdge.color = StickyNotes.edge(box.stickyColor)
             canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyFill)
             canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyEdge)
-            canvas.clipRect(0f, 0f, box.width, box.stickyHeight)
+            if (beneath.isNotEmpty()) {
+                canvas.save()
+                canvas.clipRect(0f, 0f, box.width, box.stickyHeight)
+                canvas.translate(-box.x, -box.y)
+                beneath.forEach { s ->
+                    val b = rawBounds(s); val pad = s.width
+                    if (b[2] + pad >= box.x && b[0] - pad <= box.x + box.width && b[3] + pad >= box.y && b[1] - pad <= box.y + box.stickyHeight)
+                        drawRendered(canvas, s, rendered(s))
+                }
+                canvas.restore()
+            }
             box.stickyInk.forEach { drawRendered(canvas, it, rendered(it)) }
             canvas.translate(StickyNotes.PADDING, StickyNotes.PADDING)
             textLayout(box.copy(width = (box.width - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyHeight = 0f, stickyInk = emptyList())).draw(canvas)

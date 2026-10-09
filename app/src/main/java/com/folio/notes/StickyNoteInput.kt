@@ -34,6 +34,7 @@ internal class StickyNoteInput(
     private var ink: Stroke? = null
     private val points = arrayListOf<InkPoint>()
     private var resize = false
+    private var erasing = false
     private var moved = false
     private var cancelled = false
     private var tapHit: TextBox? = null
@@ -41,6 +42,12 @@ internal class StickyNoteInput(
     private var fromY = 0f
     private val slop = ViewConfiguration.get(host.context).scaledTouchSlop
     private val grip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9D8845.toInt(); strokeWidth = 1.5f }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF2B3440.toInt() }
+    private val ringFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** The eraser ring while a note is being erased, in page units. */
+    private var eraserAt: InkPoint? = null
+    private var eraserRadius = 0f
+    private var eraserWhole = false
     private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     var focusedId: String? = null
@@ -80,17 +87,44 @@ internal class StickyNoteInput(
         page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(text = text)) }
     }
 
+    /** Cycles the focused note through the paper colours. */
+    fun recolor(id: String) {
+        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(stickyColor = StickyNotes.nextPaper(it.stickyColor))) }
+    }
+
+    fun clearInk(id: String) {
+        page().texts.find { it.id == id && it.isSticky && it.stickyInk.isNotEmpty() }?.let { replace(it.copy(stickyInk = emptyList())) }
+    }
+
+    /** A copy offset down and right, focused so it can be dragged straight away. */
+    fun duplicate(id: String) {
+        val box = page().texts.find { it.id == id && it.isSticky } ?: return
+        val copy = box.copy(id = java.util.UUID.randomUUID().toString(), x = box.x + DUPLICATE_OFFSET, y = box.y + DUPLICATE_OFFSET)
+        commit(page().texts + copy)
+        focus(copy)
+    }
+
     fun delete(id: String) {
         if (focusedId == id) focus(null)
         commit(page().texts.filterNot { it.id == id })
     }
 
     fun touch(event: MotionEvent, at: InkPoint, tool: Tool, canInk: Boolean, layer: Int,
-              color: Int, width: Float, opacity: Float, wholeEraser: Boolean): Boolean {
+              color: Int, width: Float, opacity: Float, wholeEraser: Boolean,
+              pressureEraser: Boolean = false, pageInk: List<Stroke> = emptyList()): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             val layers = page().layers
             val hit = page().texts.lastOrNull { StickyNotes.contains(it, at) && PageLayers.editable(layers, it.layer) }
-            val inking = hit != null && canInk && tool in INK_TOOLS
+            // The pen's eraser end and its barrel button erase whatever tool is chosen, like the page does.
+            val erases = tool == Tool.ERASER || (tool in INK_TOOLS &&
+                (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)))
+            erasing = erases
+            val radius = eraserRadius(width, at, pressureEraser)
+            // The page's ink shows through a note; an eraser over only that ink belongs to the page.
+            val pageOnly = erases && hit != null &&
+                hit.stickyInk.none { InkGeometry.hits(it, InkPoint(at.x - hit.x, at.y - hit.y, at.pressure), radius) } &&
+                pageInk.any { PageLayers.editable(layers, it.layer) && InkGeometry.hits(it, at, radius) }
+            val inking = hit != null && canInk && (tool in INK_TOOLS || erases) && !pageOnly
             val handles = inking || (tool == Tool.STICKY_NOTE && (hit != null || canInk && PageLayers.editable(layers, layer))) ||
                 (tool == Tool.TEXT && hit != null)
             // Touching anything but the focused note puts it down.
@@ -104,9 +138,9 @@ internal class StickyNoteInput(
             fromX = event.x; fromY = event.y
             resize = hit != null && !inking &&
                 hypot(event.x - frame(hit).right, event.y - frame(hit).bottom) < GRIP_DP * host.resources.displayMetrics.density
-            ink = if (inking) Stroke(tool, color, width, emptyList(), opacity) else null
+            ink = if (inking) Stroke(if (erases) Tool.ERASER else tool, color, width, emptyList(), opacity) else null
             points.clear()
-            if (inking) addInk(event, wholeEraser)
+            if (inking) addInk(event, wholeEraser, pressureEraser)
             host.invalidate()
             return true
         }
@@ -118,7 +152,7 @@ internal class StickyNoteInput(
                 moved = moved || hypot(event.x - fromX, event.y - fromY) > slop
                 val box = original
                 when {
-                    ink != null -> addInk(event, wholeEraser)
+                    ink != null -> addInk(event, wholeEraser, pressureEraser)
                     box == null -> preview = TextBox(x = min(began.x, at.x), y = min(began.y, at.y),
                         width = max(abs(at.x - began.x), MIN_WIDTH), stickyHeight = max(abs(at.y - began.y), MIN_HEIGHT),
                         size = TEXT_SIZE, layer = layer)
@@ -163,23 +197,33 @@ internal class StickyNoteInput(
     }
 
     private fun clearGesture() {
+        eraserAt = null; erasing = false
         start = null; original = null; preview = null; ink = null; points.clear()
         host.invalidate()
     }
 
-    private fun addInk(event: MotionEvent, whole: Boolean) {
+    private fun eraserRadius(width: Float, at: InkPoint, pressure: Boolean) =
+        width / 2f * if (pressure) InkGeometry.eraserScale(at.pressure) else 1f
+
+    private fun addInk(event: MotionEvent, whole: Boolean, pressure: Boolean) {
         val box = original ?: return
         val stroke = ink ?: return
-        // Note ink is stored relative to the note, so moving the note carries it along.
-        samples(event).forEach {
-            points += InkPoint((it.x - box.x).coerceIn(0f, box.width), (it.y - box.y).coerceIn(0f, box.stickyHeight), it.pressure)
-        }
+        // Note ink is stored relative to the note, so moving the note carries it along. It is not
+        // clamped to the note: a stroke begun inside may run out over the page.
+        val raw = samples(event)
+        raw.forEach { points += InkPoint(it.x - box.x, it.y - box.y, it.pressure) }
         if (stroke.tool == Tool.ERASER) {
             var kept = (preview ?: box).stickyInk
-            val radius = stroke.width / 2f
-            for (p in points) kept = if (whole) kept.filterNot { InkGeometry.hits(it, p, radius) }
-                else kept.flatMap { InkGeometry.erase(it, p, radius) }
+            // Same rules as the page eraser: pressure scales the ring, whole-stroke removes what it touches.
+            for (p in points) {
+                val radius = eraserRadius(stroke.width, p, pressure)
+                kept = if (whole) kept.filterNot { InkGeometry.hits(it, p, radius) }
+                    else kept.flatMap { InkGeometry.erase(it, p, radius) }
+            }
             preview = box.copy(stickyInk = kept)
+            raw.lastOrNull()?.let {
+                eraserAt = it; eraserRadius = eraserRadius(stroke.width, it, pressure); eraserWhole = whole
+            }
             points.clear()
         } else preview = box.copy(stickyInk = box.stickyInk + stroke.copy(points = points.toList()))
     }
@@ -191,11 +235,11 @@ internal class StickyNoteInput(
     }
 
     /** Draws [notes] with any live gesture applied, plus a note still being dragged out. */
-    fun draw(canvas: Canvas, notes: List<TextBox>, unit: Float) {
+    fun draw(canvas: Canvas, notes: List<TextBox>, unit: Float, beneath: List<Stroke> = emptyList()) {
         notes.forEach { note ->
             val box = if (note.id == original?.id) preview ?: note else note
             // The typing field shows the words while it is open; the note keeps its paper and ink.
-            InkRenderer.text(canvas, if (typing && box.id == focusedId) box.copy(text = "") else box)
+            InkRenderer.text(canvas, if (typing && box.id == focusedId) box.copy(text = "") else box, beneath)
             if (box.id == focusedId) {
                 outline.color = FOCUS_COLOR; outline.strokeWidth = 2f * unit
                 canvas.drawRect(box.x, box.y, box.x + box.width, box.y + box.stickyHeight, outline)
@@ -204,12 +248,20 @@ internal class StickyNoteInput(
             canvas.drawLine(right - 16f, bottom - 4f, right - 4f, bottom - 16f, grip)
             canvas.drawLine(right - 10f, bottom - 4f, right - 4f, bottom - 10f, grip)
         }
-        if (original == null) preview?.let { InkRenderer.text(canvas, it) }
+        if (original == null) preview?.let { InkRenderer.text(canvas, it, beneath) }
+        eraserAt?.let { c ->
+            ringFill.color = 0x3A2B3440
+            canvas.drawCircle(c.x, c.y, eraserRadius, ringFill)
+            ring.strokeWidth = 1.5f * unit
+            ring.pathEffect = if (eraserWhole) android.graphics.DashPathEffect(floatArrayOf(5f * unit, 4f * unit), 0f) else null
+            canvas.drawCircle(c.x, c.y, eraserRadius, ring)
+        }
     }
 
     companion object {
         private val INK_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER)
         private const val GRIP_DP = 28f
+        private const val DUPLICATE_OFFSET = 36f
         private const val MIN_WIDTH = 90f
         private const val MIN_HEIGHT = 60f
         private const val MAX_HEIGHT = 10000f

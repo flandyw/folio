@@ -48,6 +48,13 @@ fun main() {
     check(InkGeometry.isScribble(bent))
     check(InkGeometry.scribbleErase(bendInk, stroke(bent), 0f) === bendInk)
 
+    // A long line only crossed by the scrub survives; one the scrub wipes along its length goes.
+    val longLine = stroke(listOf(p(50f, -400f), p(50f, 500f)))
+    val crossed = listOf(longLine)
+    check(InkGeometry.scribbleErase(crossed, stroke(sharp), 0f) === crossed) { "long line crossed by hatching" }
+    val wiped = stroke(listOf(p(50f, -3f), p(50f, 28f)))
+    check(InkGeometry.scribbleErase(listOf(wiped), stroke(sharp), 0f).isEmpty()) { "line under the scrub" }
+
     val layers = listOf(PageLayer.BASE, PageLayer(1, "Locked", locked = true),
         PageLayer(2, "Hidden", visible = false))
     val locked = target.copy(layer = 1)

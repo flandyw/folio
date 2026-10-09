@@ -243,7 +243,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
 /** Sticky note actions, in the same nonmodal icon bar as a lasso selection. Tapping away dismisses it. */
 @Composable internal fun StickyNoteContextMenu(
-    typing: Boolean, onType: () -> Unit, onDone: () -> Unit, onDraw: () -> Unit, onDelete: () -> Unit
+    typing: Boolean, onType: () -> Unit, onDone: () -> Unit, onDraw: () -> Unit, onDelete: () -> Unit,
+    onColor: () -> Unit = {}, onDuplicate: () -> Unit = {}, onClearInk: (() -> Unit)? = null
 ) {
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
@@ -253,6 +254,9 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             if (typing) SelectionAction(Icons.Rounded.Check, "Finish typing", onClick = onDone)
             else SelectionAction(Icons.Rounded.TextFields, "Type in sticky note", onClick = onType)
             SelectionAction(Icons.Rounded.Edit, "Draw in sticky note", onClick = onDraw)
+            SelectionAction(Icons.Rounded.Palette, "Change sticky note colour", onClick = onColor)
+            SelectionAction(Icons.Rounded.ContentCopy, "Duplicate sticky note", onClick = onDuplicate)
+            if (onClearInk != null) SelectionAction(Icons.Rounded.LayersClear, "Clear sticky note drawing", onClick = onClearInk)
             SelectionAction(Icons.Rounded.DeleteOutline, "Delete sticky note", destructive = true, onClick = onDelete)
         }
     }

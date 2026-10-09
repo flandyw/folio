@@ -2466,7 +2466,10 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 StickyNoteContextMenu(focusedSticky.typing,
                     onType = { boundInkView?.typeInSticky() }, onDone = { boundInkView?.finishStickyTyping() },
                     onDraw = onStickyDraw,
-                    onDelete = { stickyDraft = null; boundInkView?.deleteSticky(focusedSticky.box.id) })
+                    onDelete = { stickyDraft = null; boundInkView?.deleteSticky(focusedSticky.box.id) },
+                    onColor = { boundInkView?.recolorSticky(focusedSticky.box.id) },
+                    onDuplicate = { stickyDraft = null; boundInkView?.duplicateSticky(focusedSticky.box.id) },
+                    onClearInk = if (focusedSticky.box.stickyInk.isNotEmpty()) ({ boundInkView?.clearStickyInk(focusedSticky.box.id) }) else null)
             }
         }
         if (selectionMenu != null && page.loaded && ready) {
