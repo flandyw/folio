@@ -145,13 +145,19 @@ object EditorQuickPrefs {
                             snap = it
                             prefs.edit().putBoolean("mathSnap", it).apply()
                         }, "Lines snap to 15° and to the grid on Maths, Grid and Graph paper.")
-                        var tidy by remember { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
-                        SwitchRow("Tidy up shapes", tidy, {
-                            tidy = it
-                            prefs.edit().putBoolean("shapeRecognition", it).apply()
-                        }, "A rough line, square, circle or triangle becomes a clean shape when you lift the pen.")
                     }
                     if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
+                }
+                if (tool == Tool.PEN || tool in ShapePickerTools) PopoverSection("Tidy up shapes") {
+                    val tidy by rememberPref(prefs, "shapeRecognition") { it.getBoolean("shapeRecognition", false) }
+                    val delay by rememberPref(prefs, AppPrefs.SHAPE_HOLD_MS) {
+                        AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
+                    }
+                    SwitchRow("Tidy up shapes", tidy, { prefs.edit().putBoolean("shapeRecognition", it).apply() },
+                        "Draw with the pen, then hold still to tidy lines, arrows, circles, ovals, polygons and stars. Lift to keep the shape; keep drawing to return to freehand.")
+                    if (tidy) PopoverSlider("Hold delay", "$delay ms", delay.toFloat(),
+                        AppPrefs.SHAPE_HOLD_MIN_MS.toFloat()..AppPrefs.SHAPE_HOLD_MAX_MS.toFloat(),
+                        { prefs.edit().putLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.shapeHoldMs(it.toLong())).apply() })
                 }
                 if (tool == Tool.ERASER) {
                     var pressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }

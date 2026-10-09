@@ -49,6 +49,13 @@ object AppPrefs {
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val QUICK_FOLDER = "notebook.quickFolder"
     const val PALM_MS = "input.palmMs"
+    /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
+    const val SHAPE_HOLD_MS = "input.shapeHoldMs"
+    const val DEFAULT_SHAPE_HOLD_MS = 650L
+    const val SHAPE_HOLD_MIN_MS = 300L
+    const val SHAPE_HOLD_MAX_MS = 1500L
+    fun shapeHoldMs(value: Long?): Long =
+        (value ?: DEFAULT_SHAPE_HOLD_MS).coerceIn(SHAPE_HOLD_MIN_MS, SHAPE_HOLD_MAX_MS)
     const val FAST_PAN = "input.fastPan"
     const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"

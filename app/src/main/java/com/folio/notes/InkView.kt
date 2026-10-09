@@ -30,6 +30,7 @@ class InkView(context: Context) : View(context) {
     var tool = Tool.PEN
         set(value) {
             if (field == value) return
+            clearShapeHold()
             stickyNotes.reset()
             field = value
             // A selection only makes sense while the lasso is in hand.
@@ -112,8 +113,14 @@ class InkView(context: Context) : View(context) {
      * it as one undoable step instead of three.
      */
     var onContentChanged: (List<Stroke>, List<TextBox>, List<PageImage>) -> Unit = { _, _, _ -> }
-    /** When on, a neat pen drawing is replaced by a clean line, rectangle, ellipse or triangle. */
+    /** Pause at the end of a pen drawing to preview a clean shape before lifting. */
     var shapeRecognition = false
+        set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
+    var shapeHoldMs = AppPrefs.DEFAULT_SHAPE_HOLD_MS
+        set(value) {
+            val delay = AppPrefs.shapeHoldMs(value)
+            if (field != delay) { field = delay; clearShapeHold(); invalidate() }
+        }
     /** A tap on an existing text box, and a tap on bare page asking for a new box there. */
     var onTextEdit: (TextBox) -> Unit = {}
     var onTextCreate: (InkPoint) -> Unit = {}
@@ -229,6 +236,33 @@ class InkView(context: Context) : View(context) {
     private var zoneOffered = false
     private var lastZoneOfferAt = 0L
     private var draft: Stroke? = null
+    private val shapeHold = ShapeHold()
+    private var heldShape: List<Stroke>? = null
+    private val shapeHoldRunnable = Runnable {
+        if (shapeRecognition && tool == Tool.PEN && !readOnly && !inputBlocked && !navigating &&
+            PageLayers.editable(page.layers, activeLayer) && shapeHold.attempt(SystemClock.uptimeMillis(), shapeHoldMs)) {
+            heldShape = draft?.let { InkGeometry.tidy(it) }?.let(::snapShapes)
+            if (heldShape != null) { removeCallbacks(longPressRunnable); invalidate() }
+        }
+    }
+    private fun clearShapeHold() {
+        removeCallbacks(shapeHoldRunnable)
+        shapeHold.reset()
+        heldShape = null
+    }
+    private fun trackShapeHold(event: MotionEvent, index: Int) {
+        if (!shapeRecognition || draft?.tool != Tool.PEN) return
+        val slop = 8f * resources.displayMetrics.density
+        var moved = false
+        for (h in 0 until event.historySize) {
+            moved = shapeHold.sample(event.getHistoricalX(index, h), event.getHistoricalY(index, h),
+                event.getHistoricalEventTime(h), slop) || moved
+        }
+        moved = shapeHold.sample(event.getX(index), event.getY(index), event.eventTime, slop) || moved
+        if (moved && heldShape != null) { heldShape = null; invalidate() }
+        removeCallbacks(shapeHoldRunnable)
+        shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
+    }
     private var erasing: List<Stroke>? = null
     private var lasso: List<InkPoint>? = null
     private var selection: List<Stroke> = emptyList()
@@ -1069,6 +1103,7 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(reportMeasurement)
         removeCallbacks(reportTextFrame)
         removeCallbacks(longPressRunnable)
+        clearShapeHold()
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
@@ -1181,7 +1216,8 @@ class InkView(context: Context) : View(context) {
         val draftStroke = draft
         // Live freehand ink retains settled spline segments and resamples only the changing tip.
         // Drawing/tapering still visits the centreline, but smoothing no longer grows with the line.
-        if (draftStroke == null) resetDraftGeometry()
+        if (heldShape != null) heldShape!!.forEach { InkRenderer.stroke(canvas, it) }
+        else if (draftStroke == null) resetDraftGeometry()
         else {
             val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
             if (live != null) {
@@ -1457,6 +1493,7 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_POINTER_DOWN -> {
                 removeCallbacks(longPressRunnable); tapOff = false
                 if (!stylus && !ignored) {
+                    clearShapeHold()
                     suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     panGate.release()
@@ -1629,8 +1666,10 @@ class InkView(context: Context) : View(context) {
                         eraserMark = centers[centers.size - 1]
                     }
                     draft?.let { current ->
+                        trackShapeHold(event, index)
                         val accepted = pagePoints(points)
                         draft = when {
+                            heldShape != null -> current
                             accepted.isEmpty() -> current
                             current.tool in FREEHAND_TOOLS -> {
                                 // Drafts own their mutable samples until pen-up. Neither the list
@@ -1720,6 +1759,7 @@ class InkView(context: Context) : View(context) {
                 else if (lassoActive()) finishLasso()
                 else {
                     draft?.let { current ->
+                        trackShapeHold(event, event.findPointerIndex(pointerId).coerceAtLeast(0))
                         // Follow the tracked pointer, which may be a stylus that took over from a finger.
                         var end = pagePoints(listOf(point(event, event.findPointerIndex(pointerId).coerceAtLeast(0)))).lastOrNull()
                         if (end != null) {
@@ -1748,20 +1788,17 @@ class InkView(context: Context) : View(context) {
         val wasErasing = erasing != null
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
         var scribbleErased: List<Stroke>? = null
-        if (drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
+        if (heldShape == null && drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
             val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity, ::boundsOf, ::erasable)
             if (scrubbed !== page.strokes) scribbleErased = scrubbed
         }
-        // "Tidy up": a pen drawing that reads as a shape lands as a clean one instead.
-        val tidied = if (scribbleErased == null && drawn != null && shapeRecognition) InkGeometry.tidy(drawn)?.let(::snapShapes) else null
+        // Only a completed pen-down hold authorises tidy-up; lifting alone always keeps freehand.
+        val tidied = heldShape
         val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
             // Shapes tidied or generated from the drag are new strokes; they join the layer being drawn on.
             ?.map { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
             ?.let { page.strokes + it } ?: erasing
-        // Shape tidy can straighten an "l" or a crossbar. Short pen lines still carry
-        // writing progress; larger underlines are rejected by the follow geometry rules.
-        val followableTidy = tidied == null || tidied.singleOrNull()?.tool == Tool.LINE
-        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null && followableTidy) {
+        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
             followCompletedStroke(drawn)
         }
         val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
@@ -2243,7 +2280,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -2533,7 +2570,7 @@ class InkView(context: Context) : View(context) {
         }
     }
     private fun reportShapeMeasurement() {
-        pendingMeasurement = draft?.takeIf { shapeMeasurements && it.tool in MEASURE_TOOLS }
+        pendingMeasurement = (heldShape?.singleOrNull() ?: draft)?.takeIf { shapeMeasurements && it.tool in MEASURE_TOOLS }
             ?.let { ShapeMeasurement.from(it, graphStyle, originX, originY, scale) }
         removeCallbacks(reportMeasurement)
         if (pendingMeasurement != reportedMeasurement) post(reportMeasurement)
@@ -2608,6 +2645,8 @@ class InkView(context: Context) : View(context) {
             if (!PageLayers.editable(page.layers, activeLayer)) { ignored = true; onLayerBlocked(); return }
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
                 style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID, layer = activeLayer)
+            clearShapeHold()
+            trackShapeHold(event, index)
             onPenInput(true)
         }
     }

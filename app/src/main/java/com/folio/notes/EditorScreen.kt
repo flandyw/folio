@@ -2202,6 +2202,10 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
     DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
     val inputStylusActivity = LocalStylusActivity.current
+    val shapePrefs = rememberPrefs()
+    val shapeHoldMs by rememberPref(shapePrefs, AppPrefs.SHAPE_HOLD_MS) {
+        AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
+    }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
     var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
@@ -2380,6 +2384,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 onSelectAllView?.invoke(view)
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
                 view.shapeRecognition = shapeRecognition
+                view.shapeHoldMs = shapeHoldMs
                 view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
                 view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
                 view.onStrokeAppended = { before, stroke, after ->

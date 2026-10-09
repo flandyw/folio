@@ -121,6 +121,7 @@ import kotlinx.coroutines.withContext
                 AppPrefs.KEEP_SCREEN_ON -> keepScreenOn = prefs.getBoolean(key, AppPrefs.DEFAULT_KEEP_SCREEN_ON)
                 AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
                 AppPrefs.UI_TEXT_SCALE -> uiTextScale = AppPrefs.uiTextScale(prefs.getFloat(key, AppPrefs.DEFAULT_UI_TEXT_SCALE))
+                "shapeRecognition" -> shapeRecognition = prefs.getBoolean(key, false)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
