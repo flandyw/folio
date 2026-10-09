@@ -60,14 +60,16 @@ class InkView(context: Context) : View(context) {
     var scribbleToErase = true
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
     var eraserWholeStroke = false
-    private var inputRouter = StylusInputRouter()
+    private var inputRouter = StylusInputRouter(pinchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
     /** Main-window proximity is also seen by reference panes and controls in popup windows. */
     internal var inputStylusActivity: StylusActivity? = null
         set(value) {
             if (field === value) return
             inputRouter.reset(::handleTouchEvent)
+            if (isAttachedToWindow) inputRouter.stylus.detachNavigationSurface()
             field = value
-            inputRouter = StylusInputRouter(value ?: StylusActivity())
+            inputRouter = StylusInputRouter(value ?: StylusActivity(), ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+            if (isAttachedToWindow) inputRouter.stylus.attachNavigationSurface()
         }
     /** Proximity grace for a standalone surface; app windows use their shared preference. */
     var palmRejectMs: Long
@@ -1051,7 +1053,13 @@ class InkView(context: Context) : View(context) {
             rasterViewport = navigationBounds, fastPreview = true)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        inputRouter.stylus.attachNavigationSurface()
+    }
+
     override fun onDetachedFromWindow() {
+        inputRouter.stylus.detachNavigationSurface()
         inputRouter.reset(::handleTouchEvent)
         stickyNotes.reset()
         removeCallbacks(followFrame)
@@ -1301,8 +1309,9 @@ class InkView(context: Context) : View(context) {
             return true
         }
         if (inputBlocked) return true
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null) onTextEditingExit()
-        if (!readOnly && !selectingWritingRegion) {
+        val touchNavigation = inputRouter.stylus.isNavigation(event.deviceId, event.downTime)
+        if (!touchNavigation && event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null) onTextEditingExit()
+        if (!touchNavigation && !readOnly && !selectingWritingRegion) {
             val pen = isStylus(event, 0)
             if (pen) stylus = true
             if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, activeLayer,
@@ -1312,7 +1321,7 @@ class InkView(context: Context) : View(context) {
                 return true
             }
         }
-        if (markRegionMode) {
+        if (markRegionMode && !touchNavigation) {
             if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) { markRegionDraft = null; markRegionStart = null; invalidate(); return true }
             val pt = clampToPage(point(event, 0))
             fun box(from: InkPoint) = WritingLane(min(from.x, pt.x), min(from.y, pt.y), max(from.x, pt.x), max(from.y, pt.y))
@@ -1339,7 +1348,7 @@ class InkView(context: Context) : View(context) {
             }
             invalidate(); return true
         }
-        if (selectingWritingRegion) {
+        if (selectingWritingRegion && !touchNavigation) {
             if (!isStylus(event, 0) && !fingerDrawing) return true
             val pt = clampToPage(point(event, 0))
             when (event.actionMasked) {
@@ -1371,7 +1380,7 @@ class InkView(context: Context) : View(context) {
         if (hasStylus && (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN)) {
             requestUnbufferedDispatch(event)
         }
-        if (!multiTouchUndo || hasStylus) touchChord.reset()
+        if (!multiTouchUndo || hasStylus || touchNavigation || inputRouter.stylus.isRecent(event.eventTime)) touchChord.reset()
         else {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                 touchChord.down(event.getPointerId(0), event.getX(0), event.getY(0), event.eventTime)
@@ -1407,20 +1416,23 @@ class InkView(context: Context) : View(context) {
                 stylus = isStylus(event, 0)
                 ignored = false
                 // Typing is a finger job even when finger drawing is off, so the text tool never pans.
-                navigating = !ignored && (tool == Tool.HAND || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
+                navigating = !ignored && (touchNavigation || tool == Tool.HAND || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
                 if (navigating) suspendWritingFollow()
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
                 panVelocity.addPosition(event.eventTime, Offset(lastX, lastY))
                 longPressFired = false
                 removeCallbacks(longPressRunnable)
-                if (!stylus && !ignored && !readOnly && !inputBlocked) {
+                if (!touchNavigation && !stylus && !ignored && !readOnly && !inputBlocked) {
                     longPressX = event.x; longPressY = event.y
                     postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
                 }
                 tapOffX = event.x; tapOffY = event.y
                 tapOff = false
-                if (cropImageId != null && !readOnly && tool == Tool.HAND && !ignored) {
+                if (touchNavigation) {
+                    // This delayed DOWN belongs to a recognized pinch, never an ink/tool tap.
+                    tapOff = false
+                } else if (cropImageId != null && !readOnly && tool == Tool.HAND && !ignored) {
                     if (beginCrop(event, 0)) navigating = false
                     else tapOff = !cropFrameContains(point(event, 0))
                 } else if (!readOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
@@ -1434,9 +1446,9 @@ class InkView(context: Context) : View(context) {
                 else if (!navigating && !ignored) beginStroke(event, 0)
                 // Pen-only mode is where a finger means "navigate", so a hand that has not travelled
                 // yet is left where it is. The pen takes the gesture over the moment its tip lands.
-                if (cropImageId == null) tapOff = !readOnly && !ignored &&
+                if (!touchNavigation && cropImageId == null) tapOff = !readOnly && !ignored &&
                     ((tool == Tool.HAND && selectedImageId != null && movingImage == null) || (tool == Tool.LASSO && hasSelection() && navigating))
-                panGate.arm(navigating && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
+                panGate.arm(navigating && !touchNavigation && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 removeCallbacks(longPressRunnable); tapOff = false
@@ -1699,7 +1711,8 @@ class InkView(context: Context) : View(context) {
                     onDocumentPanEnd(if (panGate.waitingForSlop) 0f else panVelocity.calculateVelocity().y * panMultiplier)
                 }
                 if (!hadImage && !hadLink && tappedZone == null) {
-                if (tool == Tool.TEXT) finishText()
+                if (touchNavigation) cancelGesture()
+                else if (tool == Tool.TEXT) finishText()
                 else if (lassoActive()) finishLasso()
                 else {
                     draft?.let { current ->

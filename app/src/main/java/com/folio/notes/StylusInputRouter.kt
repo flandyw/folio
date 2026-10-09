@@ -6,8 +6,12 @@ import android.view.InputDevice
 import android.view.MotionEvent
 
 /** Routes before gesture recognition, so every tool and Compose navigation sees the same policy. */
-internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) {
+internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity(), pinchSlop: Float = 0f,
+                                private val notifyWindowCancellation: Boolean = false) {
     private val rejection = PalmRejection(stylus)
+    private val pinch = PinchNavigation(pinchSlop)
+    private val pinchEnabled = pinchSlop > 0f
+    private var navigationOwner = false
     private var lastDispatch: MotionEvent? = null
     private var penStream = false
     private var downTime = 0L
@@ -39,14 +43,32 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
         }
         val id = event.getPointerId(event.actionIndex)
         val up = action == PalmRejection.Action.UP || action == PalmRejection.Action.POINTER_UP
+        if (navigationOwner && (action == PalmRejection.Action.DOWN || action == PalmRejection.Action.CANCEL || pens != 0)) endNavigation()
         if (pens != 0) stylus.contact(event.eventTime,
             action != PalmRejection.Action.CANCEL && (pens and (if (up) (1 shl id).inv() else -1)) != 0)
         else if (action == PalmRejection.Action.CANCEL && penStream) stylus.contact(event.eventTime, false)
         val canceled = Build.VERSION.SDK_INT >= 33 && event.flags and MotionEvent.FLAG_CANCELED != 0
-        rejection.route(action, ids, pens, touches, id, event.eventTime, canceled)
+        if (action == PalmRejection.Action.DOWN) pinch.reset()
+        if (pens != 0 || stylus.isTouching || up || action == PalmRejection.Action.CANCEL || !stylus.canPinchNavigate) pinch.reset()
+        else if (pinchEnabled && !navigationOwner) {
+            for (i in 0 until event.pointerCount) pinch.move(event.getPointerId(i), event.getX(i), event.getY(i))
+            if ((action == PalmRejection.Action.DOWN || action == PalmRejection.Action.POINTER_DOWN) && touches and (1 shl id) != 0) {
+                pinch.down(id, event.getX(event.actionIndex), event.getY(event.actionIndex), event.eventTime)
+            }
+            val intent = if (action == PalmRejection.Action.MOVE) pinch.intent() else 0
+            if (intent != 0 && rejection.startNavigation(intent)) {
+                navigationOwner = true
+                downTime = event.eventTime
+                stylus.beginNavigation(event.deviceId, downTime)
+                dispatchNavigationStart(event, intent, dispatch)
+                pinch.reset()
+            }
+        }
+        val navigation = navigationOwner || stylus.isNavigation(event.deviceId, event.downTime)
+        rejection.route(action, ids, pens, touches, id, event.eventTime, canceled, navigation)
         if (rejection.cancel) cancelDispatch(dispatch)
         val mask = rejection.dispatchMask
-        if (mask == 0) return true
+        if (mask == 0) { if (navigationOwner) endNavigation(); return true }
         // Filtering also rewrites POINTER_DOWN/UP to DOWN/UP when the other pointers were rejected.
         // Use public obtain/addBatch APIs, retaining each pointer's full coordinates and history.
         if (action == PalmRejection.Action.DOWN || action == PalmRejection.Action.POINTER_DOWN && mask == 1 shl id) {
@@ -65,7 +87,7 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
                 } else MotionEvent.obtainNoHistory(routed)
             }
             dispatch(routed)
-            if (routed.actionMasked == MotionEvent.ACTION_UP) clearDispatch()
+            if (routed.actionMasked == MotionEvent.ACTION_UP) { clearDispatch(); endNavigation() }
         } finally { if (copied) routed.recycle() }
         // Rejected DOWNs must still claim the physical stream so a later pen can take it over.
         return true
@@ -86,11 +108,15 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
     fun reset(dispatch: (MotionEvent) -> Boolean) {
         cancelDispatch(dispatch)
         rejection.reset()
+        pinch.reset()
+        endNavigation()
     }
 
     private fun cancelDispatch(dispatch: (MotionEvent) -> Boolean) {
         lastDispatch?.let { last ->
-            stylus.canceled()
+            // Compose cancels the child AndroidView when its parent takes a pinch. Only the
+            // window's physical-stream cancellations should abort that parent recognizer.
+            stylus.canceled(notifyWindowCancellation)
             var mask = 0
             for (i in 0 until last.pointerCount) mask = mask or (1 shl last.getPointerId(i))
             // The topology snapshot can be older than the last MOVE. A cancellation is sent now,
@@ -103,6 +129,32 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
     }
 
     private fun clearDispatch() { lastDispatch?.recycle(); lastDispatch = null; penStream = false }
+
+    private fun endNavigation() {
+        if (navigationOwner) stylus.endNavigation()
+        navigationOwner = false
+    }
+
+    private fun dispatchNavigationStart(event: MotionEvent, mask: Int, dispatch: (MotionEvent) -> Boolean) {
+        var first = 0
+        for (i in 0 until event.pointerCount) {
+            val bit = 1 shl event.getPointerId(i)
+            if (mask and bit != 0) { first = bit; break }
+        }
+        val down = filteredEvent(event, first, downTime, history = false)
+        try {
+            down.action = MotionEvent.ACTION_DOWN
+            lastDispatch?.recycle(); lastDispatch = MotionEvent.obtainNoHistory(down)
+            dispatch(down)
+        } finally { down.recycle() }
+        val joined = filteredEvent(event, mask, downTime, history = false)
+        try {
+            joined.action = MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            lastDispatch?.recycle(); lastDispatch = MotionEvent.obtainNoHistory(joined)
+            dispatch(joined)
+        }
+        finally { joined.recycle() }
+    }
 
     private fun filteredEvent(event: MotionEvent, mask: Int, start: Long, history: Boolean = true,
                               time: Long = event.eventTime): MotionEvent {
@@ -117,6 +169,9 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
         }
         val action = filteredPointerAction(event.actionMasked, count, changedIndex)
         val histories = if (history) event.historySize else 0
+        var firstHistory = 0
+        // A delayed pinch DOWN starts now. Do not feed its recognizers older withheld samples.
+        while (firstHistory < histories && event.getHistoricalEventTime(firstHistory) < start) firstHistory++
         // Re-create the original raw/local translation. This also keeps hand-tool panning stable
         // when a pen at index > 0 takes over from a palm, including on API 26..28.
         val first = indices[0]
@@ -129,14 +184,14 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity()) 
                 coords[i].x += offsetX; coords[i].y += offsetY
             }
         }
-        coordinates(0)
+        coordinates(firstHistory)
         // addBatch accepts MOVE events; set the final action only after copying the history.
         val result = MotionEvent.obtain(start,
-            if (histories > 0) event.getHistoricalEventTime(0) else time,
+            if (firstHistory < histories) event.getHistoricalEventTime(firstHistory) else time,
             MotionEvent.ACTION_MOVE, count, properties, coords, event.metaState, event.buttonState,
             event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags, event.source,
             event.flags and MotionEvent.FLAG_CANCELED.inv())
-        for (h in 1..histories) {
+        for (h in (firstHistory + 1)..histories) {
             coordinates(h)
             result.addBatch(if (h < histories) event.getHistoricalEventTime(h) else time, coords, event.metaState)
         }

@@ -17,14 +17,22 @@ a palm arrived first or lifts last. Clean single-pointer moves use the original 
   and a canceled tip never commits its stroke.
 - Pen arrival cancels an earlier touch preview and starts a complete, isolated pen gesture. The
   same rule covers ink, eraser, lasso, text/image moves, sticky notes and answer/mark rectangles.
-- With proximity protection enabled, a hovering or touching pen blocks touchscreen contacts.
+- With proximity protection enabled, a hovering or touching pen blocks ordinary touchscreen contacts.
   HOVER_EXIT retains the configured grace interval: Android also sends EXIT before tip DOWN.
   Rejected contacts stay rejected until lifted, even if the interval expires or the pen leaves.
+- Fresh contacts near a hovering/recent pen are withheld while the app checks for a deliberate
+  pinch: two fingers must land within 280 ms and change their span beyond the device's touch slop.
+  One finger can remain anchored. A recognized pinch receives a complete DOWN/POINTER_DOWN stream and bypasses tool
+  taps and touch undo. Contacts rejected during tip contact or by Android can never join it. A
+  pinch already underway survives hover and grace, including its final one-finger pan; actual tip
+  contact and Android cancellation still stop it. The exception applies while ink surfaces are mounted.
 - The existing Palm rejection slider controls that additional protection throughout the main
   window, reference panes, toolbar and guarded popup controls. Zero means system-only protection;
   Android cancellation and tip isolation remain enabled. Mouse input remains available near a pen.
 - A shared cancellation serial lets Compose navigation distinguish cancellation from release,
   preventing a rejected gesture from flinging, committing a bottom pull, or turning a music sheet.
+  Only the window router increments that serial. Compose's normal cancellation of a child AndroidView
+  when taking ownership of a pinch cancels its preview without aborting the parent pinch.
   Activity pause clears proximity; detaching, rebinding or blocking an ink surface cancels its preview.
 
 Input data changes neither the saved page format nor journal/undo invariants. Actions already
@@ -43,9 +51,12 @@ require hardware; desktop traces do not certify the tablet's digitizer behavior.
 1. On a finite page and an infinite canvas, rest the palm first, then write short and long strokes.
    Repeat with the palm lifting first and with the tip lifting first. Only intentional pen ink commits;
    a resting contact never resumes drawing/panning when the grace interval expires.
-2. Hover the tip before writing, and move it out of range without touching. Touch is blocked in
-   range and for the configured interval afterwards. After lifting the palm and waiting, one-finger
-   pan, two-finger pinch and two/three-finger undo/redo work again.
+2. Hover the tip before writing, and move it out of range without touching. Single touches and
+   stationary two-finger taps are blocked in range and for the configured interval afterwards.
+   Start a pinch with two fresh fingers while hovering and immediately after pen-up: zoom works
+   without lifting/retrying or waiting for the interval. Hover again during a pinch already in progress;
+   it keeps zooming and its remaining finger can still pan. A palm held through writing cannot join
+   a new finger as a pinch. After lifting the palm and waiting, ordinary finger taps/undo work again.
 3. Repeat with eraser, lasso/handles, text move, image move/crop, sticky creation/move/ink/erase,
    answer-area selection and mark-area selection. A palm cannot commit a preview or delete ink.
 4. While writing, rest the hand on toolbar controls, the page scrollbar and an open menu. There

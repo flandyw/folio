@@ -8,8 +8,8 @@ private class Trace(val stylus: StylusActivity = StylusActivity()) {
     val policy = PalmRejection(stylus)
     fun event(action: PalmRejection.Action, ids: Int, pen: Int = 0, touch: Int = ids and pen.inv(),
               id: Int = Integer.numberOfTrailingZeros(ids), time: Long = 0L, canceled: Boolean = false,
-              sent: Int = ids, cancel: Boolean = false) {
-        policy.route(action, ids, pen, touch, id, time, canceled)
+              sent: Int = ids, cancel: Boolean = false, navigation: Boolean = false) {
+        policy.route(action, ids, pen, touch, id, time, canceled, navigation)
         check(policy.dispatchMask == sent && policy.cancel == cancel) {
             "$action id=$id: expected mask=$sent cancel=$cancel, got mask=${policy.dispatchMask} cancel=${policy.cancel}"
         }
@@ -184,6 +184,148 @@ fun main() {
         check(filteredPointerAction(5, 2, 1) == 5 or (1 shl 8))
         check(filteredPointerAction(6, 2, 0) == 6)
         check(filteredPointerAction(2, 2, 0) == 2)
+    }
+    scenario("A pinch already underway survives hover, grace and a remaining finger") {
+        Trace().apply {
+            event(DOWN, mask(2))
+            event(POINTER_DOWN, mask(2, 7), id = 7)
+            stylus.hover(100, true)
+            check(!policy.rejectTouches())
+            event(MOVE, mask(2, 7), time = 110)
+            event(POINTER_UP, mask(2, 7), id = 2, time = 120)
+            event(MOVE, mask(7), time = 130)
+            event(UP, mask(7), time = 140)
+        }
+    }
+    scenario("Two fresh fingers can pinch during pen hover after deliberate span movement") {
+        Trace().apply {
+            stylus.hover(0, true)
+            event(DOWN, mask(3), time = 10, sent = 0)
+            event(POINTER_DOWN, mask(3, 12), id = 12, time = 30, sent = 0)
+            val pinch = PinchNavigation(8f)
+            pinch.down(3, 0f, 0f, 10)
+            pinch.down(12, 100f, 0f, 30)
+            pinch.move(3, -5f, 0f); pinch.move(12, 105f, 0f)
+            check(pinch.intent() == 0)
+            pinch.move(3, -12f, 0f); pinch.move(12, 112f, 0f)
+            check(pinch.intent() == mask(3, 12))
+            check(policy.startNavigation(pinch.intent()))
+            event(MOVE, mask(3, 12), time = 100, navigation = true)
+            check(!policy.rejectTouches())
+            event(POINTER_UP, mask(3, 12), id = 12, time = 110, navigation = true)
+            event(UP, mask(3), time = 120, navigation = true)
+        }
+    }
+    scenario("Pinching immediately after pen-up needs no grace timeout or retry") {
+        Trace().apply {
+            stylus.contact(0, true)
+            event(DOWN, mask(9), pen = mask(9))
+            stylus.contact(100, false)
+            event(UP, mask(9), pen = mask(9), time = 100)
+            event(DOWN, mask(2), time = 110, sent = 0)
+            event(POINTER_DOWN, mask(2, 4), id = 4, time = 120, sent = 0)
+            check(policy.startNavigation(mask(2, 4)))
+            event(MOVE, mask(2, 4), time = 150, navigation = true)
+            event(POINTER_UP, mask(2, 4), id = 4, time = 160, navigation = true)
+            event(UP, mask(2), time = 170, navigation = true)
+        }
+    }
+    scenario("A stationary pair, small drift and two-finger pan do not bypass proximity") {
+        val pinch = PinchNavigation(8f)
+        pinch.down(0, 0f, 0f, 0)
+        pinch.down(1, 100f, 0f, 20)
+        check(pinch.intent() == 0)
+        pinch.move(0, -5f, 0f)
+        check(pinch.intent() == 0)
+        pinch.move(0, 30f, 0f); pinch.move(1, 130f, 0f)
+        check(pinch.intent() == 0)
+        pinch.reset()
+        pinch.down(0, 0f, 0f, 0)
+        pinch.down(1, 100f, 0f, 1000)
+        pinch.move(0, -30f, 0f); pinch.move(1, 130f, 0f)
+        check(pinch.intent() == 0)
+    }
+    scenario("An anchored-finger pinch works in either zoom direction") {
+        val pinch = PinchNavigation(8f)
+        pinch.down(0, 0f, 0f, 0)
+        pinch.down(1, 100f, 0f, 20)
+        pinch.move(1, 125f, 0f)
+        check(pinch.intent() == mask(0, 1))
+        pinch.move(1, 75f, 0f)
+        check(pinch.intent() == mask(0, 1))
+    }
+    scenario("A rejected writing palm cannot join a fresh finger to become a pinch") {
+        Trace().apply {
+            stylus.contact(0, true)
+            event(DOWN, mask(9), pen = mask(9))
+            event(POINTER_DOWN, mask(9, 1), pen = mask(9), id = 1, sent = mask(9))
+            stylus.contact(100, false)
+            event(POINTER_UP, mask(9, 1), pen = mask(9), id = 9, time = 100, sent = mask(9))
+            event(POINTER_DOWN, mask(1, 2), id = 2, time = 110, sent = 0)
+            check(!policy.startNavigation(mask(1, 2)))
+            event(MOVE, mask(1, 2), time = 130, sent = 0)
+        }
+    }
+    scenario("Android cancellation and pen takeover still stop an admitted pinch") {
+        Trace().apply {
+            stylus.hover(0, true)
+            event(DOWN, mask(1), time = 10, sent = 0)
+            event(POINTER_DOWN, mask(1, 2), id = 2, time = 20, sent = 0)
+            check(policy.startNavigation(mask(1, 2)))
+            event(MOVE, mask(1, 2), time = 30, navigation = true)
+            event(POINTER_UP, mask(1, 2), id = 2, time = 40, canceled = true, sent = 0, cancel = true, navigation = true)
+            event(UP, mask(1), time = 50, sent = 0)
+            event(DOWN, mask(1), time = 100, sent = 0)
+            event(POINTER_DOWN, mask(1, 2), id = 2, time = 110, sent = 0)
+            check(policy.startNavigation(mask(1, 2)))
+            event(MOVE, mask(1, 2), time = 120, navigation = true)
+            stylus.contact(130, true)
+            event(POINTER_DOWN, mask(1, 2, 9), pen = mask(9), id = 9, time = 130, sent = mask(9), cancel = true)
+        }
+    }
+    scenario("Navigation permission passes both routers and ends with the physical stream") {
+        val stylus = StylusActivity()
+        stylus.hover(0, true)
+        stylus.attachNavigationSurface()
+        check(stylus.canPinchNavigate)
+        stylus.beginNavigation(7, 100)
+        val child = Trace(stylus)
+        child.event(DOWN, mask(1), time = 100, navigation = stylus.isNavigation(7, 100))
+        child.event(POINTER_DOWN, mask(1, 2), id = 2, time = 100, navigation = stylus.isNavigation(7, 100))
+        child.event(MOVE, mask(1, 2), time = 110, navigation = stylus.isNavigation(7, 100))
+        check(!child.policy.rejectTouches())
+        check(!stylus.isNavigation(8, 100) && !stylus.isNavigation(7, 101))
+        stylus.endNavigation()
+        check(!stylus.isNavigation(7, 100))
+        stylus.detachNavigationSurface()
+        check(!stylus.canPinchNavigate)
+    }
+    scenario("Child AndroidView handoff does not cancel the parent Compose pinch") {
+        val stylus = StylusActivity()
+        val captured = stylus.cancellationSerial
+        stylus.canceled(window = false)
+        check(stylus.cancellationSerial == captured)
+        stylus.canceled(window = true)
+        check(stylus.cancellationSerial != captured)
+    }
+    scenario("Hover between the first and second fresh fingers can still recognize a pinch") {
+        Trace().apply {
+            event(DOWN, mask(1), time = 0)
+            stylus.hover(10, true)
+            check(policy.rejectTouches())
+            event(POINTER_DOWN, mask(1, 2), id = 2, time = 20, sent = 0)
+            check(policy.startNavigation(mask(1, 2)))
+            event(MOVE, mask(1, 2), time = 30, navigation = true)
+        }
+    }
+    scenario("Touch in another window cannot navigate while the tip is still down") {
+        Trace().apply {
+            stylus.contact(0, true)
+            event(DOWN, mask(1), time = 10, sent = 0)
+            event(POINTER_DOWN, mask(1, 2), id = 2, time = 20, sent = 0)
+            check(!policy.startNavigation(mask(1, 2)))
+            event(MOVE, mask(1, 2), time = 30, sent = 0)
+        }
     }
     println("Palm rejection: $checks scenarios passed.")
 }

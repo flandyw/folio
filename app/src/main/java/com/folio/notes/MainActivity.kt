@@ -15,7 +15,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     private val stylusActivity = StylusActivity()
-    private val inputRouter = StylusInputRouter(stylusActivity)
+    private val inputRouter by lazy {
+        StylusInputRouter(stylusActivity, android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat(),
+            notifyWindowCancellation = true)
+    }
     private val palmPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == AppPrefs.PALM_MS) stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(key, AppPrefs.DEFAULT_PALM_MS))
     }
