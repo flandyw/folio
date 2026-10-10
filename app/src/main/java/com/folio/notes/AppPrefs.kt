@@ -73,6 +73,8 @@ object AppPrefs {
     const val EXPORT_PAGES_FORMAT = "export.pagesFormat"
     /** Long-press action for the editor's share button, stored as a `ShareShortcut` name. */
     const val SHARE_LONG_PRESS = "share.longPress"
+    /** Editor shows one fitted page at a time instead of the scrolling column. */
+    const val SINGLE_PAGE_VIEW = "singlePageView"
     const val SPLIT_FRACTION = "workspace.splitFraction"
     /** Which side the editor sits on when a companion pane is open; remembered between sessions. */
     const val EDITOR_ON_RIGHT = "workspace.editorOnRight"

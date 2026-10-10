@@ -10,7 +10,13 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -592,7 +598,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex, initialFirstVisibleItemScrollOffset = session?.viewport?.scrollOffset ?: 0)
     // Single-page view: one fitted page at a time, turned by swiping or the corner arrows. A
     // per-device preference; infinite canvases and scores keep their own layouts.
-    var singlePage by remember { mutableStateOf(appPrefs.getBoolean("singlePageView", false)) }
+    var singlePage by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.SINGLE_PAGE_VIEW, false)) }
     val paged = music == null && singlePage && !page.infinite
     var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
     LaunchedEffect(note.id, pages) {
@@ -645,17 +651,26 @@ private fun paperLabel(p: Paper): String = when (p) {
             InkGeometry.contentBounds(page.strokes, page.texts, page.images, { InkRenderer.textHeight(it) }, page.width, page.height)
         )
     }
-    fun jumpTo(index: Int) { activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
+    fun jumpTo(index: Int) {
+        activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index)
+        // The column is not composed in the single-page view, and scrollToItem would wait for a layout that never comes.
+        if (paged) pages.requestScrollToItem(index) else scope.launch { pages.scrollToItem(index) }
+    }
     /** Previous/next page in either view; the single-page view starts each page fitted. */
     fun turnPage(forward: Boolean) {
         val target = (state.pageIndex + if (forward) 1 else -1).coerceIn(0, note.pages.lastIndex)
         if (target == state.pageIndex) return
-        if (paged) documentZoom = 1f
         jumpTo(target)
     }
+    fun jumpToEnd(last: Boolean) {
+        val target = if (last) note.pages.lastIndex else 0
+        if (target != state.pageIndex) jumpTo(target)
+    }
+    // Every way of changing page (thumbnails, search, outline, delete, undo) starts the next page fitted.
+    LaunchedEffect(page.id, paged) { if (paged) { documentZoom = 1f; documentPan = 0f } }
     fun setSinglePage(on: Boolean) {
         singlePage = on
-        appPrefs.edit().putBoolean("singlePageView", on).apply()
+        appPrefs.edit().putBoolean(AppPrefs.SINGLE_PAGE_VIEW, on).apply()
         activeInkView?.suspendWritingFollow()
         motion.reset()
         documentZoom = 1f; documentPan = 0f
@@ -831,7 +846,10 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (handledNavigation != state.navigationRequest) {
             activeInkView?.suspendWritingFollow()
             motion.reset()
-            if (!page.infinite) pages.scrollToItem(state.pageIndex.coerceIn(0, note.pages.lastIndex))
+            if (!page.infinite) {
+                val target = state.pageIndex.coerceIn(0, note.pages.lastIndex)
+                if (paged) pages.requestScrollToItem(target) else pages.scrollToItem(target)
+            }
             handledNavigation = state.navigationRequest
         }
         // A score has no scrolling column: the stage decides which pages are on view.
@@ -1520,9 +1538,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
             if (music != null && musicInsets != null) music.chrome(this, musicInsets)
-            if (music == null && !page.infinite && note.pages.isNotEmpty()) PageNavigator(
+            if (music == null && note.pages.isNotEmpty() && (!page.infinite || note.pages.size > 1)) PageNavigator(
                 index = state.pageIndex.coerceIn(0, note.pages.lastIndex), count = note.pages.size, singlePage = singlePage,
-                onTurn = ::turnPage, onToggleView = { setSinglePage(!singlePage) },
+                onTurn = ::turnPage, onJumpToEnd = ::jumpToEnd, onToggleView = { setSinglePage(!singlePage) },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
                     .padding(FolioSpacing.dp8).guardUiTouches().zIndex(11f))
             Column(
@@ -2682,24 +2700,43 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 }
             }
         }) {
-        key(page.id) { Box(Modifier.fillMaxSize().clip(FolioShapes.medium)) { sheet(page, index) } }
+        // The turn slides in from the side it came from; only the page on view is ever the active one.
+        AnimatedContent(targetState = index to page, contentKey = { it.second.id }, label = "pagedSheet",
+            transitionSpec = {
+                val forward = targetState.first >= initialState.first
+                (slideInHorizontally(tween(200)) { if (forward) it / 4 else -it / 4 } + fadeIn(tween(200))) togetherWith
+                    (slideOutHorizontally(tween(200)) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(120)))
+            }) { (i, p) -> Box(Modifier.fillMaxSize().clip(FolioShapes.medium)) { sheet(p, i) } }
     }
 }
 
-/** Bottom-corner page controls: previous/next, the position, and the single-page view switch. */
+/**
+ * Bottom-corner page controls: previous/next, the position, and the single-page view switch.
+ * Holding an arrow runs to the first or last page. The pill is dimmed until touched so it
+ * costs the writing corner as little as possible.
+ */
 @Composable private fun PageNavigator(
-    index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onToggleView: () -> Unit, modifier: Modifier = Modifier,
+    index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onJumpToEnd: (last: Boolean) -> Unit,
+    onToggleView: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    Surface(modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp, shadowElevation = 2.dp) {
+    val back = rememberLongPressGuard()
+    val next = rememberLongPressGuard()
+    Surface(modifier.semantics { contentDescription = "Page ${index + 1} of $count" }, shape = FolioShapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .92f), tonalElevation = 3.dp, shadowElevation = 2.dp) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onToggleView) {
                 Icon(if (singlePage) Icons.Rounded.ViewAgenda else Icons.Rounded.ViewCarousel,
                     if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
                     tint = if (singlePage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = { onTurn(false) }, enabled = index > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
-            Text("${index + 1} / $count", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = { onTurn(true) }, enabled = index < count - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
+            IconButton(back.click { onTurn(false) }, Modifier.longPressAction(back) { onJumpToEnd(false) }, enabled = index > 0) {
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page. Hold for the first page")
+            }
+            Text("${index + 1} / $count", Modifier.widthIn(min = 44.dp), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(next.click { onTurn(true) }, Modifier.longPressAction(next) { onJumpToEnd(true) }, enabled = index < count - 1) {
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page. Hold for the last page")
+            }
         }
     }
 }
