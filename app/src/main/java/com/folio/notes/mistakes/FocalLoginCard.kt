@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -43,6 +45,7 @@ internal fun FocalLoginCard(
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
+    val passwordFocus = remember { FocusRequester() }
     var emailTouched by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val resetting = step == LoginStep.RESET_PASSWORD
@@ -123,14 +126,14 @@ internal fun FocalLoginCard(
                     { Text("Enter a valid email address.") }
                 } else null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = if (resetting) ImeAction.Done else ImeAction.Next),
-                keyboardActions = KeyboardActions(onDone = { submit() }),
+                keyboardActions = KeyboardActions(onDone = { submit() }, onNext = { passwordFocus.requestFocus() }),
                 enabled = !state.busy,
             )
             if (!resetting) {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it; onClearFeedback() },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus),
                     label = { Text(if (creating) "Choose a password" else "Password") },
                     leadingIcon = { Icon(Icons.Rounded.Lock, null) },
                     trailingIcon = {

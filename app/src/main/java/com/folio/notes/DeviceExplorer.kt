@@ -39,7 +39,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
-private enum class FileSort(val label: String) { NAME("Name A–Z"), RECENT("Last modified"), SIZE("Largest first") }
+internal enum class FileSort(val label: String) { NAME("Name A–Z"), RECENT("Last modified"), SIZE("Largest first") }
 private data class DeviceClipboard(val file: DeviceFile, val parent: String, val move: Boolean)
 private data class DeviceLocation(val tree: String, val name: String, val available: Boolean)
 
@@ -59,8 +59,11 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     var pathUris by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var pathNames by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var query by rememberSaveable { mutableStateOf("") }
-    var sort by rememberSaveable { mutableStateOf(FileSort.NAME) }
-    var pdfOnly by rememberSaveable { mutableStateOf(false) }
+    var sort by rememberSaveable { mutableStateOf(AppPrefs.explorerSort(prefs.getString(AppPrefs.EXPLORER_SORT, null))) }
+    var pdfOnly by rememberSaveable { mutableStateOf(prefs.getBoolean(AppPrefs.EXPLORER_PDF_ONLY, AppPrefs.DEFAULT_EXPLORER_PDF_ONLY)) }
+    // Like the shelf, the explorer reopens the way it was left.
+    LaunchedEffect(sort) { prefs.edit().putString(AppPrefs.EXPLORER_SORT, sort.name).apply() }
+    LaunchedEffect(pdfOnly) { prefs.edit().putBoolean(AppPrefs.EXPLORER_PDF_ONLY, pdfOnly).apply() }
     var showHiddenFolders by rememberSaveable { mutableStateOf(prefs.getBoolean(AppPrefs.EXPLORER_SHOW_HIDDEN_FOLDERS, AppPrefs.DEFAULT_EXPLORER_SHOW_HIDDEN_FOLDERS)) }
     var selectedUris by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selecting by rememberSaveable { mutableStateOf(false) }
@@ -305,7 +308,9 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 if (query.isNotBlank() || pdfOnly) "No matching files" else if (hiddenFolders) "No visible files" else "This folder is empty",
                                 if (hiddenFolders) "Turn on Show hidden folders to include dot-prefixed folders."
                                 else if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter."
-                                else "Create a folder here, or bring files in using your tablet’s file manager.")
+                                else "Create a folder here, or bring files in using your tablet’s file manager.") {
+                                    if (query.isNotBlank() || pdfOnly) TextButton({ query = ""; pdfOnly = false }, shapes = ButtonDefaults.shapes()) { Text("Show all files") }
+                            }
                         }
                         items(visible, key = { it.uri.toString() }) { file ->
                             var menu by remember { mutableStateOf(false) }

@@ -568,6 +568,7 @@ fun ScoreDialog(
     val parsedScore = score.toIntOrNull()
     val parsedTotal = totalText.toIntOrNull()
     val scoreFocus = remember { FocusRequester() }
+    val totalFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { scoreFocus.requestFocus() }
     val scoreTooHigh = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore > parsedTotal
     val canRecord = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal
@@ -635,6 +636,7 @@ fun ScoreDialog(
                         label = { Text("Score") }, placeholder = { Text("32") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { totalFocus.requestFocus() }),
                         isError = scoreTooHigh,
                         supportingText = {
                             if (scoreTooHigh) Text("Can't exceed the total.")
@@ -644,7 +646,7 @@ fun ScoreDialog(
                     )
                     OutlinedTextField(
                         totalText, { totalText = it.filter(Char::isDigit).take(4); totalEdited = true },
-                        Modifier.weight(1f), label = { Text("Out of") }, placeholder = { Text("40") },
+                        Modifier.weight(1f).focusRequester(totalFocus), label = { Text("Out of") }, placeholder = { Text("40") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = {
@@ -671,7 +673,10 @@ fun ScoreDialog(
                     OutlinedTextField(
                         minutes, { minutes = it.filter(Char::isDigit).take(3) },
                         Modifier.fillMaxWidth(), label = { Text("Minutes taken") }, placeholder = { Text("82") },
-                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed)
+                        })
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                         listOf("60", "90", "120").forEach { suggestion ->

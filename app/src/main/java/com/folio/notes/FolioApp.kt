@@ -617,7 +617,7 @@ import kotlinx.coroutines.withContext
                 singleLine = true, label = { Text("Name") },
                 keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
-                trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue("") }) { Icon(Icons.Rounded.Close, "Clear name") } },
+                trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(Icons.Rounded.Close, "Clear name") } },
                 supportingText = { if (text.text.length >= 90) Text("${text.text.length}/120") })
         }
     }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = changed, shapes = ButtonDefaults.shapes()) { Text(action) } })

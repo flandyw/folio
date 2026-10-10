@@ -219,6 +219,8 @@ fun ColorChooser(
             label = { Text("Hex") },
             prefix = { Text("#") },
             singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { onConfirm(AccentTones.of(hue, saturation, lightness)) }),
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

@@ -246,14 +246,17 @@ internal fun FocalStudyContent(
                 Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                         Text("Log past study", style = MaterialTheme.typography.titleMedium)
-                        OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
-                            Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        ReflectionFields(notes, { notes = it }, confidence, { confidence = it })
-                        Button({
+                        fun savePastStudy() {
+                            if (manualMinutes.toIntOrNull()?.let { it in 1..1_440 } != true) return
                             manager.logManual(selectedNote, subjectId, manualMinutes.toInt(), notes, confidence.takeIf { it > 0 })
                             manualMinutes = ""; notes = ""; confidence = 0; manualLog = false
-                        }, enabled = manualMinutes.toIntOrNull()?.let { it in 1..1_440 } == true,
+                        }
+                        OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
+                            Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { savePastStudy() }))
+                        ReflectionFields(notes, { notes = it }, confidence, { confidence = it })
+                        Button(::savePastStudy, enabled = manualMinutes.toIntOrNull()?.let { it in 1..1_440 } == true,
                             shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) { Text("Save past study") }
                     }
                 }

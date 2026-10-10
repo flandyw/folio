@@ -111,7 +111,7 @@ import androidx.compose.ui.unit.dp
                 shape = FolioShapes.large,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
-                    if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) {
+                    if (query.isNotEmpty()) IconButton({ query = ""; keyboard?.hide() }, shapes = IconButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Close, "Clear search")
                     }
                 },

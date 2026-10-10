@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -266,27 +268,37 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
 private fun ImportExamFields(item: PendingPdfImport, onUpdate: (PendingPdfImport) -> Unit) {
     val tags = item.exam
     var subjectInput by rememberSaveable(item.uri.toString()) { mutableStateOf(tags.subjectLabel) }
+    val yearFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val marksFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val companyFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val importKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     fun update(transform: (ExamTags) -> ExamTags) { onUpdate(item.withExam(transform(tags))) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(subjectInput, { value ->
             subjectInput = value.take(60)
             val subject = VceSubject.match(value)
             update { it.copy(subject = subject, subjectText = if (subject == null) value.take(60) else "") }
-        }, Modifier.fillMaxWidth(), label = { Text("Subject") }, singleLine = true, shape = MaterialTheme.shapes.large)
+        }, Modifier.fillMaxWidth(), label = { Text("Subject") }, singleLine = true, shape = MaterialTheme.shapes.large,
+            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { yearFocus.requestFocus() }))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(tags.year?.toString().orEmpty(), { value -> update { it.copy(year = value.filter(Char::isDigit).take(4).toIntOrNull()) } },
-                Modifier.weight(1f), label = { Text("Year") }, singleLine = true, shape = MaterialTheme.shapes.large,
+                Modifier.weight(1f).focusRequester(yearFocus), label = { Text("Year") }, singleLine = true, shape = MaterialTheme.shapes.large,
                 isError = tags.year != null && tags.year !in 1900..2099,
                 supportingText = if (tags.year != null && tags.year !in 1900..2099) {{ Text("Use a four-digit year") }} else null,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { marksFocus.requestFocus() }))
             OutlinedTextField(tags.marksTotal?.toString().orEmpty(), { value -> update { it.copy(marksTotal = value.filter(Char::isDigit).take(3).toIntOrNull()) } },
-                Modifier.weight(1f), label = { Text("Total marks") }, singleLine = true, shape = MaterialTheme.shapes.large,
+                Modifier.weight(1f).focusRequester(marksFocus), label = { Text("Total marks") }, singleLine = true, shape = MaterialTheme.shapes.large,
                 isError = tags.marksTotal != null && tags.marksTotal !in 1..300,
                 supportingText = if (tags.marksTotal != null && tags.marksTotal !in 1..300) {{ Text("Use 1–300 marks") }} else null,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { companyFocus.requestFocus() }))
         }
-        OutlinedTextField(tags.company, { value -> update { it.copy(company = value.take(40)) } }, Modifier.fillMaxWidth(),
-            label = { Text("Company / source") }, placeholder = { Text("e.g. VCAA, NEAP") }, singleLine = true, shape = MaterialTheme.shapes.large)
+        OutlinedTextField(tags.company, { value -> update { it.copy(company = value.take(40)) } }, Modifier.fillMaxWidth().focusRequester(companyFocus),
+            label = { Text("Company / source") }, placeholder = { Text("e.g. VCAA, NEAP") }, singleLine = true, shape = MaterialTheme.shapes.large,
+            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { importKeyboard?.hide() }))
         var expanded by remember { mutableStateOf(false) }
         Box {
             OutlinedButton({ expanded = true }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {

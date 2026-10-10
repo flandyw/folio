@@ -81,9 +81,15 @@ class SwipeAction(val icon: ImageVector, val label: String, val destructive: Boo
             }
             if (action != null) {
                 val scheme = MaterialTheme.colorScheme
+                val content = if (action.destructive) scheme.onErrorContainer else scheme.onSecondaryContainer
                 Box(Modifier.fillMaxSize().clip(shape).background(if (action.destructive) scheme.errorContainer else scheme.secondaryContainer).padding(horizontal = FolioSpacing.dp24),
                     contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd) {
-                    Icon(action.icon, action.label, tint = if (action.destructive) scheme.onErrorContainer else scheme.onSecondaryContainer)
+                    // Name the action under the finger, not just its icon.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        if (direction == SwipeToDismissBoxValue.EndToStart) Text(action.label, style = MaterialTheme.typography.labelLarge, color = content)
+                        Icon(action.icon, null, tint = content)
+                        if (direction == SwipeToDismissBoxValue.StartToEnd) Text(action.label, style = MaterialTheme.typography.labelLarge, color = content)
+                    }
                 }
             }
         }) { content() }

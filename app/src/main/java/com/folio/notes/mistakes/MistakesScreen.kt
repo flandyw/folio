@@ -595,10 +595,13 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         } else {
                             if (showSyncBanner) fullWidthItem { SyncBanner() }
                             fullWidthItem {
+                                val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
                                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
-                                    singleLine = true, shape = FolioShapes.large)
+                                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                    singleLine = true, shape = FolioShapes.large,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { searchKeyboard?.hide() }))
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     listOf("All" to mistakes.size, "Due" to due.size, "Overdue" to overdue.size, "Upcoming" to mistakes.count { !it.suspended && it !in dueSet }, "Suspended" to mistakes.count { it.suspended }).forEach { (label, count) ->
                                         FilterChipWithCount(label, count, filter == label) { filter = label }

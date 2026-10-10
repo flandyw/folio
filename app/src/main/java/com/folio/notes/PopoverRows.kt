@@ -41,10 +41,10 @@ import androidx.compose.ui.unit.dp
 
 /** The same inset action rows in both the editor palettes and the app's menus. */
 @Composable internal fun PopoverRow(
-    icon: ImageVector?, label: String, enabled: Boolean = true, destructive: Boolean = false, onClick: () -> Unit
+    icon: ImageVector?, label: String, enabled: Boolean = true, destructive: Boolean = false, selected: Boolean = false, onClick: () -> Unit
 ) {
     FolioMenuItem(text = { Text(label) }, onClick = onClick,
-        leadingIcon = icon?.let { { Icon(it, null) } }, enabled = enabled, destructive = destructive)
+        leadingIcon = icon?.let { { Icon(it, null) } }, enabled = enabled, destructive = destructive, selected = selected)
 }
 
 /** A labelled run of rows; every group of a popover is visible at once instead of nested. */

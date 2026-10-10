@@ -228,9 +228,12 @@ private const val FORM_ADD = -1
                 }
             }
             if (papers.size > 6) {
+                val listSearchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search this list") },
+                    keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { listSearchKeyboard?.hide() }),
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } })
+                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; listSearchKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear search") } })
                 val subjectsInPlan = papers.map { it.optString("subject") }.distinct()
                 if (subjectsInPlan.size > 1) Row(Modifier.horizontalScroll(rememberScrollState())) {
                     MenuChip("Subject", subjectFilter, listOf(ALL_SUBJECTS) + subjectsInPlan, { subjectFilter = it }, Icons.Rounded.School)

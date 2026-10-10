@@ -340,6 +340,7 @@ object EditorQuickPrefs {
     var presetName by remember { mutableStateOf("") }
     var hex by remember(options.color) { mutableStateOf(InkColors.hex(options.color)) }
     val validHex = hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }
+    val hexKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 
     /** A picked colour becomes the ink, and while customising is also stored in the highlighted slot. */
     fun pick(color: Int) {
@@ -402,7 +403,13 @@ object EditorQuickPrefs {
             hex = value.removePrefix("#").take(6)
             if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }) pick((0xFF000000L or hex.toLong(16)).toInt())
         }, label = { Text("Custom colour (hex)") }, prefix = { Text("#") }, singleLine = true, isError = !validHex,
-            supportingText = { if (!validHex) Text("Enter six hexadecimal digits") }, modifier = Modifier.fillMaxWidth())
+            supportingText = { if (!validHex) Text("Enter six hexadecimal digits") },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                if (validHex) pick((0xFF000000L or hex.toLong(16)).toInt())
+                hexKeyboard?.hide()
+            }),
+            modifier = Modifier.fillMaxWidth())
 
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -432,7 +439,11 @@ object EditorQuickPrefs {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Name this preset so you can bring these colours back in any notebook.", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(presetName, { presetName = it.take(InkColors.MAX_PRESET_NAME) }, label = { Text("Preset name") }, singleLine = true)
+                OutlinedTextField(presetName, { presetName = it.take(InkColors.MAX_PRESET_NAME) }, label = { Text("Preset name") }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        if (presetName.isNotBlank()) { quick.savePreset(group, presetName); naming = false }
+                    }))
             }
         },
         dismissButton = { TextButton({ naming = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
@@ -476,7 +487,11 @@ object EditorQuickPrefs {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Saves colour, width, opacity and line style for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true)
+                OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        if (presetName.isNotBlank() && presets.save(presetName, tool, options, options.style)) naming = false
+                    }))
             }
         },
         dismissButton = { TextButton({ naming = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },

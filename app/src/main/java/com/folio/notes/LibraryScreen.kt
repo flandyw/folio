@@ -164,7 +164,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     val visibleIds = remember(notes) { notes.map { it.id }.toSet() }
     val selection = remember(selectedIds, visibleIds) { selectedIds.filter { it in visibleIds }.toSet() }
     LaunchedEffect(visibleIds, libraryDrag.active) { if (!libraryDrag.active) selectedIds = selectedIds.filter { it in visibleIds } }
-    fun clearQuery() { query = ""; debouncedQuery = "" }
+    // Clearing the box also drops the keyboard, so the shelf is usable at once.
+    fun clearQuery() { query = ""; debouncedQuery = ""; focusManager.clearFocus() }
     fun showPlace(target: LibraryPlace) { section = LibrarySection.LIBRARY; place = target; tag = null; model.folder(null) }
     fun showTag(label: String) { tag = if (section == LibrarySection.LIBRARY && tag.equals(label, true)) null else label; section = LibrarySection.LIBRARY; model.folder(null) }
     fun browse(id: String?) { section = LibrarySection.LIBRARY; tag = null; clearQuery(); model.folder(id); focusManager.clearFocus() }
@@ -394,7 +395,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                             NotebookListThumbnail(recent, model.thumbnails, Modifier.width(32.dp).height(42.dp))
                                             Column(Modifier.weight(1f)) {
-                                                Text("Continue writing · ${libraryLastEditedLabel(recent.updated)}", style = MaterialTheme.typography.labelMedium)
+                                                Text("Continue writing · ${libraryLastEditedLabel(recent.updated)} · ${recent.pages.size} ${if (recent.pages.size == 1) "page" else "pages"}", style = MaterialTheme.typography.labelMedium)
                                                 Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
                                             Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open most recently edited notebook")
@@ -418,7 +419,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) { Icon(Icons.AutoMirrored.Rounded.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1) }
                                     if (sortMenu) FolioActionPopover("Sort notebooks", { sortMenu = false }) {
                                         LibrarySort.entries.forEach { option ->
-                                            PopoverRow(if (sort == option) Icons.Rounded.Check else null, option.label) { sort = option; sortMenu = false }
+                                            PopoverRow(if (sort == option) Icons.Rounded.Check else null, option.label, selected = sort == option) { sort = option; sortMenu = false }
                                         }
                                     }
                                 }
@@ -452,6 +453,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     enabled = selecting || notes.isNotEmpty(),
                                     shapes = ButtonDefaults.shapes()) { Icon(if (selecting) Icons.Rounded.Check else Icons.Rounded.CheckCircleOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(if (selecting) "Done" else "Select") }
                                 if (scoped) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
+                                if (searchActive) TextButton({ clearQuery() }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
                             }
                             FolioExpand(filtersActive) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -550,6 +552,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     else -> "Make space for your first idea. Create a notebook\nor bring a PDF along."
                                 }, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (scoped) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
+                                if (searchActive) TextButton({ clearQuery() }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
                                 if (!searchActive && !filtersActive && tag == null && place != LibraryPlace.FAVORITES) Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     TextButton(onNew, shapes = ButtonDefaults.shapes()) { Text(if (openFolder != null) "New notebook here" else "Start a notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
                                     if (openFolder != null && !pickingNotebook) TextButton({ startNewFolder(openFolder.id) }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
@@ -589,12 +592,16 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     }
                                     NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                            if (note.starred) Icon(Icons.Rounded.Star, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                            Text(note.title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                                        }
                                         Text(listOfNotNull(folder, "${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         if (note.id in state.backupExcludedNotebookIds) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     if (!selecting) {
+
                                         IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
                                         NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title)
                                     }

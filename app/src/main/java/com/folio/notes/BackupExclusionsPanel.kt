@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; keyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
             if (visible.isEmpty()) {
                 Text(if (notes.isEmpty()) "No notebooks yet." else "No notebooks match “${query.trim()}”.", Modifier.padding(vertical = FolioSpacing.dp12))
                 if (query.isNotBlank()) TextButton({ query = "" }) { Text("Show all notebooks") }

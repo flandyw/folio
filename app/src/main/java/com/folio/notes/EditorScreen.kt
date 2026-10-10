@@ -1638,8 +1638,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
             shape = FolioShapes.large,
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear page search") } })
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { textKeyboard?.hide() }),
+            leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear page search") } })
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             PageFilter.entries.forEach { option ->
                 FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
@@ -1650,12 +1651,14 @@ private fun paperLabel(p: Paper): String = when (p) {
             Text(if (pageJumpExpanded) "Hide page jump" else "Go to a page number")
         }
         if (pageJumpExpanded) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            val jumpFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+            LaunchedEffect(Unit) { jumpFocus.requestFocus() }
             OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
                 label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
                 shape = FolioShapes.large,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { goToPage() }),
-                modifier = Modifier.weight(1f))
+                modifier = Modifier.weight(1f).focusRequester(jumpFocus))
             FilledTonalButton(::goToPage,
                 enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true,
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
@@ -1762,20 +1765,25 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     namedPage?.let { target ->
+        val nameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        val changed = pageTitle != target.title
+        fun savePageName() { if (changed) { model.renamePage(target.id, pageTitle); namedPage = null } }
         FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
             TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-            Button({ model.renamePage(target.id, pageTitle); namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Save") }
+            Button(::savePageName, enabled = changed, shapes = ButtonDefaults.shapes()) { Text("Save") }
         }) {
             OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
                 placeholder = { Text("e.g. Quadratics homework") },
                 supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { model.renamePage(target.id, pageTitle); namedPage = null }),
-                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
+                keyboardActions = KeyboardActions(onDone = { savePageName() }),
+                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus))
+            LaunchedEffect(target.id) { nameFocus.requestFocus() }
         }
     }
     movingPage?.let { pageId ->
         val destination = destinationPage.toIntOrNull()
+        val moveFocus = remember { androidx.compose.ui.focus.FocusRequester() }
         fun commit() {
             val from = note.pages.indexOfFirst { it.id == pageId }
             if (from >= 0 && destination != null && destination in 1..note.pages.size) model.movePage(from, destination - 1)
@@ -1789,7 +1797,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                 label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { commit() }),
-                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
+                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(moveFocus))
+            LaunchedEffect(pageId) { moveFocus.requestFocus() }
         }
     }
     deletingPage?.let { pageId ->
@@ -1802,14 +1811,20 @@ private fun paperLabel(p: Paper): String = when (p) {
                     shapes = ButtonDefaults.shapes()) { Text("Delete") }
             }) { Text("This removes the page and its content. Use Undo to restore it during this session.", style = MaterialTheme.typography.bodyMedium) }
     }
-    if (rename) FolioPopover("Rename notebook", Icons.Rounded.Edit, onDismiss = { rename = false }, actions = {
-        TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-        Button({ model.rename(note, renameTitle); rename = false }, enabled = renameTitle.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
-    }) {
-        OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (renameTitle.isNotBlank()) { model.rename(note, renameTitle); rename = false } }),
-            shape = FolioShapes.large, modifier = Modifier.fillMaxWidth())
+    if (rename) {
+        val renameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        val renameChanged = renameTitle.isNotBlank() && renameTitle != note.title
+        fun saveRename() { if (renameChanged) { model.rename(note, renameTitle); rename = false } }
+        FolioPopover("Rename notebook", Icons.Rounded.Edit, onDismiss = { rename = false }, actions = {
+            TextButton({ rename = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+            Button(::saveRename, enabled = renameChanged, shapes = ButtonDefaults.shapes()) { Text("Save") }
+        }) {
+            OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { saveRename() }),
+                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(renameFocus))
+            LaunchedEffect(Unit) { renameFocus.requestFocus() }
+        }
     }
     if (paperMenu) FolioPopover(if (nextPaperMenu) "Next page paper" else "Change paper", Icons.Rounded.GridOn, onDismiss = { paperMenu = false }, actions = {
         TextButton({ paperMenu = false }) { Text("Cancel") }
@@ -1932,7 +1947,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         FolioPanel(title = "Move ${picked.size} item${if (picked.size == 1) "" else "s"} to page", onDismissRequest = { moveSelection = null }) {
             OutlinedTextField(destinationQuery, { destinationQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
                 singleLine = true, label = { Text("Find destination page") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = "" }) { Icon(Icons.Rounded.Close, "Clear destination search") } })
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { textKeyboard?.hide() }),
+                trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = ""; textKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear destination search") } })
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 if (destinations.isEmpty()) item {

@@ -168,7 +168,7 @@ import kotlinx.coroutines.withContext
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
-        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery("") }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
+        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery(""); keyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
     )
 }
 
@@ -193,6 +193,9 @@ import kotlinx.coroutines.withContext
 private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupSettings): String = when (item) {
     SettingsCategory.APPEARANCE -> "${app.themeMode.label} · ${app.themePalette.label}"
     SettingsCategory.BACKUP -> if (backup.progress != null) "Backup in progress" else if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
+    // The rows that hold everyday toggles say how they stand right now.
+    SettingsCategory.WRITING -> "Finger drawing ${if (app.finger) "on" else "off"} · Shapes ${if (app.shapeRecognition) "on" else "off"}"
+    SettingsCategory.STYLUS -> "Pencil double-tap: ${app.stylus.label}" + if (app.hapticsSupported) " · Haptics ${if (app.haptics) "on" else "off"}" else ""
     else -> item.summary
 }
 

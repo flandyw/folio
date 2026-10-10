@@ -404,10 +404,13 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
 }
 
 @Composable private fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String) {
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     OutlinedTextField(value, onChange, Modifier.fillMaxWidth(), singleLine = true, shape = CircleShape,
         placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { keyboard?.hide() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
-        trailingIcon = { if (value.isNotEmpty()) IconButton({ onChange("") }) { Icon(Icons.Rounded.Close, "Clear search") } },
+        trailingIcon = { if (value.isNotEmpty()) IconButton({ onChange(""); keyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear search") } },
         colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, unfocusedBorderColor = Color.Transparent))
 }

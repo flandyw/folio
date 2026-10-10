@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -264,7 +266,7 @@ import kotlinx.coroutines.withContext
                             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(),
                                 placeholder = { Text("Find scores, composers, notes or marks…") },
                                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; focusManager.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
                                 singleLine = true, shape = FolioShapes.extraLarge,
                                 colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -701,21 +703,30 @@ private fun scoreMeta(score: MusicScore): String {
     var composer by rememberSaveable { mutableStateOf(score.composer) }
     var part by rememberSaveable { mutableStateOf(score.part) }
     var notes by rememberSaveable { mutableStateOf(score.notes) }
+    val composerFocus = remember { FocusRequester() }
+    val partFocus = remember { FocusRequester() }
+    fun submit() { if (title.isNotBlank()) save(title.trim(), composer.trim(), part.trim(), notes.trim()) }
     FolioPanel("Score details", dismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("${score.pages} ${if (score.pages == 1) "page" else "pages"} · ${score.marks.size} rehearsal ${if (score.marks.size == 1) "mark" else "marks"}",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
+            OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { composerFocus.requestFocus() }))
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                OutlinedTextField(composer, { composer = it }, Modifier.weight(1f), label = { Text("Composer") }, singleLine = true)
-                OutlinedTextField(part, { part = it }, Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true)
+                OutlinedTextField(composer, { composer = it }, Modifier.weight(1f).focusRequester(composerFocus), label = { Text("Composer") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { partFocus.requestFocus() }))
+                OutlinedTextField(part, { part = it }, Modifier.weight(1f).focusRequester(partFocus), label = { Text("Instrument / part") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }))
             }
             OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") },
                 placeholder = { Text("Bowings, cuts, who to watch for the cue…") }, minLines = 4)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ save(title.trim(), composer.trim(), part.trim(), notes.trim()) }, enabled = title.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
+                Button(::submit, enabled = title.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }
@@ -723,6 +734,7 @@ private fun scoreMeta(score: MusicScore): String {
 
 /** Tick scores into a set list; new ones join at the end of the running order. */
 @Composable private fun AddScoresPanel(set: MusicSet, scores: List<MusicScore>, model: MusicViewModel, dismiss: () -> Unit) {
+    val filterFocus = LocalFocusManager.current
     var filter by rememberSaveable { mutableStateOf("") }
     val shown = scores.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
         .filter { s -> filter.isBlank() || listOf(s.title, s.composer, s.part).any { it.contains(filter.trim(), true) } }
@@ -731,6 +743,8 @@ private fun scoreMeta(score: MusicScore): String {
             Text("${set.scores.size} in the set · new scores join at the end", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a score…") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = FolioShapes.extraLarge,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { filterFocus.clearFocus() }),
                 colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
         }
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12)) {

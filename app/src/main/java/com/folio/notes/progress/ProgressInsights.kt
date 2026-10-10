@@ -228,6 +228,10 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    fun addProvider() {
+        val p = newProvider.trim()
+        if (p.isNotEmpty() && providers.none { comparisonName(it) == comparisonName(p) }) { providers = providers + p; newProvider = "" }
+    }
     FolioPanel("Provider difficulty", { if (!busy) onDismiss() }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Harder providers go above VCAA, easier below. This is a conservative planning adjustment, capped at 8 percentage points.")
@@ -240,8 +244,11 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
                 IconButton({ providers = providers.toMutableList().apply { java.util.Collections.swap(this, index, index + 1) } }, enabled = index < providers.lastIndex) { Icon(Icons.Rounded.ArrowDownward, "Move $provider easier") }
                 IconButton({ providers = providers.filterIndexed { i, _ -> i != index } }, enabled = comparisonName(provider) != "vcaa") { Icon(Icons.Rounded.DeleteOutline, "Remove $provider") }
             } }
-            OutlinedTextField(newProvider, { newProvider = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Add provider") })
-            TextButton({ val p = newProvider.trim(); if (p.isNotEmpty() && providers.none { comparisonName(it) == comparisonName(p) }) { providers = providers + p; newProvider = "" } }) { Text("Add provider") }
+            OutlinedTextField(newProvider, { newProvider = it }, Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { addProvider() }),
+                label = { Text("Add provider") })
+            TextButton(::addProvider) { Text("Add provider") }
             TextButton({ providers = defaultProviderOrder; enabled = true; strength = "balanced" }) { Text("Reset defaults") }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }

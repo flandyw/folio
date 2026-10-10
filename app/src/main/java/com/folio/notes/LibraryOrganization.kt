@@ -90,8 +90,9 @@ object LibraryBrowse {
 }
 
 /**
- * Short recency label for a notebook's last-edited moment: Today, Yesterday, "N days ago"
- * within the last week, otherwise "d MMM" ("4 Sep") this year or "d MMM yyyy" ("4 Sep 2024").
+ * Short recency label for a notebook's last-edited moment: "Today 14:32" (with the clock time,
+ * so several edits today read apart), Yesterday, "N days ago" within the last week, otherwise
+ * "d MMM" ("4 Sep") this year or "d MMM yyyy" ("4 Sep 2024").
  * Future timestamps (clock skew) read as Today. Pure and JVM-testable via [now].
  */
 fun libraryLastEditedLabel(updated: Long, now: Long = System.currentTimeMillis()): String {
@@ -101,7 +102,7 @@ fun libraryLastEditedLabel(updated: Long, now: Long = System.currentTimeMillis()
     // Calendar days, not 24-hour periods: daylight-saving days can be 23 or 25 hours.
     val days = ChronoUnit.DAYS.between(editedDate, today).coerceAtLeast(0)
     return when {
-        days == 0L -> "Today"
+        days == 0L -> "Today " + SimpleDateFormat("H:mm", Locale.getDefault()).format(java.util.Date(updated))
         days == 1L -> "Yesterday"
         days < 7 -> "$days days ago"
         else -> {

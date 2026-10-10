@@ -150,13 +150,15 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
     Row(Modifier.then(if (drag != null) Modifier.notebookDragScroll(drag, horizontal = true) { scroll.scrollBy(it) } else Modifier).horizontalScroll(scroll),
         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         LibraryPlace.entries.forEach { item ->
-            val count = when (item) { LibraryPlace.ALL -> 0; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 }
+            // The same tallies the sidebar wears, including the total on All.
+            val count = when (item) { LibraryPlace.ALL -> counts.all; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 }
             FilterChip(home && place == item, { onPlace(item) }, { Text(if (count > 0) "${item.label} · $count" else item.label) },
                 leadingIcon = { Icon(item.icon(), null, Modifier.size(16.dp)) },
                 modifier = Modifier.heightIn(min = FolioTouch.target).then(item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier))
         }
         tags.forEach { label ->
-            FilterChip(tag.equals(label, true), { onTag(label) }, { Text(label) },
+            val count = counts.tag(label)
+            FilterChip(tag.equals(label, true), { onTag(label) }, { Text(if (count > 0) "$label · $count" else label) },
                 leadingIcon = { Icon(Icons.Rounded.Sell, null, Modifier.size(16.dp)) },
                 modifier = Modifier.heightIn(min = FolioTouch.target).notebookDropTarget(drag, NotebookDropDestination.Tag(label)))
         }

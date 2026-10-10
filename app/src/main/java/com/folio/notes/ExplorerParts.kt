@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 
 /* Pieces shared by the library and Tablet files: tags, breadcrumbs, search, rows and dialogs. */
@@ -34,12 +35,22 @@ import androidx.compose.ui.unit.dp
     val labels = NotebookTags.normalize(existing + suggestions + added, Int.MAX_VALUE)
     val pending = NotebookTags.normalize(added + listOf(input), Int.MAX_VALUE)
     val tooMany = notes.any { note -> NotebookTags.normalize(note.tags.filterNot { label -> removed.any { it.equals(label, true) } } + pending, Int.MAX_VALUE).size > NotebookTags.MAX_TAGS }
+    fun commitTag() {
+        val label = input.trim()
+        if (label.isNotEmpty()) {
+            added = NotebookTags.normalize(added + label, Int.MAX_VALUE)
+            removed = removed.filterNot { it.equals(label, true) }
+            input = ""
+        }
+    }
     FolioPanel(if (notes.size == 1) "Notebook tags" else "Tag ${notes.size} notebooks", onDismiss) {
         Column(Modifier.padding(horizontal = FolioSpacing.dp24).weight(1f, false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(if (notes.size == 1) "Labels make notebooks easier to find." else "Mixed tags stay on their original notebooks until you change them.", style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                OutlinedTextField(input, { input = it.take(NotebookTags.MAX_LENGTH) }, Modifier.weight(1f), label = { Text("New tag") }, singleLine = true)
-                FilledTonalIconButton({ val label = input.trim(); if (label.isNotEmpty()) { added = NotebookTags.normalize(added + label, Int.MAX_VALUE); removed = removed.filterNot { it.equals(label, true) }; input = "" } }, enabled = input.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add tag") }
+                OutlinedTextField(input, { input = it.take(NotebookTags.MAX_LENGTH) }, Modifier.weight(1f), label = { Text("New tag") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { commitTag() }))
+                FilledTonalIconButton(::commitTag, enabled = input.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add tag") }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 labels.forEach { label ->
@@ -83,7 +94,7 @@ import androidx.compose.ui.unit.dp
     OutlinedTextField(query, onQuery, Modifier.fillMaxWidth(), placeholder = { Text(hint) }, singleLine = true, shape = FolioShapes.extraLarge,
         colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
-        leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery("") }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } })
+        leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery(""); focus.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } })
 }
 
 @Composable internal fun ExplorerPlace(label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
@@ -119,7 +130,7 @@ import androidx.compose.ui.unit.dp
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$count selected", Modifier.weight(1f).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleSmall)
+                Text("$count of $total selected", Modifier.weight(1f).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleSmall)
                 TextButton(onAll, shapes = ButtonDefaults.shapes()) { Text(if (count == total && total > 0) "Deselect all" else "Select all") }
                 TextButton(onDone, shapes = ButtonDefaults.shapes()) { Text("Done") }
             }

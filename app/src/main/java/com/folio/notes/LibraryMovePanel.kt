@@ -14,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
     onMove: (String?) -> Unit, onCreateAndMove: (String) -> Boolean, onDismiss: () -> Unit,
     rootLabel: String = "Unfiled", allowCreate: Boolean = true, excluded: Set<String> = emptySet()
 ) {
+    val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var query by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
     var creating by rememberSaveable { mutableStateOf(false) }
@@ -33,7 +36,8 @@ import androidx.compose.ui.unit.dp
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a folder") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear folder search") } })
+                keyboardActions = KeyboardActions(onSearch = { searchKeyboard?.hide() }),
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear folder search") } })
             TextButton({ onMove(null) }, enabled = !single || currentFolder != null) {
                 Icon(Icons.Rounded.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "$rootLabel · current" else rootLabel)
             }
@@ -58,7 +62,9 @@ import androidx.compose.ui.unit.dp
         if (allowCreate) HorizontalDivider()
         if (allowCreate) Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (creating) {
-                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("New folder name") },
+                val newFolderFocus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { newFolderFocus.requestFocus() }
+                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (newFolder.isNotBlank() && onCreateAndMove(newFolder.trim())) onDismiss() }))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {

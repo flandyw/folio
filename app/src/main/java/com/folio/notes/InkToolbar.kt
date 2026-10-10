@@ -299,9 +299,13 @@ import kotlin.math.roundToInt
             var toolSub by remember { mutableStateOf<ToolSub?>(null) }
             val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
-                IconButton(stripGuard.click { quickBarOpen = !quickBarOpen }, modifier = Modifier.size(40.dp)) {
-                    Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More options") } }, state = rememberTooltipState()) {
+                    IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
+                }
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (quickBarOpen) "Hide ink options" else "Show ink options") } }, state = rememberTooltipState()) {
+                    IconButton(stripGuard.click { quickBarOpen = !quickBarOpen }, modifier = Modifier.size(40.dp)) {
+                        Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
+                    }
                 }
             }
             if (shapePicker && ToolbarSlot.SHAPES in overflow) {
@@ -511,6 +515,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         ) {
             Text("Long-press the tool strip any time to come back here. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Primary tools · first ${layout.maxPrimary} shown", style = MaterialTheme.typography.titleSmall)
+            Text("Narrow panes show fewer; the active tool always keeps its slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 listOf(5, 6, 7).forEach { count ->
                     FilterChip(layout.maxPrimary == count, { layoutState.setMaxPrimary(count) }, { Text("$count") })

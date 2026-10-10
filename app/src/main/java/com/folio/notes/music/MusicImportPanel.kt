@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.heading
@@ -180,22 +181,31 @@ import kotlinx.coroutines.withContext
                                         }
                                         FolioExpand(on) {
                                             Column(Modifier.padding(start = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                                val rangeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                                                val titleFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                                                val partKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                                                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                                     OutlinedTextField(instruments[index], { value ->
                                                         // A title still on its automatic wording follows the instrument as it is typed.
                                                         if (titles[index] == autoTitle(instruments[index])) titles = titles.toMutableList().also { it[index] = autoTitle(value) }
                                                         instruments = instruments.toMutableList().also { it[index] = value }
                                                     },
-                                                        Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true, enabled = !busy)
+                                                        Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true, enabled = !busy,
+                                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { rangeFocus.requestFocus() }))
                                                     OutlinedTextField(ranges[index], { value -> ranges = ranges.toMutableList().also { it[index] = value } },
-                                                        Modifier.weight(1f), label = { Text("Pages, e.g. 3-6, 9") }, singleLine = true, enabled = !busy,
-                                                        isError = ranges[index].isNotBlank() && parsed[index].isFailure)
+                                                        Modifier.weight(1f).focusRequester(rangeFocus), label = { Text("Pages, e.g. 3-6, 9") }, singleLine = true, enabled = !busy,
+                                                        isError = ranges[index].isNotBlank() && parsed[index].isFailure,
+                                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { titleFocus.requestFocus() }))
                                                 }
                                                 parsed[index].exceptionOrNull()?.takeIf { ranges[index].isNotBlank() }?.let {
                                                     Text(it.message ?: "Check the pages", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                                 }
                                                 OutlinedTextField(titles[index], { value -> titles = titles.toMutableList().also { it[index] = value } },
-                                                    Modifier.fillMaxWidth(), label = { Text("Title in Music") }, singleLine = true, enabled = !busy)
+                                                    Modifier.fillMaxWidth().focusRequester(titleFocus), label = { Text("Title in Music") }, singleLine = true, enabled = !busy,
+                                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { partKeyboard?.hide() }))
                                             }
                                         }
                                     }

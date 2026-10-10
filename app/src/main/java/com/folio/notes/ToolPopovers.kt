@@ -194,6 +194,7 @@ private val ExtraInks: List<Int> = listOf(
     var value by remember(color) { mutableFloatStateOf(hsv[2]) }
     fun pushHsv() = onPick(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value)) or (0xFF shl 24))
     val validHex = hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }
+    val hexKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val swatches = (InkColors.paletteFor(group).colors + InkColors.swatches + ExtraInks).distinct()
 
     FolioPopover(onDismiss) {
@@ -209,7 +210,13 @@ private val ExtraInks: List<Int> = listOf(
         OutlinedTextField(hex, { input ->
             hex = input.removePrefix("#").take(6)
             if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }) onPick((0xFF000000L or hex.toLong(16)).toInt())
-        }, label = { Text("Hex") }, prefix = { Text("#") }, singleLine = true, isError = !validHex, modifier = Modifier.fillMaxWidth())
+        }, label = { Text("Hex") }, prefix = { Text("#") }, singleLine = true, isError = !validHex,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }) onPick((0xFF000000L or hex.toLong(16)).toInt())
+                hexKeyboard?.hide()
+            }),
+            modifier = Modifier.fillMaxWidth())
     }
 }
 

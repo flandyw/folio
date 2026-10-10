@@ -27,6 +27,11 @@ object AppPrefs {
     /** Dot-prefixed device folders are hidden unless the user chooses to show them. */
     const val EXPLORER_SHOW_HIDDEN_FOLDERS = "explorer.showHiddenFolders"
     const val DEFAULT_EXPLORER_SHOW_HIDDEN_FOLDERS = false
+    /** Tablet files sort order, stored as a `FileSort` name; the explorer remembers its own choice. */
+    const val EXPLORER_SORT = "explorer.sort"
+    /** Tablet files narrows to PDF & Folio files when on. */
+    const val EXPLORER_PDF_ONLY = "explorer.pdfOnly"
+    const val DEFAULT_EXPLORER_PDF_ONLY = false
     /** Music shelf shows rows instead of first-page covers; music keeps its own choice. */
     const val MUSIC_LIST = "music.listView"
     /** Music shelf order, stored as a `MusicSort` name; music keeps its own choice. */
@@ -164,6 +169,9 @@ object AppPrefs {
 
     fun libraryKind(raw: String?): LibraryKind =
         runCatching { LibraryKind.valueOf(raw ?: "") }.getOrDefault(LibraryKind.ALL)
+
+    internal fun explorerSort(raw: String?): FileSort =
+        runCatching { FileSort.valueOf(raw ?: "") }.getOrDefault(FileSort.NAME)
 
     /** The default cover keeps its design but its colour always points into the built-in covers, never a removable custom one. */
     fun defaultCover(cover: Int): Int =
