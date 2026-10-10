@@ -91,9 +91,9 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     // Results dismissed from "Add notebook results" stay out of the review on this device only.
     val prefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var dismissedResults by remember { mutableStateOf(prefs.getStringSet(AppPrefs.FOCAL_DISMISSED_RESULTS, emptySet()).orEmpty()) }
-    val dismissResult = { id: String ->
-        dismissedResults = dismissedResults + id
-        prefs.edit().putStringSet(AppPrefs.FOCAL_DISMISSED_RESULTS, dismissedResults).apply()
+    fun setDismissed(next: Set<String>) {
+        dismissedResults = next
+        prefs.edit().putStringSet(AppPrefs.FOCAL_DISMISSED_RESULTS, next).apply()
     }
     // A result logged earlier from a notebook later relabelled SAC (or topic test, notes) is no longer an exam.
     val notExamNotebooks = remember(notes) { notes.filterNot { it.countsAsExam }.map { it.id }.toSet() }
@@ -326,11 +326,11 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     if (showAccount) FocalAccountPanel({ showAccount = false }, onMistakes, onStudy)
     if (showPlan) ProgressionDialog(state.cache.progression?.toString(), state.catalog, exams, manager, state.userId, { showPlan = false })
     if (showResults) {
-        val pending = remember(local, state.cache.rows, dismissedResults) {
-            local.filterNot { "attempts:${it.id}" in state.cache.rows || it.id in dismissedResults }
-        }
-        NotebookResultsDialog(pending, state.cache.exams, subjects, manager, state.userId, { showResults = false },
-            onSaved = { ids -> ids.forEach(::mirrorToNotebook) }, onDismissResult = dismissResult)
+        val unlogged = remember(local, state.cache.rows) { local.filterNot { "attempts:${it.id}" in state.cache.rows } }
+        NotebookResultsDialog(unlogged, state.cache.exams, subjects, manager, state.userId, { showResults = false },
+            onSaved = { ids -> ids.forEach(::mirrorToNotebook) }, dismissed = dismissedResults,
+            onDismissResult = { id -> setDismissed(dismissedResults + id) },
+            onRestoreResult = { id -> setDismissed(dismissedResults - id) })
     }
     if (showDifficulty) DifficultyDialog(state.cache.difficulty, manager, state.userId, { showDifficulty = false })
     draft?.let { raw -> LogExamDialog(raw, state.catalog, state.userId, manager, { draft = null }) { id, addMistake ->

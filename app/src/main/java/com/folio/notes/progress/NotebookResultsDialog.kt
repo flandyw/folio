@@ -73,7 +73,8 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
  */
 @Composable internal fun NotebookResultsDialog(candidates: List<LoggedExam>, logged: List<LoggedExam>, subjects: List<String>,
     manager: ExamProgressManager, user: String?, onDismiss: () -> Unit, onSaved: (List<String>) -> Unit,
-    onDismissResult: ((String) -> Unit)? = null, singleResult: Boolean = false) {
+    dismissed: Set<String> = emptySet(), onDismissResult: ((String) -> Unit)? = null, onRestoreResult: ((String) -> Unit)? = null,
+    singleResult: Boolean = false) {
     val owner = remember { user }
     val drafts = remember {
         mutableStateListOf<ResultDraft>().apply {
@@ -88,16 +89,20 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
     var discard by remember { mutableStateOf(false) }
     val savedIds = remember { mutableListOf<String>() }
     val scope = rememberCoroutineScope()
+    // Dismissed rows stay in the draft list (so their edits survive a restore) but are kept out of the review.
+    val shown = drafts.filter { it.id !in dismissed }
+    val hidden = drafts.filter { it.id in dismissed }
+    var showHidden by remember { mutableStateOf(false) }
     val matches = drafts.associate { it.id to LoggedMatcher.best(it.facts, logged) }
-    val selected = drafts.count { it.include }
-    val likely = drafts.count { matches[it.id]?.level == MatchLevel.LIKELY }
+    val selected = shown.count { it.include }
+    val likely = shown.count { matches[it.id]?.level == MatchLevel.LIKELY }
     val edited = drafts.any { d -> candidates.find { it.id == d.id }?.let { ResultDraft.from(it, d.include) != d } == true }
     fun dismiss() { if (!busy) { if (edited) discard = true else onDismiss() } }
     fun update(id: String, change: (ResultDraft) -> ResultDraft) {
         val i = drafts.indexOfFirst { it.id == id }; if (i >= 0) drafts[i] = change(drafts[i]); error = null
     }
     fun confirm() {
-        val chosen = drafts.filter { it.include }
+        val chosen = shown.filter { it.include }
         chosen.firstNotNullOfOrNull { d -> d.problem()?.let { d to it } }?.let { (d, why) ->
             expanded = d.id; error = "${d.title.ifBlank { "Result" }}: $why"; return
         }
@@ -120,14 +125,14 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                 else "Choose what goes in the exam log and correct anything first. Results that look like ones you have already logged are unticked.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                StatusPill("$selected of ${drafts.size} selected", strong = selected > 0)
+                StatusPill("$selected of ${shown.size} selected", strong = selected > 0)
                 if (likely > 0) StatusPill("$likely likely logged", Icons.Rounded.ContentCopy)
                 Spacer(Modifier.weight(1f))
-                TextButton({ val all = selected < drafts.size; drafts.indices.forEach { drafts[it] = drafts[it].copy(include = all) } }, enabled = !busy && drafts.isNotEmpty()) {
-                    Text(if (selected < drafts.size) "Select all" else "Select none")
+                TextButton({ val all = selected < shown.size; shown.forEach { update(it.id) { d -> d.copy(include = all) } } }, enabled = !busy && shown.isNotEmpty()) {
+                    Text(if (selected < shown.size) "Select all" else "Select none")
                 }
             }
-            drafts.toList().forEach { d ->
+            shown.forEach { d ->
                 val match = matches[d.id]
                 val open = expanded == d.id
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -145,7 +150,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                                 Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.Edit, if (open) "Hide editor" else "Edit ${d.title}")
                             }
                             if (onDismissResult != null) IconButton({
-                                drafts.removeAll { it.id == d.id }; if (expanded == d.id) expanded = null; error = null
+                                if (expanded == d.id) expanded = null; error = null
                                 onDismissResult(d.id)
                             }, enabled = !busy) {
                                 Icon(Icons.Rounded.Close, "Dismiss ${d.title}")
@@ -174,7 +179,24 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                     }
                 }
             }
-            if (drafts.isEmpty()) EmptyHint("Nothing left to add.")
+            if (hidden.isNotEmpty() && onRestoreResult != null) {
+                TextButton({ showHidden = !showHidden }) { Text(if (showHidden) "Hide dismissed" else "Show dismissed (${hidden.size})") }
+                if (showHidden) hidden.forEach { d ->
+                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(d.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(listOfNotNull(d.provider.ifBlank { null }, d.year.ifBlank { null }, d.paper.ifBlank { null }).joinToString(" "),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton({ error = null; onRestoreResult(d.id) }, enabled = !busy) {
+                                Icon(Icons.Rounded.Restore, "Restore ${d.title}")
+                            }
+                        }
+                    }
+                }
+            }
+            if (shown.isEmpty()) EmptyHint("Nothing left to add.")
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {
