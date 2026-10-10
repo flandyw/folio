@@ -68,6 +68,18 @@ enum class ExamType(val label: String) {
     companion object { fun safeValueOf(name: String?): ExamType? = name?.let { runCatching { valueOf(it) }.getOrNull() } }
 }
 
+/** Marks on the official VCAA paper, used to prefill when a document does not state its total. */
+object VcaaMarks {
+    fun total(subject: VceSubject?, type: ExamType?): Int? = when (subject) {
+        VceSubject.MATHS_METHODS, VceSubject.SPECIALIST_MATHS -> when (type) {
+            ExamType.EXAM_1 -> 40
+            ExamType.EXAM_2 -> 80
+            else -> null
+        }
+        else -> null
+    }
+}
+
 /** Free quick labels a student pins onto an exam paper. */
 enum class ExamTagType(val label: String) {
     HARD("Hard"), REDO("Redo"), DONE("Done"), BOUND_REFERENCE("Bound ref")
@@ -431,7 +443,7 @@ data class NotebookTemplate(
  */
 data class ExamTimerPreset(val label: String, val writingSeconds: Int, val readingSeconds: Int) {
     companion object {
-        val METHODS_EXAM_1 = ExamTimerPreset("Exam 1 · 90 min", 90 * 60, 15 * 60)
+        val METHODS_EXAM_1 = ExamTimerPreset("Exam 1 · 60 min", 60 * 60, 15 * 60)
         val METHODS_EXAM_2 = ExamTimerPreset("Exam 2 · 120 min", 120 * 60, 15 * 60)
         val CUSTOM = ExamTimerPreset("Custom", 90 * 60, 15 * 60)
         val PRESETS = listOf(METHODS_EXAM_1, METHODS_EXAM_2, CUSTOM)

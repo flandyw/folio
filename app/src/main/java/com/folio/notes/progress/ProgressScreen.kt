@@ -88,6 +88,13 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     var actionError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val local = remember(notes) { notebookExams(notes) }
+    // Results dismissed from "Add notebook results" stay out of the review on this device only.
+    val prefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    var dismissedResults by remember { mutableStateOf(prefs.getStringSet(AppPrefs.FOCAL_DISMISSED_RESULTS, emptySet()).orEmpty()) }
+    val dismissResult = { id: String ->
+        dismissedResults = dismissedResults + id
+        prefs.edit().putStringSet(AppPrefs.FOCAL_DISMISSED_RESULTS, dismissedResults).apply()
+    }
     // A result logged earlier from a notebook later relabelled SAC (or topic test, notes) is no longer an exam.
     val notExamNotebooks = remember(notes) { notes.filterNot { it.countsAsExam }.map { it.id }.toSet() }
     val exams = remember(state.cache.rows, local, notExamNotebooks) {
@@ -215,7 +222,8 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                     "Overview" -> overviewItems(exams, mistakes, local, notes, state, enabled,
                         onLog = { draft = "{}" }, onDetail = { detailId = it }, onLogMistake = { mistakeId = it }, onMistakes = onMistakes,
                         onDestination = { destination = it }, onSubject = { subject = it; destination = "Insights" },
-                        onOpenNotebook = onOpenNotebook, onLogNotebooks = { showResults = true }, onCopyLogs = ::copyDeviceLogs)
+                        onOpenNotebook = onOpenNotebook, onLogNotebooks = { showResults = true }, onCopyLogs = ::copyDeviceLogs,
+                        dismissed = dismissedResults)
                     "Exams" -> {
                         wide("exam-filters") {
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -318,8 +326,11 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     if (showAccount) FocalAccountPanel({ showAccount = false }, onMistakes, onStudy)
     if (showPlan) ProgressionDialog(state.cache.progression?.toString(), state.catalog, exams, manager, state.userId, { showPlan = false })
     if (showResults) {
-        val pending = remember(local, state.cache.rows) { local.filterNot { "attempts:${it.id}" in state.cache.rows } }
-        NotebookResultsDialog(pending, state.cache.exams, subjects, manager, state.userId, { showResults = false }) { ids -> ids.forEach(::mirrorToNotebook) }
+        val pending = remember(local, state.cache.rows, dismissedResults) {
+            local.filterNot { "attempts:${it.id}" in state.cache.rows || it.id in dismissedResults }
+        }
+        NotebookResultsDialog(pending, state.cache.exams, subjects, manager, state.userId, { showResults = false },
+            onSaved = { ids -> ids.forEach(::mirrorToNotebook) }, onDismissResult = dismissResult)
     }
     if (showDifficulty) DifficultyDialog(state.cache.difficulty, manager, state.userId, { showDifficulty = false })
     draft?.let { raw -> LogExamDialog(raw, state.catalog, state.userId, manager, { draft = null }) { id, addMistake ->
@@ -411,7 +422,7 @@ private fun monthLabel(key: String): String = runCatching { YearMonth.parse(key)
 private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<ExamTrackMistake>, local: List<LoggedExam>,
     notes: List<Notebook>, state: ProgressState, enabled: Boolean, onLog: () -> Unit, onDetail: (String) -> Unit,
     onLogMistake: (String) -> Unit, onMistakes: () -> Unit, onDestination: (String) -> Unit, onSubject: (String) -> Unit,
-    onOpenNotebook: (String) -> Unit, onLogNotebooks: () -> Unit, onCopyLogs: () -> Unit) {
+    onOpenNotebook: (String) -> Unit, onLogNotebooks: () -> Unit, onCopyLogs: () -> Unit, dismissed: Set<String>) {
     val settings = state.cache.difficulty
     val due = MistakeScheduler.getDueMistakes(mistakes)
     wide("hero") { OverviewHero(exams, settings, due.size, mistakes, enabled, onLog, onLogMistake, onMistakes, onDestination) }
@@ -461,7 +472,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
             }
         }
     }
-    val pending = local.filter { "attempts:${it.id}" !in state.cache.rows }
+    val pending = local.filter { "attempts:${it.id}" !in state.cache.rows && it.id !in dismissed }
     val ready = pending.size
     val likelyLogged = pending.count { LoggedMatcher.best(ResultFacts.of(it), state.cache.exams)?.level == MatchLevel.LIKELY }
     if (ready > 0 || state.userId != null) item("notebook-results") {

@@ -79,6 +79,8 @@ object AppPrefs {
     const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
     /** Local notebook identities omitted from automatic and portable library backups. */
     const val BACKUP_EXCLUDED_NOTEBOOKS = "backup.excludedNotebooks"
+    /** Notebook attempt ids dismissed from "Add notebook results" on this device; never synced to Focal. */
+    const val FOCAL_DISMISSED_RESULTS = "focal.dismissedResults"
     /** Peek shows the whole current page instead of a pinned view. */
     const val AUTO_PEEK = "peek.auto"
 

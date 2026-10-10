@@ -1,5 +1,6 @@
 package com.folio.notes.progress
 
+import com.folio.notes.ExamAttempt
 import com.folio.notes.Notebook
 import com.folio.notes.VceSubject
 import com.folio.notes.mistakes.isoTime
@@ -176,26 +177,40 @@ fun focalNotebookSubject(note: Notebook): String = when (note.exam.subject) {
     VceSubject.GENERAL_MATHS -> "General Mathematics"
     VceSubject.MATHS_METHODS -> "Mathematical Methods"
     VceSubject.SPECIALIST_MATHS -> "Specialist Mathematics"
-    else -> note.exam.subjectLabel.ifBlank { "Other" }
+    else -> focalSubjectName(note.exam.subjectLabel.ifBlank { "Other" })
 }
+
+/** A typed "maths methods" or "math methods" is saved under the official name, as the VCAA catalogue has it. */
+internal fun focalSubjectName(label: String): String =
+    if (VceSubject.match(label) == VceSubject.MATHS_METHODS) "Mathematical Methods" else label
+
+/** The exam's name in Focal, "{company} {year} {subject}", with any part that is not known left out. */
+internal fun focalExamName(company: String, year: Int, subject: String): String =
+    listOf(company.trim(), year.toString(), subject.trim()).filter { it.isNotEmpty() }.joinToString(" ")
 
 /** A notebook feeds the exam log unless it is labelled as something that is not a paper (SAC, topic test, notes). */
 val Notebook.countsAsExam: Boolean get() = exam.type?.isExam != false
 
-fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.filter { it.countsAsExam }.flatMap { note -> note.attempts.mapNotNull { a ->
-    val max = a.total ?: note.exam.marksTotal ?: return@mapNotNull null
+/** One sitting as an exam-log row, or null when there is no total to score it against. */
+fun notebookExam(note: Notebook, a: ExamAttempt): LoggedExam? {
+    val max = a.total ?: note.exam.marksTotal ?: return null
     val subject = focalNotebookSubject(note)
     // Focal's web app reads completedAt as a plain YYYY-MM-DD (it appends T00:00:00 itself), so an instant here shows as "Invalid Date" there.
     val day = java.time.Instant.ofEpochMilli(a.date).atZone(ZoneId.systemDefault()).toLocalDate()
+    val year = note.exam.year ?: day.year
     val raw = JSONObject().put("id", a.id).put("subject", subject).put("provider", note.exam.company)
-        .put("title", note.title).put("examYear", note.exam.year ?: day.year)
+        .put("title", focalExamName(note.exam.company, year, subject).ifBlank { note.title })
+        .put("examYear", year)
         .put("paper", note.exam.type?.label ?: "Exam").put("completedAt", day.toString())
         .put("rawScore", a.score).put("rawMax", max).put("createdAt", isoTime(a.date))
         .put("updatedAt", isoTime(a.date)).put("referenceId", JSONObject.NULL).put("folioNotebookId", note.id)
     a.secondsTaken?.let { raw.put("timing", JSONObject().put("actualWritingSeconds", it)
         .put("plannedReadingMinutes", 0).put("plannedWritingMinutes", 0).put("overtimeSeconds", 0).put("pausedSeconds", 0)) }
-    LoggedExam.decode(raw.toString())
-} }
+    return LoggedExam.decode(raw.toString())
+}
+
+fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.filter { it.countsAsExam }
+    .flatMap { note -> note.attempts.mapNotNull { notebookExam(note, it) } }
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
 internal fun JSONArray.strings(): List<String> = (0 until length()).mapNotNull { opt(it) as? String }

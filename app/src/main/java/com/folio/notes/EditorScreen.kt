@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes
 
+import com.folio.notes.progress.ExamRecordReview
+import com.folio.notes.progress.countsAsExam
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -565,6 +568,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     var studyPanel by remember { mutableStateOf(false) }
     var examPanel by remember { mutableStateOf(false) }
     var markDialog by remember { mutableStateOf(false) }
+    // A mark just recorded for Focal, awaiting confirmation in the save review.
+    var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
     var pdfSearchOpen by remember { mutableStateOf(false) }
     var pdfQuery by remember { mutableStateOf("") }
     var pdfContentsOpen by remember { mutableStateOf(false) }
@@ -1874,7 +1879,11 @@ private fun paperLabel(p: Paper): String = when (p) {
         onSave = { tags -> model.updateExamTags(note.id, tags); examPanel = false },
         onRecordMark = { attempt -> model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
-        suggestedSeconds = state.lastTimedSeconds
+        suggestedSeconds = state.lastTimedSeconds,
+        onRecordAndSave = if (!note.countsAsExam) null else { attempt ->
+            model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id)
+            focalReview = note to attempt
+        }
     )
     if (markDialog) ScoreDialog(
         total = note.exam.marksTotal,
@@ -1893,8 +1902,18 @@ private fun paperLabel(p: Paper): String = when (p) {
         onRecord = { score, total, seconds, timed ->
             model.recordAttempt(note.id, ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
             markDialog = false
+        },
+        // SACs, topic tests and notes never feed the exam log, so only real papers can be saved to Focal.
+        onRecordAndSave = if (!note.countsAsExam) null else { score, total, seconds, timed ->
+            val attempt = ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed)
+            model.recordAttempt(note.id, attempt)
+            markDialog = false
+            focalReview = note to attempt
         }
     )
+    focalReview?.let { (reviewed, attempt) ->
+        ExamRecordReview(reviewed, attempt) { focalReview = null }
+    }
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(
             originals = originals, quickColors = quick.colors(InkColors.INK_GROUP),

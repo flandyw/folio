@@ -254,6 +254,12 @@ object ExamClassifier {
                     .coerceAtLeast(PREFILL_THRESHOLD)
             }
         }
+        // A printed total wins; otherwise fall back to the official VCAA mark count for the paper.
+        if (ExamField.MARKS_TOTAL !in values) VcaaMarks.total(values[ExamField.SUBJECT] as? VceSubject,
+            values[ExamField.TYPE] as? ExamType)?.let {
+            values[ExamField.MARKS_TOTAL] = it
+            confidence[ExamField.MARKS_TOTAL] = PREFILL_THRESHOLD
+        }
         // Overall confidence also reflects completeness; consumers should prefill per field.
         val core = listOf(ExamField.SUBJECT, ExamField.YEAR, ExamField.COMPANY, ExamField.TYPE)
         return ExamDetectionResult(values[ExamField.SUBJECT] as? VceSubject, values[ExamField.YEAR] as? Int,

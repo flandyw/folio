@@ -2,6 +2,8 @@
 package com.folio.notes.progress
 
 import com.folio.notes.EmptyHint
+import com.folio.notes.ExamAttempt
+import com.folio.notes.Notebook
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,9 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.folio.notes.FolioApplication
 import com.folio.notes.FolioPanel
 import com.folio.notes.FolioSpacing
 import kotlinx.coroutines.launch
@@ -62,10 +67,13 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
 
 /**
  * Review step before notebook marks join the log. Each result can be unticked or corrected, and every one is
- * checked against what is already logged so a result entered by hand is not added a second time.
+ * checked against what is already logged so a result entered by hand is not added a second time. A result
+ * that is already in the log (or is not wanted) can be dismissed, which hides it via [onDismissResult].
+ * [singleResult] is the review opened straight after recording a mark: same form, worded for one save to Focal.
  */
 @Composable internal fun NotebookResultsDialog(candidates: List<LoggedExam>, logged: List<LoggedExam>, subjects: List<String>,
-    manager: ExamProgressManager, user: String?, onDismiss: () -> Unit, onSaved: (List<String>) -> Unit) {
+    manager: ExamProgressManager, user: String?, onDismiss: () -> Unit, onSaved: (List<String>) -> Unit,
+    onDismissResult: ((String) -> Unit)? = null, singleResult: Boolean = false) {
     val owner = remember { user }
     val drafts = remember {
         mutableStateListOf<ResultDraft>().apply {
@@ -104,10 +112,12 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
             } finally { busy = false }
         }
     }
-    FolioPanel("Add notebook results", ::dismiss) {
+    FolioPanel(if (singleResult) "Save mark to Focal" else "Add notebook results", ::dismiss) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Text("Choose what goes in the exam log and correct anything first. Results that look like ones you have already logged are unticked.",
+            Text(if (singleResult) (if (user == null) "You're signed out of Focal, so this saves on this device until you sign in. Check the details first."
+                else "Check the details, then save this mark to the exam log in Focal.")
+                else "Choose what goes in the exam log and correct anything first. Results that look like ones you have already logged are unticked.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 StatusPill("$selected of ${drafts.size} selected", strong = selected > 0)
@@ -133,6 +143,12 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                             }
                             IconButton({ expanded = if (open) null else d.id }) {
                                 Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.Edit, if (open) "Hide editor" else "Edit ${d.title}")
+                            }
+                            if (onDismissResult != null) IconButton({
+                                drafts.removeAll { it.id == d.id }; if (expanded == d.id) expanded = null; error = null
+                                onDismissResult(d.id)
+                            }, enabled = !busy) {
+                                Icon(Icons.Rounded.Close, "Dismiss ${d.title}")
                             }
                         }
                         if (match != null) MatchNotice(match)
@@ -163,7 +179,9 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {
             TextButton(::dismiss, enabled = !busy) { Text("Cancel") }
-            Button(::confirm, enabled = !busy && selected > 0) { Text(if (busy) "Adding…" else "Add $selected to log") }
+            Button(::confirm, enabled = !busy && selected > 0) {
+                Text(if (busy) "Saving…" else if (singleResult) "Save to Focal" else "Add $selected to log")
+            }
         }
     }
     if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard your edits?") },
@@ -186,4 +204,18 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
             if (match.reasons.isNotEmpty()) Text(match.reasons.joinToString(", ").replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+/**
+ * Confirm one mark just recorded in a notebook before it goes to Focal. The notebook keeps the mark either way;
+ * closing this only skips the Focal save, which can be made later from Progress.
+ */
+@Composable internal fun ExamRecordReview(note: Notebook, attempt: ExamAttempt, onDismiss: () -> Unit) {
+    val manager = (LocalContext.current.applicationContext as FolioApplication).focalProgress
+    val state by manager.state.collectAsStateWithLifecycle()
+    val exam = remember(attempt.id) { notebookExam(note, attempt) } ?: return
+    val subjects = remember(state.catalog, exam.subject) {
+        (state.catalog.exams.map { it.subject } + state.catalog.references.map { it.subject } + exam.subject).distinct().sorted()
+    }
+    NotebookResultsDialog(listOf(exam), state.cache.exams, subjects, manager, state.userId, onDismiss, onSaved = {}, singleResult = true)
 }

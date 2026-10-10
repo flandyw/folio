@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
+import com.folio.notes.progress.ExamRecordReview
+import com.folio.notes.progress.countsAsExam
+
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
@@ -77,6 +80,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
+    // A mark just recorded for Focal, awaiting confirmation in the save review.
+    var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     // Debounced query drives the O(N) filter so typing never blocks the text field.
     var debouncedQuery by rememberSaveable { mutableStateOf("") }
@@ -673,7 +678,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
             onSave = { tags -> model.updateExamTags(note.id, tags); examDetails = null },
             onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
             onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
-            suggestedSeconds = state.lastTimedSeconds
+            suggestedSeconds = state.lastTimedSeconds,
+            onRecordAndSave = if (!note.countsAsExam) null else { attempt -> model.recordAttempt(note.id, attempt); focalReview = live to attempt }
         )
     }
     pendingMark?.let { note ->
@@ -685,8 +691,17 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
             onRecord = { score, total, seconds, timed ->
                 model.recordAttempt(live.id, ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
                 pendingMark = null
+            },
+            onRecordAndSave = if (!live.countsAsExam) null else { score, total, seconds, timed ->
+                val attempt = ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed)
+                model.recordAttempt(live.id, attempt)
+                pendingMark = null
+                focalReview = live to attempt
             }
         )
+    }
+    focalReview?.let { (reviewed, attempt) ->
+        ExamRecordReview(reviewed, attempt) { focalReview = null }
     }
     notebookTags?.let { ids -> NotebookTagsPanel(state.notes.filter { it.id in ids }, NotebookTags.normalize(state.notes.flatMap { it.tags }, Int.MAX_VALUE), { notebookTags = null }) { add, remove -> model.updateNotebookTags(ids, add, remove); notebookTags = null } }
     if (bulkMove) LibraryMovePanel("Move ${selection.size} notebooks", state.folders,

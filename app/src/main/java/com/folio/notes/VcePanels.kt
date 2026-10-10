@@ -113,7 +113,9 @@ fun ExamDetailsPanel(
     note: Notebook, onDismiss: () -> Unit, onSave: (ExamTags) -> Unit,
     onRecordMark: (ExamAttempt) -> Unit, onDeleteAttempt: (ExamAttempt) -> Unit,
     /** Seconds a just-stopped timed sitting ran for, offered as the default on the next mark. */
-    suggestedSeconds: Int? = null
+    suggestedSeconds: Int? = null,
+    /** Records the mark and opens the Focal save review; null hides the option. */
+    onRecordAndSave: ((ExamAttempt) -> Unit)? = null
 ) {
     val exam = note.exam
     var subject by rememberSaveable(note.id) { mutableStateOf(exam.subject?.name) }
@@ -329,6 +331,12 @@ fun ExamDetailsPanel(
                 // The score dialog always asks for a total, so the attempt knows its own share.
                 onRecordMark(ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
                 scoreDialog = false
+            },
+            onRecordAndSave = onRecordAndSave?.let { save ->
+                { score: Int, total: Int?, seconds: Int?, timed: Boolean ->
+                    save(ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
+                    scoreDialog = false
+                }
             }
         )
     }
@@ -531,7 +539,9 @@ fun ScoreDialog(
     markZoneCount: Int = 0, markZoneTotal: Int = 0, onMarkAssist: (Boolean) -> Unit = {},
     markColor: Int = Marking.DEFAULT_COLOR, onMarkColor: (Int) -> Unit = {},
     showDetection: Boolean = false, loadPages: (suspend () -> List<NotePage>)? = null,
-    onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit
+    onRecord: (score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit,
+    /** Records the mark, then asks the caller to confirm and save it to Focal. Null hides the button. */
+    onRecordAndSave: ((score: Int, total: Int?, seconds: Int?, timed: Boolean) -> Unit)? = null
 ) {
     var score by rememberSaveable { mutableStateOf("") }
     var scoreEdited by rememberSaveable { mutableStateOf(false) }
@@ -679,11 +689,18 @@ fun ScoreDialog(
         },
         dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
         confirmButton = {
-            Button(
-                { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
-                enabled = canRecord,
-                shapes = ButtonDefaults.shapes()
-            ) { Text("Record") }
+            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                if (onRecordAndSave != null) OutlinedButton(
+                    { onRecordAndSave(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
+                    enabled = canRecord,
+                    shapes = ButtonDefaults.shapes()
+                ) { Text("Record and save to Focal") }
+                Button(
+                    { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
+                    enabled = canRecord,
+                    shapes = ButtonDefaults.shapes()
+                ) { Text("Record") }
+            }
         }
     )
 }
