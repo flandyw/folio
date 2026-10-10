@@ -11,12 +11,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -1033,7 +1036,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
                 if (music != null && musicInsets != null) MusicSheets(note, music, musicInsets, zoomed = documentZoom > 1.02f, onFit = { canvasReset++; documentZoom = 1f },
                     tapTurns = music.performance || tool == Tool.HAND || (!finger && tool != Tool.TEXT && tool != Tool.LASSO), sheet)
-                else PagedSheet(note.pages[state.pageIndex.coerceIn(0, note.pages.lastIndex)], state.pageIndex.coerceIn(0, note.pages.lastIndex),
+                else PagedSheet(note.pages[state.pageIndex.coerceIn(0, note.pages.lastIndex)], state.pageIndex.coerceIn(0, note.pages.lastIndex), note.pages.size,
                     top = floatingToolbarTop + FolioSpacing.dp4, swipeTurns = tool == Tool.HAND || !finger,
                     zoomed = documentZoom > 1.02f, onTurn = ::turnPage, sheet = sheet)
             } else if (page.infinite) {
@@ -2664,48 +2667,91 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-/** One page fitted to the room, turned by a horizontal finger swipe (never while zoomed in or writing with a finger). */
+/**
+ * One page fitted to the room. A horizontal finger swipe drags the page with the finger and turns
+ * it on release past a quarter of the width or a flick; at the first/last page it rubber-bands
+ * back. Never while zoomed in or writing with a finger.
+ */
 @Composable private fun PagedSheet(
-    page: NotePage, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, onTurn: (forward: Boolean) -> Unit,
+    page: NotePage, index: Int, count: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, onTurn: (forward: Boolean) -> Unit,
     sheet: @Composable (NotePage, Int) -> Unit,
 ) {
     val inputStylusActivity = LocalStylusActivity.current
     val turn by rememberUpdatedState(onTurn)
+    val scope = rememberCoroutineScope()
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var width by remember { mutableFloatStateOf(1f) }
+    var settle by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // A swipe already slid the page, so its turn skips the button transition.
+    var swiped by remember { mutableStateOf(false) }
+    val lastIndex = count - 1
+    fun settleTo(from: Float, to: Float, ms: Int, then: (() -> Unit)? = null) {
+        settle?.cancel()
+        settle = scope.launch {
+            animate(from, to, animationSpec = tween(ms)) { v, _ -> dragX = v }
+            then?.invoke()
+        }
+    }
     Box(Modifier.fillMaxSize().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp8, top = top, bottom = FolioSpacing.dp8)
-        .pointerInput(inputStylusActivity, swipeTurns, zoomed) {
+        .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+        .pointerInput(inputStylusActivity, swipeTurns, zoomed, index, lastIndex) {
             if (!swipeTurns || zoomed) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val cancellationSerial = inputStylusActivity.cancellationSerial
                 if (down.type != PointerType.Touch) return@awaitEachGesture
-                val threshold = 72.dp.toPx()
+                settle?.cancel()
+                val slop = viewConfiguration.touchSlop
+                val tracker = VelocityTracker()
+                tracker.addPosition(down.uptimeMillis, down.position)
+                var dragging = false
+                var abandoned = false
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
-                    if (inputStylusActivity.cancellationSerial != cancellationSerial) break
-                    if (event.changes.size > 1 || event.changes.any { it.type != PointerType.Touch }) break
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (inputStylusActivity.cancellationSerial != cancellationSerial ||
+                        event.changes.size > 1 || event.changes.any { it.type != PointerType.Touch }) { abandoned = true; break }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: run { abandoned = true; null } ?: break
                     if (!change.pressed) break
                     val delta = change.position - down.position
-                    if (kotlin.math.abs(delta.x) > threshold && kotlin.math.abs(delta.x) > kotlin.math.abs(delta.y) * 1.5f) {
-                        change.consume()
-                        turn(delta.x < 0f)
-                        // Swallow the rest of the stroke so the page doesn't also pan or draw.
-                        while (true) {
-                            val rest = awaitPointerEvent(PointerEventPass.Initial)
-                            rest.changes.forEach { it.consume() }
-                            if (rest.changes.none { it.pressed }) break
-                        }
-                        break
+                    if (!dragging) {
+                        // Vertical or diagonal gestures belong to the page underneath.
+                        if (kotlin.math.abs(delta.y) > slop && kotlin.math.abs(delta.y) > kotlin.math.abs(delta.x)) return@awaitEachGesture
+                        if (kotlin.math.abs(delta.x) <= slop || kotlin.math.abs(delta.x) < kotlin.math.abs(delta.y) * 1.2f) continue
+                        dragging = true
                     }
+                    change.consume()
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    val atEdge = (delta.x > 0f && index == 0) || (delta.x < 0f && index == lastIndex)
+                    dragX = if (atEdge) delta.x * 0.3f else delta.x
                 }
+                if (!dragging) return@awaitEachGesture
+                val vx = tracker.calculateVelocity().x
+                val forward = dragX < 0f
+                val canTurn = if (forward) index < lastIndex else index > 0
+                val commit = !abandoned && canTurn && (kotlin.math.abs(dragX) > width * 0.25f || kotlin.math.abs(vx) > 900f && (vx < 0f) == forward)
+                if (commit) {
+                    val sign = if (forward) -1f else 1f
+                    settleTo(dragX, sign * width * 0.6f, 110) {
+                        swiped = true
+                        turn(forward)
+                        dragX = -sign * width * 0.2f
+                        settleTo(dragX, 0f, 160)
+                    }
+                } else settleTo(dragX, 0f, 180)
             }
         }) {
-        // The turn slides in from the side it came from; only the page on view is ever the active one.
+        // A button turn slides in from the side it came from; only the page on view is ever the active one.
         AnimatedContent(targetState = index to page, contentKey = { it.second.id }, label = "pagedSheet",
+            modifier = Modifier.graphicsLayer { translationX = dragX; alpha = 1f - 0.4f * (kotlin.math.abs(dragX) / width).coerceIn(0f, 1f) },
             transitionSpec = {
-                val forward = targetState.first >= initialState.first
-                (slideInHorizontally(tween(200)) { if (forward) it / 4 else -it / 4 } + fadeIn(tween(200))) togetherWith
-                    (slideOutHorizontally(tween(200)) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(120)))
+                if (swiped) {
+                    swiped = false
+                    EnterTransition.None togetherWith ExitTransition.None
+                } else {
+                    val forward = targetState.first >= initialState.first
+                    (slideInHorizontally(tween(200)) { if (forward) it / 4 else -it / 4 } + fadeIn(tween(200))) togetherWith
+                        (slideOutHorizontally(tween(200)) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(120)))
+                }
             }) { (i, p) -> Box(Modifier.fillMaxSize().clip(FolioShapes.medium)) { sheet(p, i) } }
     }
 }
@@ -2732,8 +2778,12 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             IconButton(back.click { onTurn(false) }, Modifier.longPressAction(back) { onJumpToEnd(false) }, enabled = index > 0) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page. Hold for the first page")
             }
-            Text("${index + 1} / $count", Modifier.widthIn(min = 44.dp), textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Sized for the widest label ("12 / 12") with tabular digits, so the arrows never shift as the page changes.
+            val counter = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
+            Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
+                Text("$count / $count", style = counter, color = Color.Transparent)
+                Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             IconButton(next.click { onTurn(true) }, Modifier.longPressAction(next) { onJumpToEnd(true) }, enabled = index < count - 1) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page. Hold for the last page")
             }
