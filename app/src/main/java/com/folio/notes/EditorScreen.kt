@@ -1081,7 +1081,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                             pages.requestScrollToItem(target)
                         }
                         scrubbing = true
-                        scrubTo(startProgress)
+                        // Picking the thumb up must not move the page: requesting its item would snap to the
+                        // page top and lose the offset inside it. Only a jump to the track scrolls at once.
+                        if (onThumb) lastPage = DocumentViewport.pageAt(startProgress, note.pages.size)
+                        else scrubTo(startProgress)
                         try {
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
