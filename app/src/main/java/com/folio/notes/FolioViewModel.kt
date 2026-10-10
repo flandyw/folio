@@ -1886,6 +1886,26 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         )
     }
     /**
+     * Swaps lasso-selected handwriting for one typed text box, as one undoable step. The box joins the
+     * ink's layer when the selection shares one, so it stays under the same hide/lock rules. Does nothing
+     * when the page has moved on and the selected ink is no longer there.
+     */
+    fun replaceInkWithText(pageId: String, selection: CanvasSelection, box: TextBox): Boolean {
+        val page = findPageContent(pageId) ?: return false
+        if (!page.loaded || selection.strokes.isEmpty()) return false
+        if (selection.strokes.none { it in page.strokes }) return false
+        val doomed = identitySet(selection.strokes)
+        val layer = selection.strokes.map { it.layer }.distinct().singleOrNull() ?: activeLayerOf(page)
+        updateContent(
+            page.id,
+            // Fast path: reference check first, value fallback for strokes reloaded from the page.
+            page.strokes.filterNot { it in doomed || it in selection.strokes },
+            page.texts + box.copy(layer = layer),
+            page.images
+        )
+        return true
+    }
+    /**
      * Duplicates a lasso selection in place: the originals stay where they are and editable
      * copies land nudged along so they never hide under their source. Texts get fresh ids;
      * pictures get fresh ids with their bytes copied, since two placements on one page must

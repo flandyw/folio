@@ -441,6 +441,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by remember { mutableStateOf(false) }
     var noteQuery by rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
+    var inkConverting by remember { mutableStateOf(false) }
+    // Presenter pointer: session-only, so a freshly opened notebook never starts with a laser on.
+    var laserPointer by remember(note.id) { mutableStateOf(false) }
+    // The ruler belongs to one page; it reappears there when that page is shown again.
+    var ruler by remember(note.id) { mutableStateOf<Pair<String, RulerLine>?>(null) }
     var keyboardShortcuts by remember { mutableStateOf(false) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
@@ -696,6 +701,31 @@ private fun paperLabel(p: Paper): String = when (p) {
             selection = page.id to CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList())
         }
     }
+    /**
+     * Reads the lasso's handwriting and swaps it for one typed box, as one undoable step. The
+     * recogniser runs off the page, so drawing and navigation stay available while it works.
+     */
+    fun convertSelectionToText(pageId: String, lasso: CanvasSelection) {
+        if (inkConverting || lasso.strokes.isEmpty()) return
+        inkConverting = true
+        scope.launch {
+            try {
+                val result = InkToText.recognise(lasso.strokes)
+                if (result == null) model.reportError("No readable text in this selection")
+                else {
+                    // Typed text takes the writer's ink colour when one colour was used throughout.
+                    val color = lasso.strokes.filter { it.tool != Tool.HIGHLIGHTER }.map { it.color }.distinct().singleOrNull()
+                    val box = TextBox(x = result.x, y = result.y, width = result.width, text = result.text,
+                        size = result.size, color = color ?: 0xFF303431.toInt())
+                    if (model.replaceInkWithText(pageId, lasso, box)) { activeInkView?.clearSelection(); selection = null }
+                }
+            } catch (e: Exception) {
+                model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}")
+            } finally {
+                inkConverting = false
+            }
+        }
+    }
     /** Decodes a picked picture, stores it beside the notebook and places it centred on the page. */
     fun insertImage(uri: android.net.Uri) {
         val target = state.page ?: return
@@ -907,7 +937,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                     onStyle = { restyleSelection = selected.strokes },
                     onDelete = { model.deleteSelection(selected); dismissSelection() },
                     onDeselect = ::dismissSelection,
-                    onSelectAll = ::selectAllInk
+                    onSelectAll = ::selectAllInk,
+                    onConvertText = if (selected.strokes.isEmpty() || inkConverting) null
+                        else ({ convertSelectionToText(page.id, selected) })
                 )
             }
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
@@ -948,7 +980,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                         palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                         onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                         onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                        inputBlocked = music.performance,
+                        inputBlocked = music.performance, laserPointer = laserPointer && item.id == page.id,
+                        ruler = ruler?.takeIf { it.first == item.id }?.second, onRulerChanged = { line -> ruler = item.id to line },
                         onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                         selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                         selectionMenuViewport = selectionViewport,
@@ -1553,6 +1586,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 PageOptionsContent(dismiss, page, state.saveFailed,
                                     onPaper = { openPaperMenu(false) }, onClear = { clear = true }, onRetry = model::retrySave,
                                     onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                                    laserOn = laserPointer, onLaser = { laserPointer = !laserPointer },
+                                    rulerOn = ruler?.first == page.id,
+                                    onRuler = {
+                                        ruler = if (ruler?.first == page.id) null
+                                        else page.id to RulerLine.initial(page.width, page.height, page.infinite)
+                                    },
                                     onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                     onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
@@ -2182,7 +2221,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false,
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, laserPointer: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2379,7 +2418,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-                view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
+                view.laserPointer = laserPointer; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
                 onSelectAllView?.invoke(view)
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
@@ -2533,7 +2572,8 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     onPaper: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit,
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
+    laserOn: Boolean, onLaser: () -> Unit, rulerOn: Boolean, onRuler: () -> Unit
 ) {
     val run: (() -> Unit) -> Unit = { dismiss(); it() }
     PopoverGroup("This page") {
@@ -2546,6 +2586,10 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         PopoverRow(Icons.Rounded.GridOn, "Paper style: ${paperLabel(page.paper)}", enabled = page.pdfIndex == null) { run(onPaper) }
         PopoverRow(Icons.Rounded.LayersClear, "Clear page",
             enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) { run(onClear) }
+    }
+    PopoverGroup("Present") {
+        PopoverRow(Icons.Rounded.Flare, if (laserOn) "Turn off laser pointer" else "Laser pointer") { run(onLaser) }
+        PopoverRow(Icons.Rounded.Straighten, if (rulerOn) "Hide ruler" else "Show ruler") { run(onRuler) }
     }
     PopoverGroup("Study") {
         PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(onExam) }

@@ -71,7 +71,9 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     availableWidth: Dp, canRestyle: Boolean,
     onCopy: () -> Unit, onCut: () -> Unit, onDuplicate: () -> Unit,
     onMove: () -> Unit, canMove: Boolean, onPaste: () -> Unit, canPaste: Boolean = true,
-    onStyle: () -> Unit, onDelete: () -> Unit, onDeselect: () -> Unit, onSelectAll: () -> Unit
+    onStyle: () -> Unit, onDelete: () -> Unit, onDeselect: () -> Unit, onSelectAll: () -> Unit,
+    /** Null hides the row; a selection with no handwriting, or one already converting, passes null. */
+    onConvertText: (() -> Unit)? = null
 ) {
     var overflow by remember { mutableStateOf(false) }
     val showCopy = availableWidth >= 104.dp
@@ -99,6 +101,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             PageMenuRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move to page…", canMove) { run(onMove) }
             if (!showDuplicate) PageMenuRow(Icons.Rounded.DynamicFeed, "Duplicate", true) { run(onDuplicate) }
             if (canRestyle && !showStyle) PageMenuRow(Icons.Rounded.Palette, "Style", true) { run(onStyle) }
+            if (onConvertText != null) PageMenuRow(Icons.Rounded.TextFields, "Convert handwriting to text", true) { run(onConvertText) }
             if (!showDelete) PageMenuRow(Icons.Rounded.DeleteOutline, "Delete", true) { run(onDelete) }
             HorizontalDivider()
             PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
