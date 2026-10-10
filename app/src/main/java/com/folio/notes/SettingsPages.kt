@@ -422,6 +422,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val idle by rememberPref(p, AppPrefs.TIMER_IDLE_MIN) { AppPrefs.timerIdleMinutes(it.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_IDLE_MIN) }) }
     val png by rememberPref(p, AppPrefs.EXPORT_PNG_SCALE) { AppPrefs.pngScale(it.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { _ -> it.contains(AppPrefs.EXPORT_PNG_SCALE) }) }
     val split by rememberPref(p, AppPrefs.SPLIT_FRACTION) { AppPrefs.splitFraction(it.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { _ -> it.contains(AppPrefs.SPLIT_FRACTION) }) }
+    val shareShortcut by rememberPref(p, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
     // The field holds what is being typed; only a value in range is stored.
     var typed by rememberSaveable { mutableStateOf(customMinutes.toString()) }
     val typedValue = typed.toIntOrNull()
@@ -463,6 +464,10 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             { p.write { putFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.pngScale(it)) } },
             onReset = if (png != AppPrefs.DEFAULT_PNG_SCALE) ({ p.write { putFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE) } }) else null,
         )
+    }
+    SettingsGroup("Share button", footer = "Long-press the share button in the editor to run this straight away. A tap still opens the export menu.") {
+        SettingsChipRow("Long-press action", ShareShortcut.entries.map { it to it.label }, shareShortcut,
+            { p.write { putString(AppPrefs.SHARE_LONG_PRESS, it.name) } })
     }
     SettingsGroup("Split view", footer = "Drag the divider any time; the last position is remembered.") {
         SettingsSliderRow(

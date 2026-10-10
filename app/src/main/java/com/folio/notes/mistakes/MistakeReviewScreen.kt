@@ -30,6 +30,7 @@ import com.folio.notes.*
 @Composable internal fun MistakeReviewScreen(m: ExamTrackMistake, context: ExamContext?, attempt: LocalMistakeReviewAttempt,
     model: MistakesViewModel, folio: FolioViewModel, state: FolioState, finger: Boolean, haptics: Boolean, shapes: Boolean,
     busy: Boolean, onBack: () -> Unit, onSettings: () -> Unit, onExport: () -> Unit, dueLeft: Int,
+    onShareLongPress: (() -> Unit)? = null,
     queuePos: Int? = null, queueSize: Int? = null,
     shuffle: Boolean = false, onToggleShuffle: () -> Unit = {},
     canSkip: Boolean = false, onSkip: () -> Unit = {},
@@ -311,7 +312,7 @@ import com.folio.notes.*
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
                 )
-                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false) }
+                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress) }
             } else Column(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
                 // A collapsed question panel is still a handle: any drag reopens and resizes it.
@@ -326,7 +327,7 @@ import com.folio.notes.*
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
                 )
-                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false) }
+                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress) }
             }
         }
     }

@@ -326,6 +326,7 @@ private object SettingsIndex {
         e(SettingsCategory.WORKFLOW, "Stop timer after inactivity", "idle"),
         e(SettingsCategory.WORKFLOW, "Page image sharpness", "png export scale quality"),
         e(SettingsCategory.WORKFLOW, "Split view balance", "workspace editor share companion pane"),
+        e(SettingsCategory.WORKFLOW, "Share button long-press", "share export quick action pdf png page notebook"),
         e(SettingsCategory.MISTAKES, "Mistake practice paper", "question wrong revision review handwriting infinite canvas"),
         e(SettingsCategory.ACCOUNT, "Focal account", "sign in sync study sessions mistakes"),
         e(SettingsCategory.ACCOUNT, "Check for updates", "github release version launch"),

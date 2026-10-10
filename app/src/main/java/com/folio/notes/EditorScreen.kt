@@ -132,7 +132,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null) {
     val inputStylusActivity = LocalStylusActivity.current
     val note = state.active ?: return
     val page = state.page ?: return
@@ -1622,6 +1622,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = { finishTextEditing(); onExport() },
+                            onShareLongPress = onShareLongPress?.let { shortcut -> { finishTextEditing(); shortcut() } },
                             onSettings = { finishTextEditing(); onSettings() },
                             onKeyboardShortcuts = { keyboardShortcuts = true },
                             pageActions = { dismiss ->
@@ -2841,7 +2842,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
  * simply fetches a new preview, and a preview that was drawn before is shown without reading the
  * page file at all.
  */
-@Composable private fun PageThumbnail(noteId: String, page: NotePage, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier, previewWidth: Dp = 64.dp) {
+@Composable internal fun PageThumbnail(noteId: String, page: NotePage, thumbnails: PageThumbnailCache, modifier: Modifier = Modifier, previewWidth: Dp = 64.dp) {
     val widthPx = with(LocalDensity.current) { previewWidth.roundToPx() }
     var preview by remember(noteId, page.id) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(noteId, page.id, page.revision, page.loaded, widthPx) {

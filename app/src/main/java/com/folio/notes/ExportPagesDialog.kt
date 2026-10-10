@@ -1,35 +1,43 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,17 +56,20 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun ExportPagesDialog(
     note: Notebook,
+    thumbnails: PageThumbnailCache,
     initialIndex: Int,
+    initialFormat: PageExportFormat = PageExportFormat.PDF,
     initialPdfMode: PdfExportMode = PdfExportMode.PRESERVE,
     onDismiss: () -> Unit,
     onExport: (PageExportRequest) -> Unit,
     onShare: (PageExportRequest) -> Unit,
+    onFormatChange: ((PageExportFormat) -> Unit)? = null,
     onPdfModeChange: ((PdfExportMode) -> Unit)? = null
 ) {
     var selected by remember(note.id, initialIndex) {
         mutableStateOf(if (note.pages.isEmpty()) emptySet() else setOf(initialIndex.coerceIn(0, note.pages.lastIndex)))
     }
-    var format by remember(note.id) { mutableStateOf(PageExportFormat.PDF) }
+    var format by remember(note.id) { mutableStateOf(initialFormat) }
     var pdfMode by remember(note.id) { mutableStateOf(initialPdfMode) }
     var rangeText by remember(note.id) { mutableStateOf("") }
     var rangeError by remember { mutableStateOf<String?>(null) }
@@ -73,18 +84,22 @@ import androidx.compose.ui.unit.dp
                 "Choose which pages to save or share. A PDF keeps them in order; one PNG saves to your gallery, several PNGs make one .zip. Long-press a page to pick only that one.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                FilterChip(
-                    selected = format == PageExportFormat.PDF,
-                    onClick = { format = PageExportFormat.PDF },
-                    label = { Text("PDF") },
-                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(18.dp)) }
+            fun chooseFormat(next: PageExportFormat) {
+                format = next
+                onFormatChange?.invoke(next)
+            }
+            FolioButtonGroup(Modifier.fillMaxWidth()) {
+                toggleableItem(
+                    checked = format == PageExportFormat.PDF,
+                    onCheckedChange = { chooseFormat(PageExportFormat.PDF) },
+                    label = "PDF",
+                    icon = { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(18.dp)) }
                 )
-                FilterChip(
-                    selected = format == PageExportFormat.PNG,
-                    onClick = { format = PageExportFormat.PNG },
-                    label = { Text("PNG images") },
-                    leadingIcon = { Icon(Icons.Rounded.Image, null, Modifier.size(18.dp)) }
+                toggleableItem(
+                    checked = format == PageExportFormat.PNG,
+                    onCheckedChange = { chooseFormat(PageExportFormat.PNG) },
+                    label = "PNG images",
+                    icon = { Icon(Icons.Rounded.Image, null, Modifier.size(18.dp)) }
                 )
             }
             if (format == PageExportFormat.PNG && selected.size == 1) {
@@ -183,76 +198,22 @@ import androidx.compose.ui.unit.dp
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            LazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = 328.dp),
-                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(104.dp),
+                Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 items(count = note.pages.size, key = { note.pages[it].id }) { index ->
-                    val page = note.pages[index]
-                    val checked = index in selected
-                    val hold = rememberLongPressGuard()
-                    Row(
-                        Modifier.fillMaxWidth().longPressAction(hold) { selected = setOf(index); rangeError = null }
-                            .heightIn(min = 56.dp)
-                            .semantics {
-                                customActions = listOf(CustomAccessibilityAction("Select only this page") {
-                                    selected = setOf(index); rangeError = null; true
-                                })
-                            }
-                            .toggleable(checked, role = Role.Checkbox, onValueChange = { on ->
-                                hold.click {
-                                    selected = if (on) selected + index else selected - index
-                                    rangeError = null
-                                }()
-                            }),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = checked,
-                            onCheckedChange = null
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                page.displayTitle(index),
-                                style = MaterialTheme.typography.titleSmall,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis
-                            )
-                            if (page.bookmarked || page.redoFlag) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
-                                ) {
-                                    if (page.bookmarked) {
-                                        Icon(
-                                            Icons.Rounded.Bookmark,
-                                            null,
-                                            Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            "Bookmarked",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (page.redoFlag) {
-                                        Text(
-                                            "Redo",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (index == initialIndex) {
-                            Text(
-                                "Current page",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                    ExportPageTile(
+                        note = note,
+                        index = index,
+                        current = index == initialIndex,
+                        checked = index in selected,
+                        thumbnails = thumbnails,
+                        onToggle = { selected = if (index in selected) selected - index else selected + index; rangeError = null },
+                        onOnly = { selected = setOf(index); rangeError = null }
+                    )
                 }
             }
         }
@@ -296,6 +257,73 @@ import androidx.compose.ui.unit.dp
                         else -> "Share PNGs"
                     }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * One page in the export grid. Tapping toggles it and a long-press keeps only this page.
+ * A checked page takes the container colour, lifts slightly and shows a filled check badge,
+ * so the selection reads from across the grid without relying on small checkboxes.
+ */
+@Composable private fun ExportPageTile(
+    note: Notebook,
+    index: Int,
+    current: Boolean,
+    checked: Boolean,
+    thumbnails: PageThumbnailCache,
+    onToggle: () -> Unit,
+    onOnly: () -> Unit,
+) {
+    val page = note.pages[index]
+    val hold = rememberLongPressGuard()
+    Surface(
+        shape = FolioShapes.large,
+        color = if (checked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            if (checked) 2.dp else 1.dp,
+            if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth().folioSelected(checked)
+            .longPressAction(hold, onOnly)
+            .toggleable(checked, role = Role.Checkbox, onValueChange = { hold.click(onToggle)() })
+            .semantics {
+                customActions = listOf(CustomAccessibilityAction("Select only this page") { onOnly(); true })
+            }
+    ) {
+        Column(Modifier.padding(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            Box(Modifier.fillMaxWidth()) {
+                PageThumbnail(note.id, page, thumbnails, Modifier.fillMaxWidth().height(104.dp), previewWidth = 96.dp)
+                if (current) Surface(
+                    Modifier.align(Alignment.TopStart).padding(FolioSpacing.dp4),
+                    shape = FolioShapes.small,
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Text("Current", Modifier.padding(horizontal = FolioSpacing.dp6, vertical = FolioSpacing.dp2), style = MaterialTheme.typography.labelSmall)
+                }
+                Surface(
+                    Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp4).size(22.dp),
+                    shape = CircleShape,
+                    color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                    border = if (checked) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                Text(
+                    page.displayTitle(index),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (page.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (page.redoFlag) Icon(Icons.Rounded.Refresh, "Flagged for practice", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

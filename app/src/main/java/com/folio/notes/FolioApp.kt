@@ -156,6 +156,14 @@ import kotlinx.coroutines.withContext
         pdfExportMode = mode
         prefs.edit().putString(AppPrefs.EXPORT_PDF_MODE, mode.name).apply()
     }
+    var pagesExportFormat by remember {
+        mutableStateOf(AppPrefs.exportPagesFormat(prefs.getString(AppPrefs.EXPORT_PAGES_FORMAT, null)))
+    }
+    fun rememberPagesFormat(format: PageExportFormat) {
+        pagesExportFormat = format
+        prefs.edit().putString(AppPrefs.EXPORT_PAGES_FORMAT, format.name).apply()
+    }
+    val shareShortcut by rememberPref(prefs, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> model.preparePdfImport(uris) }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importArchive) }
     val saveArchive = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -314,6 +322,41 @@ import kotlinx.coroutines.withContext
             }
         }
     }
+    /** Sends a whole notebook as one PDF through the share sheet; the export menu and the share shortcut both use it. */
+    fun shareWholeNotebook(note: Notebook) {
+        val mode = pdfExportMode
+        model.export {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val dir = exportCacheDir(context.cacheDir)
+                    pruneExportCache(dir)
+                    File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file ->
+                        file.outputStream().use {
+                            exporter.writePdf(it, note, note.pages.indices.toList(), mode, context.applicationContext)
+                        }
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); clipData = ClipData.newRawUri("Notebook", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                context.applicationContext.startActivity(Intent.createChooser(send, "Share notebook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: ActivityNotFoundException) {
+                model.reportError("No app can share this notebook")
+            }
+        }
+    }
+    /** Runs the share action picked in Settings; a long-press on the editor's share button lands here. */
+    fun runShareShortcut() {
+        val note = state.active ?: return
+        val page = listOf(state.pageIndex)
+        when (shareShortcut) {
+            ShareShortcut.OFF -> Unit
+            ShareShortcut.NOTEBOOK_PDF -> shareWholeNotebook(note)
+            ShareShortcut.PAGE_PNG -> shareExport(PageExportRequest(note, page, PageExportFormat.PNG))
+            ShareShortcut.PAGE_PDF -> shareExport(PageExportRequest(note, page, PageExportFormat.PDF, pdfExportMode))
+        }
+    }
+    // Null when the shortcut is off, so the share button keeps no long-press at all.
+    val shareLongPress: (() -> Unit)? = if (shareShortcut == ShareShortcut.OFF) null else ({ runShareShortcut() })
     // Bluetooth is only ever asked for while the editor is open and the user has opted in.
     val hapticPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         val allowed = granted.values.all { it }
@@ -405,6 +448,7 @@ import kotlinx.coroutines.withContext
                         state.active != null && state.active?.musicScoreId == null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { exportMenu = true },
+                            onShareLongPress = shareLongPress,
                             onBrowseLibrary = { purpose, mode ->
                                 workspaceLibraryMode = mode
                                 workspaceLibraryPurpose = purpose
@@ -457,7 +501,7 @@ import kotlinx.coroutines.withContext
                                     mistakes, model, state, finger, haptics, shapeRecognition,
                                     onBack = { showMistakes = false }, onSettings = { settings = true },
                                     onExport = { exportMenu = true }, onReviewMode = onReviewMode,
-                                    onAccount = { focalAccountOpen = true },
+                                    onAccount = { focalAccountOpen = true }, onShareLongPress = shareLongPress,
                                 )
                             },
                         )
@@ -551,26 +595,7 @@ import kotlinx.coroutines.withContext
                 }
                 ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
                     exportMenu = false
-                    val note = state.active ?: return@ExportOption
-                    val mode = pdfExportMode
-                    model.export {
-                        try {
-                            val file = withContext(Dispatchers.IO) {
-                                val dir = exportCacheDir(context.cacheDir)
-                                pruneExportCache(dir)
-                                File(dir, "${exporter.filename(note)}-${System.currentTimeMillis()}.pdf").also { file ->
-                                    file.outputStream().use {
-                                        exporter.writePdf(it, note, note.pages.indices.toList(), mode, context.applicationContext)
-                                    }
-                                }
-                            }
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-                            val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); clipData = ClipData.newRawUri("Notebook", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                            context.applicationContext.startActivity(Intent.createChooser(send, "Share notebook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        } catch (_: ActivityNotFoundException) {
-                            model.reportError("No app can share this notebook")
-                        }
-                    }
+                    state.active?.let(::shareWholeNotebook)
                 }
             }
         }
@@ -579,11 +604,14 @@ import kotlinx.coroutines.withContext
             if (note == null) pageExportDialog = false
             else ExportPagesDialog(
                 note = note,
+                thumbnails = model.thumbnails,
                 initialIndex = state.pageIndex,
+                initialFormat = pagesExportFormat,
                 initialPdfMode = pdfExportMode,
                 onDismiss = { pageExportDialog = false },
                 onExport = { request -> pageExportDialog = false; rememberPdfMode(request.pdfMode); launchExport(request) },
                 onShare = { request -> pageExportDialog = false; rememberPdfMode(request.pdfMode); shareExport(request) },
+                onFormatChange = ::rememberPagesFormat,
                 onPdfModeChange = ::rememberPdfMode
             )
         }

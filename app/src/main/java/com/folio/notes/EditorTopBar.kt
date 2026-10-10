@@ -93,6 +93,8 @@ internal val EditorFloatingGroupHeight = 46.dp
     onDuplicatePage: () -> Unit,
     notebookActions: @Composable (() -> Unit) -> Unit = {},
     onExport: () -> Unit,
+    /** Long-press on the share button; null leaves the long-press inert. */
+    onShareLongPress: (() -> Unit)? = null,
     onSettings: () -> Unit,
     onKeyboardShortcuts: () -> Unit,
     pageActions: @Composable (() -> Unit) -> Unit,
@@ -171,7 +173,7 @@ internal val EditorFloatingGroupHeight = 46.dp
                 }
                 EditorGlassSurface {
                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-                        DockButton(Icons.Rounded.IosShare, "Share or export", onExport)
+                        DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
                         Box {
                             DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
@@ -254,9 +256,13 @@ internal val EditorFloatingGroupHeight = 46.dp
 }
 
 /** One compact 40dp icon button shared by the dock pills. */
-@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current) {
+@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null) {
+    val hold = rememberLongPressGuard()
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, modifier = Modifier.size(40.dp)) { Icon(icon, label, Modifier.size(20.dp), tint = tint) }
+        // The hold and the tap share one guard so a long-press never also fires the tap on release.
+        IconButton(hold.click(onClick), modifier = Modifier.size(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
+            Icon(icon, label, Modifier.size(20.dp), tint = tint)
+        }
     }
 }
 

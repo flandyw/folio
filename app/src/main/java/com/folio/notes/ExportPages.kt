@@ -1,7 +1,13 @@
 package com.folio.notes
 
 /** Which file a page-range export produces. PNG with one page is a single image; with several it is a zip. */
-enum class PageExportFormat { PDF, PNG }
+enum class PageExportFormat {
+    PDF, PNG;
+    companion object {
+        fun safeValueOf(name: String?): PageExportFormat =
+            try { valueOf(name ?: "") } catch (_: Exception) { PDF }
+    }
+}
 
 /**
  * How a PDF export treats an imported source document.

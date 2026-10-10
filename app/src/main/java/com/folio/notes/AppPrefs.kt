@@ -69,6 +69,10 @@ object AppPrefs {
     const val TIMER_IDLE_MIN = "timer.idleMinutes"
     const val EXPORT_PNG_SCALE = "export.pngScale"
     const val EXPORT_PDF_MODE = "export.pdfMode"
+    /** Format the "Export specific pages" dialog opens on; the page choice itself is per visit. */
+    const val EXPORT_PAGES_FORMAT = "export.pagesFormat"
+    /** Long-press action for the editor's share button, stored as a `ShareShortcut` name. */
+    const val SHARE_LONG_PRESS = "share.longPress"
     const val SPLIT_FRACTION = "workspace.splitFraction"
     /** Which side the editor sits on when a companion pane is open; remembered between sessions. */
     const val EDITOR_ON_RIGHT = "workspace.editorOnRight"
@@ -201,6 +205,10 @@ object AppPrefs {
         else value.coerceIn(PNG_SCALE_MIN, PNG_SCALE_MAX)
 
     fun pdfExportMode(raw: String?): PdfExportMode = PdfExportMode.safeValueOf(raw)
+
+    fun exportPagesFormat(raw: String?): PageExportFormat = PageExportFormat.safeValueOf(raw)
+
+    fun shareShortcut(raw: String?): ShareShortcut = ShareShortcut.safeValueOf(raw)
 
     fun splitFraction(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_SPLIT

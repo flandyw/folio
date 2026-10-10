@@ -98,6 +98,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     finger: Boolean, haptics: Boolean, shapes: Boolean, onBack: () -> Unit,
     onSettings: () -> Unit, onExport: () -> Unit,
     onReviewMode: (Boolean) -> Unit = {}, onAccount: () -> Unit = {},
+    onShareLongPress: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -356,6 +357,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val queueSize = sessionTotal.takeIf { it > 0 }
         MistakeReviewScreen(card, reviewFrame.context, active, model, folio, reviewFrame.editor,
             finger, haptics, shapes, working || currentFrame == null, onBack = ::leaveReview, onSettings = onSettings, onExport = onExport,
+            onShareLongPress = onShareLongPress,
             dueLeft = queueSize ?: due.size, queuePos = queuePos, queueSize = queueSize,
             shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
             canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage,

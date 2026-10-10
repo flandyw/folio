@@ -27,6 +27,7 @@ import kotlin.math.roundToInt
     haptics: Boolean, shapeRecognition: Boolean,
     onSettings: () -> Unit, onExport: () -> Unit,
     onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
+    onShareLongPress: (() -> Unit)? = null,
 ) {
     var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
@@ -44,6 +45,7 @@ import kotlin.math.roundToInt
             val editor: @Composable () -> Unit = {
                 key(state.activeId) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
+                        onShareLongPress = onShareLongPress,
                         notebookActions = { dismiss ->
                             PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); picker = PickerPurpose.COMPANION }
                             PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); picker = PickerPurpose.TABS }
