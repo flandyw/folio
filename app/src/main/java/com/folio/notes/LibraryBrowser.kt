@@ -125,7 +125,7 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
         color = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         modifier = modifier.fillMaxWidth().semantics { selected = active }) {
-        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = FolioSpacing.dp12 + 14.dp * (depth ?: 0), end = if (expanded != null) FolioSpacing.dp4 else FolioSpacing.dp12),
+        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = FolioSpacing.dp12 + FolioSpacing.dp16 * (depth ?: 0), end = if (expanded != null) FolioSpacing.dp4 else FolioSpacing.dp12),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (iconTint != null) Icon(icon, null, Modifier.size(20.dp), tint = iconTint) else Icon(icon, null, Modifier.size(20.dp))
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

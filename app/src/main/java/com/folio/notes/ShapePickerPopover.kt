@@ -92,7 +92,7 @@ private fun shapeName(tool: Tool) = when (tool) {
         contentColor = if (selected) scheme.onSecondaryContainer else scheme.onSurface) {
         Column(Modifier.padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp8), horizontalAlignment = Alignment.CenterHorizontally) {
             preview(LocalContentColor.current)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(FolioSpacing.dp4))
             Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 28.dp))
         }

@@ -5,12 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import java.util.Locale
 
 @Composable internal fun UpdateStatus(state: FolioUpdateState, onDownload: (FolioUpdate) -> Unit, onInstall: () -> Unit, onDelete: () -> Unit) {
     if (state.initializing || state.checking || state.downloading != null || state.ready != null || state.available != null || state.message != null) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             when {
                 state.downloading != null -> {
                     Text(if (state.progress.verifying) "Verifying Folio ${state.downloading.versionName}…" else "Downloading Folio ${state.downloading.versionName}…")
@@ -29,7 +28,7 @@ import java.util.Locale
             }
             state.ready?.let { ready ->
                 Text("Folio ${ready.update.versionName} is ready to install.")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Button(onInstall, enabled = !state.busy, shapes = ButtonDefaults.shapes()) { Text("Install update") }
                     TextButton(onDelete, enabled = !state.busy, shapes = ButtonDefaults.shapes()) { Text("Delete download") }
                 }

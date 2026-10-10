@@ -605,7 +605,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
     val complete = plan.count { paperKey(it) in done }
     wide("plan-header") {
         Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 ScoreRing(if (plan.isEmpty()) 0.0 else complete * 100.0 / plan.size, 72.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                     Text(progression?.optString("name")?.ifBlank { null } ?: "Exam progression", style = MaterialTheme.typography.titleLarge)

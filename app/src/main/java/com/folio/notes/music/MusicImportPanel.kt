@@ -279,8 +279,8 @@ import kotlinx.coroutines.withContext
         Box(contentAlignment = Alignment.Center) {
             if (image != null) Image(image, "PDF page ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .85f),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp)) {
-                Text("${index + 1}", Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelSmall)
+                modifier = Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp2)) {
+                Text("${index + 1}", Modifier.padding(horizontal = FolioSpacing.dp4), style = MaterialTheme.typography.labelSmall)
             }
         }
     }

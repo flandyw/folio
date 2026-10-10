@@ -352,7 +352,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                 LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(coverWidth), modifier = Modifier.weight(1f).fillMaxHeight().then(if (drag != null) Modifier.notebookDragScroll(drag) { libraryGridState.scrollBy(it) } else Modifier)
                         .notebookDropTarget(if (backgroundDrop != null) drag else null, backgroundDrop ?: NotebookDropDestination.Favorites),
                     state = libraryGridState,
-                    contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) 8.dp else 16.dp)) {
+                    contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) FolioSpacing.dp8 else FolioSpacing.dp16)) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             if (selectionCaption != null) Surface(
@@ -673,7 +673,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
             ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
         }
         }
-        NotebookDragFeedback(libraryDrag, Modifier.align(Alignment.BottomCenter).padding(horizontal = FolioSpacing.dp16, vertical = if (wide) 16.dp else 88.dp))
+        NotebookDragFeedback(libraryDrag, Modifier.align(Alignment.BottomCenter).padding(horizontal = FolioSpacing.dp16, vertical = if (wide) FolioSpacing.dp16 else 88.dp))
     }
     examDetails?.let { note ->
         // The dialog edits a snapshot: refresh the notebook from state so a mark recorded

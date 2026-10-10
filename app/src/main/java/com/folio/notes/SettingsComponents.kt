@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 // Building blocks for the settings screens. A page is a stack of SettingsGroups; a group is one
@@ -253,8 +254,8 @@ private fun Modifier.clickableRow(enabled: Boolean, onClick: () -> Unit): Modifi
 }
 
 /** Free-form content (swatches, status, buttons) given the standard row padding. */
-@Composable internal fun SettingsBlock(verticalSpacing: Int = 8, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(RowPadding), verticalArrangement = Arrangement.spacedBy(verticalSpacing.dp), content = content)
+@Composable internal fun SettingsBlock(verticalSpacing: Dp = FolioSpacing.dp8, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(RowPadding), verticalArrangement = Arrangement.spacedBy(verticalSpacing), content = content)
 }
 
 @Composable internal fun SettingsBlockTitle(title: String, subtitle: String? = null) = RowText(title, subtitle)

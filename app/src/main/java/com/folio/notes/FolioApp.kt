@@ -378,7 +378,7 @@ import kotlinx.coroutines.withContext
         ) { padding ->
             // Full screen hides the status bar, so its inset is zero. Screens without a top bar of
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
-            val topGap = (16.dp - padding.calculateTopPadding()).coerceAtLeast(0.dp)
+            val topGap = (FolioSpacing.dp16 - padding.calculateTopPadding()).coerceAtLeast(0.dp)
             CompositionLocalProvider(LocalDestinationTopGap provides topGap) {
             Box(Modifier.fillMaxSize().padding(padding).then(
                 if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
@@ -525,7 +525,7 @@ import kotlinx.coroutines.withContext
             },
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)
                 Text("Export a notebook or just this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(FolioSpacing.dp12))
@@ -647,7 +647,7 @@ import kotlinx.coroutines.withContext
     }
     FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(top = FolioSpacing.dp8, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, top = FolioSpacing.dp8, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Text("Choose a starting page and begin writing. You can change the cover and paper later.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Start from", style = MaterialTheme.typography.labelLarge)

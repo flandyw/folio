@@ -29,7 +29,7 @@ import androidx.compose.ui.window.PopupProperties
     content: @Composable ColumnScope.() -> Unit
 ) {
     val density = LocalDensity.current
-    val margin = with(density) { 12.dp.roundToPx() }
+    val margin = with(density) { FolioSpacing.dp12.roundToPx() }
     val below = WindowInsets.statusBars.getTop(density) + with(density) { 64.dp.roundToPx() }
     val provider = remember(margin, below) {
         object : PopupPositionProvider {

@@ -288,12 +288,12 @@ private class NotebookDragShadow(view: View, private val title: String, private 
 }
 
 @Composable internal fun NotebookDragFeedback(drag: NotebookDragState, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         if (drag.active) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Text(drag.hover?.destination?.let { if (drag.accepts(it)) "Release to drop · ${it.label}" else "Choose another destination · ${it.label}" }
                 ?: "Drag to a folder, tag or Favorites · Hold to open folders",
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.labelLarge,
+                Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12), style = MaterialTheme.typography.labelLarge,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
         SnackbarHost(drag.snackbar)

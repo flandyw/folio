@@ -83,7 +83,7 @@ import java.util.Date
                 Text(listOfNotNull(it.title, response.marks?.let { marks -> "$marks marks" }, response.targetMinutes?.let { minutes -> "$minutes min target" }).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall)
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 TextButton(onAttempts) { Text("Attempts · ${response.attempts.size}") }
                 if (attempt != null) TextButton({ planning = !planning }) { Text(if (planning) "Hide plan" else "Plan") }
                 if (attempt != null) TextButton({ model.addPage(Paper.RULED); model.openAt(note.id, model.state.value.pageIndex) }) { Text("Continue on new page") }

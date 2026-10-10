@@ -118,7 +118,7 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun ExplorerEmpty(icon: ImageVector, title: String, detail: String, action: @Composable () -> Unit = {}) {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) { Icon(icon, null, Modifier.padding(20.dp).size(40.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) { Icon(icon, null, Modifier.padding(FolioSpacing.dp16).size(40.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer) }
             Text(title, style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             action()

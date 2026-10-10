@@ -165,7 +165,7 @@ import androidx.compose.ui.unit.dp
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = FolioSpacing.dp16),
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = FolioSpacing.dp24),
                 contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 itemsIndexed(outline) { _, entry ->
                     Surface(onClick = { onOpen(entry.pageIndex) }, shape = FolioShapes.large,
@@ -265,7 +265,7 @@ import androidx.compose.ui.unit.dp
                     else if (!page.loaded) LoadingIndicator(Modifier.size(16.dp))
                     Text("${index + 1}", style = MaterialTheme.typography.labelSmall,
                         color = if (current) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.BottomEnd).background(Color.White.copy(alpha = 0.7f), FolioShapes.small).padding(horizontal = 3.dp))
+                        modifier = Modifier.align(Alignment.BottomEnd).background(Color.White.copy(alpha = 0.7f), FolioShapes.small).padding(horizontal = FolioSpacing.dp4))
                 }
             }
         }

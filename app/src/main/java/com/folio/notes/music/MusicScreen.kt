@@ -707,7 +707,7 @@ private fun scoreMeta(score: MusicScore): String {
     val partFocus = remember { FocusRequester() }
     fun submit() { if (title.isNotBlank()) save(title.trim(), composer.trim(), part.trim(), notes.trim()) }
     FolioPanel("Score details", dismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("${score.pages} ${if (score.pages == 1) "page" else "pages"} · ${score.marks.size} rehearsal ${if (score.marks.size == 1) "mark" else "marks"}",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -739,7 +739,7 @@ private fun scoreMeta(score: MusicScore): String {
     val shown = scores.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
         .filter { s -> filter.isBlank() || listOf(s.title, s.composer, s.part).any { it.contains(filter.trim(), true) } }
     FolioPanel("Add to ${set.name}", dismiss) {
-        Column(Modifier.padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("${set.scores.size} in the set · new scores join at the end", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a score…") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = FolioShapes.extraLarge,

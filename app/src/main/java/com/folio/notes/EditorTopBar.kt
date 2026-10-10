@@ -108,7 +108,7 @@ internal val EditorFloatingGroupHeight = 46.dp
         // clipped: it either fits beside the tools or lives in the notebook menu.
         val timerWidth = remember { mutableStateOf(0.dp) }
         MeasureNaturalWidth(timerWidth) { timer() }
-        val timerNeed = timerWidth.value + 12.dp + FolioSpacing.dp8 // surface padding + slack
+        val timerNeed = timerWidth.value + FolioSpacing.dp6 * 2 + FolioSpacing.dp8 // surface padding (dp6 each side) + slack
         val toolsNeed = 400.dp
         val groupGaps = FolioSpacing.dp6 * 2
         val documentWidth = 40.dp * 2 + FolioSpacing.dp8

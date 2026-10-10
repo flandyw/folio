@@ -804,7 +804,7 @@ private fun AccountCard(
             // A soft halo in the corner; decoration only.
             Box(Modifier.align(Alignment.TopEnd).offset(x = 48.dp, y = (-56).dp).size(180.dp)
                 .background(scheme.primary.copy(alpha = .10f), CircleShape))
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                     Box(Modifier.size(68.dp).background(scheme.surface.copy(alpha = .55f), CircleShape).padding(FolioSpacing.dp4)) {
                         Surface(shape = CircleShape, color = scheme.primary, modifier = Modifier.fillMaxSize()) {

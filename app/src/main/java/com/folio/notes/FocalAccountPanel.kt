@@ -45,13 +45,13 @@ fun FocalAccountPanel(onDismiss: () -> Unit, onMistakes: (() -> Unit)?, onStudy:
                     Text("One sign-in for", Modifier.padding(start = FolioSpacing.dp4),
                         style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.padding(DestinationInset), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(Modifier.padding(DestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                             FocalDestinationRow(Icons.Rounded.Timer, "Study timer", "Sessions and focus time sync to Focal", onStudy)
                             FocalDestinationRow(Icons.Rounded.School, "Mistake review", "Spaced review of the questions you missed", onMistakes)
                         }
                     }
                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.Rounded.Draw, null, Modifier.size(16.dp).padding(top = 2.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.Draw, null, Modifier.size(16.dp).padding(top = FolioSpacing.dp2), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Handwriting stays in Folio. Reviews and sessions are kept offline and sync when you are back online.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

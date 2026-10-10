@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
                         border = BorderStroke(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.semanticsLabel(if (on) "${option.label} design, selected" else "${option.label} design"),
                     ) {
-                        CoverFace("", false, CoverStyle.withStyle(cover, option), Modifier.padding(3.dp).size(54.dp, 72.dp), compact = true, showText = false)
+                        CoverFace("", false, CoverStyle.withStyle(cover, option), Modifier.padding(FolioSpacing.dp4).size(54.dp, 72.dp), compact = true, showText = false)
                     }
                     Text(option.label, style = MaterialTheme.typography.labelSmall, color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 }

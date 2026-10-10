@@ -205,7 +205,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 760.dp
         Row(Modifier.fillMaxSize()) {
-            if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = FolioSpacing.dp16, bottom = FolioSpacing.dp12), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 LazyColumn(contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     item { Text("Locations", Modifier.padding(FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall) }
                     item { ExplorerPlace("Tablet storage", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } } }

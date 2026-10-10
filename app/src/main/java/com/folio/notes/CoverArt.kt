@@ -182,7 +182,7 @@ private fun DrawScope.ruledArt(t: CoverTones) {
 }
 
 @Composable private fun CoverText(style: CoverStyle, title: String, kicker: String, t: CoverTones, compact: Boolean, w: Dp, h: Dp) {
-    val pad = if (compact) 14.dp else 24.dp
+    val pad = if (compact) FolioSpacing.dp12 else FolioSpacing.dp24
     when (style) {
         CoverStyle.FOLIO -> Column(
             Modifier.fillMaxSize().padding(start = w * .19f, top = h * .07f, end = w * .16f, bottom = h * .07f),
@@ -194,7 +194,7 @@ private fun DrawScope.ruledArt(t: CoverTones) {
         CoverStyle.HORIZON, CoverStyle.ARCH, CoverStyle.DOTTED ->
             CoverTitle(title, kicker, t.ink, compact, Modifier.fillMaxWidth().padding(start = pad, top = pad, end = pad))
         CoverStyle.BLUEPRINT -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
-            CoverTitle(title, kicker, t.ink, compact, Modifier.fillMaxWidth().padding(start = w * .09f, end = w * .09f, bottom = w * .09f).background(t.base, RoundedCornerShape(2.dp)).padding(if (compact) 10.dp else 14.dp))
+            CoverTitle(title, kicker, t.ink, compact, Modifier.fillMaxWidth().padding(start = w * .09f, end = w * .09f, bottom = w * .09f).background(t.base, RoundedCornerShape(2.dp)).padding(if (compact) FolioSpacing.dp10 else FolioSpacing.dp12))
         }
         CoverStyle.BAND -> Column(Modifier.fillMaxSize().padding(vertical = h * .16f), verticalArrangement = Arrangement.SpaceBetween) {
             Text(kicker, Modifier.padding(horizontal = pad), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, letterSpacing = 2.sp, color = t.quiet)

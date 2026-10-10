@@ -76,7 +76,7 @@ import androidx.compose.ui.window.PopupProperties
     val scale by transition.animateFloat(transitionSpec = { if (targetState) folioSpring() else tween(90) }, label = "Scale") { if (it) 1f else 0f }
     if (!state.currentState && !state.targetState) return
     val density = LocalDensity.current
-    val provider = remember(density) { with(density) { PopoverPositionProvider(12.dp.roundToPx(), 8.dp.roundToPx()) } }
+    val provider = remember(density) { with(density) { PopoverPositionProvider(FolioSpacing.dp12.roundToPx(), FolioSpacing.dp8.roundToPx()) } }
     Popup(
         popupPositionProvider = provider,
         onDismissRequest = onDismissRequest,
@@ -87,15 +87,15 @@ import androidx.compose.ui.window.PopupProperties
             val focusManager = LocalFocusManager.current
             FolioPopoverSurface(
                 modifier.width(minOf(320.dp, (maxWidth - 24.dp).coerceAtLeast(0.dp)))
-                    .heightIn(max = (maxHeight - 24.dp).coerceAtLeast(0.dp))
+                    .heightIn(max = (maxHeight - FolioSpacing.dp24).coerceAtLeast(0.dp))
                     .graphicsLayer { alpha = opacity }
                     .semantics { paneTitle = title },
                 progress = scale,
             ) {
-                Column(Modifier.padding(8.dp)) {
-                    Text(title, Modifier.padding(horizontal = 12.dp, vertical = 10.dp).semantics { heading() },
+                Column(Modifier.padding(FolioSpacing.dp8)) {
+                    Text(title, Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10).semantics { heading() },
                         style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).focusGroup()
                         .onPreviewKeyEvent {
@@ -106,7 +106,7 @@ import androidx.compose.ui.window.PopupProperties
                                 else -> false
                             }
                         },
-                        verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2), content = content)
                 }
             }
         }
@@ -137,9 +137,9 @@ import androidx.compose.ui.window.PopupProperties
     Row(
         modifier.fillMaxWidth().clip(FolioShapes.large)
             .background(if (active && enabled) scheme.secondaryContainer else Color.Transparent)
-            .then(interaction).heightIn(min = 52.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+            .then(interaction).heightIn(min = 52.dp).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
     ) {
         CompositionLocalProvider(LocalContentColor provides foreground) {
             if (leadingIcon != null) {

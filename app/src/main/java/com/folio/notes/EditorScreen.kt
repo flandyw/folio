@@ -906,9 +906,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             val workspaceSide = remember(note.pages) { StickyNotes.workspaceSide(note.pages) }
             val documentScale = 1f + 2f * workspaceSide
             val stripWidth = 26.dp
-            val stripInset = 2.dp
+            val stripInset = FolioSpacing.dp2
             val trackTop = floatingToolbarTop + FolioSpacing.dp8
-            val trackBottom = 20.dp
+            val trackBottom = FolioSpacing.dp16
             val stripWidthPx = with(density) { stripWidth.toPx() }
             val stripInsetPx = with(density) { stripInset.toPx() }
             val trackTopPx = with(density) { trackTop.toPx() }
@@ -1301,12 +1301,12 @@ private fun paperLabel(p: Paper): String = when (p) {
             if (music == null) followHint?.let { hint ->
                 Surface(
                     Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
-                        .padding(followInset).padding(bottom = 52.dp).widthIn(max = 320.dp).zIndex(11f),
+                        .padding(followInset).padding(bottom = 44.dp + FolioSpacing.dp8).widthIn(max = 320.dp).zIndex(11f),
                     shape = FolioShapes.large,
                     color = MaterialTheme.colorScheme.inverseSurface,
                     contentColor = MaterialTheme.colorScheme.inverseOnSurface,
                 ) {
-                    Text(hint, Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    Text(hint, Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)
                         .semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -1317,7 +1317,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     .height(44.dp)
                     .guardUiTouches()
                     .zIndex(11f),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                contentPadding = PaddingValues(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2),
             ) {
                 val responseLabel = if (writingFollowEnabled) "Finish response" else "Write a response"
                 if (responseTextButton) TextButton(
@@ -1358,7 +1358,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 enabled = overviewReturn == null,
                                 leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
                             Text("Use a response column for paragraphs. Leave it off for maths, short answers and diagrams.",
-                                Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.bodySmall)
                             if (canvasResponse != null) FolioMenuItem({ Text("Start a new column here") },
                                 { setWritingFollow(true); followMenu = false }, enabled = overviewReturn == null)
@@ -1367,7 +1367,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                         if (writingFollowEnabled) {
                             Text(followStatus.message,
-                                Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FolioMenuItem({ Text("Previous writing line") },
@@ -1441,7 +1441,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         if (!page.infinite || canvasResponse != null) FolioMenuItem({ Text(if (page.infinite) "Response settings…" else "Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Tune, null) })
                         HorizontalDivider()
-                        Text("Peek view", Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        Text("Peek view", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         FolioMenuItem(
                             { Text(if (pinnedPeek == null) "Pin this view" else "Replace with this view") },
@@ -2840,7 +2840,7 @@ private fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () ->
         )
     ) {
         Row(
-            Modifier.defaultMinSize(minHeight = 40.dp).padding(horizontal = 24.dp, vertical = FolioSpacing.dp8),
+            Modifier.defaultMinSize(minHeight = 40.dp).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -2887,10 +2887,10 @@ private enum class FollowSub { AREAS }
             shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                 if (!adjusting) {
                     Text(if (existing != null) "+$existing / ${zone.marks}" else "${zone.marks} ${if (zone.marks == 1) "mark" else "marks"}",
-                        Modifier.padding(start = 10.dp, end = 4.dp), style = MaterialTheme.typography.labelLarge)
+                        Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge)
                     IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(zone.marks) }, Modifier.size(44.dp)) {
                         Icon(Icons.Rounded.Check, "Award all ${zone.marks}", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -2944,8 +2944,8 @@ private data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float
             shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Marks", Modifier.padding(start = 12.dp, end = 2.dp), style = MaterialTheme.typography.labelLarge,
+            Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                Text("Marks", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp2), style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton({ touched = true; value = (value - 1).coerceAtLeast(1) }, Modifier.size(44.dp), enabled = value > 1) { Icon(Icons.Rounded.Remove, "One fewer mark") }
                 Text("$value", Modifier.widthIn(min = 24.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
@@ -2964,7 +2964,7 @@ private data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float
 @Composable private fun MarkAreaHint(modifier: Modifier = Modifier) {
     Surface(modifier, shape = CircleShape, shadowElevation = 4.dp, color = MaterialTheme.colorScheme.inverseSurface,
         contentColor = MaterialTheme.colorScheme.inverseOnSurface) {
-        Text("Drag a box around a “[n marks]” label the scan missed", Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        Text("Drag a box around a “[n marks]” label the scan missed", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
             style = MaterialTheme.typography.labelLarge)
     }
 }

@@ -51,7 +51,7 @@ internal fun SubmenuItem(
     val density = LocalDensity.current
     val view = LocalView.current
     val positionProvider = remember(density, view) {
-        val delegate = with(density) { SubmenuPositionProvider(8.dp.roundToPx(), 4.dp.roundToPx()) }
+        val delegate = with(density) { SubmenuPositionProvider(FolioSpacing.dp8.roundToPx(), FolioSpacing.dp4.roundToPx()) }
         val screenLocation = IntArray(2)
         val windowLocation = IntArray(2)
         object : PopupPositionProvider {
@@ -87,9 +87,9 @@ internal fun SubmenuItem(
         ) {
             BoxWithConstraints {
                 FolioPopoverSurface(Modifier.width(minOf(300.dp, (maxWidth - 24.dp).coerceAtLeast(0.dp)))
-                    .heightIn(max = (maxHeight - 24.dp).coerceAtLeast(0.dp))) {
-                    Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
+                    .heightIn(max = (maxHeight - FolioSpacing.dp24).coerceAtLeast(0.dp))) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(FolioSpacing.dp8),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) { content() }
                 }
             }
         }

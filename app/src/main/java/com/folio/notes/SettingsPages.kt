@@ -388,7 +388,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             trailing = {},
         )
         if (b.progress != null) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = FolioSpacing.dp12))
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12))
         }
         SettingsDivider()
         SettingsLinkRow(if (auto) "Change backup folder" else "Choose backup folder", onClick = b.onChooseFolder, enabled = !b.busy)

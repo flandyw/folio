@@ -377,7 +377,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
 }
 
 @Composable private fun BeatDots(beats: Int, beat: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
         for (i in 1..beats) {
             val on = i == beat
             val color by animateColorAsState(when {

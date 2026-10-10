@@ -443,7 +443,7 @@ internal fun FocalStudyContent(
             }
         } else {
             LazyColumn((if (dedicated) Modifier.fillMaxWidth() else Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter)).imePadding(),
-                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = if (dedicated) 0.dp else FolioSpacing.dp16, bottom = FolioSpacing.dp16),
+                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 item(key = "timer") {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)

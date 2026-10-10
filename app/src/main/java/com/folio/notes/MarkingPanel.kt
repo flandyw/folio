@@ -301,7 +301,7 @@ import kotlin.math.roundToInt
                 Marking.MARK_LABELS.forEach { label ->
                     val action = MarkingAction.Mark(label)
                     Box(Modifier.height(36.dp).widthIn(min = 40.dp).clip(FolioShapes.medium).background(lit(armed == action))
-                        .clickable { toggle(action) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+                        .clickable { toggle(action) }.padding(horizontal = FolioSpacing.dp10), contentAlignment = Alignment.Center) {
                         Text(label, style = MaterialTheme.typography.titleMedium, color = tint)
                     }
                 }
@@ -323,7 +323,7 @@ import kotlin.math.roundToInt
 @Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, lit: Boolean, onClick: () -> Unit) {
     Row(Modifier.height(36.dp).clip(FolioShapes.medium)
         .background(if (lit) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-        .clickable(onClick = onClick).padding(horizontal = 10.dp),
+        .clickable(onClick = onClick).padding(horizontal = FolioSpacing.dp10),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         Icon(icon, null, Modifier.size(18.dp)); Text(label, style = MaterialTheme.typography.labelLarge)
     }

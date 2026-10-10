@@ -220,7 +220,7 @@ import androidx.compose.ui.unit.dp
                             if (page.bookmarked || page.redoFlag) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
+                                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
                                 ) {
                                     if (page.bookmarked) {
                                         Icon(
@@ -236,9 +236,6 @@ import androidx.compose.ui.unit.dp
                                         )
                                     }
                                     if (page.redoFlag) {
-                                        if (page.bookmarked) {
-                                            Spacer(Modifier.width(FolioSpacing.dp8))
-                                        }
                                         Text(
                                             "Redo",
                                             style = MaterialTheme.typography.bodySmall,

@@ -197,7 +197,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 }.toString() }, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(FolioSpacing.dp4))
         }
         FlowRow(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
             TextButton(::dismiss, enabled = !busy) { Text("Cancel") }

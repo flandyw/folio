@@ -236,7 +236,7 @@ private class PageTextField(context: Context) : EditText(context) {
     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainer,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Column {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 TextButton(onDone) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Text("Done") }
                 TextFormatButton(Icons.Rounded.FormatBold, "Bold", box.bold) { onChange(box.copy(bold = !box.bold)) }
@@ -250,13 +250,13 @@ private class PageTextField(context: Context) : EditText(context) {
                 TextFormatButton(Icons.Rounded.DeleteOutline, "Delete text box", false, onClick = onDelete)
             }
             if (expanded) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     TextFormatButton(Icons.Rounded.FormatAlignLeft, "Align left", box.align == TextAlignMode.LEFT) { onChange(box.copy(align = TextAlignMode.LEFT)) }
                     TextFormatButton(Icons.Rounded.FormatAlignCenter, "Align centre", box.align == TextAlignMode.CENTER) { onChange(box.copy(align = TextAlignMode.CENTER)) }
                     TextFormatButton(Icons.Rounded.FormatAlignRight, "Align right", box.align == TextAlignMode.RIGHT) { onChange(box.copy(align = TextAlignMode.RIGHT)) }
                     colors.forEach { color -> InkColorDot(color, color == box.color, { onChange(box.copy(color = color)) }, touch = 40.dp, dot = 24.dp, label = "Text colour") }
                 }
-                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp12), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Text("Opacity", style = MaterialTheme.typography.labelMedium)
                     Slider(box.opacity, { onChange(box.withOpacity(it)) }, valueRange = TextBox.MIN_OPACITY..TextBox.MAX_OPACITY,
                         modifier = Modifier.weight(1f).semanticsLabel("Text opacity"))

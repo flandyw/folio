@@ -39,7 +39,7 @@ internal fun Double.display(digits: Int = 1) = String.format(Locale.getDefault()
 @Composable internal fun ProgressCard(title: String, subtitle: String? = null, icon: ImageVector? = null,
     modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     Surface(modifier, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 if (icon != null) Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer) { Icon(icon, null, Modifier.padding(FolioSpacing.dp8).size(20.dp)) }
