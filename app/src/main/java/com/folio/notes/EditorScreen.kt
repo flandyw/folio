@@ -925,7 +925,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             // Sticky notes can live beside the paper, so the document is wider than its pages.
             val workspaceSide = remember(note.pages) { StickyNotes.workspaceSide(note.pages) }
             val documentScale = 1f + 2f * workspaceSide
-            val stripWidth = 26.dp
+            val stripWidth = FastScrollStripWidth
             val stripInset = FolioSpacing.dp2
             val trackTop = floatingToolbarTop + FolioSpacing.dp8
             val trackBottom = FolioSpacing.dp16
@@ -933,7 +933,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             val stripInsetPx = with(density) { stripInset.toPx() }
             val trackTopPx = with(density) { trackTop.toPx() }
             val trackBottomPx = with(density) { trackBottom.toPx() }
-            val minimumThumbPx = with(density) { 24.dp.toPx() }
+            val minimumThumbPx = with(density) { FastScrollMinThumb.toPx() }
             LaunchedEffect(viewportWidth, baseWidthPx, documentScale) {
                 documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentScale * documentZoom, viewportWidth)
             }
@@ -1041,7 +1041,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
                     selectionMenu = if (inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
-            } else Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, note.pages.size) {
+            } else Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, haptics, note.pages.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val cancellationSerial = inputStylusActivity.cancellationSerial
@@ -1053,10 +1053,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                     val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(0f)
                     val geometry = fastScrollGeometry(pages, note.pages.size, span, minimumThumbPx)
-                    val onThumb = geometry != null &&
+                    // The whole strip is the grab zone: the thumb is picked up where it is, and a touch
+                    // elsewhere on the track brings the thumb to the finger and carries on scrubbing.
+                    val onTrack = geometry != null &&
                         down.position.x in (size.width - stripInsetPx - stripWidthPx)..(size.width - stripInsetPx) &&
-                        down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
-                    if (onThumb) {
+                        down.position.y in trackTopPx..(trackTopPx + span)
+                    if (onTrack && geometry != null) {
                         activeInkView?.suspendWritingFollow()
                         motion.reset()
                         down.consume()
@@ -1064,9 +1066,22 @@ private fun paperLabel(p: Paper): String = when (p) {
                         val firstPageIndex = pages.firstVisibleItemIndex.coerceIn(0, (note.pages.size - 1).coerceAtLeast(0))
                         val firstPageSize = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index < note.pages.size }?.size
                             ?: pages.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0
-                        val startProgress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex,
+                        val onThumb = down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
+                        val startProgress = if (!onThumb) ((down.position.y - trackTopPx - geometry.height / 2) / travelSpan).coerceIn(0f, 1f)
+                            else if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex,
                             pages.firstVisibleItemScrollOffset, firstPageSize,
                             note.pages.size)
+                        var lastPage = -1
+                        fun scrubTo(progress: Float) {
+                            val target = DocumentViewport.pageAt(progress, note.pages.size)
+                            if (target != lastPage) {
+                                if (lastPage >= 0 && haptics) pullHaptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastPage = target
+                            }
+                            pages.requestScrollToItem(target)
+                        }
+                        scrubbing = true
+                        scrubTo(startProgress)
                         try {
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -1077,13 +1092,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 change.consume()
                                 if (!change.pressed) break
                                 val delta = change.position - down.position
-                                if (!scrubbing) {
-                                    if (kotlin.math.abs(delta.x) > viewConfiguration.touchSlop &&
-                                        kotlin.math.abs(delta.x) >= kotlin.math.abs(delta.y)) break
-                                    if (kotlin.math.abs(delta.y) <= viewConfiguration.touchSlop) continue
-                                    scrubbing = true
-                                }
-                                pages.requestScrollToItem(DocumentViewport.pageAt(startProgress + delta.y / travelSpan, note.pages.size))
+                                scrubTo(startProgress + delta.y / travelSpan)
                             }
                         } finally {
                             scrubbing = false
@@ -2218,6 +2227,9 @@ private fun visibleCurrentPage(pages: LazyListState, pageCount: Int): Int? {
 }
 
 private const val FastScrollChipHoldMs = 900L
+/** Touch zone along the right edge, and the shortest the thumb gets, so the handle is easy to land on. */
+private val FastScrollStripWidth = 48.dp
+private val FastScrollMinThumb = 44.dp
 
 private data class FastScrollGeometry(val top: Float, val height: Float)
 
@@ -2254,12 +2266,12 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     val chipAlpha by animateFloatAsState(if (chipActive) 1f else 0f,
         animationSpec = tween(if (chipActive) 140 else 220), label = "fastScrollChipAlpha")
     // The thumb brightens and thickens smoothly when grabbed instead of snapping.
-    val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .55f, label = "fastScrollAlpha")
-    val thumbWidth by animateDpAsState(if (scrubbing) 7.dp else 5.dp, animationSpec = folioSpring(), label = "fastScrollWidth")
+    val thumbAlpha by animateFloatAsState(if (scrubbing) 1f else .7f, label = "fastScrollAlpha")
+    val thumbWidth by animateDpAsState(if (scrubbing) 10.dp else 6.dp, animationSpec = folioSpring(), label = "fastScrollWidth")
     BoxWithConstraints(modifier) {
-        val geometry = fastScrollGeometry(pages, pageCount, constraints.maxHeight.toFloat(), with(density) { 28.dp.toPx() })
+        val geometry = fastScrollGeometry(pages, pageCount, constraints.maxHeight.toFloat(), with(density) { FastScrollMinThumb.toPx() })
             ?: return@BoxWithConstraints
-        Box(Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.align(Alignment.CenterEnd).width(FastScrollStripWidth).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
             Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .22f)))
             Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(thumbWidth).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)))
         }
