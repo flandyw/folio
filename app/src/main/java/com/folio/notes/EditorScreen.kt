@@ -590,6 +590,10 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { if (hostActivity?.isChangingConfigurations != true) model.autoPauseTimer() }
     }
     val pages = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex, initialFirstVisibleItemScrollOffset = session?.viewport?.scrollOffset ?: 0)
+    // Single-page view: one fitted page at a time, turned by swiping or the corner arrows. A
+    // per-device preference; infinite canvases and scores keep their own layouts.
+    var singlePage by remember { mutableStateOf(appPrefs.getBoolean("singlePageView", false)) }
+    val paged = music == null && singlePage && !page.infinite
     var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
     LaunchedEffect(note.id, pages) {
         snapshotFlow {
@@ -642,6 +646,22 @@ private fun paperLabel(p: Paper): String = when (p) {
         )
     }
     fun jumpTo(index: Int) { activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index); scope.launch { pages.scrollToItem(index) } }
+    /** Previous/next page in either view; the single-page view starts each page fitted. */
+    fun turnPage(forward: Boolean) {
+        val target = (state.pageIndex + if (forward) 1 else -1).coerceIn(0, note.pages.lastIndex)
+        if (target == state.pageIndex) return
+        if (paged) documentZoom = 1f
+        jumpTo(target)
+    }
+    fun setSinglePage(on: Boolean) {
+        singlePage = on
+        appPrefs.edit().putBoolean("singlePageView", on).apply()
+        activeInkView?.suspendWritingFollow()
+        motion.reset()
+        documentZoom = 1f; documentPan = 0f
+        // The scrolling column is not composed while paged, so it reopens on the current page.
+        if (!on) pages.requestScrollToItem(state.pageIndex.coerceIn(0, note.pages.lastIndex))
+    }
     /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
     fun openPdfLink(link: PdfLink) {
         when (val target = link.target) {
@@ -807,7 +827,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     var handledNavigation by remember(note.id) { mutableIntStateOf(state.navigationRequest) }
-    LaunchedEffect(note.id, page.infinite, note.pages.size, state.navigationRequest) {
+    LaunchedEffect(note.id, page.infinite, note.pages.size, state.navigationRequest, paged) {
         if (handledNavigation != state.navigationRequest) {
             activeInkView?.suspendWritingFollow()
             motion.reset()
@@ -815,7 +835,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             handledNavigation = state.navigationRequest
         }
         // A score has no scrolling column: the stage decides which pages are on view.
-        if (page.infinite || music != null) return@LaunchedEffect
+        if (page.infinite || music != null || paged) return@LaunchedEffect
         snapshotFlow { visibleCurrentPage(pages, note.pages.size) }
             .distinctUntilChanged().collect { index -> index?.let(model::selectPage) }
     }
@@ -965,15 +985,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                     )
                 }
             }
-            if (music != null && musicInsets != null) {
+            if (paged || (music != null && musicInsets != null)) {
                 val sheet: @Composable (NotePage, Int) -> Unit = { item, index ->
-                    EditorPage(note.id, item, model, if (music.performance) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, item.id == page.id,
+                    EditorPage(note.id, item, model, if (music?.performance == true) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, item.id == page.id,
                         onActive = { model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
                         onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
                         onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
                         textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
                         onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
-                        onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music.onKey,
+                        onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music?.onKey,
                         canvasReset = canvasReset, onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(item),
                         selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                         onImageSelected = { image -> selectedImage = image?.let { item.id to it } },
@@ -985,16 +1005,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                         palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                         onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                         onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                        inputBlocked = music.performance, laserPointer = laserPointer && item.id == page.id,
+                        inputBlocked = music?.performance == true, laserPointer = laserPointer && item.id == page.id,
                         ruler = ruler?.takeIf { it.first == item.id }?.second, onRulerChanged = { line -> ruler = item.id to line },
                         onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                         selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                         selectionMenuViewport = selectionViewport,
-                        selectionMenu = if (item.id != page.id || inkNavigating || restyleSelection != null || music.performance) null
+                        selectionMenu = if (item.id != page.id || inkNavigating || restyleSelection != null || music?.performance == true) null
                             else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
                 }
-                MusicSheets(note, music, musicInsets, zoomed = documentZoom > 1.02f, onFit = { canvasReset++; documentZoom = 1f },
+                if (music != null && musicInsets != null) MusicSheets(note, music, musicInsets, zoomed = documentZoom > 1.02f, onFit = { canvasReset++; documentZoom = 1f },
                     tapTurns = music.performance || tool == Tool.HAND || (!finger && tool != Tool.TEXT && tool != Tool.LASSO), sheet)
+                else PagedSheet(note.pages[state.pageIndex.coerceIn(0, note.pages.lastIndex)], state.pageIndex.coerceIn(0, note.pages.lastIndex),
+                    top = floatingToolbarTop + FolioSpacing.dp4, swipeTurns = tool == Tool.HAND || !finger,
+                    zoomed = documentZoom > 1.02f, onTurn = ::turnPage, sheet = sheet)
             } else if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
@@ -1481,10 +1504,15 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             if (tool == Tool.MARK_AREA && page.pdfIndex != null) MarkAreaHint(
                 Modifier.align(Alignment.BottomCenter).zIndex(11f).padding(bottom = FolioSpacing.dp16))
-            if (!page.infinite && music == null) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
+            if (!page.infinite && music == null && !paged) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
             if (music != null && musicInsets != null) music.chrome(this, musicInsets)
+            if (music == null && !page.infinite && note.pages.isNotEmpty()) PageNavigator(
+                index = state.pageIndex.coerceIn(0, note.pages.lastIndex), count = note.pages.size, singlePage = singlePage,
+                onTurn = ::turnPage, onToggleView = { setSinglePage(!singlePage) },
+                modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
+                    .padding(FolioSpacing.dp8).guardUiTouches().zIndex(11f))
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
@@ -2598,6 +2626,64 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         horizontalArrangement = Arrangement.spacedBy(insets.gap)) {
         for (index in stage.start until end) key(note.pages[index].id) {
             Box(Modifier.weight(1f).fillMaxHeight().clip(FolioShapes.medium)) { sheet(note.pages[index], index) }
+        }
+    }
+}
+
+/** One page fitted to the room, turned by a horizontal finger swipe (never while zoomed in or writing with a finger). */
+@Composable private fun PagedSheet(
+    page: NotePage, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, onTurn: (forward: Boolean) -> Unit,
+    sheet: @Composable (NotePage, Int) -> Unit,
+) {
+    val inputStylusActivity = LocalStylusActivity.current
+    val turn by rememberUpdatedState(onTurn)
+    Box(Modifier.fillMaxSize().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp8, top = top, bottom = FolioSpacing.dp8)
+        .pointerInput(inputStylusActivity, swipeTurns, zoomed) {
+            if (!swipeTurns || zoomed) return@pointerInput
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val cancellationSerial = inputStylusActivity.cancellationSerial
+                if (down.type != PointerType.Touch) return@awaitEachGesture
+                val threshold = 72.dp.toPx()
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (inputStylusActivity.cancellationSerial != cancellationSerial) break
+                    if (event.changes.size > 1 || event.changes.any { it.type != PointerType.Touch }) break
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    val delta = change.position - down.position
+                    if (kotlin.math.abs(delta.x) > threshold && kotlin.math.abs(delta.x) > kotlin.math.abs(delta.y) * 1.5f) {
+                        change.consume()
+                        turn(delta.x < 0f)
+                        // Swallow the rest of the stroke so the page doesn't also pan or draw.
+                        while (true) {
+                            val rest = awaitPointerEvent(PointerEventPass.Initial)
+                            rest.changes.forEach { it.consume() }
+                            if (rest.changes.none { it.pressed }) break
+                        }
+                        break
+                    }
+                }
+            }
+        }) {
+        key(page.id) { Box(Modifier.fillMaxSize().clip(FolioShapes.medium)) { sheet(page, index) } }
+    }
+}
+
+/** Bottom-corner page controls: previous/next, the position, and the single-page view switch. */
+@Composable private fun PageNavigator(
+    index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onToggleView: () -> Unit, modifier: Modifier = Modifier,
+) {
+    Surface(modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp, shadowElevation = 2.dp) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onToggleView) {
+                Icon(if (singlePage) Icons.Rounded.ViewAgenda else Icons.Rounded.ViewCarousel,
+                    if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
+                    tint = if (singlePage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = { onTurn(false) }, enabled = index > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page") }
+            Text("${index + 1} / $count", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = { onTurn(true) }, enabled = index < count - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page") }
         }
     }
 }
