@@ -391,7 +391,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 val search = _state.value.pdfSearch
                 if (search.query.isNotBlank() && !search.searched) searchPdf(search.query)
             }
-            catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message}") }; ready.completeExceptionally(e) }
+            catch (e: Exception) { _state.update { it.copy(loading = false, loadFailed = true, error = "Couldn't load your library: ${e.message ?: "unknown error"}") }; ready.completeExceptionally(e) }
         }
     }
     private fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit) =
@@ -570,7 +570,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         _state.update { it.copy(exporting = true) }
         viewModelScope.launch {
             try { block() }
-            catch (e: Exception) { reportError("Export failed: ${e.message}") }
+            catch (e: Exception) { reportError("Export failed: ${e.message ?: "unknown error"}") }
             finally { _state.update { it.copy(exporting = false) } }
         }
     }
@@ -1236,7 +1236,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 }
                 LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
             } catch (e: Exception) {
-                reportError("Couldn't duplicate notebook: ${e.message}")
+                reportError("Couldn't duplicate notebook: ${e.message ?: "unknown error"}")
             }
         }
     }
@@ -2682,7 +2682,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 staged.use { repository.writeStaged(it, uri, progress) }
                 reportError("Library backup saved ($count notebooks)")
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { reportError("Library backup failed: ${e.message}") }
+            catch (e: Exception) { reportError("Library backup failed: ${e.message ?: "unknown error"}") }
             finally { _state.update { it.copy(exporting = false, backupProgress = null) } }
         }
     }
@@ -2706,7 +2706,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                 reportError("Restored ${notes.size} notebooks and ${folders.size} folders")
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { reportError("Library restore failed: ${e.message}") }
+            catch (e: Exception) { reportError("Library restore failed: ${e.message ?: "unknown error"}") }
             finally { _state.update { it.copy(busy = false, importProgress = null) } }
         }
     }

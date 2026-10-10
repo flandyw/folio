@@ -139,7 +139,7 @@ private const val FORM_ADD = -1
         }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("List name") }, singleLine = true)
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("List name") }, singleLine = true)
             // At-a-glance state: how much of the plan the log already covers.
             Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -174,20 +174,21 @@ private const val FORM_ADD = -1
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             defaultProviderOrder.forEach { p -> FilterChip(comparisonName(provider) == comparisonName(p), { provider = p }, { Text(p) }) }
                         }
-                        OutlinedTextField(provider, { provider = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Provider name") }, singleLine = true)
+                        OutlinedTextField(provider, { provider = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Provider name") }, singleLine = true)
                         Text("Paper", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             listOf("Exam 1", "Exam 2", "Exam").forEach { p -> FilterChip(paper == p, { paper = p; suggest(newPaper = p) }, { Text(p) }) }
                         }
-                        OutlinedTextField(paper, { paper = it; suggest(newPaper = it) }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Paper name") }, singleLine = true)
+                        OutlinedTextField(paper, { paper = it; suggest(newPaper = it) }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Paper name") }, singleLine = true)
                         OutlinedTextField(years, { years = it }, Modifier.fillMaxWidth(), singleLine = true,
                             label = { Text(if (formAt >= 0) "Year" else "Year, years or range") },
                             supportingText = { if (formAt == FORM_ADD) Text(parsedYears?.let { y ->
                                 "${y.size - skipped} to add" + if (skipped > 0) " · $skipped already listed" else "" } ?: "e.g. 2022 · 2019, 2021 · 2018-2023") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text))
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                         OutlinedTextField(marks, { marks = it; marksEdited = true }, Modifier.fillMaxWidth(), label = { Text("Marks available") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                         OutlinedTextField(phase, { phase = it }, Modifier.fillMaxWidth(), label = { Text("Phase (optional)") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             supportingText = { Text("Groups papers under a heading, e.g. Term 3 or Final revision.") })
                         if (knownPhases.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             knownPhases.forEach { p -> FilterChip(phase == p, { phase = if (phase == p) "" else p }, { Text(p) }) }

@@ -136,7 +136,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
             ChoiceField("Provider", provider, (listOf("VCAA", "VCAA NHT", "NEAP", "Insight", "TSSM", "MAV", "iTute", "Kilbaha", "Heffernan", "Other")), { provider = it }, true)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(year, { year = it }, Modifier.weight(1f), label = { Text("Exam year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
-                OutlinedTextField(date, { date = it }, Modifier.weight(2f), label = { Text("Date · YYYY-MM-DD") }, singleLine = true)
+                OutlinedTextField(date, { date = it }, Modifier.weight(2f), label = { Text("Date · YYYY-MM-DD") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             ChoiceField("Paper", paper, catalog.references.filter { comparisonName(it.subject) == comparisonName(subject) }.map { it.paper.replace("WRITTEN EXAMINATION", "Exam", true).replace("EXAMINATION", "Exam", true) }.distinct(), { paper = it }, true)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -227,11 +227,11 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     FolioPanel("Log mistake · ${exam.paper}", ::dismiss) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(exam.title)
-            OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") })
+            OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") }, keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             ChoiceField("Category", category, listOf("Concept", "Knowledge recall", "Reasoning", "Evidence and analysis", "Written expression", "Process or technique", "Accuracy", "Interpretation", "Time management", "Algebra", "Arithmetic", "Calculator", "Other"), { category = it })
             OutlinedTextField(explanation, { explanation = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("What went wrong?") }, minLines = 2)
             OutlinedTextField(correction, { correction = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Correction") }, placeholder = { Text("Explain the correct approach for next time.") }, minLines = 2)
-            OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Area of study") })
+            OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Area of study") })
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 OutlinedTextField(lost, { lost = it }, Modifier.weight(1f), label = { Text("Marks lost") }, singleLine = true,
                     isError = lost.toDoubleOrNull()?.let { l -> total.toDoubleOrNull()?.let { t -> l > t } } == true,

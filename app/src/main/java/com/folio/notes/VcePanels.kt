@@ -184,17 +184,17 @@ fun ExamDetailsPanel(
                     OutlinedTextField(
                         year, { year = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f), label = { Text("Year") }, placeholder = { Text("2022") },
-                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
                     )
                     OutlinedTextField(
                         unit, { unit = it.filter(Char::isDigit).take(1) },
                         Modifier.weight(1f), label = { Text("Unit") }, placeholder = { Text("3") },
-                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
                     )
                     OutlinedTextField(
                         marksTotal, { marksTotal = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f), label = { Text("Marks") }, placeholder = { Text("40") },
-                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done)
                     )
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {

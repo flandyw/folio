@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,15 +33,15 @@ import java.util.Date
     FolioPanel(title = if (initial == null) "Long response" else "Question details", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            if (initial == null) OutlinedTextField(title, { title = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Notebook name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(subject, { subject = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words), label = { Text("Subject") }, placeholder = { Text("e.g. English, Legal Studies") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(topic, { topic = it.take(240) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Text or topic") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (initial == null) OutlinedTextField(title, { title = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Notebook name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(subject, { subject = it.take(120) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Subject") }, placeholder = { Text("e.g. English, Legal Studies") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(topic, { topic = it.take(240) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Text or topic") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(prompt, { prompt = it.take(8000) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or prompt") }, minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(marks, { marks = it.take(4) }, label = { Text("Marks (optional)") }, singleLine = true,
-                    isError = !validMarks, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    isError = !validMarks, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next), modifier = Modifier.weight(1f))
                 OutlinedTextField(minutes, { minutes = it.take(4) }, label = { Text("Minutes (optional)") }, singleLine = true,
-                    isError = !validTime, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    isError = !validTime, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done), modifier = Modifier.weight(1f))
             }
             if (!validMarks || !validTime) Text("Use 1–1000 marks and 1–1440 minutes, or leave blank.", color = MaterialTheme.colorScheme.error)
             if (initial == null) {
