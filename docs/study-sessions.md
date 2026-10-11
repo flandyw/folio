@@ -67,6 +67,15 @@ same subject, then recalculates active time. Sessions left empty are deleted via
 the normal tombstone feed. Folio adopts the cleaned canonical receipt immediately.
 Minute labels alone are not duplicate evidence; distinct real intervals remain.
 
+Migration `0024` applies cleanup to paused/running exams and SACs too. It preserves
+the open interval and pause/timing timestamps. Bursts of three or more closed
+intervals under 30 seconds in one minute from the same phase/device are removed
+as chatter; isolated short intervals remain. Existing paused exams are repaired
+without completing or deleting the sitting. Folio adopts the pruned intervals
+from settled exam receipts. A background checkpoint must wait for an acknowledged
+remote pause to reach the countdown, rather than publishing an automatic resume.
+Finishing a paused exam does not append an interval with no new active time.
+
 ## Verification
 
 `node tools/focal-study-smoke.cjs` exercises the actual pure models and helpers:

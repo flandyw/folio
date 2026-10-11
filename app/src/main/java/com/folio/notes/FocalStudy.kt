@@ -346,8 +346,10 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
     } else if (intervals.last().endAt != null && (timer.running || completed)) {
         val recordedMillis = intervals.sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
         val newMillis = (activeMillis - recordedMillis).coerceAtLeast(0L)
-        intervals.add(FocalStudyInterval((activeEnd - newMillis).coerceAtLeast(started),
-            if (completed) activeEnd else null))
+        // Finishing an already-paused exam adds no work and must not append an empty interval.
+        if (!completed || newMillis > 0L)
+            intervals.add(FocalStudyInterval((activeEnd - newMillis).coerceAtLeast(started),
+                if (completed) activeEnd else null))
     }
     return (existing ?: FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subject, subjects),
         subjectId = subject, kind = "exam", startedAt = started,
@@ -1209,6 +1211,9 @@ class FocalStudyManager(context: Context) {
         if (!timer.active) return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
         if (existing?.completed == true || existing?.deleted == true) return
+        // A heartbeat is not a resume/pause button. Let the shared-state collector
+        // reconcile a remote pause before another checkpoint can undo it.
+        if (!force && existing?.synced == true && existing.remotePayload != null && existing.paused != timer.paused) return
         if (!force && existing != null && existing.examPhase == timer.phase.name.lowercase() && existing.paused == timer.paused &&
             now - existing.endedAt < EXAM_SYNC_INTERVAL_MS) return
         val phaseChanged = existing != null && (existing.examPhase != timer.phase.name.lowercase() || existing.paused != timer.paused)
@@ -1404,7 +1409,12 @@ class FocalStudyManager(context: Context) {
                 if (row.id != sessionId || row.examBoundaries.firstOrNull()?.id != boundary.id) row
                 else {
                     val remaining = row.examBoundaries.drop(1)
-                    row.copy(examBoundaries = remaining, revision = canonical.optLong("revision"),
+                    val cleaned = if (remaining.isEmpty() && canonical.optJSONObject("metadata")?.has("auto_pruned_intervals") == true)
+                        focalEntryFromCanonical(sessionId, canonical, boundary.id, user)?.copy(
+                            notebookId = row.notebookId, notebookTitle = row.notebookTitle, startedAt = row.startedAt,
+                            examLastBoundaryAt = row.examLastBoundaryAt)
+                    else null
+                    (cleaned ?: row).copy(examBoundaries = remaining, revision = canonical.optLong("revision"),
                         remotePayload = canonical.toString(), synced = remaining.isEmpty(),
                         changeId = if (remaining.isEmpty()) boundary.id else row.changeId)
                 }
