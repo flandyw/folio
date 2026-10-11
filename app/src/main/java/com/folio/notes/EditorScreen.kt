@@ -473,10 +473,10 @@ private fun paperLabel(p: Paper): String = when (p) {
     var noteQuery by rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
     var inkConverting by remember { mutableStateOf(false) }
-    // Presenter pointer: session-only, so a freshly opened notebook never starts with a laser on.
-    var laserPointer by remember(note.id) { mutableStateOf(false) }
-    // The ruler belongs to one page; it reappears there when that page is shown again.
-    var ruler by remember(note.id) { mutableStateOf<Pair<String, RulerLine>?>(null) }
+    // The straightedge is a toolbar switch for this visit. It sits on the current page: a page that
+    // has not had it yet places it across the middle of the screen; one that has keeps where it was put.
+    var rulerOn by remember(note.id) { mutableStateOf(false) }
+    var rulers by remember(note.id) { mutableStateOf<Map<String, RulerLine>>(emptyMap()) }
     var keyboardShortcuts by remember { mutableStateOf(false) }
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
     var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
@@ -911,8 +911,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var editorChromeHeightPx by remember { mutableFloatStateOf(0f) }
     var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
-    LaunchedEffect(tool, laserPointer) {
-        if (zoomPaneOpen && (tool in setOf(Tool.TEXT, Tool.LASSO, Tool.MARK_AREA, Tool.STICKY_NOTE) || laserPointer)) closeZoomPane()
+    LaunchedEffect(tool) {
+        if (zoomPaneOpen && tool in setOf(Tool.TEXT, Tool.LASSO, Tool.MARK_AREA, Tool.STICKY_NOTE, Tool.LASER)) closeZoomPane()
     }
     Column(Modifier.fillMaxSize().onSizeChanged { editorSize = it }.onPreviewKeyEvent { event ->
         if (textEditor != null && event.type == KeyEventType.KeyDown &&
@@ -1061,8 +1061,9 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onSelectAllView = { if (!preview && item.id == page.id) { mainInkView = it; configureOverview(it) } }, inkStyle = options.style,
                         followEnabled = writingFollowEnabled && !zoomPaneOpen && !preview && item.id == page.id,
                         writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
-                        inputBlocked = preview || music?.performance == true || (zoomPaneOpen && zoomGesture), readOnly = preview, hideFromAccessibility = preview, laserPointer = laserPointer && item.id == page.id,
-                        ruler = ruler?.takeIf { it.first == item.id }?.second, onRulerChanged = { line -> ruler = item.id to line },
+                        inputBlocked = preview || music?.performance == true || (zoomPaneOpen && zoomGesture), readOnly = preview, hideFromAccessibility = preview,
+                        rulerEnabled = rulerOn && !preview && item.id == page.id,
+                        ruler = rulers[item.id], onRulerChanged = { line -> rulers = rulers + (item.id to line) },
                         onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                         selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                         selectionMenuViewport = selectionViewport,
@@ -1631,6 +1632,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
+                    rulerOn = rulerOn, onRuler = { rulerOn = !rulerOn },
                     style = if (music == null) toolbarStyle else ToolbarStyle.FOLIO,
                     toolbarOptions = toolbarOptions,
                     header = { mainTools ->
@@ -1707,12 +1709,6 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 PageOptionsContent(dismiss, page, state.saveFailed,
                                     onPaper = { openPaperMenu(false) }, onClear = { clear = true }, onRetry = model::retrySave,
                                     onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                                    laserOn = laserPointer, onLaser = { laserPointer = !laserPointer },
-                                    rulerOn = ruler?.first == page.id,
-                                    onRuler = {
-                                        ruler = if (ruler?.first == page.id) null
-                                        else page.id to RulerLine.initial(page.width, page.height, page.infinite)
-                                    },
                                     onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                     onSearchPdf = { pdfQuery = state.pdfSearch.query; pdfSearchOpen = true },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
@@ -1783,7 +1779,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     graphStyle = graphStyle, palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
                     inkStyle = options.style,
-                    ruler = ruler?.takeIf { it.first == page.id }?.second, onRulerChanged = { ruler = page.id to it })
+                    rulerEnabled = rulerOn, ruler = rulers[page.id], onRulerChanged = { rulers = rulers + (page.id to it) })
             }
         }
     }
@@ -2426,7 +2422,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, hideFromAccessibility: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, laserPointer: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, hideFromAccessibility: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, rulerEnabled: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2450,6 +2446,9 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     val shapePrefs = rememberPrefs()
     val shapeHoldMs by rememberPref(shapePrefs, AppPrefs.SHAPE_HOLD_MS) {
         AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
+    }
+    val penSmoothing by rememberPref(shapePrefs, AppPrefs.PEN_SMOOTHING) {
+        AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING))
     }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
@@ -2629,7 +2628,8 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-                view.laserPointer = laserPointer; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
+                view.penSmoothing = penSmoothing
+                view.rulerEnabled = rulerEnabled; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
                 if (zoomWritingPane && writingWindowTarget != null) view.frameWritingWindow(writingWindowTarget)
                 onSelectAllView?.invoke(view)
@@ -2720,13 +2720,15 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         }
         if (focusedSticky != null) {
             SelectionContextPopup(focusedSticky.frame, pageWindowFrame, selectionMenuViewport, tightGap = true) {
-                StickyNoteContextMenu(focusedSticky.typing,
+                val id = focusedSticky.box.id
+                StickyNoteContextMenu(focusedSticky.typing, paper = focusedSticky.box.stickyColor,
                     onType = { boundInkView?.typeInSticky() }, onDone = { boundInkView?.finishStickyTyping() },
-                    onDraw = onStickyDraw,
-                    onDelete = { stickyDraft = null; boundInkView?.deleteSticky(focusedSticky.box.id) },
-                    onColor = { boundInkView?.recolorSticky(focusedSticky.box.id) },
-                    onDuplicate = { stickyDraft = null; boundInkView?.duplicateSticky(focusedSticky.box.id) },
-                    onClearInk = if (focusedSticky.box.stickyInk.isNotEmpty()) ({ boundInkView?.clearStickyInk(focusedSticky.box.id) }) else null)
+                    onDraw = onStickyDraw.takeIf { tool !in DrawingTools },
+                    onDelete = { stickyDraft = null; boundInkView?.deleteSticky(id) },
+                    onPaper = { boundInkView?.setStickyPaper(id, it) },
+                    onDuplicate = { commitStickyDraft(); boundInkView?.duplicateSticky(id) },
+                    onFront = { boundInkView?.bringStickyToFront(id) },
+                    onClearInk = if (focusedSticky.box.stickyInk.isNotEmpty()) ({ boundInkView?.clearStickyInk(id) }) else null)
             }
         }
         if (selectionMenu != null && page.loaded && ready) {
@@ -2819,8 +2821,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     onPaper: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
     onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit,
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit,
-    laserOn: Boolean, onLaser: () -> Unit, rulerOn: Boolean, onRuler: () -> Unit
+    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
 ) {
     val run: (() -> Unit) -> Unit = { dismiss(); it() }
     PopoverGroup("This page") {
@@ -2833,10 +2834,6 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
         PopoverRow(Icons.Rounded.GridOn, "Paper style: ${paperLabel(page.paper)}", enabled = page.pdfIndex == null) { run(onPaper) }
         PopoverRow(Icons.Rounded.LayersClear, "Clear page",
             enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) { run(onClear) }
-    }
-    PopoverGroup("Present") {
-        PopoverRow(Icons.Rounded.Flare, if (laserOn) "Turn off laser pointer" else "Laser pointer") { run(onLaser) }
-        PopoverRow(Icons.Rounded.Straighten, if (rulerOn) "Hide ruler" else "Show ruler") { run(onRuler) }
     }
     PopoverGroup("Study") {
         PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(onExam) }

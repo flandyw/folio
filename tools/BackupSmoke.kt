@@ -7,6 +7,7 @@ import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.system.measureNanoTime
 
@@ -81,7 +82,56 @@ private fun checkStickyNotes() {
     check(NoteCodec.decode(NoteCodec.encode(Notebook(title = "Sticky notes", pages = listOf(page)))).pages.single().texts == page.texts)
     val scaled = InkGeometry.scaleTexts(listOf(inside), InkPoint(0f, 0f), 2f).single()
     check(scaled.stickyHeight == 180f && scaled.stickyInk.single().points.first().x == 20f)
-    println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history and portable round trips passed")
+    // Ink belongs to the topmost touchable note under the pen, stored relative to the note.
+    val top = inside.copy(id = "sticky-top", x = 60f, y = 40f)
+    val stack = listOf(inside, top)
+    check(StickyNotes.at(stack, 70f, 50f) { true }?.id == "sticky-top")
+    check(StickyNotes.at(stack, 70f, 50f) { false } == null && StickyNotes.covers(stack, 70f, 50f))
+    check(StickyNotes.at(stack, 25f, 35f) { true }?.id == "sticky-inside" && StickyNotes.at(stack, 400f, 400f) { true } == null)
+    val pageStroke = Stroke(Tool.PEN, -16777216, 2f, listOf(InkPoint(65f, 45f), InkPoint(80f, 70f)))
+    val local = StickyNotes.toNote(top, pageStroke)
+    check(local.points.first().x == 5f && local.points.first().y == 5f && StickyNotes.toPage(top, local).points == pageStroke.points)
+    // Dragging up and left from the press grows the note from that corner; tiny drags keep the minimum size.
+    val dragged = StickyNotes.spanning(200f, 200f, 100f, 150f, 0, 0)
+    check(dragged.x == 100f && dragged.y == 140f && dragged.width == 100f && dragged.stickyHeight == StickyNotes.MIN_HEIGHT)
+    val tapped = StickyNotes.centred(300f, 300f, 2, StickyNotes.papers[2])
+    check(tapped.isSticky && tapped.layer == 2 && tapped.x + tapped.width / 2f == 300f && tapped.stickyColor == StickyNotes.papers[2])
+    check(StickyNotes.resized(tapped, tapped.x + 1f, tapped.y + 1f).width == StickyNotes.MIN_WIDTH)
+    check(StickyNotes.papers.first() == 0 && StickyNotes.papers.size == StickyNotes.paperCount)
+    println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history, portable round trips, hit-testing and sizing passed")
+}
+
+private fun checkRuler() {
+    val flat = RulerLine(100f, 100f)
+    // A pen landing on the band or near an edge follows the nearer edge for the whole stroke.
+    check(flat.edgeAt(150f, 90f, 20f, 500f, 10f) == -1 && flat.edgeAt(150f, 125f, 20f, 500f, 10f) == 1)
+    check(flat.edgeAt(150f, 140f, 20f, 500f, 10f) == 0 && flat.edgeAt(700f, 100f, 20f, 500f, 10f) == 0)
+    val onTop = flat.onEdge(InkPoint(160f, 70f, .7f), -1, 20f)
+    check(abs(onTop.x - 160f) < 1e-3f && abs(onTop.y - 80f) < 1e-3f && onTop.pressure == .7f)
+    // Turning about a pivot carries the centre around it; the angle settles onto 15° steps nearby.
+    val turned = flat.twisted(0f, 100f, 90f, 0f, 0f)
+    check(abs(turned.cx) < 1e-3f && abs(turned.cy - 200f) < 1e-3f && turned.degrees == 90f)
+    check(RulerLine(0f, 0f, 43.5f).settled().degrees == 45f && RulerLine(0f, 0f, 40f).settled().degrees == 40f)
+    check(RulerLine.turn(170f, -170f) == 20f && RulerLine(0f, 0f, -135f).readout() == 45)
+    check(RulerLine(0f, 0f, 30f).onBand(0f, 0f, 5f, 5f) && !RulerLine(0f, 0f, 30f).onBand(0f, 10f, 5f, 50f))
+    println("Ruler: edge choice, projection, twisting, angle settling and readout passed")
+}
+
+private fun checkToolbarLayout() {
+    // Older saves knew nothing of the ruler and laser: they slot in beside their default neighbours.
+    val old = ToolbarLayouts.normalize(listOf(ToolbarSlot.PEN, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA), setOf(ToolbarSlot.HAND), null)
+    check(old.order.toSet() == ToolbarSlot.entries.toSet() && old.order.size == ToolbarSlot.entries.size)
+    check(old.order.indexOf(ToolbarSlot.RULER) == old.order.indexOf(ToolbarSlot.STICKY_NOTE) + 1)
+    check(old.order.indexOf(ToolbarSlot.LASER) == old.order.indexOf(ToolbarSlot.RULER) + 1)
+    // Hidden means "in the … menu"; nothing else is ever pushed there.
+    check(old.overflow == listOf(ToolbarSlot.HAND) && ToolbarSlot.HAND !in old.visible && ToolbarLayouts.default().overflow.isEmpty())
+    check(ToolbarLayouts.default().visible == ToolbarLayouts.DEFAULT_ORDER)
+    val everything = ToolbarLayouts.normalize(null, ToolbarSlot.entries.toSet(), null)
+    check(everything.visible.isNotEmpty())
+    val music = old.without(setOf(ToolbarSlot.STICKY_NOTE, ToolbarSlot.HAND))
+    check(ToolbarSlot.STICKY_NOTE !in music.order && music.overflow.isEmpty())
+    check(ToolbarLayouts.decodeHidden(ToolbarLayouts.encodeHidden(old.hidden)) == old.hidden)
+    println("Toolbar layout: new tools placed, hidden tools in the … menu, never empty, surface removal passed")
 }
 
 private fun checkNotebookDrops() {
@@ -268,6 +318,8 @@ fun main() = runBlocking {
     checkSharedStorageFiles()
     checkExplorerOrganization()
     checkStickyNotes()
+    checkRuler()
+    checkToolbarLayout()
     checkResponseMetadata()
     val root = kotlin.io.path.createTempDirectory("folio-backup-check-").toFile()
     try {

@@ -38,9 +38,11 @@ data class ToolOptions(
             .putString("${tool.name}.style", style.name).apply()
     }
     companion object {
+        /** The laser's colours: bright enough to read over ink and paper alike, in light or dark. */
+        val LASER_COLORS = listOf(0xFFE53935.toInt(), 0xFF2E7D32.toInt(), 0xFF1E88E5.toInt(), 0xFFD81B60.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt())
         /** Finer defaults for math: thin pen, tiny ruler-straight line, compact eraser. */
         fun defaults(tool: Tool) = ToolOptions(
-            if (tool == Tool.HIGHLIGHTER) InkColors.swatches[2] else InkColors.swatches.first(),
+            when (tool) { Tool.HIGHLIGHTER -> InkColors.swatches[2]; Tool.LASER -> LASER_COLORS.first(); else -> InkColors.swatches.first() },
             when (tool) { Tool.HIGHLIGHTER -> 18f; Tool.ERASER -> 26f; in ShapePickerTools -> 2f; else -> 2.2f },
             if (tool == Tool.HIGHLIGHTER) 72f / 255f else 1f, true)
         fun load(prefs: SharedPreferences, tool: Tool): ToolOptions {
@@ -105,7 +107,18 @@ object EditorQuickPrefs {
         when (tool) {
             Tool.HAND -> Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.", style = MaterialTheme.typography.bodyMedium)
             Tool.LASSO -> Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.", style = MaterialTheme.typography.bodyMedium)
-            Tool.STICKY_NOTE -> Text("Drag diagonally to make a sticky note, on the page or beside it. Tap a note, with any tool, for its menu, then Type; drag it to move it, or drag its corner to resize. The pen, highlighter and eraser write inside notes. Notes beside the page stay out of exports.", style = MaterialTheme.typography.bodyMedium)
+            Tool.STICKY_NOTE -> Text("Tap to drop a sticky note, or drag to draw one to size, on the page or beside it. Drag a note to move it and its corner handle to resize it. Tap a note for its menu, and tap it again to type. Anything you write or draw starting on a note belongs to the note and moves with it; the eraser over a note erases only the note. Notes beside the page stay out of exports.", style = MaterialTheme.typography.bodyMedium)
+            Tool.LASER -> {
+                Text("Point, circle and underline while you present. The trail fades on its own and nothing is written to the page. A hovering pen shows the pointer too.", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    ToolOptions.LASER_COLORS.forEachIndexed { index, c ->
+                        val selected = options.color == c
+                        Surface(onClick = { onChange(options.copy(color = c)) }, shape = CircleShape, color = Color(c),
+                            border = BorderStroke(if (selected) 3.dp else 0.dp, if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent),
+                            modifier = Modifier.size(36.dp).semanticsLabel("Laser colour ${index + 1}" + if (selected) ", selected" else "")) {}
+                    }
+                }
+            }
             Tool.TEXT -> Text("Tap the page to type, or tap existing text to edit it in place. Use the toolbar to format it, the upper grip to move it and the lower grip to change its wrap width. Tap outside or Done to finish; Undo reverses the edit.", style = MaterialTheme.typography.bodyMedium)
             else -> {
                 val range = WidthPresets.range(WidthPresets.group(tool))
@@ -117,6 +130,17 @@ object EditorQuickPrefs {
                 if (tool != Tool.ERASER) {
                     PopoverSlider("Opacity", "${(options.opacity * 100).roundToInt()}%", options.opacity, 0.05f..1f, { onChange(options.copy(opacity = it)) })
                     PopoverSection("Colour", initiallyOpen = true) { InkColorsSection(options, onChange, quick, InkColors.groupOf(tool)) }
+                }
+                if (tool == Tool.PEN) PopoverSection("Smoothing", initiallyOpen = true) {
+                    val smoothing by rememberPref(prefs, AppPrefs.PEN_SMOOTHING) {
+                        AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING))
+                    }
+                    PopoverSlider("Pen smoothing", if (smoothing == 0f) "Off" else "${(smoothing * 100).roundToInt()}%",
+                        smoothing, 0f..1f, { prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)).apply() })
+                    Text("Steadies small jitters while keeping up with faster writing. Applies to new pen strokes; slide to zero to turn it off.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING).apply() },
+                        shapes = ButtonDefaults.shapes()) { Text("Reset smoothing") }
                 }
                 if (tool == Tool.PEN) PopoverSection("Pressure") {
                     SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })

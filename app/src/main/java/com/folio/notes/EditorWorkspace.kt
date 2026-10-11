@@ -97,7 +97,7 @@ object WorkspaceSessionCodec {
             EditorTab(item.getString("id"), item.getString("notebook"), item.getString("page"), item.optString("title"),
                 WorkspaceViewport(finite("zoom", 1f).coerceIn(.1f, 8f), finite("pan", 0f), item.optInt("scroll"),
                     finite("x", 0f), finite("y", 0f), finite("scale", 1f).coerceIn(.1f, 8f)),
-                runCatching { Tool.valueOf(item.optString("tool")) }.getOrDefault(Tool.PEN),
+                restoredTool(item.optString("tool")),
                 PdfSearchState(query = item.optString("query")))
         }.getOrNull() }.distinctBy { it.id }
     }.getOrDefault(emptyList())

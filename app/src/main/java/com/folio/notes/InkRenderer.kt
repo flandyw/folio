@@ -616,7 +616,7 @@ object InkRenderer {
             }
             page.texts.forEach {
                 val h = textHeight(it)
-                if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it, if (it.isSticky) page.strokes else emptyList())
+                if (rectVisible(it.x, it.y, it.x + it.width, it.y + h, clip)) text(canvas, it)
             }
         }
     }
@@ -787,37 +787,35 @@ object InkRenderer {
 
     private val stickyFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.COLOR }
     private val stickyEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.EDGE; strokeWidth = 1f; style = Paint.Style.STROKE }
+    private val stickyShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1F000000 }
 
     /** The box's rendered height, used for hit-testing and for the drag outline. */
     fun textHeight(box: TextBox): Float = if (box.isSticky) box.stickyHeight else textLayout(box).height.toFloat()
 
     /**
-     * [beneath] is the page's own ink: a sticky is paper, so page strokes that run under it show
-     * through on the paper, below the note's ink and words. Note ink is not clipped to the note,
-     * so a stroke can leave it and carry on across the page.
+     * A text box, or a sticky note: opaque paper with a soft drop shadow, its typed words, then its
+     * own ink on top, clipped to the paper so a stroke never spills onto the page around it.
      */
-    fun text(canvas: Canvas, box: TextBox, beneath: List<Stroke> = emptyList()) {
+    fun text(canvas: Canvas, box: TextBox) {
         canvas.save()
         canvas.translate(box.x, box.y)
         if (box.isSticky) {
+            val w = box.width; val h = box.stickyHeight; val r = StickyNotes.CORNER
+            canvas.drawRoundRect(0f, 2f, w, h + 2.5f, r, r, stickyShadow)
             stickyFill.color = StickyNotes.fill(box.stickyColor)
             stickyEdge.color = StickyNotes.edge(box.stickyColor)
-            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyFill)
-            canvas.drawRect(0f, 0f, box.width, box.stickyHeight, stickyEdge)
-            if (beneath.isNotEmpty()) {
+            canvas.drawRoundRect(0f, 0f, w, h, r, r, stickyFill)
+            canvas.drawRoundRect(0f, 0f, w, h, r, r, stickyEdge)
+            canvas.save()
+            canvas.clipRect(0f, 0f, w, h)
+            if (box.text.isNotBlank()) {
                 canvas.save()
-                canvas.clipRect(0f, 0f, box.width, box.stickyHeight)
-                canvas.translate(-box.x, -box.y)
-                beneath.forEach { s ->
-                    val b = rawBounds(s); val pad = s.width
-                    if (b[2] + pad >= box.x && b[0] - pad <= box.x + box.width && b[3] + pad >= box.y && b[1] - pad <= box.y + box.stickyHeight)
-                        drawRendered(canvas, s, rendered(s))
-                }
+                canvas.translate(StickyNotes.PADDING, StickyNotes.PADDING)
+                textLayout(box.copy(width = (w - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyHeight = 0f, stickyInk = emptyList())).draw(canvas)
                 canvas.restore()
             }
             box.stickyInk.forEach { drawRendered(canvas, it, rendered(it)) }
-            canvas.translate(StickyNotes.PADDING, StickyNotes.PADDING)
-            textLayout(box.copy(width = (box.width - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyHeight = 0f, stickyInk = emptyList())).draw(canvas)
+            canvas.restore()
         } else textLayout(box).draw(canvas)
         canvas.restore()
     }

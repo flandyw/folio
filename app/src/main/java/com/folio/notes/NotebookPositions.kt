@@ -45,7 +45,7 @@ object NotebookPositionCodec {
                 finite("y", 0f),
                 finite("scale", 1f).coerceIn(.1f, 8f)
             ),
-            tool = runCatching { Tool.valueOf(item.optString("tool")) }.getOrDefault(Tool.PEN),
+            tool = restoredTool(item.optString("tool")),
             query = item.optString("query")
         )
     }.getOrNull()
@@ -57,3 +57,7 @@ fun NotebookPosition.toTab(notebookId: String, title: String): EditorTab =
 
 fun EditorTab.toPosition(): NotebookPosition =
     NotebookPosition(currentPageId, viewport, tool, search.query)
+
+/** A saved tool to reopen with. The laser is for the presentation in hand, so a reopened notebook starts with the pen. */
+internal fun restoredTool(name: String?): Tool =
+    runCatching { Tool.valueOf(name ?: "") }.getOrDefault(Tool.PEN).let { if (it == Tool.LASER) Tool.PEN else it }

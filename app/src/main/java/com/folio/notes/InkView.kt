@@ -33,6 +33,8 @@ class InkView(context: Context) : View(context) {
             clearShapeHold()
             stickyNotes.reset()
             field = value
+            // The presenter trail belongs to the laser; it never lingers under another tool.
+            if (value != Tool.LASER) { laserStrokes.clear(); laserDown = false; laserHover = null }
             // A selection only makes sense while the lasso is in hand.
             if (value != Tool.LASSO) clearSelection()
             // The outline belongs to the eraser, so it leaves with the tool.
@@ -57,6 +59,8 @@ class InkView(context: Context) : View(context) {
     var pressureEnabled = true
     var pressureSensitivity = 1f
     var pressureVariation = 1f
+    var penSmoothing = AppPrefs.DEFAULT_PEN_SMOOTHING
+    private var penFilter: PenSmoothing? = null
     var eraserPressureEnabled = true
     var scribbleToErase = true
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
@@ -182,17 +186,14 @@ class InkView(context: Context) : View(context) {
     fun finishStickyTyping() { stickyNotes.focused()?.let { stickyNotes.focus(it) } }
     fun setStickyText(id: String, text: String) = stickyNotes.setText(id, text)
     fun deleteSticky(id: String) = stickyNotes.delete(id)
-    fun recolorSticky(id: String) = stickyNotes.recolor(id)
+    fun setStickyPaper(id: String, paper: Int) = stickyNotes.setPaper(id, paper)
     fun clearStickyInk(id: String) = stickyNotes.clearInk(id)
     fun duplicateSticky(id: String) = stickyNotes.duplicate(id)
+    fun bringStickyToFront(id: String) = stickyNotes.bringToFront(id)
     private var stickyFrameReported: Rect? = null
-    private val stickyNotes = StickyNoteInput(this, { page }, { texts ->
-        page = page.copy(texts = texts)
-        onTextsChanged(texts)
-        invalidate()
-    }, { box -> RectF(originX + box.x * scale, originY + box.y * scale,
-        originX + (box.x + box.width) * scale, originY + (box.y + box.stickyHeight) * scale) },
-        { event -> List(event.historySize) { point(event, 0, it) } + point(event, 0) },
+    private val stickyNotes = StickyNoteInput(this, { page }, ::commitTexts,
+        { box -> RectF(originX + box.x * scale, originY + box.y * scale,
+            originX + (box.x + box.width) * scale, originY + (box.y + box.stickyHeight) * scale) },
         { box, typing ->
             stickyFrameReported = box?.let(::stickyFraction)
             onStickyFocus(box, stickyFrameReported, typing)
@@ -202,6 +203,20 @@ class InkView(context: Context) : View(context) {
         return Rect((originX + box.x * scale) / w, (originY + box.y * scale) / h,
             (originX + (box.x + box.width) * scale) / w, (originY + (box.y + box.stickyHeight) * scale) / h)
     }
+    private fun commitTexts(texts: List<TextBox>) {
+        page = page.copy(texts = texts)
+        onTextsChanged(texts)
+        invalidate()
+    }
+    /** The note a stroke is being written into (its id), or null for page ink. */
+    private var noteTarget: String? = null
+    /**
+     * Notes the eraser has worked on during this gesture: their surviving ink, note-local. Only
+     * samples over a note reach its ink, and only samples clear of every note reach the page's.
+     */
+    private var noteErasing: MutableMap<String, List<Stroke>>? = null
+    /** Visible notes, bottom to top, for hit-testing ink against them. */
+    private fun visibleNotes(): List<TextBox> = layerView().texts.filter { it.isSticky }
     /** Keeps the menu and typing field on the note while an infinite canvas pans or the view resizes. */
     private fun followStickyFrame() {
         val box = stickyNotes.focused() ?: return
@@ -322,38 +337,51 @@ class InkView(context: Context) : View(context) {
     /** Where the eraser outline sits, in page units, or null when it should not be shown. */
     private var eraserMark: InkPoint? = null
     /**
-     * Presenter pointer: while on, a stylus in a drawing tool leaves a fading red trail and writes no
-     * ink. Fingers keep navigating. The trail lives only on screen, so nothing reaches the page or undo.
+     * The laser tool's presenter trail, in page units. Each stroke keeps its samples' times; the
+     * tail of a long stroke fades while it is drawn and a whole stroke fades shortly after the pen
+     * lifts, so circling and underlining stay readable without the screen filling up. Nothing reaches
+     * the page, the journal or undo.
      */
-    var laserPointer = false
+    private class LaserSample(val x: Float, val y: Float, val time: Long)
+    private class LaserStroke(val samples: ArrayList<LaserSample> = ArrayList(), var liftedAt: Long = -1L)
+    private val laserStrokes = ArrayList<LaserStroke>()
+    private var laserDown = false
+    /** Where a hovering pen points while the laser is in hand, or null. */
+    private var laserHover: InkPoint? = null
+    private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val laserDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val laserPath = Path()
+    /**
+     * Straightedge switch from the toolbar. While on and no [ruler] has been placed on this page yet,
+     * the view puts one across the middle of what is on screen and reports it through [onRulerChanged].
+     */
+    var rulerEnabled = false
         set(value) {
             if (field == value) return
             field = value
-            if (!value) { laserTrail.clear(); laserDown = false }
+            if (!value) endRulerGesture()
             invalidate()
         }
-    private val laserTrail = ArrayList<LaserSample>()
-    private var laserDown = false
-    private class LaserSample(val x: Float, val y: Float, val time: Long)
-    private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val laserDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = LASER_COLOR; style = Paint.Style.FILL }
-    /**
-     * Straight-edge ruler on this page, or null. Pen strokes on freehand tools snap onto its edge; a finger
-     * on an end or the body moves it instead of panning. Session-only, never part of the page.
-     */
+    /** The straightedge on this page, or null; shown only while [rulerEnabled]. Session-only. */
     var ruler: RulerLine? = null
         set(value) {
             if (field == value) return
             field = value
             invalidate()
         }
-    /** Reports each finger move of the ruler, so the editor keeps the place it was dragged to. */
+    /** Reports each move of the ruler, so the editor keeps the place it was put. */
     var onRulerChanged: (RulerLine) -> Unit = {}
-    private var rulerGrab = RulerLine.Grab.NONE
-    private var rulerPointer = -1
-    private var rulerLast: InkPoint? = null
-    private val rulerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = RULER_COLOR }
-    private val rulerHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = RULER_COLOR }
+    private val shownRuler: RulerLine? get() = if (rulerEnabled) ruler else null
+    /** Fingers holding the ruler (one slides it, two turn it), by pointer id, with their last positions. */
+    private val rulerFingers = LinkedHashMap<Int, InkPoint>()
+    /** The ruler as the fingers have actually turned it, before the angle settles on a nearby step. */
+    private var rulerRaw: RulerLine? = null
+    /** The edge (-1 top, +1 bottom) the stroke in progress runs along, or 0 when it is freehand. */
+    private var rulerEdge = 0
+    private val rulerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val rulerEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
+    private val rulerLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD }
     // Text gestures: a box being dragged, or a tap waiting to become a new box.
     private var movingText: TextBox? = null
     private var pendingTextBox: InkPoint? = null
@@ -1058,8 +1086,12 @@ class InkView(context: Context) : View(context) {
                 // Re-offered while hovering so the chip's timeout restarts, but never faster than a glance.
                 if (zone != null && now - lastZoneOfferAt > 150L) offerZone(zone)
             }
-            if (leaving) { if (eraserMark != null) { eraserMark = null; invalidate() } }
-            else if (tool == Tool.ERASER) {
+            if (leaving) {
+                if (eraserMark != null) { eraserMark = null; invalidate() }
+                if (laserHover != null) { laserHover = null; invalidate() }
+            } else if (tool == Tool.LASER) {
+                laserHover = point(event, 0); invalidate()
+            } else if (tool == Tool.ERASER) {
                 val next = clampToPage(point(event, 0))
                 val last = eraserMark
                 if (last == null || hypot(next.x - last.x, next.y - last.y) > .75f) { eraserMark = next; invalidate() }
@@ -1427,33 +1459,11 @@ class InkView(context: Context) : View(context) {
         }
         if (hasSelection()) drawSelectionFrame(canvas)
         if (previewing) canvas.restore()
-        val draftStroke = draft
         liveInkPreview?.takeIf { PageLayers.editable(page.layers, it.layer) }?.let { InkRenderer.stroke(canvas, it) }
-        // Live freehand ink retains settled spline segments and resamples only the changing tip.
-        // Drawing/tapering still visits the centreline, but smoothing no longer grows with the line.
-        if (heldShape != null) heldShape!!.forEach { InkRenderer.stroke(canvas, it) }
-        else if (draftStroke == null) resetDraftGeometry()
-        else {
-            val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
-            if (live != null) {
-                InkRenderer.drawRendered(canvas, draftStroke, live)
-                // Stylus only: a finger is slow and its tail would read as lag the other way.
-                if (stylus && draftStroke.tool == Tool.PEN &&
-                    StrokePrediction.predict(draftStroke.points, scale, predicted)) {
-                    val tip = draftStroke.points.last()
-                    predictionPaint.color = draftStroke.color
-                    predictionPaint.alpha = (Color.alpha(draftStroke.color) * draftStroke.opacity).toInt().coerceIn(0, 255)
-                    predictionPaint.strokeWidth = draftStroke.width * InkRenderer.penPressureScale(tip.pressure)
-                    canvas.drawLine(tip.x, tip.y, predicted[0], predicted[1], predictionPaint)
-                }
-            }
-            else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
-            else InkRenderer.stroke(canvas, draftStroke)
-        }
+        // Page ink in progress draws here, under the notes, exactly where it will land; ink being
+        // written into a note draws with that note instead (see the notes below).
+        if (noteTarget == null) drawDraft(canvas)
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
-        eraserMark?.let { drawEraser(canvas, it) }
-        ruler?.let { drawRuler(canvas, it) }
-        if (laserTrail.isNotEmpty()) drawLaser(canvas)
         dragging?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
         // The selected picture keeps its outline while another picture is dragged, unless it is
         // part of the lasso selection, which already draws its own outline at the drag offset.
@@ -1527,16 +1537,56 @@ class InkView(context: Context) : View(context) {
         }
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
         val selectedStickies = selectedTexts.filter { it.isSticky }
-        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } }, selectionUiUnit(), layered.strokes)
+        val target = noteTarget
+        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } },
+            selectionUiUnit(), noteErasing.orEmpty()) { box ->
+            if (box.id == target) {
+                canvas.save()
+                canvas.clipRect(box.x, box.y, box.x + box.width, box.y + box.stickyHeight)
+                drawDraft(canvas)
+                canvas.restore()
+            }
+        }
         if (selectedStickies.isNotEmpty()) {
             canvas.save()
             if (previewing) canvas.concat(selectionPreviewMatrix)
             canvas.translate(selectionDx, selectionDy)
-            selectedStickies.forEach { InkRenderer.text(canvas, it, layered.strokes); drawTextBox(canvas, it) }
+            selectedStickies.forEach { InkRenderer.text(canvas, it); drawTextBox(canvas, it) }
             canvas.restore()
         }
+        // Tools and guides sit above everything on the page, notes included.
+        eraserMark?.let { drawEraser(canvas, it) }
+        placeRuler()
+        shownRuler?.let { drawRuler(canvas, it) }
+        if (laserStrokes.isNotEmpty() || laserHover != null) drawLaser(canvas)
         followStickyFrame()
         canvas.restore()
+    }
+
+    /** The stroke in progress, or the shape a held pen has tidied it into. */
+    private fun drawDraft(canvas: Canvas) {
+        val draftStroke = draft
+        // Live freehand ink retains settled spline segments and resamples only the changing tip.
+        // Drawing/tapering still visits the centreline, but smoothing no longer grows with the line.
+        if (heldShape != null) heldShape!!.forEach { InkRenderer.stroke(canvas, it) }
+        else if (draftStroke == null) resetDraftGeometry()
+        else {
+            val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
+            if (live != null) {
+                InkRenderer.drawRendered(canvas, draftStroke, live)
+                // Stylus only: a finger is slow and its tail would read as lag the other way.
+                if (stylus && draftStroke.tool == Tool.PEN &&
+                    StrokePrediction.predict(draftStroke.points, scale, predicted)) {
+                    val tip = draftStroke.points.last()
+                    predictionPaint.color = draftStroke.color
+                    predictionPaint.alpha = (Color.alpha(draftStroke.color) * draftStroke.opacity).toInt().coerceIn(0, 255)
+                    predictionPaint.strokeWidth = draftStroke.width * InkRenderer.penPressureScale(tip.pressure)
+                    canvas.drawLine(tip.x, tip.y, predicted[0], predicted[1], predictionPaint)
+                }
+            }
+            else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
+            else InkRenderer.stroke(canvas, draftStroke)
+        }
     }
 
     /**
@@ -1629,6 +1679,7 @@ class InkView(context: Context) : View(context) {
             parent?.requestDisallowInterceptTouchEvent(false)
             holdWritingFollow()
             stickyNotes.cancel()
+            endRulerGesture()
             markRegionDraft = null; markRegionStart = null
             regionDraft = null; regionStart = null
             reportNavigating(false); removeCallbacks(longPressRunnable)
@@ -1640,15 +1691,15 @@ class InkView(context: Context) : View(context) {
         if (inputBlocked) return true
         if (handleWritingWindow(event)) return true
         val touchNavigation = inputRouter.stylus.isNavigation(event.deviceId, event.downTime)
+        // Fingers on the straightedge move it before anything else sees them, notes included.
+        if (handleRuler(event, touchNavigation)) return true
         if (!touchNavigation && event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null) onTextEditingExit()
         if (!touchNavigation && !readOnly && !navigationOnly && !selectingWritingRegion) {
             val pen = isStylus(event, 0)
-            if (pen) stylus = true
-            if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, activeLayer,
-                    inkColor, inkWidth, inkOpacity, eraserWholeStroke,
-                    eraserPressureEnabled && stylus, page.strokes)) {
+            // A finger that will navigate rather than draw (and the hand tool) can tap a note for its menu.
+            val tapFocuses = tool == Tool.HAND || (!pen && !fingerDrawing && tool != Tool.LASSO && tool != Tool.TEXT)
+            if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, tapFocuses, activeLayer)) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) { onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable) }
-                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) stylus = false
                 return true
             }
         }
@@ -1737,23 +1788,6 @@ class InkView(context: Context) : View(context) {
         if (laserDown && event.actionMasked != MotionEvent.ACTION_DOWN) {
             handleLaser(event)
             return true
-        }
-        // A finger on the ruler moves it; the pen keeps drawing, snapped to the edge.
-        if (rulerGrab != RulerLine.Grab.NONE && event.actionMasked != MotionEvent.ACTION_DOWN) {
-            handleRulerDrag(event)
-            return true
-        }
-        val current = ruler
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && current != null && !readOnly && !navigationOnly && !touchNavigation && !isStylus(event, 0)) {
-            val grab = current.grab(point(event, 0), RULER_HANDLE_DP * selectionUiUnit())
-            if (grab != RulerLine.Grab.NONE) {
-                rulerGrab = grab
-                rulerPointer = event.getPointerId(0)
-                rulerLast = point(event, 0)
-                parent?.requestDisallowInterceptTouchEvent(true)
-                invalidate()
-                return true
-            }
         }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -1921,7 +1955,11 @@ class InkView(context: Context) : View(context) {
                     // sample is what made a drag feel heavy once a page had ink on it.
                     val cutting = erasing
                     if (cutting != null) {
-                        val centers = points.map { clampToPage(it) }
+                        val notes = visibleNotes()
+                        val all = points.map { p -> if (notes.any { StickyNotes.contains(it, p.x, p.y) }) p else clampToPage(p) }
+                        eraserMark = all.last()
+                        val centers = eraseNotes(all)
+                        if (centers.isNotEmpty()) {
                         // Bounding-box prefilter on cached bounds: far strokes skip the segment
                         // walk entirely, so an eraser pass costs O(nearby) exact cuts instead of
                         // O(page) geometry per MOVE.
@@ -1976,7 +2014,7 @@ class InkView(context: Context) : View(context) {
                                 InkGeometry.erase(stroke, centers, radius)
                             }
                         }
-                        eraserMark = centers[centers.size - 1]
+                        }
                     }
                     draft?.let { current ->
                         trackShapeHold(event, index)
@@ -2023,7 +2061,10 @@ class InkView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                if (event.getPointerId(event.actionIndex) == pointerId && stylus) finishGesture()
+                if (event.getPointerId(event.actionIndex) == pointerId && stylus) {
+                    finishStrokeSamples(event, event.actionIndex)
+                    finishGesture()
+                }
                 else if (!stylus && !ignored) {
                     if (event.getPointerId(event.actionIndex) == pointerId) {
                         pointerId = event.getPointerId(if (event.actionIndex == 0) 1 else 0)
@@ -2071,21 +2112,8 @@ class InkView(context: Context) : View(context) {
                 else if (tool == Tool.TEXT) finishText()
                 else if (lassoActive()) finishLasso()
                 else {
-                    draft?.let { current ->
-                        trackShapeHold(event, event.findPointerIndex(pointerId).coerceAtLeast(0))
-                        // Follow the tracked pointer, which may be a stylus that took over from a finger.
-                        var end = pagePoints(listOf(point(event, event.findPointerIndex(pointerId).coerceAtLeast(0)))).lastOrNull()
-                        if (end != null) {
-                            if (snapEnabled && current.tool in MEASURE_TOOLS) {
-                                if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)
-                                if (current.tool == Tool.LINE) end = InkGeometry.snapAngle(current.points.first(), end, 15f)
-                            }
-                            draft = if (current.tool in FREEHAND_TOOLS) {
-                                (current.points as ArrayList<InkPoint>).add(end)
-                                current
-                            } else current.copy(points = listOf(current.points.first(), end))
-                        }
-                    }
+                    // Follow the tracked pointer, which may be a stylus that took over from a finger.
+                    finishStrokeSamples(event, event.findPointerIndex(pointerId).coerceAtLeast(0))
                     finishGesture()
                 }
                 }
@@ -2097,7 +2125,24 @@ class InkView(context: Context) : View(context) {
         if (!dirtyInvalidated) invalidate()
         return true
     }
+    private fun finishStrokeSamples(event: MotionEvent, index: Int) {
+        val current = draft ?: return
+        trackShapeHold(event, index)
+        val accepted = pagePoints(samples(event, index, finishing = true))
+        var end = accepted.lastOrNull() ?: return
+        if (snapEnabled && current.tool in MEASURE_TOOLS) {
+            if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)
+            if (current.tool == Tool.LINE) end = InkGeometry.snapAngle(current.points.first(), end, 15f)
+        }
+        draft = if (current.tool in FREEHAND_TOOLS) {
+            (current.points as ArrayList<InkPoint>).addAll(accepted)
+            current
+        } else current.copy(points = listOf(current.points.first(), end))
+    }
     private fun finishGesture() {
+        noteTarget?.let { id -> finishNoteStroke(page.texts.find { it.id == id && it.isSticky }); return }
+        // Captured before cancelGesture clears it: the note ink the eraser left behind.
+        val erasedNotes = noteErasing
         val wasErasing = erasing != null
         val byFinger = !stylus
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
@@ -2150,7 +2195,32 @@ class InkView(context: Context) : View(context) {
                 recentFingerInk += page.strokes.last() to now
             }
         }
+        if (!erasedNotes.isNullOrEmpty()) {
+            commitTexts(page.texts.map { box -> erasedNotes[box.id]?.let { box.copy(stickyInk = it) } ?: box })
+        }
         if (shouldNotifyEraser) onEraserFinished?.invoke()
+    }
+
+    /**
+     * Files the stroke just drawn under [note], in the note's own coordinates. Shape tidy-up, graph
+     * axes and scribble-to-erase behave as they do on the page; the note's ink is one text edit, so
+     * one undo takes the stroke back off the note.
+     */
+    private fun finishNoteStroke(note: TextBox?) {
+        val drawn = draft?.let { it.copy(points = it.points.toList()) }
+        val tidied = heldShape
+        cancelGesture()
+        if (note == null || drawn == null) { invalidate(); return }
+        if (tidied == null && scribbleToErase && drawn.tool in FREEHAND_TOOLS) {
+            val scrubbed = InkGeometry.scribbleErase(note.stickyInk, StickyNotes.toNote(note, drawn), SCRIBBLE_RADIUS, scribbleSensitivity)
+            if (scrubbed !== note.stickyInk) {
+                commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = scrubbed) else it })
+                return
+            }
+        }
+        val added = (tidied ?: if (drawn.tool == Tool.GRAPH) GraphAxes.strokes(drawn, graphStyle) else listOf(drawn))
+            .map { StickyNotes.toNote(note, it.copy(layer = 0)) }
+        commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = it.stickyInk + added) else it })
     }
 
     /**
@@ -2515,7 +2585,7 @@ class InkView(context: Context) : View(context) {
     private var longPressFired = false
     private var longPressX = 0f; private var longPressY = 0f
     private val longPressRunnable = Runnable {
-        if (stylus || ignored || readOnly || movingSelection || resizingSelection || rotatingSelection || movingImage != null || cropEdges != 0) return@Runnable
+        if (stylus || ignored || readOnly || laserDown || movingSelection || resizingSelection || rotatingSelection || movingImage != null || cropEdges != 0) return@Runnable
         longPressFired = true
         // The held finger may have started a dot, an eraser pass or a lasso: drop them, it was a hold.
         cancelGesture()
@@ -2619,7 +2689,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { laserDown = false; rulerGrab = RulerLine.Grab.NONE; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -2936,53 +3006,152 @@ class InkView(context: Context) : View(context) {
             canvas.drawCircle(at.x, at.y, 1.5f * unit, eraserDotPaint)
         }
     }
-    /** Moves the ruler with the finger that grabbed it; the grab ends with that finger's lift. */
-    private fun handleRulerDrag(event: MotionEvent) {
-        val line = ruler
+    /** Half the ruler's thickness in page units: the band is a fixed width on screen. */
+    private fun rulerHalf() = RULER_THICKNESS_DP / 2f * selectionUiUnit()
+    /** Half its length in page units: long enough to span the view from anywhere on it. */
+    private fun rulerHalfLength() = hypot(width.toFloat(), height.toFloat()) * 1.5f / scale.coerceAtLeast(1e-3f)
+
+    /**
+     * One finger on the ruler slides it and a second finger turns it about their midpoint; the
+     * angle settles on 15° steps as it passes them. The pen never moves the ruler. Returns true
+     * while the ruler owns the gesture.
+     */
+    private fun handleRuler(event: MotionEvent, touchNavigation: Boolean): Boolean {
+        val line = shownRuler
+        if (line == null) { if (rulerFingers.isNotEmpty()) endRulerGesture(); return false }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            rulerFingers.clear()
+            if (touchNavigation || readOnly || navigationOnly || isStylus(event, 0)) return false
+            val at = point(event, 0)
+            if (!line.onBand(at.x, at.y, rulerHalf(), rulerHalfLength())) return false
+            rulerFingers[event.getPointerId(0)] = at; rulerRaw = line
+            parent?.requestDisallowInterceptTouchEvent(true)
+            onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable)
+            invalidate()
+            return true
+        }
+        if (rulerFingers.isEmpty()) return false
         when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = event.actionIndex
+                if (rulerFingers.size < 2 && !isStylus(event, i)) rulerFingers[event.getPointerId(i)] = point(event, i)
+            }
             MotionEvent.ACTION_MOVE -> {
-                val index = event.findPointerIndex(rulerPointer)
-                if (line != null && index >= 0) {
-                    val at = point(event, index)
-                    val last = rulerLast ?: at
-                    val moved = line.dragged(rulerGrab, at, at.x - last.x, at.y - last.y)
-                    rulerLast = at
-                    if (moved != line) { ruler = moved; onRulerChanged(moved) }
+                val ids = rulerFingers.keys.toList()
+                val now = ids.map { id -> event.findPointerIndex(id).let { if (it < 0) null else point(event, it) } }
+                if (now.all { it != null }) {
+                    var raw = rulerRaw ?: line
+                    if (ids.size == 1) {
+                        val last = rulerFingers.getValue(ids[0]); val p = now[0]!!
+                        raw = raw.moved(p.x - last.x, p.y - last.y)
+                    } else {
+                        val a0 = rulerFingers.getValue(ids[0]); val b0 = rulerFingers.getValue(ids[1])
+                        val a1 = now[0]!!; val b1 = now[1]!!
+                        val px = (a0.x + b0.x) / 2f; val py = (a0.y + b0.y) / 2f
+                        val delta = RulerLine.turn(RulerLine.angle(a0.x, a0.y, b0.x, b0.y), RulerLine.angle(a1.x, a1.y, b1.x, b1.y))
+                        raw = raw.twisted(px, py, delta, (a1.x + b1.x) / 2f - px, (a1.y + b1.y) / 2f - py)
+                    }
+                    ids.forEachIndexed { k, id -> rulerFingers[id] = now[k]!! }
+                    rulerRaw = raw
+                    val shown = raw.settled()
+                    if (shown != ruler) { ruler = shown; onRulerChanged(shown) }
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
-                rulerGrab = RulerLine.Grab.NONE; rulerPointer = -1; rulerLast = null
-                parent?.requestDisallowInterceptTouchEvent(false)
+            MotionEvent.ACTION_POINTER_UP -> {
+                rulerFingers.remove(event.getPointerId(event.actionIndex))
+                if (rulerFingers.isEmpty()) endRulerGesture()
             }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endRulerGesture()
         }
         invalidate()
+        return true
     }
-    /** Pen samples on a freehand tool land on the ruler's edge once they are near it. */
-    private fun snapToRuler(p: InkPoint, drawing: Tool): InkPoint {
-        val line = ruler ?: return p
-        return if (drawing in FREEHAND_TOOLS) line.snap(p, RULER_SNAP_DP * selectionUiUnit()) else p
+    private fun endRulerGesture() {
+        if (rulerFingers.isEmpty() && rulerRaw == null) return
+        rulerFingers.clear(); rulerRaw = null
+        parent?.requestDisallowInterceptTouchEvent(false)
+        invalidate()
     }
+    /** Puts a ruler across the middle of what is on screen the first time it is switched on for this page. */
+    private fun placeRuler() {
+        if (!rulerEnabled || ruler != null || width <= 0 || height <= 0) return
+        val visible = android.graphics.Rect()
+        val shown = getLocalVisibleRect(visible) && !visible.isEmpty
+        val sx = if (shown) visible.exactCenterX() else width / 2f
+        val sy = if (shown) visible.exactCenterY() else height / 2f
+        val placed = RulerLine((sx - originX) / scale, (sy - originY) / scale)
+        ruler = placed
+        post { onRulerChanged(placed) }
+    }
+    /**
+     * Decides, as a stroke starts at [start], whether it runs along the ruler: a pen or highlighter
+     * stroke that lands on the band or within reach of an edge follows that edge for its whole length.
+     */
+    private fun lockToRuler(start: InkPoint, drawing: Tool): InkPoint {
+        rulerEdge = 0
+        val line = shownRuler ?: return start
+        if (drawing !in FREEHAND_TOOLS) return start
+        rulerEdge = line.edgeAt(start.x, start.y, rulerHalf(), rulerHalfLength(), RULER_SNAP_DP * selectionUiUnit())
+        return snapToRuler(start)
+    }
+    /** A sample of a stroke locked to the ruler, carried onto its edge. */
+    private fun snapToRuler(p: InkPoint): InkPoint {
+        val line = shownRuler
+        if (rulerEdge == 0 || line == null) return p
+        return line.onEdge(p, rulerEdge, rulerHalf())
+    }
+    /**
+     * A translucent straightedge with millimetre and centimetre ticks along both edges (A4-sized
+     * pages are in points, 72 to the inch) and its angle in the middle. Ticks thin out when zoomed
+     * far enough out that they would crowd.
+     */
     private fun drawRuler(canvas: Canvas, line: RulerLine) {
         val unit = selectionUiUnit()
-        val length = line.length().coerceAtLeast(1e-3f)
-        val ux = (line.bx - line.ax) / length; val uy = (line.by - line.ay) / length
-        // The printed edge runs past both ends so it reads as a straightedge rather than a segment.
-        val reach = max(page.width, page.height) * 2f
-        rulerPaint.strokeWidth = 2f * unit
-        canvas.drawLine(line.ax - ux * reach, line.ay - uy * reach, line.bx + ux * reach, line.by + uy * reach, rulerPaint)
-        canvas.drawCircle(line.ax, line.ay, RULER_HANDLE_RADIUS_DP * unit, rulerHandlePaint)
-        canvas.drawCircle(line.bx, line.by, RULER_HANDLE_RADIUS_DP * unit, rulerHandlePaint)
+        val half = rulerHalf(); val halfLength = rulerHalfLength()
+        canvas.save()
+        canvas.translate(line.cx, line.cy)
+        canvas.rotate(line.degrees)
+        rulerFill.color = RULER_FILL
+        canvas.drawRect(-halfLength, -half, halfLength, half, rulerFill)
+        rulerEdgePaint.color = RULER_EDGE
+        rulerEdgePaint.strokeWidth = 1.5f * unit
+        canvas.drawLine(-halfLength, -half, halfLength, -half, rulerEdgePaint)
+        canvas.drawLine(-halfLength, half, halfLength, half, rulerEdgePaint)
+        val mm = 72f / 25.4f
+        // Smallest tick that stays at least 4 dp apart on screen.
+        val step = listOf(1, 5, 10, 50).first { it * mm >= 4f * unit || it == 50 }
+        val count = (halfLength / (step * mm)).toInt()
+        rulerTickPaint.color = RULER_EDGE
+        for (k in -count..count) {
+            val mark = k * step
+            val x = mark * mm
+            val long = mark % 10 == 0; val mid = mark % 5 == 0
+            val length = (if (long) 12f else if (mid) 8f else 5f) * unit
+            rulerTickPaint.strokeWidth = (if (long) 1.25f else 0.9f) * unit
+            canvas.drawLine(x, -half, x, -half + length, rulerTickPaint)
+            canvas.drawLine(x, half, x, half - length, rulerTickPaint)
+        }
+        // The angle reads upright whichever way the ruler has been turned.
+        val turned = RulerLine.normalize(line.degrees)
+        if (turned > 90f || turned < -90f) canvas.rotate(180f)
+        rulerLabelPaint.color = RULER_EDGE
+        rulerLabelPaint.textSize = 13f * unit
+        canvas.drawText("${line.readout()}°", 0f, rulerLabelPaint.textSize * 0.35f, rulerLabelPaint)
+        canvas.restore()
     }
 
-    /** Starts the presenter trail at [start]. Nothing is written to the page. */
+    /** Starts a presenter stroke at [start]. Nothing is written to the page. */
     private fun beginLaser(start: InkPoint) {
         onPenInput(false)
         laserDown = true
-        laserTrail.clear()
+        laserHover = null
+        // Older strokes stay to fade on their own; only the very oldest go when there are many.
+        while (laserStrokes.size >= LASER_MAX_STROKES) laserStrokes.removeAt(0)
+        laserStrokes += LaserStroke()
         addLaser(start)
         invalidate()
     }
-    /** Extends the trail with the pen's samples; lifting or a second finger ends it and the trail fades out. */
+    /** Extends the trail with the pen's samples; lifting or a second finger ends the stroke and it fades out. */
     private fun handleLaser(event: MotionEvent) {
         val index = event.findPointerIndex(pointerId)
         when (event.actionMasked) {
@@ -2990,34 +3159,87 @@ class InkView(context: Context) : View(context) {
                 for (h in 0 until event.historySize) addLaser(point(event, index, h))
                 addLaser(point(event, index))
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
-                laserDown = false
-                cancelGesture()
-            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> cancelGesture()
         }
         invalidate()
     }
-    private fun addLaser(p: InkPoint) {
-        if (laserTrail.size >= LASER_TRAIL_MAX) laserTrail.removeAt(0)
-        laserTrail += LaserSample(p.x, p.y, SystemClock.uptimeMillis())
+    private fun liftLaser() {
+        laserDown = false
+        laserStrokes.lastOrNull()?.let { if (it.liftedAt < 0) it.liftedAt = SystemClock.uptimeMillis() }
+        invalidate()
     }
-    /** Fresh samples are bold; older ones thin out and disappear after [LASER_FADE_MS]. */
+    private fun addLaser(p: InkPoint) {
+        laserStrokes.lastOrNull()?.samples?.add(LaserSample(p.x, p.y, SystemClock.uptimeMillis()))
+    }
+    /** How strongly a sample still shows: its tail fade while drawing times its stroke's fade after lift. */
+    private fun laserAlpha(sample: LaserSample, stroke: LaserStroke, now: Long): Float {
+        val age = now - sample.time
+        val tail = if (age <= LASER_TAIL_MS) 1f else 1f - (age - LASER_TAIL_MS).toFloat() / LASER_FADE_MS
+        val after = if (stroke.liftedAt < 0) 1f else 1f - (now - stroke.liftedAt - LASER_LINGER_MS).toFloat() / LASER_FADE_MS
+        return min(tail, after).coerceIn(0f, 1f)
+    }
+    /**
+     * A glowing trail: a wide soft halo, the coloured line and a bright core. Runs of samples with
+     * the same (quantized) opacity share one path, so overlapping round joins never darken it.
+     */
     private fun drawLaser(canvas: Canvas) {
         val now = SystemClock.uptimeMillis()
-        laserTrail.removeAll { now - it.time >= LASER_FADE_MS }
+        val horizon = LASER_TAIL_MS + LASER_FADE_MS
+        laserStrokes.removeAll { stroke ->
+            // Samples that have fully faded go, so a long stroke never costs more than its visible tail.
+            var drop = 0
+            while (drop < stroke.samples.size - 1 && now - stroke.samples[drop].time > horizon) drop++
+            if (drop > 0) stroke.samples.subList(0, drop).clear()
+            stroke.samples.isEmpty() || (stroke.liftedAt >= 0 && now - stroke.liftedAt >= LASER_LINGER_MS + LASER_FADE_MS) ||
+                (stroke.liftedAt >= 0 && stroke.samples.size == 1 && now - stroke.samples[0].time > horizon)
+        }
         val unit = selectionUiUnit()
-        for (i in 1 until laserTrail.size) {
-            val from = laserTrail[i - 1]; val to = laserTrail[i]
-            val fresh = 1f - (now - to.time).toFloat() / LASER_FADE_MS
-            laserPaint.color = LASER_COLOR
-            laserPaint.alpha = (255 * fresh).toInt()
-            laserPaint.strokeWidth = LASER_WIDTH * unit * (0.35f + 0.65f * fresh)
-            canvas.drawLine(from.x, from.y, to.x, to.y, laserPaint)
+        val width = LASER_WIDTH * unit
+        val colour = inkColor or 0xFF000000.toInt()
+        var fading = false
+        fun stroke(alpha: Float) {
+            if (alpha <= 0f) return
+            laserPaint.color = colour; laserPaint.alpha = (alpha * 0.22f * 255).toInt(); laserPaint.strokeWidth = width * 3.2f
+            canvas.drawPath(laserPath, laserPaint)
+            laserPaint.alpha = (alpha * 255).toInt(); laserPaint.strokeWidth = width
+            canvas.drawPath(laserPath, laserPaint)
+            laserPaint.color = Color.WHITE; laserPaint.alpha = (alpha * 0.85f * 255).toInt(); laserPaint.strokeWidth = width * 0.35f
+            canvas.drawPath(laserPath, laserPaint)
         }
-        if (laserDown) laserTrail.lastOrNull()?.let { head ->
-            canvas.drawCircle(head.x, head.y, LASER_WIDTH * unit * 0.6f, laserDotPaint)
+        for (trail in laserStrokes) {
+            val samples = trail.samples
+            if (trail.liftedAt >= 0 || now - samples[0].time > LASER_TAIL_MS) fading = true
+            if (samples.size == 1) {
+                val a = laserAlpha(samples[0], trail, now)
+                laserDotPaint.color = colour; laserDotPaint.alpha = (a * 255).toInt()
+                canvas.drawCircle(samples[0].x, samples[0].y, width * 0.5f, laserDotPaint)
+                continue
+            }
+            laserPath.rewind()
+            var bucket = -1
+            for (i in 1 until samples.size) {
+                val from = samples[i - 1]; val to = samples[i]
+                val a = min(laserAlpha(from, trail, now), laserAlpha(to, trail, now))
+                val b = (a * LASER_ALPHA_STEPS).roundToInt()
+                if (b != bucket) {
+                    if (bucket > 0) stroke(bucket.toFloat() / LASER_ALPHA_STEPS)
+                    laserPath.rewind(); laserPath.moveTo(from.x, from.y); bucket = b
+                }
+                laserPath.lineTo(to.x, to.y)
+            }
+            if (bucket > 0) stroke(bucket.toFloat() / LASER_ALPHA_STEPS)
         }
-        if (laserTrail.isNotEmpty()) postInvalidateOnAnimation()
+        // The pointer itself: the live tip while drawing, or where a hovering pen points.
+        val head = if (laserDown) laserStrokes.lastOrNull()?.samples?.lastOrNull()?.let { InkPoint(it.x, it.y) } else laserHover
+        if (head != null && tool == Tool.LASER) {
+            laserDotPaint.color = colour; laserDotPaint.alpha = 0x40
+            canvas.drawCircle(head.x, head.y, width * 2.4f, laserDotPaint)
+            laserDotPaint.alpha = 0xFF
+            canvas.drawCircle(head.x, head.y, width * 1.1f, laserDotPaint)
+            laserDotPaint.color = Color.WHITE; laserDotPaint.alpha = 0xD0
+            canvas.drawCircle(head.x, head.y, width * 0.45f, laserDotPaint)
+        }
+        if (fading) postInvalidateOnAnimation()
     }
 
     /** Selects every stroke, text box and picture on the current page; call from toolbar/overflow. */
@@ -3031,17 +3253,30 @@ class InkView(context: Context) : View(context) {
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
+        penFilter = null
         // onTouchEvent already stopped follow on contact and retained finishing-mark intent.
         // Cancelling again here would clear that intent before a dot/crossbar can resume it.
         val raw = point(event, index)
-        if (!onPage(raw.x, raw.y)) { navigating = true; return }
-        var start = snapToRuler(clampToPage(raw), tool)
+        // The laser points anywhere in the view, paper or not, and writes nothing.
+        if (tool == Tool.LASER) { beginLaser(raw); return }
+        val erases = tool == Tool.ERASER || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)
+        // Ink belongs to what the pen lands on: a stroke that starts on a note is the note's, even
+        // when the note hangs off the paper, and it is never clamped to the page.
+        val note = visibleNotes().lastOrNull { StickyNotes.contains(it, raw.x, raw.y) }
+        // A note on a locked layer is still paper over the page: nothing may be written beneath it.
+        if (note != null && !editableLayer(note.layer)) { ignored = true; onLayerBlocked(); return }
+        if (note == null && !onPage(raw.x, raw.y)) { navigating = true; return }
+        var start = if (note != null) raw else clampToPage(raw)
+        if (!erases) start = lockToRuler(start, tool)
         if (snapEnabled && tool in ShapePickerTools && page.paper.isGrid) {
             start = InkGeometry.snapToGrid(start, page.paper.gridSpacing)
         }
-        if (tool == Tool.ERASER || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)) {
-            val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(start.pressure) else inkWidth / 2f
-            erasing = if (eraserWholeStroke) {
+        if (erases) {
+            val radius = eraserRadiusAt(start)
+            // Over a note the eraser works on the note's ink, never the page ink hidden beneath it.
+            noteErasing = null
+            erasing = if (eraseNotes(listOf(start)).isEmpty()) page.strokes
+            else if (eraserWholeStroke) {
                 val hitAt = page.strokes.indexOfFirst {
                     if (!erasable(it)) return@indexOfFirst false
                     val b = boundsOf(it)
@@ -3065,8 +3300,12 @@ class InkView(context: Context) : View(context) {
             eraserMark = start
             onPenInput(false)
         } else {
-            if (laserPointer) { beginLaser(start); return }
-            if (!PageLayers.editable(page.layers, activeLayer)) { ignored = true; onLayerBlocked(); return }
+            // A note is written on whatever layer is active: it carries its own ink on its own layer.
+            if (note == null && !PageLayers.editable(page.layers, activeLayer)) { ignored = true; onLayerBlocked(); return }
+            noteTarget = note?.id
+            if (tool == Tool.PEN && rulerEdge == 0) {
+                penFilter = PenSmoothing(penSmoothing, scale).also { it.sample(start, event.eventTime) }
+            }
             draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
                 style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID, layer = activeLayer)
             clearShapeHold()
@@ -3096,15 +3335,50 @@ class InkView(context: Context) : View(context) {
      * line ends on the boundary, and the rest of that gesture is dropped rather than smeared along it.
      */
     private fun pagePoints(points: List<InkPoint>): List<InkPoint> {
+        // A note's ink is clipped to the note when drawn, so its samples need no clamping.
+        if (noteTarget != null) return if (rulerEdge == 0) points else points.map(::snapToRuler)
         if (offPage) return emptyList()
         val accepted = mutableListOf<InkPoint>()
-        val drawing = draft?.tool
         for (p in points) {
-            val clamped = clampToPage(p)
-            accepted += if (drawing != null) snapToRuler(clamped, drawing) else clamped
+            accepted += snapToRuler(clampToPage(p))
             if (!onPage(p.x, p.y)) { offPage = true; break }
         }
         return accepted
+    }
+    private fun eraserRadiusAt(p: InkPoint) =
+        if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(p.pressure) else inkWidth / 2f
+    /**
+     * Applies eraser samples that land on a note to that note's ink (held in [noteErasing] until the
+     * eraser lifts) and returns the samples clear of every note, which are the page's to erase.
+     * A sample over a note on a locked layer erases nothing: the page ink there is hidden.
+     */
+    private fun eraseNotes(centers: List<InkPoint>): List<InkPoint> {
+        val notes = visibleNotes()
+        if (notes.isEmpty()) return centers
+        val outside = ArrayList<InkPoint>(centers.size)
+        for (c in centers) {
+            val top = notes.lastOrNull { StickyNotes.contains(it, c.x, c.y) }
+            if (top == null) { outside += c; continue }
+            if (!editableLayer(top.layer)) continue
+            val erased = noteErasing ?: HashMap<String, List<Stroke>>().also { noteErasing = it }
+            val ink = erased[top.id] ?: top.stickyInk
+            if (ink.isEmpty()) continue
+            val local = InkPoint(c.x - top.x, c.y - top.y, c.pressure)
+            val r = eraserRadiusAt(c)
+            var changed = false
+            val kept = ArrayList<Stroke>(ink.size)
+            for (stroke in ink) {
+                if (eraserWholeStroke) {
+                    if (InkGeometry.hits(stroke, local, r)) changed = true else kept += stroke
+                } else {
+                    val out = InkGeometry.erase(stroke, local, r)
+                    if (out.size != 1 || out[0] !== stroke) changed = true
+                    kept.addAll(out)
+                }
+            }
+            if (changed) erased[top.id] = kept
+        }
+        return outside
     }
     // Screen coordinates stay stable as the containing document scrolls beneath this view.
     // Summed directly: the filter/map/average chain allocated two lists and a boxed Float per
@@ -3122,10 +3396,15 @@ class InkView(context: Context) : View(context) {
         return average + e.rawY - e.y
     }
     /** This event's samples for [index] in one list, history first, instead of two plus a concat. */
-    private fun samples(event: MotionEvent, index: Int): ArrayList<InkPoint> {
+    private fun samples(event: MotionEvent, index: Int, finishing: Boolean = false): ArrayList<InkPoint> {
         val points = ArrayList<InkPoint>(event.historySize + 1)
-        for (history in 0 until event.historySize) points += point(event, index, history)
-        points += point(event, index)
+        val filter = penFilter.takeIf { draft?.tool == Tool.PEN && rulerEdge == 0 }
+        for (history in 0 until event.historySize) {
+            val raw = point(event, index, history)
+            points += filter?.sample(raw, event.getHistoricalEventTime(history)) ?: raw
+        }
+        val raw = point(event, index)
+        points += filter?.sample(raw, event.eventTime, final = finishing) ?: raw
         return points
     }
     override fun performClick(): Boolean { super.performClick(); return true }
@@ -3141,17 +3420,22 @@ class InkView(context: Context) : View(context) {
         const val SCRIBBLE_RADIUS = 14f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
-        /** Presenter trail: a classic laser red, fading over [LASER_FADE_MS] and capped at [LASER_TRAIL_MAX] samples. */
-        val LASER_COLOR = 0xFFE53935.toInt()
-        const val LASER_FADE_MS = 900L
-        const val LASER_TRAIL_MAX = 240
+        /**
+         * Presenter trail timing: a stroke's tail starts fading once it is [LASER_TAIL_MS] old, and a
+         * lifted stroke stays for [LASER_LINGER_MS] before fading; each fade takes [LASER_FADE_MS].
+         */
+        const val LASER_TAIL_MS = 1400L
+        const val LASER_LINGER_MS = 450L
+        const val LASER_FADE_MS = 450L
+        const val LASER_MAX_STROKES = 24
+        const val LASER_ALPHA_STEPS = 12
         /** Trail width in dp-equivalent units (see [selectionUiUnit]). */
-        const val LASER_WIDTH = 5f
-        /** Ruler colour matches the selection blue; snap reach and grab reach are in dp-equivalent units. */
-        val RULER_COLOR = 0xB32F6FBA.toInt()
-        const val RULER_SNAP_DP = 22f
-        const val RULER_HANDLE_DP = 26f
-        const val RULER_HANDLE_RADIUS_DP = 6f
+        const val LASER_WIDTH = 4f
+        /** The straightedge: its on-screen thickness and how far off an edge a pen still lands on it, in dp. */
+        const val RULER_THICKNESS_DP = 72f
+        const val RULER_SNAP_DP = 20f
+        val RULER_FILL = 0xB8F3F6FA.toInt()
+        val RULER_EDGE = 0xFF41506A.toInt()
         /** Preview raster budget (~2.4 MP, ~10 MB); the cache cap sits just above so rounding never falls back to vector. */
         const val NAVIGATION_INK_PIXEL_BUDGET = 2_400_000.0
         /** Overscan around the visible ink raster, as a fraction of the viewport per side; the last step is none. */

@@ -156,8 +156,16 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
     val shapeHoldMs by rememberPref(p, AppPrefs.SHAPE_HOLD_MS) { AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS)) }
+    val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
     SettingsGroup("Input") {
         SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
+        SettingsDivider()
+        SettingsSliderRow("Pen smoothing", if (smoothing == 0f) "Off" else "${(smoothing * 100).roundToInt()}%", smoothing, 0f..1f,
+            { p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)) } },
+            subtitle = "Steadies small jitters while keeping up with faster writing. Applies to new pen strokes.",
+            lowLabel = "Off", highLabel = "More smoothing",
+            onReset = if (smoothing != AppPrefs.DEFAULT_PEN_SMOOTHING)
+                ({ p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING) } }) else null)
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
         SettingsDivider()
@@ -210,21 +218,20 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             }
         }
     }
-    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away: undo and redo in the … menu, the timer in the notebook menu.") {
+    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away: tools, undo and redo in the … menu, the timer in the notebook menu.") {
         val layout = layouts.layout
         SettingsLinkRow(
             "Tools and order",
-            "${layout.primary.size} on the strip" +
-                (if (layout.overflow.isNotEmpty()) " · ${layout.overflow.size} under …" else "") +
-                (if (layout.hidden.isNotEmpty()) " · ${layout.hidden.size} hidden" else "") +
+            "${layout.visible.size} on the toolbar" +
+                (if (layout.overflow.isNotEmpty()) " · ${layout.overflow.size} in the … menu" else "") +
                 (if (layout.pinnedPresetIds.isNotEmpty()) " · ${layout.pinnedPresetIds.size} pinned" else ""),
             onClick = { editTools = true },
             leadingContent = {
                 Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                    layout.primary.take(3).forEach { slot ->
+                    layout.visible.take(3).forEach { slot ->
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
                             border = BorderStroke(2.dp, MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.size(28.dp)) {
-                            Box(contentAlignment = Alignment.Center) { Icon(toolIcon(slot.tools.first()), null, Modifier.size(16.dp)) }
+                            Box(contentAlignment = Alignment.Center) { Icon(toolbarSlotIcon(slot), null, Modifier.size(16.dp)) }
                         }
                     }
                 }

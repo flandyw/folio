@@ -244,23 +244,46 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-/** Sticky note actions, in the same nonmodal icon bar as a lasso selection. Tapping away dismisses it. */
+/**
+ * Sticky note actions, in the same nonmodal icon bar as a lasso selection. Tapping away dismisses it.
+ * The paper colours open inline under the bar (a dropdown inside this non-focusable popup would be
+ * placed against the wrong window). A null [onDraw] leaves Draw out, e.g. when a pen is already in hand.
+ */
 @Composable internal fun StickyNoteContextMenu(
-    typing: Boolean, onType: () -> Unit, onDone: () -> Unit, onDraw: () -> Unit, onDelete: () -> Unit,
-    onColor: () -> Unit = {}, onDuplicate: () -> Unit = {}, onClearInk: (() -> Unit)? = null
+    typing: Boolean, paper: Int, onType: () -> Unit, onDone: () -> Unit, onDraw: (() -> Unit)?, onDelete: () -> Unit,
+    onPaper: (Int) -> Unit, onDuplicate: () -> Unit, onFront: () -> Unit, onClearInk: (() -> Unit)?
 ) {
+    var colours by remember { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Sticky note options")) {
-        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-            if (typing) SelectionAction(Icons.Rounded.Check, "Finish typing", onClick = onDone)
-            else SelectionAction(Icons.Rounded.TextFields, "Type in sticky note", onClick = onType)
-            SelectionAction(Icons.Rounded.Edit, "Draw in sticky note", onClick = onDraw)
-            SelectionAction(Icons.Rounded.Palette, "Change sticky note colour", onClick = onColor)
-            SelectionAction(Icons.Rounded.ContentCopy, "Duplicate sticky note", onClick = onDuplicate)
-            if (onClearInk != null) SelectionAction(Icons.Rounded.LayersClear, "Clear sticky note drawing", onClick = onClearInk)
-            SelectionAction(Icons.Rounded.DeleteOutline, "Delete sticky note", destructive = true, onClick = onDelete)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                if (typing) SelectionAction(Icons.Rounded.Check, "Finish typing", onClick = onDone)
+                else SelectionAction(Icons.Rounded.TextFields, "Type in sticky note", onClick = onType)
+                if (onDraw != null) SelectionAction(Icons.Rounded.Edit, "Draw in sticky note", onClick = onDraw)
+                SelectionAction(Icons.Rounded.Palette, if (colours) "Hide colours" else "Sticky note colour") { colours = !colours }
+                SelectionAction(Icons.Rounded.ContentCopy, "Duplicate sticky note", onClick = onDuplicate)
+                SelectionAction(Icons.Rounded.FlipToFront, "Bring to front", onClick = onFront)
+                if (onClearInk != null) SelectionAction(Icons.Rounded.LayersClear, "Clear sticky note drawing", onClick = onClearInk)
+                SelectionAction(Icons.Rounded.DeleteOutline, "Delete sticky note", destructive = true, onClick = onDelete)
+            }
+            if (colours) Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
+                StickyNotes.papers.forEachIndexed { index, value ->
+                    val selected = StickyNotes.fill(value) == StickyNotes.fill(paper)
+                    Surface(onClick = { onPaper(value) }, shape = androidx.compose.foundation.shape.CircleShape,
+                        color = androidx.compose.ui.graphics.Color(StickyNotes.fill(value)),
+                        border = BorderStroke(if (selected) 3.dp else 1.dp,
+                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.size(32.dp).semanticsLabel("Paper colour ${index + 1}" + if (selected) ", selected" else "")) {
+                        if (selected) Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = androidx.compose.ui.graphics.Color(0xFF2B3440))
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -36,8 +36,10 @@ import kotlin.math.roundToInt
  * wears the same tools as a page. Callers supply the header above the strip and receive its
  * measured height, so page content can clear it.
  *
- * [hiddenSlots] removes tools from the strip and the overflow entirely — the editor never hides
- * one, the reader hides [ToolbarSlot.STICKY_NOTE] because a score has no space beside its page.
+ * [hiddenSlots] removes tools from the strip and the overflow entirely, for a surface where they
+ * mean nothing — the reader drops [ToolbarSlot.STICKY_NOTE] because a score has no space beside its
+ * page. That is the only way a tool leaves: what the user hides from the strip waits in the … menu.
+ * A null [onRuler] removes the ruler switch; [rulerOn] is its state.
  * [shapeTools] is the shape picker's own list, so a caller can drop [Tool.GRAPH] (a notebook's
  * paper tool rather than an annotation). A null [onSnap] removes the canvas snap switch entirely.
  */
@@ -61,6 +63,7 @@ import kotlin.math.roundToInt
     toolPresetsState: ToolPresetState? = null,
     toolbarLayoutState: ToolbarLayoutState? = null,
     hiddenSlots: Set<ToolbarSlot> = emptySet(),
+    rulerOn: Boolean = false, onRuler: (() -> Unit)? = null,
     shapeTools: List<Tool> = ShapePickerTools.toList(),
     actions: List<ToolbarAction> = emptyList(),
     style: ToolbarStyle = ToolbarStyle.FOLIO,
@@ -83,15 +86,9 @@ import kotlin.math.roundToInt
         // The child's own hold stands alone; leave no strip claim to swallow a later tap.
         stripGuard.begin()
     }
-    // Boxing a missed allocation only means something on an imported PDF, so elsewhere the tool stays out of the way;
-    // where it applies it rides on top of the strip rather than pushing another tool into the overflow.
-    val toolbarLayout = (toolbarLayoutState?.layout ?: ToolbarLayouts.default()).let { base ->
-        if (hiddenSlots.isEmpty()) base
-        else base.copy(hidden = base.hidden + hiddenSlots, maxPrimary = base.maxPrimary.coerceAtLeast(hiddenSlots.count { it in base.primary }))
-    }.let { base ->
-        if (!markAreaAvailable) base.copy(hidden = base.hidden + ToolbarSlot.MARK_AREA)
-        else if (ToolbarSlot.MARK_AREA in base.hidden) base else base.copy(maxPrimary = base.maxPrimary + 1)
-    }
+    // Boxing a missed allocation only means something on an imported PDF, so elsewhere the tool stays out of the way.
+    val toolbarLayout = (toolbarLayoutState?.layout ?: ToolbarLayouts.default()).without(
+        hiddenSlots + setOfNotNull(ToolbarSlot.MARK_AREA.takeIf { !markAreaAvailable }, ToolbarSlot.RULER.takeIf { onRuler == null }))
     val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds, toolbarOptions.pinnedPresets) {
         if (!toolbarOptions.pinnedPresets) emptyList()
         else toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
@@ -245,11 +242,15 @@ import kotlin.math.roundToInt
             ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, ToolIcons.Lasso, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
             ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
+            ToolbarSlot.LASER -> ToolButton(Tool.LASER, tool, ToolIcons.Laser, "Laser pointer — point and circle without writing", indicatorColor = Color(options.color).takeIf { tool == Tool.LASER && toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.LASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.RULER -> FolioToolToggle(rulerOn, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onRuler?.invoke() }, ToolIcons.Ruler,
+                if (rulerOn) "Hide ruler" else "Ruler — draw straight along its edge; one finger moves it, two turn it")
         }
       }
     }
     val controls: @Composable RowScope.(Boolean, Boolean, List<ToolbarSlot>, Boolean) -> Unit = { showRedo, showUndo, primary, showExtras ->
-        val overflow = toolbarLayout.visible.filterNot { it in primary }
+        // The … menu holds what the user put there plus whatever this pane is too narrow to show.
+        val overflow = toolbarLayout.order.filterNot { it in primary }
         val hasTray = primary.isNotEmpty() || (showExtras && (pinnedPresets.isNotEmpty() || actions.isNotEmpty()))
         if (showUndo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
@@ -332,6 +333,10 @@ import kotlin.math.roundToInt
                         FolioMenuItem({ Text("Shapes") }, { shapes = false; onPalette(false); shapePicker = true },
                             leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) },
                             trailingIcon = { Icon(Icons.Rounded.ChevronRight, null) })
+                    } else if (slot == ToolbarSlot.RULER) {
+                        FolioMenuItem({ Text(if (rulerOn) "Ruler: on" else "Ruler: off") }, { onRuler?.invoke(); shapes = false },
+                            leadingIcon = { Icon(toolbarSlotIcon(slot, tool, lastShape), null) },
+                            selected = rulerOn)
                     } else {
                         val first = slot.tools.first()
                         FolioMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
@@ -396,8 +401,8 @@ import kotlin.math.roundToInt
                         (if (showUndo) 45.dp + DividerAir * 3 / 2 else 0.dp) + (if (showRedo) 42.dp else 0.dp)
                     // Leave two dp of slack for per-button pixel rounding at fractional densities.
                     val capacity = ((maxWidth - fixedWidth) / 42.dp).toInt()
-                        .coerceIn(0, toolbarLayout.primary.size)
-                    val primary = toolbarLayout.primary.take(capacity).toMutableList()
+                        .coerceIn(0, toolbarLayout.visible.size)
+                    val primary = toolbarLayout.visible.take(capacity).toMutableList()
                     val activeSlot = toolbarLayout.visible.firstOrNull { tool in it.tools }
                     if (activeSlot != null && capacity > 0 && activeSlot !in primary) {
                         primary[primary.lastIndex] = activeSlot
@@ -405,7 +410,7 @@ import kotlin.math.roundToInt
                     }
                     val extrasWidth = 114.dp * pinnedPresets.size + 42.dp * actions.size +
                         if (actions.isNotEmpty()) 3.dp else 0.dp
-                    val showExtras = primary.size == toolbarLayout.primary.size &&
+                    val showExtras = primary.size == toolbarLayout.visible.size &&
                         maxWidth >= fixedWidth + 42.dp * primary.size + extrasWidth
                     val stripHold = Modifier.longPressAction(stripGuard) {
                         if (System.currentTimeMillis() - childLongPressAt <= 400) {
@@ -485,6 +490,8 @@ private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
     ToolbarSlot.LASSO -> "Lasso select"
     ToolbarSlot.HAND -> "Hand"
     ToolbarSlot.MARK_AREA -> "Mark area"
+    ToolbarSlot.LASER -> "Laser pointer"
+    ToolbarSlot.RULER -> "Ruler"
 }
 
 private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
@@ -497,13 +504,15 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
     ToolbarSlot.LASSO -> ToolIcons.Lasso
     ToolbarSlot.HAND -> Icons.Rounded.PanTool
     ToolbarSlot.MARK_AREA -> Icons.Rounded.CropFree
+    ToolbarSlot.LASER -> ToolIcons.Laser
+    ToolbarSlot.RULER -> ToolIcons.Ruler
 }
 
 /**
- * Reorders, hides and pins toolbar tools. The strip shows the first 5–7
- * visible tools; the rest live under "…". Saved presets can be pinned beside
- * them. Rows drag by their handle (long-press) and also move with arrows so
- * the sheet stays usable without fine motor control.
+ * Reorders toolbar tools, moves them between the strip and the … menu, and
+ * pins saved presets beside them. Every tool is in one place or the other;
+ * nothing is ever forced into the menu. Rows drag by their handle (long-press)
+ * and also move with arrows so the sheet stays usable without fine motor control.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun ToolbarEditPanel(
@@ -522,18 +531,13 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
         ) {
-            Text("Also in a notebook: long-press the tool strip. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Primary tools · first ${layout.maxPrimary} shown", style = MaterialTheme.typography.titleSmall)
-            Text("Narrow panes show fewer; the active tool always keeps its slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                listOf(5, 6, 7).forEach { count ->
-                    FilterChip(layout.maxPrimary == count, { layoutState.setMaxPrimary(count) }, { Text("$count") })
-                }
-            }
+            Text("Also in a notebook: long-press the tool strip. A tool you take off the strip waits in the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Order", style = MaterialTheme.typography.titleSmall)
+            Text("A pane too narrow for every tool moves the last ones into … until there is room; the tool in hand always keeps its place.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             layout.order.forEachIndexed { index, slot ->
                 val dragging = dragFrom == index
-                val primary = slot in layout.primary
+                val inMenu = slot in layout.hidden
                 Surface(
                     shape = FolioShapes.large,
                     color = if (dragging) MaterialTheme.colorScheme.secondaryContainer
@@ -550,11 +554,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                         Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
                             Text(toolbarSlotLabel(slot), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                when {
-                                    slot in layout.hidden -> "Hidden"
-                                    primary -> "On strip · ${index + 1}"
-                                    else -> "Under …"
-                                },
+                                if (inMenu) "In … menu" else "On the toolbar",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -564,10 +564,10 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                         IconButton({ layoutState.moveSlot(index, index + 1) }, enabled = index < layout.order.lastIndex, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.ArrowDownward, "Move ${toolbarSlotLabel(slot)} down", Modifier.size(18.dp))
                         }
-                        if (slot in layout.hidden) {
-                            TextButton({ layoutState.show(slot) }, shapes = ButtonDefaults.shapes()) { Text("Show") }
+                        if (inMenu) {
+                            TextButton({ layoutState.show(slot) }, shapes = ButtonDefaults.shapes()) { Text("To toolbar") }
                         } else {
-                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("Hide") }
+                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("To … menu") }
                         }
                         Icon(
                             Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}",
@@ -665,6 +665,9 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 internal fun toolLabel(tool: Tool): String =
     if (tool in ShapePickerTools) shapeLabel(tool)
     else ToolbarSlot.entries.first { tool in it.tools }.let(::toolbarSlotLabel)
+
+/** The glyph a toolbar slot wears; the ruler has no tool, so slots are not always tools. */
+internal fun toolbarSlotIcon(slot: ToolbarSlot): ImageVector = toolbarSlotIcon(slot, Tool.PEN, Tool.LINE)
 
 /** The glyph a tool wears on the toolbar. */
 internal fun toolIcon(tool: Tool): ImageVector =

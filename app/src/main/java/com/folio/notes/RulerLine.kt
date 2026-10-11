@@ -1,68 +1,102 @@
 package com.folio.notes
 
-import kotlin.math.hypot
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
- * A straight-edge ruler in page units, from end [a] to end [b]. Pen strokes on a freehand tool snap onto
- * its edge once they come near it; a finger drags an end to swing it or the body to move it. Session-only:
- * the ruler is never written to the page. Free of Android types so the rules stay cheap to exercise.
+ * An on-screen straightedge in page units: a band centred on ([cx], [cy]) and turned [degrees]
+ * clockwise from horizontal. The band has a fixed size *on screen*, so its thickness and length
+ * in page units come from the caller ([half] across, [halfLength] along) and follow the zoom.
+ *
+ * Pen strokes that start on or near one of its two edges run along that edge for the whole stroke
+ * (see [edgeAt] and [onEdge]); one finger slides it, two fingers turn it, and the angle settles on
+ * whole multiples of [SNAP_STEP] when it comes close. Session-only: never part of the page. Free of
+ * Android types so the rules stay cheap to exercise.
  */
-data class RulerLine(val ax: Float, val ay: Float, val bx: Float, val by: Float) {
-    /** What a finger landed on: one end, the body between them, or nothing. */
-    enum class Grab { NONE, START, END, BODY }
+data class RulerLine(val cx: Float, val cy: Float, val degrees: Float = 0f) {
+    private val radians get() = Math.toRadians(degrees.toDouble())
+    /** Unit vector along the ruler. */
+    val ux: Float get() = cos(radians).toFloat()
+    val uy: Float get() = sin(radians).toFloat()
+    /** Unit vector across it, pointing from the top edge (-1) to the bottom edge (+1). */
+    val nx: Float get() = -uy
+    val ny: Float get() = ux
 
-    fun length(): Float = hypot(bx - ax, by - ay)
+    /** Distance of [p] along the ruler from its centre. */
+    fun along(x: Float, y: Float): Float = (x - cx) * ux + (y - cy) * uy
+    /** Signed distance of [p] across the ruler from its centre line. */
+    fun across(x: Float, y: Float): Float = (x - cx) * nx + (y - cy) * ny
 
-    /** The nearest point on the segment to [p]. */
-    private fun closest(p: InkPoint): InkPoint {
-        val dx = bx - ax; val dy = by - ay
-        val squared = dx * dx + dy * dy
-        if (squared <= 0f) return InkPoint(ax, ay, p.pressure)
-        val t = (((p.x - ax) * dx + (p.y - ay) * dy) / squared).coerceIn(0f, 1f)
-        return InkPoint(ax + t * dx, ay + t * dy, p.pressure)
-    }
-
-    /** Distance from [p] to the segment. */
-    fun distance(p: InkPoint): Float {
-        val q = closest(p)
-        return hypot(p.x - q.x, p.y - q.y)
-    }
-
-    /** Which part of the ruler a press at [p] grabs. Ends take precedence over the body. */
-    fun grab(p: InkPoint, reach: Float): Grab = when {
-        hypot(p.x - ax, p.y - ay) <= reach -> Grab.START
-        hypot(p.x - bx, p.y - by) <= reach -> Grab.END
-        distance(p) <= reach -> Grab.BODY
-        else -> Grab.NONE
-    }
-
-    /** [p] itself, or its projection onto the edge when it lies within [reach] of it. */
-    fun snap(p: InkPoint, reach: Float): InkPoint {
-        val q = closest(p)
-        return if (hypot(p.x - q.x, p.y - q.y) <= reach) InkPoint(q.x, q.y, p.pressure) else p
-    }
+    /** True when ([x], [y]) lies on the band itself. */
+    fun onBand(x: Float, y: Float, half: Float, halfLength: Float): Boolean =
+        abs(across(x, y)) <= half && abs(along(x, y)) <= halfLength
 
     /**
-     * The ruler after a finger moved to [to]. Ends keep [MIN_LENGTH] so the edge never collapses to a point
-     * that no stroke could follow. [dx]/[dy] move the body; ends simply follow the finger.
+     * The edge a pen landing at ([x], [y]) should follow: -1 for the top edge, +1 for the bottom,
+     * 0 for neither. A press on the band goes to the nearer edge; outside it, only within [reach].
      */
-    fun dragged(grab: Grab, to: InkPoint, dx: Float, dy: Float): RulerLine = when (grab) {
-        Grab.START -> RulerLine(to.x, to.y, bx, by).takeIf { it.length() >= MIN_LENGTH } ?: this
-        Grab.END -> RulerLine(ax, ay, to.x, to.y).takeIf { it.length() >= MIN_LENGTH } ?: this
-        Grab.BODY -> RulerLine(ax + dx, ay + dy, bx + dx, by + dy)
-        Grab.NONE -> this
+    fun edgeAt(x: Float, y: Float, half: Float, halfLength: Float, reach: Float): Int {
+        if (abs(along(x, y)) > halfLength + reach) return 0
+        val d = across(x, y)
+        if (abs(d) > half + reach) return 0
+        return if (d < 0f) -1 else 1
     }
 
-    companion object {
-        /** Shortest ruler a finger can make; below this the edge gives no guidance. */
-        const val MIN_LENGTH = 40f
+    /** [p] carried straight across onto edge [side] (-1 top, +1 bottom), keeping its place along the ruler. */
+    fun onEdge(p: InkPoint, side: Int, half: Float): InkPoint {
+        val a = along(p.x, p.y)
+        val offset = side * half
+        return InkPoint(cx + ux * a + nx * offset, cy + uy * a + ny * offset, p.pressure)
+    }
 
-        /**
-         * Where a new ruler starts: across the middle of a finite page, or a horizontal run through the
-         * origin on an infinite canvas, where new pictures and text also start.
-         */
-        fun initial(width: Float, height: Float, infinite: Boolean): RulerLine =
-            if (infinite) RulerLine(-280f, 0f, 280f, 0f)
-            else RulerLine(width * 0.12f, height * 0.5f, width * 0.88f, height * 0.5f)
+    /** Slid by ([dx], [dy]) without turning. */
+    fun moved(dx: Float, dy: Float): RulerLine = copy(cx = cx + dx, cy = cy + dy)
+
+    /**
+     * Turned by [delta] degrees about the pivot ([px], [py]) and then slid by ([dx], [dy]): one
+     * step of a two-finger twist, where the pivot is the fingers' midpoint. The raw angle is kept
+     * so slow turns accumulate; [settled] gives the angle to show and draw along.
+     */
+    fun twisted(px: Float, py: Float, delta: Float, dx: Float, dy: Float): RulerLine {
+        val r = Math.toRadians(delta.toDouble())
+        val c = cos(r).toFloat(); val s = sin(r).toFloat()
+        val ox = cx - px; val oy = cy - py
+        return RulerLine(px + ox * c - oy * s + dx, py + ox * s + oy * c + dy, normalize(degrees + delta))
+    }
+
+    /** This ruler with its angle settled onto a nearby multiple of [SNAP_STEP]. */
+    fun settled(): RulerLine = snapAngle(degrees).let { if (it == degrees) this else copy(degrees = it) }
+
+    /** The angle for people: 0–180°, the way a protractor reads a line rather than a direction. */
+    fun readout(): Int = ((normalize(degrees) % 180f + 180f) % 180f).roundToInt() % 180
+
+    companion object {
+        /** The angle settles on whole multiples of this step… */
+        const val SNAP_STEP = 15f
+        /** …once it comes within this many degrees of one. */
+        const val SNAP_WITHIN = 2.5f
+
+        /** [degrees] in -180..180. */
+        fun normalize(degrees: Float): Float {
+            var d = degrees % 360f
+            if (d > 180f) d -= 360f
+            if (d <= -180f) d += 360f
+            return d
+        }
+
+        fun snapAngle(degrees: Float): Float {
+            val nearest = (degrees / SNAP_STEP).roundToInt() * SNAP_STEP
+            return if (abs(degrees - nearest) <= SNAP_WITHIN) normalize(nearest) else degrees
+        }
+
+        /** Angle, in degrees, of the line from ([ax], [ay]) to ([bx], [by]). */
+        fun angle(ax: Float, ay: Float, bx: Float, by: Float): Float =
+            Math.toDegrees(atan2((by - ay).toDouble(), (bx - ax).toDouble())).toFloat()
+
+        /** The signed smallest turn from [from] to [to], so crossing ±180° never spins the ruler around. */
+        fun turn(from: Float, to: Float): Float = normalize(to - from)
     }
 }

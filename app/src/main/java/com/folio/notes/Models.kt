@@ -20,7 +20,8 @@ object ScribbleSensitivity {
     fun coverage(value: Float) = .5f - .15f * normalize(value)
 }
 
-enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA, STICKY_NOTE }
+/** Appended only: presets and preferences store the name, so an older build simply falls back for a newer tool. */
+enum class Tool { PEN, HIGHLIGHTER, ERASER, LINE, RECTANGLE, ELLIPSE, TEXT, LASSO, HAND, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, GRAPH, MARK_AREA, STICKY_NOTE, LASER }
 
 /** Two-corner shapes shared by input, rendering and editing. */
 val ShapeTools = setOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.TRIANGLE,

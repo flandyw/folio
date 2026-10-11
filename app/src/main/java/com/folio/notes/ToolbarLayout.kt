@@ -12,12 +12,13 @@ import androidx.compose.runtime.setValue
 /**
  * One customizable slot on the drawing toolbar. The three shape tools share a
  * single [SHAPES] slot (matching the toolbar's shapes button), so hiding or
- * moving shapes always moves line, rectangle and ellipse together.
+ * moving shapes always moves line, rectangle and ellipse together. [RULER] is a
+ * switch rather than a tool: the straightedge stays out while any tool is in hand.
  */
 enum class ToolbarSlot {
-    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA, STICKY_NOTE;
+    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA, STICKY_NOTE, LASER, RULER;
 
-    /** Tools behind this slot; [SHAPES] expands to the last-used shape tool. */
+    /** Tools behind this slot; [SHAPES] expands to the last-used shape tool, [RULER] holds none. */
     val tools: List<Tool> get() = when (this) {
         PEN -> listOf(Tool.PEN)
         SHAPES -> ShapePickerTools.toList()
@@ -28,6 +29,8 @@ enum class ToolbarSlot {
         HAND -> listOf(Tool.HAND)
         MARK_AREA -> listOf(Tool.MARK_AREA)
         STICKY_NOTE -> listOf(Tool.STICKY_NOTE)
+        LASER -> listOf(Tool.LASER)
+        RULER -> emptyList()
     }
 
     companion object {
@@ -37,29 +40,30 @@ enum class ToolbarSlot {
 }
 
 /**
- * Which tools sit on the toolbar strip, which are hidden, how many lead the
- * strip, and which saved presets are pinned beside them.
+ * Which tools sit on the toolbar strip, which wait in the … menu, and which
+ * saved presets are pinned beside them.
  *
- * [order] holds every slot exactly once; [hidden] removes slots from both the
- * strip and the overflow menu (they return via Edit toolbar). The first
- * [maxPrimary] visible slots lead the strip; the rest live under "…" along
- * with the existing tool actions. [pinnedPresetIds] reference [ToolPreset.id]
- * values in toolbar order; unknown ids are ignored at render time.
+ * [order] holds every slot exactly once. A slot in [hidden] leaves the strip
+ * for the … menu, in the same order; nothing is ever removed outright, and
+ * nothing is pushed into the menu except by the user (or, in a pane too narrow
+ * for the whole strip, by the toolbar for as long as it lacks the room).
+ * [pinnedPresetIds] reference [ToolPreset.id] values in toolbar order; unknown
+ * ids are ignored at render time.
  */
 data class ToolbarLayout(
     val order: List<ToolbarSlot> = ToolbarLayouts.DEFAULT_ORDER,
-    val hidden: Set<ToolbarSlot> = emptySet(),
-    val maxPrimary: Int = ToolbarLayouts.DEFAULT_PRIMARY,
+    val hidden: Set<ToolbarSlot> = ToolbarLayouts.DEFAULT_HIDDEN,
     val pinnedPresetIds: List<String> = emptyList()
 ) {
-    /** Visible slots in toolbar order. */
+    /** Slots on the strip, in toolbar order. */
     val visible: List<ToolbarSlot> get() = order.filterNot { it in hidden }
 
-    /** Slots leading the strip; the remainder live under "…". */
-    val primary: List<ToolbarSlot> get() = visible.take(maxPrimary.coerceIn(ToolbarLayouts.MIN_PRIMARY, ToolbarLayouts.MAX_PRIMARY + 1))
+    /** Slots the user moved into the … menu, in toolbar order. */
+    val overflow: List<ToolbarSlot> get() = order.filter { it in hidden }
 
-    /** Visible slots pushed into the overflow menu. */
-    val overflow: List<ToolbarSlot> get() = visible.drop(primary.size)
+    /** This layout with [slots] taken out entirely, for a surface where they mean nothing. */
+    fun without(slots: Set<ToolbarSlot>): ToolbarLayout =
+        if (slots.isEmpty()) this else copy(order = order - slots, hidden = hidden - slots)
 }
 
 /**
@@ -126,31 +130,38 @@ data class ToolbarOptions(
  * types (besides the state holder below) so the rules stay JVM-testable.
  */
 object ToolbarLayouts {
-    const val MIN_PRIMARY = 5
-    const val MAX_PRIMARY = 7
-    const val DEFAULT_PRIMARY = 7
     const val MAX_PINNED = 4
 
     val DEFAULT_ORDER: List<ToolbarSlot> = listOf(
         ToolbarSlot.PEN, ToolbarSlot.HIGHLIGHTER, ToolbarSlot.ERASER,
-        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA
+        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE,
+        ToolbarSlot.RULER, ToolbarSlot.LASER, ToolbarSlot.MARK_AREA
     )
 
-    /** Every slot exactly once, in a sane order even when the stored value is corrupt. */
+    /** A fresh toolbar shows every tool; the user decides what moves to the … menu. */
+    val DEFAULT_HIDDEN: Set<ToolbarSlot> = emptySet()
+
+    /**
+     * Every slot exactly once, in a sane order even when the stored value is corrupt. A slot newer
+     * than the stored order is placed after its default neighbour rather than tacked on the end.
+     */
     fun normalize(
         order: List<ToolbarSlot>?,
         hidden: Set<ToolbarSlot>?,
-        maxPrimary: Int?,
         pinned: List<String>?
     ): ToolbarLayout {
-        val saneOrder = buildList {
-            order?.forEach { if (it !in this) add(it) }
-            DEFAULT_ORDER.forEach { if (it !in this) add(it) }
+        val saneOrder = mutableListOf<ToolbarSlot>()
+        order?.forEach { if (it !in saneOrder) saneOrder += it }
+        DEFAULT_ORDER.forEachIndexed { index, slot ->
+            if (slot in saneOrder) return@forEachIndexed
+            val before = DEFAULT_ORDER.take(index).lastOrNull { it in saneOrder }
+            saneOrder.add(if (before == null) 0 else saneOrder.indexOf(before) + 1, slot)
         }
+        val visible = saneOrder.filterNot { hidden?.contains(it) == true }
         return ToolbarLayout(
             order = saneOrder,
-            hidden = hidden?.intersect(DEFAULT_ORDER.toSet()) ?: emptySet(),
-            maxPrimary = (maxPrimary ?: DEFAULT_PRIMARY).coerceIn(MIN_PRIMARY, MAX_PRIMARY),
+            // The strip never empties itself: a stored value hiding everything keeps the first tool out.
+            hidden = (hidden ?: DEFAULT_HIDDEN).intersect(saneOrder.toSet()).let { if (visible.isEmpty()) it - saneOrder.first() else it },
             pinnedPresetIds = (pinned ?: emptyList())
                 .map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(MAX_PINNED)
         )
@@ -214,8 +225,6 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
     private fun load(): ToolbarLayout = ToolbarLayouts.normalize(
         order = ToolbarLayouts.decodeOrder(prefs.getString(KEY_ORDER, null)),
         hidden = ToolbarLayouts.decodeHidden(prefs.getString(KEY_HIDDEN, null)),
-        maxPrimary = prefs.getInt(KEY_PRIMARY, ToolbarLayouts.DEFAULT_PRIMARY)
-            .takeIf { prefs.contains(KEY_PRIMARY) },
         pinned = ToolbarLayouts.decodePinned(prefs.getString(KEY_PINNED, null))
     )
 
@@ -224,8 +233,8 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
         prefs.edit()
             .putString(KEY_ORDER, ToolbarLayouts.encodeOrder(value.order))
             .putString(KEY_HIDDEN, ToolbarLayouts.encodeHidden(value.hidden))
-            .putInt(KEY_PRIMARY, value.maxPrimary)
             .putString(KEY_PINNED, ToolbarLayouts.encodePinned(value.pinnedPresetIds))
+            .remove(KEY_RETIRED_PRIMARY)
             .apply()
     }
 
@@ -233,18 +242,16 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
         persist(layout.copy(order = ToolbarLayouts.move(layout.order, from, to)))
     }
 
+    /** Moves [slot] off the strip into the … menu. */
     fun hide(slot: ToolbarSlot) {
-        // Keep at least one visible tool so the strip never empties itself.
+        // Keep at least one tool on the strip so it never empties itself.
         if (layout.visible.size <= 1) return
         persist(layout.copy(hidden = layout.hidden + slot))
     }
 
+    /** Brings [slot] back from the … menu onto the strip. */
     fun show(slot: ToolbarSlot) {
         persist(layout.copy(hidden = layout.hidden - slot))
-    }
-
-    fun setMaxPrimary(count: Int) {
-        persist(layout.copy(maxPrimary = count.coerceIn(ToolbarLayouts.MIN_PRIMARY, ToolbarLayouts.MAX_PRIMARY)))
     }
 
     fun togglePin(presetId: String) {
@@ -266,9 +273,10 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
     internal companion object {
         const val KEY_ORDER = "toolbar.order"
         const val KEY_HIDDEN = "toolbar.hidden"
-        const val KEY_PRIMARY = "toolbar.primary"
         const val KEY_PINNED = "toolbar.pinned"
-        val KEYS = setOf(KEY_ORDER, KEY_HIDDEN, KEY_PRIMARY, KEY_PINNED)
+        /** Older builds capped the strip at 5–7 tools; the cap is gone and its value is dropped. */
+        const val KEY_RETIRED_PRIMARY = "toolbar.primary"
+        val KEYS = setOf(KEY_ORDER, KEY_HIDDEN, KEY_PINNED)
     }
 }
 

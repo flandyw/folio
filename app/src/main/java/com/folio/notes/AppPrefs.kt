@@ -67,6 +67,10 @@ object AppPrefs {
     const val FINGER = "finger"
     /** Set the first time a pen tip touches the screen; from then on a finger scrolls unless the user chose otherwise. */
     const val STYLUS_SEEN = "input.stylusSeen"
+    /** Position filtering for new freehand pen strokes; zero disables the input filter. */
+    const val PEN_SMOOTHING = "input.penSmoothing"
+    const val DEFAULT_PEN_SMOOTHING = PenSmoothing.DEFAULT
+    fun penSmoothing(value: Float): Float = PenSmoothing.strength(value)
     /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
     const val SHAPE_HOLD_MS = "input.shapeHoldMs"
     const val DEFAULT_SHAPE_HOLD_MS = 650L

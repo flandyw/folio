@@ -74,4 +74,29 @@ internal object ToolIcons {
             }
         }
     }
+
+    /** A pointer dot with a swooping trail behind it, the way the laser draws. */
+    val Laser by lazy {
+        build("Laser") {
+            outline {
+                moveTo(3.5f, 18.5f); curveTo(7f, 20.5f, 9.5f, 12f, 12f, 13.5f); curveTo(13.8f, 14.6f, 13f, 17.5f, 15f, 16.5f)
+                moveTo(19f, 3.5f); lineTo(19f, 5f)
+                moveTo(22f, 9f); lineTo(20.5f, 9f)
+                moveTo(21.2f, 5.8f); lineTo(20.2f, 6.8f)
+            }
+            solid { moveTo(14.8f, 9.8f); arcToRelative(3f, 3f, 0f, true, true, 6f, 0f); arcToRelative(3f, 3f, 0f, true, true, -6f, 0f); close() }
+        }
+    }
+
+    /** A straightedge with its tick marks, at a slant. */
+    val Ruler by lazy {
+        build("Ruler") {
+            outline {
+                moveTo(2.9f, 15.6f); lineTo(15.6f, 2.9f); lineTo(21.1f, 8.4f); lineTo(8.4f, 21.1f); close()
+                moveTo(7.1f, 11.4f); lineTo(9.2f, 13.5f)
+                moveTo(10.1f, 8.4f); lineTo(11.5f, 9.8f)
+                moveTo(13.1f, 5.4f); lineTo(15.2f, 7.5f)
+            }
+        }
+    }
 }

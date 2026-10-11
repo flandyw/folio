@@ -6,16 +6,19 @@ import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import kotlin.math.abs
 import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Sticky note gestures on an [InkView]. With the sticky tool, a drag on bare workspace makes a
- * note, a drag on a note moves it, its corner grip resizes it and a tap focuses it (a second tap
- * types). Pen, highlighter and eraser strokes that start inside a note go into the note's own ink.
- * Typing itself is a Compose field laid over the note; this class only tracks which note has it.
+ * Sticky note handling on an [InkView]: making, picking up, moving, resizing and typing into notes.
+ * Writing and erasing inside a note is *not* here — the pen, highlighter, shapes and eraser go
+ * through the page's own ink pipeline (same smoothing, pressure, dots, ruler and shape tidy-up),
+ * and [InkView] files a stroke under the note it started on.
+ *
+ * With the sticky tool: a tap on bare space drops a default note, a drag draws one to size, a drag
+ * on a note moves it, the focused note's corner grip resizes it, a tap focuses a note (its menu
+ * appears) and a tap on the focused note types in it. With the text tool a tap on a note types in
+ * it. With the hand — or a finger that is navigating rather than drawing — a clean tap on a note
+ * focuses it, so its menu is always one tap away without changing tools.
  */
 internal class StickyNoteInput(
     private val host: View,
@@ -23,32 +26,29 @@ internal class StickyNoteInput(
     private val commit: (List<TextBox>) -> Unit,
     /** The note's rectangle in view pixels. */
     private val frame: (TextBox) -> RectF,
-    /** Page samples for the current and historical positions of the first pointer. */
-    private val samples: (MotionEvent) -> List<InkPoint>,
     /** The focused note (menu above it) and whether it is being typed in; null when none. */
     private val onFocus: (TextBox?, Boolean) -> Unit
 ) {
+    private enum class Mode { CREATE, MOVE, RESIZE, TYPE_TAP }
+
+    private var mode: Mode? = null
     private var start: InkPoint? = null
     private var original: TextBox? = null
     private var preview: TextBox? = null
-    private var ink: Stroke? = null
-    private val points = arrayListOf<InkPoint>()
-    private var resize = false
-    private var erasing = false
     private var moved = false
     private var cancelled = false
+    /** The press put a focused note down; a plain tap then only does that, it makes no new note. */
+    private var dismissed = false
     private var tapHit: TextBox? = null
     private var fromX = 0f
     private var fromY = 0f
     private val slop = ViewConfiguration.get(host.context).scaledTouchSlop
-    private val grip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9D8845.toInt(); strokeWidth = 1.5f }
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF2B3440.toInt() }
-    private val ringFill = Paint(Paint.ANTI_ALIAS_FLAG)
-    /** The eraser ring while a note is being erased, in page units. */
-    private var eraserAt: InkPoint? = null
-    private var eraserRadius = 0f
-    private var eraserWhole = false
-    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val density = host.resources.displayMetrics.density
+    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = FOCUS_COLOR }
+    private val gripFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFFFFFFFF.toInt() }
+    private val gripEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = FOCUS_COLOR }
+    /** The paper the next new note wears: whichever colour was picked last. */
+    private var nextPaper = 0
 
     var focusedId: String? = null
         private set
@@ -66,10 +66,11 @@ internal class StickyNoteInput(
     /** Drops a gesture in progress and the focus, e.g. on a tool or page change. */
     fun reset() {
         clearGesture()
+        tapHit = null
         if (focusedId != null) focus(null)
     }
 
-    /** Abandons ink/erase/move previews and tap intent without changing the focused note. */
+    /** Abandons a gesture in progress without changing the focused note. */
     fun cancel() {
         clearGesture()
         tapHit = null
@@ -87,9 +88,10 @@ internal class StickyNoteInput(
         page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(text = text)) }
     }
 
-    /** Cycles the focused note through the paper colours. */
-    fun recolor(id: String) {
-        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(stickyColor = StickyNotes.nextPaper(it.stickyColor))) }
+    /** Gives the note the stored paper [paper] (0 is yellow); new notes wear it too from now on. */
+    fun setPaper(id: String, paper: Int) {
+        nextPaper = paper
+        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(stickyColor = paper)) }
     }
 
     fun clearInk(id: String) {
@@ -104,46 +106,59 @@ internal class StickyNoteInput(
         focus(copy)
     }
 
+    /** Lifts the note to the top of the stack, above any note it overlaps. */
+    fun bringToFront(id: String) {
+        val texts = page().texts
+        val box = texts.find { it.id == id && it.isSticky } ?: return
+        if (texts.last { it.isSticky }.id == id) return
+        commit(texts.filterNot { it.id == id } + box)
+    }
+
     fun delete(id: String) {
         if (focusedId == id) focus(null)
         commit(page().texts.filterNot { it.id == id })
     }
 
-    fun touch(event: MotionEvent, at: InkPoint, tool: Tool, canInk: Boolean, layer: Int,
-              color: Int, width: Float, opacity: Float, wholeEraser: Boolean,
-              pressureEraser: Boolean = false, pageInk: List<Stroke> = emptyList()): Boolean {
+    /**
+     * Offers the gesture at [at] (page units) to the notes. Returns true when the notes own it, in
+     * which case the view must not start its own gesture. [canCreate] says whether this pointer may
+     * make a new note on bare space (a pen, or a finger while finger drawing is on). [tapFocuses]
+     * says whether a clean tap on a note should focus it while the view handles the gesture itself.
+     */
+    fun touch(event: MotionEvent, at: InkPoint, tool: Tool, canCreate: Boolean, tapFocuses: Boolean, layer: Int): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            clearGesture()
             val layers = page().layers
-            val hit = page().texts.lastOrNull { StickyNotes.contains(it, at) && PageLayers.editable(layers, it.layer) }
-            // The pen's eraser end and its barrel button erase whatever tool is chosen, like the page does.
-            val erases = tool == Tool.ERASER || (tool in INK_TOOLS &&
-                (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER || event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)))
-            erasing = erases
-            val radius = eraserRadius(width, at, pressureEraser)
-            // The page's ink shows through a note; an eraser over only that ink belongs to the page.
-            val pageOnly = erases && hit != null &&
-                hit.stickyInk.none { InkGeometry.hits(it, InkPoint(at.x - hit.x, at.y - hit.y, at.pressure), radius) } &&
-                pageInk.any { PageLayers.editable(layers, it.layer) && InkGeometry.hits(it, at, radius) }
-            val inking = hit != null && canInk && (tool in INK_TOOLS || erases) && !pageOnly
-            val handles = inking || (tool == Tool.STICKY_NOTE && (hit != null || canInk && PageLayers.editable(layers, layer))) ||
-                (tool == Tool.TEXT && hit != null)
+            val editable = { l: Int -> PageLayers.editable(layers, l) }
+            val hit = StickyNotes.at(page().texts, at.x, at.y, editable)
+            val focusedBox = focused()
+            // The grip hangs off the corner, so it is tested before the note it belongs to.
+            val onGrip = tool == Tool.STICKY_NOTE && focusedBox != null && gripHit(focusedBox, event.x, event.y)
             // Touching anything but the focused note puts it down.
-            if (focusedId != null && hit?.id != focusedId) focus(null)
-            // Any other tool leaves its own gesture alone; a clean tap on a note still focuses it.
-            tapHit = if (handles) null else hit
+            dismissed = focusedBox != null && !onGrip && hit?.id != focusedBox.id
+            if (dismissed) focus(null)
             fromX = event.x; fromY = event.y
-            if (!handles) return false
+            tapHit = null
+            mode = when {
+                onGrip -> Mode.RESIZE
+                tool == Tool.STICKY_NOTE && hit != null -> Mode.MOVE
+                tool == Tool.STICKY_NOTE && canCreate && editable(layer) -> Mode.CREATE
+                tool == Tool.TEXT && hit != null -> Mode.TYPE_TAP
+                else -> null
+            }
+            if (mode == null) {
+                // Another tool owns this gesture; a clean tap on a note still focuses it.
+                if (tapFocuses) tapHit = hit
+                return false
+            }
             host.parent?.requestDisallowInterceptTouchEvent(true)
-            start = at; original = hit; preview = hit; moved = false; cancelled = false
-            fromX = event.x; fromY = event.y
-            resize = hit != null && !inking &&
-                hypot(event.x - frame(hit).right, event.y - frame(hit).bottom) < GRIP_DP * host.resources.displayMetrics.density
-            ink = if (inking) Stroke(if (erases) Tool.ERASER else tool, color, width, emptyList(), opacity) else null
-            points.clear()
-            if (inking) addInk(event, wholeEraser, pressureEraser)
+            start = at; moved = false; cancelled = false
+            original = if (onGrip) focusedBox else hit
+            preview = original
             host.invalidate()
             return true
         }
+        val current = mode ?: return trackTap(event)
         val began = start ?: return trackTap(event)
         when (event.actionMasked) {
             // A second finger is a pinch: abandon the note gesture and let the workspace zoom.
@@ -151,16 +166,13 @@ internal class StickyNoteInput(
             MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> if (!cancelled) {
                 moved = moved || hypot(event.x - fromX, event.y - fromY) > slop
                 val box = original
-                when {
-                    ink != null -> addInk(event, wholeEraser, pressureEraser)
-                    box == null -> preview = TextBox(x = min(began.x, at.x), y = min(began.y, at.y),
-                        width = max(abs(at.x - began.x), MIN_WIDTH), stickyHeight = max(abs(at.y - began.y), MIN_HEIGHT),
-                        size = TEXT_SIZE, layer = layer)
-                    resize -> preview = box.copy(width = (at.x - box.x).coerceIn(MIN_WIDTH, TextBox.MAX_WIDTH),
-                        stickyHeight = (at.y - box.y).coerceIn(MIN_HEIGHT, MAX_HEIGHT))
-                    moved -> preview = box.moved(at.x - began.x, at.y - began.y)
+                if (moved) preview = when (current) {
+                    Mode.CREATE -> StickyNotes.spanning(began.x, began.y, at.x, at.y, layer, nextPaper)
+                    Mode.RESIZE -> box?.let { StickyNotes.resized(it, at.x, at.y) }
+                    Mode.MOVE -> box?.moved(at.x - began.x, at.y - began.y)
+                    Mode.TYPE_TAP -> box
                 }
-                if (event.actionMasked == MotionEvent.ACTION_UP) finish(tool)
+                if (event.actionMasked == MotionEvent.ACTION_UP) finish(current, began, layer)
             }
         }
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -182,50 +194,32 @@ internal class StickyNoteInput(
         return false
     }
 
-    private fun finish(tool: Tool) {
+    private fun finish(mode: Mode, began: InkPoint, layer: Int) {
         val box = original
-        val next = preview ?: return
-        when {
-            // A tap with a pen is a tap, not a dot of ink.
-            ink != null -> if (moved) replace(next) else box?.let { focus(it) }
-            box == null -> if (moved) { commit(page().texts + next); focus(next) }
-            moved -> { replace(next); focus(next) }
-            // A tap focuses the note; tapping the focused note again types in it.
-            focusedId == box.id && tool == Tool.STICKY_NOTE -> focus(box, type = true)
-            else -> focus(box)
+        when (mode) {
+            Mode.CREATE -> {
+                val made = if (moved) preview else if (dismissed) null else StickyNotes.centred(began.x, began.y, layer, nextPaper)
+                if (made != null) { commit(page().texts + made); focus(made) }
+            }
+            Mode.MOVE, Mode.RESIZE -> when {
+                box == null -> Unit
+                moved -> preview?.let { next -> replace(next); page().texts.find { it.id == next.id }?.let { focus(it) } }
+                // A tap focuses the note; tapping the focused note again types in it.
+                focusedId == box.id && mode == Mode.MOVE -> focus(box, type = true)
+                else -> focus(box)
+            }
+            Mode.TYPE_TAP -> if (!moved && box != null) focus(box, type = true)
         }
     }
 
     private fun clearGesture() {
-        eraserAt = null; erasing = false
-        start = null; original = null; preview = null; ink = null; points.clear()
+        mode = null; start = null; original = null; preview = null; moved = false; cancelled = false
         host.invalidate()
     }
 
-    private fun eraserRadius(width: Float, at: InkPoint, pressure: Boolean) =
-        width / 2f * if (pressure) InkGeometry.eraserScale(at.pressure) else 1f
-
-    private fun addInk(event: MotionEvent, whole: Boolean, pressure: Boolean) {
-        val box = original ?: return
-        val stroke = ink ?: return
-        // Note ink is stored relative to the note, so moving the note carries it along. It is not
-        // clamped to the note: a stroke begun inside may run out over the page.
-        val raw = samples(event)
-        raw.forEach { points += InkPoint(it.x - box.x, it.y - box.y, it.pressure) }
-        if (stroke.tool == Tool.ERASER) {
-            var kept = (preview ?: box).stickyInk
-            // Same rules as the page eraser: pressure scales the ring, whole-stroke removes what it touches.
-            for (p in points) {
-                val radius = eraserRadius(stroke.width, p, pressure)
-                kept = if (whole) kept.filterNot { InkGeometry.hits(it, p, radius) }
-                    else kept.flatMap { InkGeometry.erase(it, p, radius) }
-            }
-            preview = box.copy(stickyInk = kept)
-            raw.lastOrNull()?.let {
-                eraserAt = it; eraserRadius = eraserRadius(stroke.width, it, pressure); eraserWhole = whole
-            }
-            points.clear()
-        } else preview = box.copy(stickyInk = box.stickyInk + stroke.copy(points = points.toList()))
+    private fun gripHit(box: TextBox, x: Float, y: Float): Boolean {
+        val r = frame(box)
+        return hypot(x - r.right, y - r.bottom) <= GRIP_REACH_DP * density
     }
 
     private fun replace(box: TextBox) {
@@ -234,38 +228,41 @@ internal class StickyNoteInput(
         if (current != box) commit(page().texts.map { if (it.id == box.id) box else it })
     }
 
-    /** Draws [notes] with any live gesture applied, plus a note still being dragged out. */
-    fun draw(canvas: Canvas, notes: List<TextBox>, unit: Float, beneath: List<Stroke> = emptyList()) {
+    /**
+     * Draws [notes] bottom to top with any live gesture applied, then a note still being dragged
+     * out. [liveInk] replaces a note's ink while the eraser works on it, and [afterNote] runs right
+     * after each note so ink being written into it lands above that note but below any note on top.
+     * [unit] is one dp in page units.
+     */
+    fun draw(canvas: Canvas, notes: List<TextBox>, unit: Float,
+             liveInk: Map<String, List<Stroke>> = emptyMap(), afterNote: (TextBox) -> Unit = {}) {
         notes.forEach { note ->
-            val box = if (note.id == original?.id) preview ?: note else note
+            var box = if (note.id == original?.id) preview ?: note else note
+            liveInk[box.id]?.let { box = box.copy(stickyInk = it) }
             // The typing field shows the words while it is open; the note keeps its paper and ink.
-            InkRenderer.text(canvas, if (typing && box.id == focusedId) box.copy(text = "") else box, beneath)
-            if (box.id == focusedId) {
-                outline.color = FOCUS_COLOR; outline.strokeWidth = 2f * unit
-                canvas.drawRect(box.x, box.y, box.x + box.width, box.y + box.stickyHeight, outline)
-            }
-            val right = box.x + box.width; val bottom = box.y + box.stickyHeight
-            canvas.drawLine(right - 16f, bottom - 4f, right - 4f, bottom - 16f, grip)
-            canvas.drawLine(right - 10f, bottom - 4f, right - 4f, bottom - 10f, grip)
+            InkRenderer.text(canvas, if (typing && box.id == focusedId) box.copy(text = "") else box)
+            afterNote(box)
+            if (box.id == focusedId) drawFocus(canvas, box, unit)
         }
-        if (original == null) preview?.let { InkRenderer.text(canvas, it, beneath) }
-        eraserAt?.let { c ->
-            ringFill.color = 0x3A2B3440
-            canvas.drawCircle(c.x, c.y, eraserRadius, ringFill)
-            ring.strokeWidth = 1.5f * unit
-            ring.pathEffect = if (eraserWhole) android.graphics.DashPathEffect(floatArrayOf(5f * unit, 4f * unit), 0f) else null
-            canvas.drawCircle(c.x, c.y, eraserRadius, ring)
-        }
+        if (mode == Mode.CREATE) preview?.let { InkRenderer.text(canvas, it); drawFocus(canvas, it, unit) }
+    }
+
+    private fun drawFocus(canvas: Canvas, box: TextBox, unit: Float) {
+        val inset = -2f * unit
+        outline.strokeWidth = 2f * unit
+        canvas.drawRoundRect(box.x + inset, box.y + inset, box.x + box.width - inset, box.y + box.stickyHeight - inset,
+            StickyNotes.CORNER + 2f * unit, StickyNotes.CORNER + 2f * unit, outline)
+        if (typing && box.id == focusedId) return
+        val right = box.x + box.width; val bottom = box.y + box.stickyHeight
+        gripEdge.strokeWidth = 2f * unit
+        canvas.drawCircle(right, bottom, GRIP_RADIUS_DP * unit, gripFill)
+        canvas.drawCircle(right, bottom, GRIP_RADIUS_DP * unit, gripEdge)
     }
 
     companion object {
-        private val INK_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER)
-        private const val GRIP_DP = 28f
+        private const val GRIP_REACH_DP = 28f
+        private const val GRIP_RADIUS_DP = 7f
         private const val DUPLICATE_OFFSET = 36f
-        private const val MIN_WIDTH = 90f
-        private const val MIN_HEIGHT = 60f
-        private const val MAX_HEIGHT = 10000f
-        private const val TEXT_SIZE = 22f
         /** InkView's selection blue. */
         private const val FOCUS_COLOR = 0xFF2F6FBA.toInt()
     }
