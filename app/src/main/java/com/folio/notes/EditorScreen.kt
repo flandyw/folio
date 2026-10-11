@@ -47,6 +47,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.LocalPinnableContainer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -411,6 +414,9 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var selection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val pageFrames = remember { mutableMapOf<String, Rect>() }
+    // Each page's whole item (paper plus the workspace around it) and the sticky note being carried over all of them.
+    val pageRegions = remember { mutableMapOf<String, Rect>() }
+    var stickyLift by remember { mutableStateOf<StickyLift?>(null) }
     var moveSelection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val canPaste = context.getSystemService(android.content.ClipboardManager::class.java)?.hasPrimaryClip() == true
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
@@ -1264,6 +1270,25 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 markZones = markZones, markAssist = markAssist, markColor = markingColor,
                                                 onReplaceZone = { old, new -> saveManualZones(manualZones.filterNot { it == old } + listOfNotNull(new)) },
                                 onPageFrame = { id, frame -> if (frame == null) pageFrames.remove(id) else pageFrames[id] = frame },
+                                onPageRegion = { id, region -> if (region == null) pageRegions.remove(id) else pageRegions[id] = region },
+                                onStickyLift = { stickyLift = it },
+                                onStickyDrop = { sourceId, lift ->
+                                    // A note is placed on whichever page its middle is over (or nearest, in a gap), at the
+                                    // spot the finger carried it to; outside the paper is fine.
+                                    val middle = lift.top + lift.box.stickyHeight * lift.unit / 2f
+                                    val targetId = (pageRegions.entries.firstOrNull { (_, r) -> middle >= r.top && middle <= r.bottom }
+                                        ?: pageRegions.entries.minByOrNull { (_, r) -> if (middle < r.top) r.top - middle else middle - r.bottom })?.key
+                                    val frame = targetId?.let { pageFrames[it] }
+                                    val target = targetId?.let { id -> note.pages.find { it.id == id } }
+                                    if (targetId == null || targetId == sourceId || frame == null || target == null || target.infinite ||
+                                        frame.width <= 0f || frame.height <= 0f) false
+                                    else {
+                                        model.moveStickyToPage(sourceId, targetId, lift.box,
+                                            (lift.left - frame.left) / frame.width * target.width,
+                                            (lift.top - frame.top) / frame.height * target.height)
+                                        true
+                                    }
+                                },
                                 onSelectionDrop = { sourceId, picked, x, y ->
                                     // A selection let go over another page lands there, centred on the finger.
                                     val hit = pageFrames.entries.firstOrNull { (id, f) -> id != sourceId && f.contains(Offset(x, y)) }
@@ -1325,6 +1350,43 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onLongClick = { openPaperMenu(true) },
                             modifier = Modifier.padding(top = FolioSpacing.dp4)
                         )
+                    }
+                }
+                // A sticky note being carried is drawn over every page, so it can leave its own page; the
+                // list and the document follow it when it is held near an edge.
+                stickyLift?.let { lift ->
+                    val origin = canvasWindowBounds?.topLeft ?: Offset.Zero
+                    Box(Modifier.fillMaxSize().drawBehind {
+                        val box = lift.box
+                        val w = box.width * lift.unit; val h = box.stickyHeight * lift.unit
+                        val left = lift.left - origin.x; val top = lift.top - origin.y
+                        drawRoundRect(Color.Black.copy(alpha = .22f), Offset(left + 3.dp.toPx(), top + 5.dp.toPx()),
+                            androidx.compose.ui.geometry.Size(w, h), androidx.compose.ui.geometry.CornerRadius(StickyNotes.CORNER * lift.unit))
+                        drawIntoCanvas { c ->
+                            val canvas = c.nativeCanvas
+                            canvas.save()
+                            canvas.translate(left, top); canvas.scale(lift.unit, lift.unit); canvas.translate(-box.x, -box.y)
+                            InkRenderer.text(canvas, box)
+                            canvas.restore()
+                        }
+                    })
+                }
+                val carried by rememberUpdatedState(stickyLift)
+                LaunchedEffect(stickyLift != null) {
+                    if (carried == null) return@LaunchedEffect
+                    val edge = with(density) { 72.dp.toPx() }
+                    val topEdge = with(density) { floatingToolbarTop.toPx() } + edge
+                    val maxStep = with(density) { 20.dp.toPx() }
+                    while (true) {
+                        withFrameNanos { }
+                        val lift = carried ?: break
+                        val bounds = canvasWindowBounds ?: continue
+                        val x = lift.fingerX - bounds.left; val y = lift.fingerY - bounds.top
+                        fun push(depth: Float) = (depth / edge).coerceIn(0f, 1f) * maxStep
+                        val dy = when { y < topEdge -> -push(topEdge - y); y > bounds.height - edge -> push(y - (bounds.height - edge)); else -> 0f }
+                        val dx = when { x < edge -> push(edge - x); x > bounds.width - edge -> -push(x - (bounds.width - edge)); else -> 0f }
+                        if (dy != 0f) pages.dispatchRawDelta(dy)
+                        if (dx != 0f) documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentScale * documentZoom, viewportWidth)
                     }
                 }
                 // Pull past the last page: the squiggly loading shape fills as you pull, spins while the page is added.
@@ -2449,9 +2511,19 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     markZones: List<MarkZone> = emptyList(), markAssist: Boolean = false, markColor: Int = Marking.DEFAULT_COLOR,
     onReplaceZone: (old: MarkZone?, new: MarkZone?) -> Unit = { _, _ -> },
     onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
+    onPageRegion: (String, Rect?) -> Unit = { _, _ -> },
+    onStickyLift: ((StickyLift?) -> Unit)? = null,
+    onStickyDrop: ((String, StickyLift) -> Boolean)? = null,
     onCropMode: (Boolean) -> Unit = {}, onNavigating: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
-    DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null) } }
+    DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null); onPageRegion(page.id, null) } }
+    // A note lifted from this page must keep the page alive while the list scrolls under it.
+    val pinnable = LocalPinnableContainer.current
+    var carrying by remember { mutableStateOf(false) }
+    DisposableEffect(carrying) {
+        val pin = if (carrying) pinnable?.pin() else null
+        onDispose { pin?.release() }
+    }
     val inputStylusActivity = LocalStylusActivity.current
     val shapePrefs = rememberPrefs()
     val shapeHoldMs by rememberPref(shapePrefs, AppPrefs.SHAPE_HOLD_MS) {
@@ -2572,6 +2644,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     Box(pageModifier.onGloballyPositioned { coordinates ->
             val origin = coordinates.localToWindow(Offset.Zero)
             pageWindowFrame = Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
+            onPageRegion(page.id, pageWindowFrame)
             if (documentPage) {
                 val left = origin.x + (coordinates.size.width - paperWidthPx) / 2
                 val top = origin.y - workspaceTop * paperWidthPx / page.width
@@ -2666,6 +2739,8 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
                 view.onSelectionDrop = { picked, x, y -> !readOnly && onSelectionDrop(page.id, picked, x, y) }
+                view.onStickyLift = if (documentPage && onStickyLift != null) { lift -> carrying = lift != null; onStickyLift(lift) } else null
+                view.onStickyDrop = if (documentPage && onStickyDrop != null) { lift -> onStickyDrop(page.id, lift) } else null
                 view.onMarkRegion = { lane, rect ->
                     areaEntry = if (lane == null || rect == null) null
                     else AreaEntry(null, lane.left, lane.top, lane.right - lane.left, lane.bottom - lane.top, rect)

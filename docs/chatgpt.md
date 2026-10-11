@@ -8,7 +8,12 @@ windows or above the keyboard. Progress and the primary action stay in a fixed f
 
 Connect once, then choose **Check working**, **Explain**, **Help me revise** or
 **My own request**. Add optional question/context, choose an available model and
-inspect the page before choosing **Review page**. Preview and upload share the
+inspect the current page, then choose a **From page** / **To page** range before
+choosing **Review pages**. The range defaults to the current page and supports
+up to ten consecutive pages, including the current page. All selected pages are
+sent together in notebook order with their page numbers, so ChatGPT can follow
+working across pages. Feedback stays on the current page and identifies other
+pages by number. The preview shows the current page. Preview and upload share the
 same renderer and content rules; only the display resolution differs. No page
 content is sent merely by opening the panel or looking at a preview.
 
@@ -28,7 +33,7 @@ needed, with explicit retries after failures. Account and diagnostic operations
 remain serialized with reviews. Errors offer a contextual retry plus expandable,
 selectable details without exposing credentials or raw provider bodies.
 
-This prototype treats the whole image as region R1. It does not claim to locate
+This prototype anchors the combined feedback to the current page as region R1. It does not claim to locate
 individual words or equations or invent a marking rubric. **Check working** gives an `x/y` mark only when the page shows the marks available or a clear total; otherwise it gives no mark.
 Finite pages include their PDF background, visible layers and page images;
 outside-page stickies remain excluded, as in ordinary page exports. An infinite
@@ -206,3 +211,31 @@ Sources: [reasoning](https://developers.openai.com/api/docs/guides/reasoning),
 [accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions),
 [inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference),
 [preview limits](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
+
+## Study assistant modes
+
+Alongside Check working, Explain and Help me revise, the review supports:
+Mark against criteria, Find misconceptions, Connect ideas, Build practice,
+Make flashcards, Plan next steps, Improve writing and Create study notes.
+Supply the question, rubric, level or learning goal in the context field (up to
+3,000 characters), or write a custom request (up to 4,000 characters).
+Rubric marking uses supplied allocations; it does not invent a numerical total.
+Practice asks for self-contained questions and separate numbered answer notes.
+
+Choose Quick (up to four notes), Thorough (eight) or Deep (twelve). Hints only
+asks the model to withhold answers and provide progressive prompts instead.
+These are model instructions; inspect the output before using it for practice.
+All notes remain individually editable and selectable, with Select all and
+Deselect all controls. Adding up to twelve notes is still one undo step.
+
+Ask a follow-up beneath the feedback to request clarification, challenge a mark,
+or change the practice difficulty. It sends the original reviewed page snapshots,
+the original task, the latest edited feedback (including deselected notes) and
+the new question. Each response replaces the panel's previous feedback; notes
+already added remain in the notebook. Retries repeat the actual failed request,
+including its follow-up, rather than the current form. Follow-up context stays
+in memory only, across panel visits and rotation; this is not a durable chat log.
+Device checks: review a multi-page answer against a rubric; generate 12 notes,
+edit/deselect and add them, then undo; request hints-only practice; ask a follow-up,
+cancel/retry it and confirm previous feedback remains until completion; change
+the current page and confirm the old review cannot write into the changed page.

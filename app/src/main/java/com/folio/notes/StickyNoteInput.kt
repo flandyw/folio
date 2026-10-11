@@ -9,6 +9,13 @@ import android.view.ViewConfiguration
 import kotlin.math.hypot
 
 /**
+ * A note being carried by hand, in window pixels: where its top-left corner is now, how many pixels
+ * one page unit is, and where the finger is. [box] is the note as it was picked up. The editor draws
+ * it above every page and may re-home it on another page when it is let go.
+ */
+internal class StickyLift(val box: TextBox, val left: Float, val top: Float, val unit: Float, val fingerX: Float, val fingerY: Float)
+
+/**
  * Sticky note handling on an [InkView]: making, picking up, moving, resizing and typing into notes.
  * Writing and erasing inside a note is *not* here — the pen, highlighter, shapes and eraser go
  * through the page's own ink pipeline (same smoothing, pressure, dots, ruler and shape tidy-up),
@@ -52,6 +59,16 @@ internal class StickyNoteInput(
     /** The paper the next new note wears: whichever colour was picked last. */
     private var nextPaper = 0
 
+    /**
+     * While a note is being moved, reports it in window pixels (null once let go) so the editor can
+     * carry it over the whole workspace rather than only the page's own view. Left null, the note is
+     * moved inside its view.
+     */
+    var onLift: ((StickyLift?) -> Unit)? = null
+    /** Offered a lifted note on release; true when the editor placed it (e.g. on another page). */
+    var onDrop: ((StickyLift) -> Boolean)? = null
+    private var lift: StickyLift? = null
+
     var focusedId: String? = null
         private set
     var typing = false
@@ -64,6 +81,9 @@ internal class StickyNoteInput(
         onFocus(box, typing)
         host.invalidate()
     }
+
+    /** The view is going away mid-carry: place the note where it was last held instead of losing the drop. */
+    fun dropLift() { lift?.let { onDrop?.invoke(it) } }
 
     /** Drops a gesture in progress and the focus, e.g. on a tool or page change. */
     fun reset() {
@@ -168,7 +188,7 @@ internal class StickyNoteInput(
         val began = start ?: return trackTap(event)
         when (event.actionMasked) {
             // A second finger is a pinch: abandon the note gesture and let the workspace zoom.
-            MotionEvent.ACTION_POINTER_DOWN -> { cancelled = true; preview = original }
+            MotionEvent.ACTION_POINTER_DOWN -> { cancelled = true; preview = original; endLift() }
             MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> if (!cancelled) {
                 moved = moved || hypot(event.x - fromX, event.y - fromY) > slop
                 val box = original
@@ -179,6 +199,7 @@ internal class StickyNoteInput(
                     Mode.MOVE -> box?.moved(at.x - began.x, at.y - began.y)
                     Mode.TYPE_TAP -> box
                 }
+                if (moved && current == Mode.MOVE) liftNote(event, began, at, box)
                 if (event.actionMasked == MotionEvent.ACTION_UP) finish(current, began, layer)
             }
         }
@@ -210,6 +231,7 @@ internal class StickyNoteInput(
             }
             Mode.MOVE, Mode.RESIZE -> when {
                 box == null -> Unit
+                moved && lift?.let { onDrop?.invoke(it) } == true -> focus(null)
                 moved -> preview?.let { next -> replace(next); page().texts.find { it.id == next.id }?.let { focus(it) } }
                 // A tap focuses the note; tapping the focused note again types in it.
                 focusedId == box.id && mode == Mode.MOVE -> focus(box, type = true)
@@ -221,7 +243,26 @@ internal class StickyNoteInput(
 
     private fun clearGesture() {
         mode = null; start = null; original = null; preview = null; moved = false; cancelled = false
+        endLift()
         host.invalidate()
+    }
+
+    private fun liftNote(event: MotionEvent, began: InkPoint, at: InkPoint, box: TextBox?) {
+        val report = onLift ?: return
+        if (box == null) return
+        val r = frame(box)
+        val unit = r.width() / box.width
+        val origin = IntArray(2).also(host::getLocationInWindow)
+        val held = StickyLift(box, origin[0] + r.left + (at.x - began.x) * unit, origin[1] + r.top + (at.y - began.y) * unit,
+            unit, origin[0] + event.x, origin[1] + event.y)
+        lift = held
+        report(held)
+    }
+
+    private fun endLift() {
+        if (lift == null) return
+        lift = null
+        onLift?.invoke(null)
     }
 
     private fun gripHit(box: TextBox, x: Float, y: Float): Boolean {
@@ -244,6 +285,8 @@ internal class StickyNoteInput(
     fun draw(canvas: Canvas, notes: List<TextBox>, unit: Float,
              liveInk: Map<String, List<Stroke>> = emptyMap(), afterNote: (TextBox) -> Unit = {}) {
         notes.forEach { note ->
+            // A carried note is drawn by the editor above every page.
+            if (lift != null && note.id == original?.id) return@forEach
             var box = if (note.id == original?.id) preview ?: note else note
             liveInk[box.id]?.let { box = box.copy(stickyInk = it) }
             // The typing field shows the words while it is open; the note keeps its paper and ink.

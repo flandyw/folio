@@ -214,7 +214,7 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
         return if (remote.revision > local.revision) local.copy(revision = remote.revision, remotePayload = remote.remotePayload) else local
     }
     return remote.copy(kind = if (local.notebookId != null) local.kind else remote.kind,
-        startedAt = if (local.notebookId != null) local.startedAt else remote.startedAt,
+        startedAt = if (local.notebookId != null && !remote.completed) local.startedAt else remote.startedAt,
         notebookId = local.notebookId ?: remote.notebookId,
         notebookTitle = local.notebookTitle ?: remote.notebookTitle)
 }
@@ -1483,8 +1483,14 @@ class FocalStudyManager(context: Context) {
                 // next publish starts at the right canonical boundary, not revision zero.
                 entry.changeId !in ack.mutationIds -> entry.copy(
                     revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
-                else -> entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
-                    revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
+                else -> ack.canonical?.takeIf {
+                    it.optJSONObject("metadata")?.has("auto_merge_sources") == true
+                }?.let { canonical ->
+                    focalEntryFromCanonical(sessionId, canonical, mutationId ?: entry.changeId,
+                        entry.userId ?: state.userId ?: return@let null)
+                }?.copy(notebookId = entry.notebookId, notebookTitle = entry.notebookTitle)
+                    ?: entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
+                        revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
             }
         }) }
         if (!persist()) error("Could not save the session receipt")

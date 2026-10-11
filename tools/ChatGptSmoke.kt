@@ -29,9 +29,13 @@ fun main() {
     check(ChatGptReview.selected(listOf(ChatGptDraft(" "))) == null)
     check(ChatGptReview.selected(listOf(ChatGptDraft("Suggestion", false))) == null)
     check(ChatGptReview.selected(listOf(ChatGptDraft("x".repeat(801)))) == null)
-    check(ChatGptReview.selected((1..5).map { ChatGptDraft("Suggestion $it") }) == null)
+    check(ChatGptReview.selected((1..13).map { ChatGptDraft("Suggestion $it") }) == null)
     check(ChatGptReview.selected(listOf(ChatGptDraft("x".repeat(800))))?.single()?.length == 800)
     check(ChatGptReviewIntent.entries.filter { it != ChatGptReviewIntent.CUSTOM }.all { it.prompt.isNotBlank() && it.prompt.length < 700 })
+    check(ChatGptReview.selected((1..12).map { ChatGptDraft("Suggestion $it") })?.size == 12)
+    val hints = ChatGptReview.prompt(ChatGptReviewIntent.PRACTICE, "Year 12", "", 8, true)
+    check(hints.contains("Year 12") && hints.contains("up to 8 notes") && hints.contains("Hints only"))
+    check(ChatGptReview.prompt(ChatGptReviewIntent.CUSTOM, "", "Compare the proofs", 99, false).contains("up to 12 notes"))
     check(ChatGptProtocol.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
     check(ChatGptProtocol.random().length == 43)
     val callback = "/auth/callback?state=expected&code=a%2Bb&client_id=oaiapp_test"
@@ -207,7 +211,8 @@ fun main() {
     rejects { ChatGptProtocol.feedback(feedback().toString(), "another_review") }
     rejects { ChatGptProtocol.feedback(feedback(JSONArray().put(annotation().put("region_id", "R2"))).toString(), "review") }
     rejects { ChatGptProtocol.feedback(feedback(JSONArray()).toString(), "review") }
-    rejects { ChatGptProtocol.feedback(feedback(JSONArray((1..5).map { annotation() })).toString(), "review") }
+    check(ChatGptProtocol.feedback(feedback(JSONArray((1..12).map { annotation() })).toString(), "review").size == 12)
+    rejects { ChatGptProtocol.feedback(feedback(JSONArray((1..13).map { annotation() })).toString(), "review") }
     rejects { ChatGptProtocol.feedback(feedback(JSONArray().put(annotation().put("text", "x".repeat(801)))).toString(), "review") }
     rejects { ChatGptProtocol.feedback(feedback(JSONArray().put(annotation().put("text", " "))).toString(), "review") }
     rejects { ChatGptProtocol.feedback(feedback(JSONArray().put(annotation().put("text", true))).toString(), "review") }

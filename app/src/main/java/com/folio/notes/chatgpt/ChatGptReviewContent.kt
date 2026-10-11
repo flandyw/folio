@@ -107,13 +107,21 @@ import com.folio.notes.math.KaTeXText
             }
         }
         val own = intent == ChatGptReviewIntent.CUSTOM
-        OutlinedTextField(if (own) custom else details, { if (own) onCustom(it.take(2000)) else onDetails(it.take(1300)) },
-            modifier = Modifier.fillMaxWidth(), enabled = enabled, minLines = 2, maxLines = 5, shape = FolioShapes.large,
+        OutlinedTextField(if (own) custom else details, { if (own) onCustom(it.take(4000)) else onDetails(it.take(3000)) },
+            modifier = Modifier.fillMaxWidth(), enabled = enabled, minLines = 2, maxLines = 8, shape = FolioShapes.large,
             label = { Text(if (own) "Your feedback request" else "Anything to focus on? (optional)") },
             placeholder = { Text(if (own) "Tell ChatGPT what you'd like checked…" else "Add the question, criteria or a specific step…") },
-            supportingText = { Text(if (own) "Ask for specific feedback on the page above." else when (intent) {
+            supportingText = { Text(if (own) "Ask for specific feedback on the selected pages." else when (intent) {
                 ChatGptReviewIntent.CHECK -> "Check the steps, explain mistakes, suggest improvements and give a mark if the page shows one."
                 ChatGptReviewIntent.EXPLAIN -> "Make the ideas and confusing steps easier to understand."
+                ChatGptReviewIntent.MARK -> "Add a rubric or marking guide for evidence-based assessment."
+                ChatGptReviewIntent.ERRORS -> "Find recurring errors and the misunderstanding behind them."
+                ChatGptReviewIntent.CONNECTIONS -> "Connect topics, reconcile notation and find missing steps."
+                ChatGptReviewIntent.PRACTICE -> "Generate progressively harder questions with separate answer notes."
+                ChatGptReviewIntent.FLASHCARDS -> "Turn the important ideas into focused question-and-answer cards."
+                ChatGptReviewIntent.PLAN -> "Prioritize study tasks with time estimates and mastery checks."
+                ChatGptReviewIntent.WRITING -> "Improve argument, evidence, structure and clarity."
+                ChatGptReviewIntent.SUMMARY -> "Combine the pages into concise notes, formulas and examples."
                 else -> "Find key ideas, gaps and questions for revision."
             }) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
@@ -182,6 +190,10 @@ import com.folio.notes.math.KaTeXText
             Text("Select useful suggestions and edit the wording before adding them.", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!samePage) ChatGptNotice(Icons.Rounded.Info, "The reviewed page has changed or is no longer open. Review the current page before adding notes.")
+        }
+        if (!feedback.applied) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton({ feedback.drafts.indices.forEach { manager.updateDraft(feedback.request, it, included = true) } }, enabled = enabled) { Text("Select all") }
+            TextButton({ feedback.drafts.indices.forEach { manager.updateDraft(feedback.request, it, included = false) } }, enabled = enabled) { Text("Deselect all") }
         }
         feedback.drafts.forEachIndexed { index, draft ->
             if (feedback.applied && !draft.included) return@forEachIndexed

@@ -32,14 +32,25 @@ import kotlinx.coroutines.launch
     var intentName by rememberSaveable { mutableStateOf(ChatGptReviewIntent.CHECK.name) }
     var details by rememberSaveable { mutableStateOf("") }
     var custom by rememberSaveable { mutableStateOf("") }
+    var depth by rememberSaveable { mutableIntStateOf(8) }
+    var hintsOnly by rememberSaveable { mutableStateOf(false) }
+    var followUp by rememberSaveable(state.feedback?.request) { mutableStateOf("") }
     var previewRetry by remember { mutableIntStateOf(0) }
     var adding by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val intent = ChatGptReviewIntent.valueOf(intentName)
-    val prompt = if (intent == ChatGptReviewIntent.CUSTOM) custom else intent.prompt + details.takeIf(String::isNotBlank)?.let { "\nAdditional context: $it" }.orEmpty()
+    val prompt = ChatGptReview.prompt(intent, details, custom, depth, hintsOnly)
     val account = state.accounts.firstOrNull { it.client == state.active }
     val note = folio.active?.takeUnless { it.hiddenFromLibrary }
     val page = folio.page?.takeIf { note != null && it.loaded }
+    var firstPage by rememberSaveable(note?.id, page?.id) { mutableStateOf((folio.pageIndex + 1).toString()) }
+    var lastPage by rememberSaveable(note?.id, page?.id) { mutableStateOf((folio.pageIndex + 1).toString()) }
+    val first = firstPage.toIntOrNull()
+    val last = lastPage.toIntOrNull()
+    val validRange = note != null && first != null && last != null &&
+        first >= 1 && last <= note.pages.size && first <= folio.pageIndex + 1 &&
+        last >= folio.pageIndex + 1 && last - first < 10
+    val reviewPages = if (validRange) note!!.pages.subList(first!! - 1, last!!) else emptyList()
     var image by remember(note?.id, page, previewRetry) { mutableStateOf<ChatGptPageImage?>(null) }
     var previewError by remember(note?.id, page, previewRetry) { mutableStateOf<String?>(null) }
     var applyError by remember(state.feedback?.request, page) { mutableStateOf<String?>(null) }
@@ -47,7 +58,7 @@ import kotlinx.coroutines.launch
     val samePage = feedback != null && note?.id == feedback.notebook && page == feedback.page
     val selected = feedback?.let { ChatGptReview.selected(it.drafts) }
     val layerEditable = page?.let { PageLayers.editable(it.layers, model.activeLayerOf(it)) } == true
-    val ready = account?.connected == true && account.plan && state.model != null && page != null && image != null
+    val ready = account?.connected == true && account.plan && state.model != null && page != null && image != null && validRange
 
     LaunchedEffect(manager) { manager.prepare() }
     LaunchedEffect(note?.id, page, previewRetry) {
@@ -60,15 +71,15 @@ import kotlinx.coroutines.launch
     }
 
     fun review() {
-        if (ready && note != null && page != null && prompt.isNotBlank()) {
+        if (ready && note != null && page != null && (if (intent == ChatGptReviewIntent.CUSTOM) custom.isNotBlank() else true)) {
             focus.clearFocus(); applyError = null
-            manager.review(note, page, model.repository, prompt)
+            manager.review(note, page, reviewPages, model.repository, prompt)
         }
     }
     fun connect() { if (account?.pending == true) manager.retryVerification() else manager.signIn() }
     fun retry() {
         when (state.operation) {
-            ChatGptOperation.REVIEW -> review()
+            ChatGptOperation.REVIEW -> manager.retryReview()
             ChatGptOperation.SIGN_IN -> connect()
             ChatGptOperation.MODELS -> manager.refreshModels()
             ChatGptOperation.TEST -> manager.test()
@@ -101,13 +112,20 @@ import kotlinx.coroutines.launch
                             if (!wide) preview(Modifier.fillMaxWidth())
                             if (state.error != null) ChatGptErrorCard(state, manager::clearError, ::retry,
                                 canRetry = !state.busy && when (state.operation) {
-                                    ChatGptOperation.REVIEW -> ready && prompt.isNotBlank()
+                                    ChatGptOperation.REVIEW -> account?.connected == true && account.plan && state.model != null
                                     ChatGptOperation.TEST -> account?.connected == true && account.plan && state.model != null
                                     ChatGptOperation.OPEN -> false
                                     else -> true
                                 })
                             if (feedback != null) {
                                 ChatGptFeedbackContent(feedback, samePage, !state.busy, manager)
+                                OutlinedTextField(followUp, { followUp = it.take(2000) }, Modifier.fillMaxWidth(),
+                                    label = { Text("Ask a follow-up") }, placeholder = { Text("Explain note 2, challenge the marking, or make harder practice…") },
+                                    enabled = !state.busy, minLines = 2, maxLines = 4)
+                                Text("A follow-up shares the reviewed pages again, your edited feedback and this question. The new response replaces this review; notes already added stay in your notebook.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                OutlinedButton({ focus.clearFocus(); manager.followUp(followUp) },
+                                    enabled = !state.busy && followUp.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Continue review") }
                                 if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(Icons.Rounded.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
                                 applyError?.let { ChatGptNotice(Icons.Rounded.ErrorOutline, it, error = true) }
                             } else {
@@ -117,9 +135,30 @@ import kotlinx.coroutines.launch
                                     ChatGptReasoningPicker(state, manager)
                                 } else ChatGptConnectCard(account, !state.busy, ::connect)
                                 if (note != null && page != null) {
+                                    Text("Pages to review", style = MaterialTheme.typography.titleMedium)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        OutlinedTextField(firstPage, { firstPage = it }, Modifier.weight(1f),
+                                            label = { Text("From page") }, singleLine = true, enabled = !state.busy,
+                                            isError = !validRange)
+                                        OutlinedTextField(lastPage, { lastPage = it }, Modifier.weight(1f),
+                                            label = { Text("To page") }, singleLine = true, enabled = !state.busy,
+                                            isError = !validRange)
+                                    }
+                                    Text("Choose up to 10 pages, including the current page (${folio.pageIndex + 1}). Feedback notes are added to the current page.",
+                                        style = MaterialTheme.typography.bodySmall)
                                     ChatGptRequestForm(intent, details, custom, enabled = !state.busy,
                                         onIntent = { intentName = it.name }, onDetails = { details = it }, onCustom = { custom = it })
-                                    ChatGptNotice(Icons.Rounded.Lock, "Only this page and your request are shared with OpenAI when you choose Review page.")
+                                    Text("Feedback depth", style = MaterialTheme.typography.titleSmall)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(4 to "Quick · 4 notes", 8 to "Thorough · 8 notes", 12 to "Deep · 12 notes").forEach { (count, label) ->
+                                            FilterChip(depth == count, { depth = count }, label = { Text(label) }, enabled = !state.busy)
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Hints only · let me solve it", Modifier.weight(1f))
+                                        Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
+                                    }
+                                    ChatGptNotice(Icons.Rounded.Lock, "Only the selected pages and your request are shared with OpenAI when you choose Review pages.")
                                 }
                             }
                             Spacer(Modifier.height(FolioSpacing.dp4))
@@ -171,7 +210,7 @@ import kotlinx.coroutines.launch
                         state.model == null -> { label = "Load available models"; enabled = true; action = manager::refreshModels }
                         previewError != null -> { label = "Retry page preview"; enabled = true; action = { previewRetry++ } }
                         image == null -> { label = "Preparing preview…"; enabled = false; action = {} }
-                        else -> { label = if (feedback != null) "Review current page" else "Review page"; enabled = ready && prompt.isNotBlank(); action = ::review }
+                        else -> { label = if (feedback != null) "Review selected pages" else "Review pages"; enabled = ready && (if (intent == ChatGptReviewIntent.CUSTOM) custom.isNotBlank() else true); action = ::review }
                     }
                     if (feedback != null && !feedback.applied && samePage && selected == null)
                         Text(if (feedback.drafts.none { it.included }) "Select at least one note to add." else "Write something in each selected note before adding them.",

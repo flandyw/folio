@@ -34,6 +34,23 @@ notebook switches.
 
 These changes keep the existing session JSON fields and notebook storage formats.
 
+## Short session merging
+
+Focal migration `0022_merge_short_study_sessions.sql` combines completed focus
+fragments under two minutes for the same subject when the gap is at most five
+minutes. Groups can keep growing as more fragments arrive. Overlapping sessions,
+unknown subjects, exam sittings and intervening work on another subject stay
+separate. Breaks remain gaps between the original intervals, not active time.
+Groups stop at 100 intervals or the command metadata size limit.
+
+The server keeps the receiving session ID and publishes the absorbed sessions as
+deleted tombstones. Original titles and metadata are retained in
+`metadata.auto_merge_sources`, and the original rows remain in the database.
+The migration also groups existing fragments. Folio adopts the complete merged
+timeline from both mutation receipts and remote updates, including its earlier
+start time. Merging happens when sessions sync; offline entries remain separate
+until then. Both clients must use the migrated Supabase database.
+
 ## Verification
 
 `node tools/focal-study-smoke.cjs` exercises the actual pure models and helpers:

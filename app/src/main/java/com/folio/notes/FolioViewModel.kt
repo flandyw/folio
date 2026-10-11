@@ -1682,7 +1682,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.active ?: return false
         val page = _state.value.page ?: return false
         if (feedback.applied || note.id != feedback.notebook || page != feedback.page || !page.loaded) return false
-        if (feedback.comments.size !in 1..4 || feedback.comments.any { it.isBlank() || it.length > 800 }) return false
+        if (feedback.comments.size !in 1..com.folio.notes.chatgpt.ChatGptReview.MAX_NOTES || feedback.comments.any { it.isBlank() || it.length > 800 }) return false
         val layer = activeLayerOf(page)
         if (!PageLayers.editable(page.layers, layer)) { reportError("Choose an unlocked, visible layer for the feedback."); return false }
         val bounds = InkGeometry.contentBounds(page.strokes, page.texts, page.images, InkRenderer::textHeight, page.width, page.height)
@@ -2079,6 +2079,23 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 selectPage(note.pages.indexOfFirst { it.id == targetId })
                 _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
             }
+        }
+    }
+    /**
+     * Hands a sticky note to another page, its top-left corner at ([x], [y]) in that page's units
+     * (outside the paper is fine). The destination is written before the source is cleared, so an
+     * interruption can leave a duplicate but never lose the note; each page undoes its own half.
+     */
+    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float) {
+        if (sourceId == targetId || !box.isSticky) return
+        viewModelScope.launch {
+            val target = awaitLoaded(targetId) ?: run { reportError("Couldn't open the destination page."); return@launch }
+            val note = _state.value.active ?: return@launch
+            val source = note.pages.find { it.id == sourceId && it.loaded } ?: return@launch
+            if (source.texts.none { it.id == box.id }) return@launch
+            val placed = box.copy(x = x, y = y, layer = activeLayerOf(target))
+            updateContent(target.id, target.strokes, target.texts + placed, target.images)
+            updateContent(source.id, source.strokes, source.texts.filterNot { it.id == box.id }, source.images)
         }
     }
     /** Applies a new look to the selection as one undoable step; nulls leave those properties alone. */

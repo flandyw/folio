@@ -204,7 +204,7 @@ internal object ChatGptProtocol {
         val value = JSONObject(raw)
         require(value.opt("schema_version") is Number && value.getDouble("schema_version") == 1.0 && value.opt("request_id") == request) { "Feedback does not match this request" }
         val annotations = value.getJSONArray("annotations")
-        require(annotations.length() in 1..4) { "Expected one to four comments" }
+        require(annotations.length() in 1..ChatGptReview.MAX_NOTES) { "Expected one to twelve comments" }
         return (0 until annotations.length()).map {
             val annotation = annotations.getJSONObject(it)
             require(annotation.opt("region_id") == "R1" && annotation.opt("kind") == "sticky_note") { "Unknown annotation target" }
@@ -217,7 +217,7 @@ internal object ChatGptProtocol {
       "type":"json_schema","name":"folio_feedback","strict":true,"schema":{
         "type":"object","additionalProperties":false,
         "properties":{"schema_version":{"type":"integer","enum":[1]},"request_id":{"type":"string"},
-          "annotations":{"type":"array","items":{"type":"object","additionalProperties":false,
+          "annotations":{"type":"array","minItems":1,"maxItems":12,"items":{"type":"object","additionalProperties":false,
             "properties":{"region_id":{"type":"string","enum":["R1"]},"kind":{"type":"string","enum":["sticky_note"]},"text":{"type":"string"}},
             "required":["region_id","kind","text"]}}},"required":["schema_version","request_id","annotations"]}}
     """)

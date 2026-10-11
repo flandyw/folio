@@ -192,6 +192,14 @@ class InkView(context: Context) : View(context) {
     fun clearStickyInk(id: String) = stickyNotes.clearInk(id)
     fun duplicateSticky(id: String) = stickyNotes.duplicate(id)
     fun bringStickyToFront(id: String) = stickyNotes.bringToFront(id)
+    /** Carries a sticky note being moved over the whole editor, not just this view; see [StickyLift]. */
+    internal var onStickyLift: ((StickyLift?) -> Unit)?
+        get() = stickyNotes.onLift
+        set(value) { stickyNotes.onLift = value }
+    /** Offered a carried note on release; true when it was placed elsewhere (another page). */
+    internal var onStickyDrop: ((StickyLift) -> Boolean)?
+        get() = stickyNotes.onDrop
+        set(value) { stickyNotes.onDrop = value }
     private var stickyFrameReported: Rect? = null
     private val stickyNotes = StickyNoteInput(this, { page }, ::commitTexts,
         { box -> RectF(originX + box.x * scale, originY + box.y * scale,
@@ -1407,6 +1415,7 @@ class InkView(context: Context) : View(context) {
         inputRouter.reset(::handleTouchEvent)
         onLiveInk(null, false)
         onFollowLanding(null)
+        stickyNotes.dropLift()
         stickyNotes.reset()
         removeCallbacks(followFrame)
         removeCallbacks(reportMeasurement)
