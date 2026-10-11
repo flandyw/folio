@@ -10,16 +10,7 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -98,7 +89,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -603,13 +593,14 @@ private fun paperLabel(p: Paper): String = when (p) {
     // per-device preference; infinite canvases and scores keep their own layouts.
     var singlePage by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.SINGLE_PAGE_VIEW, false)) }
     val paged = music == null && singlePage && !page.infinite
+    val viewportPaged by rememberUpdatedState(paged)
     var savedCanvas by remember(page.id) { mutableStateOf(session?.viewport ?: WorkspaceViewport()) }
     LaunchedEffect(note.id, pages) {
         snapshotFlow {
             val current = visibleCurrentPage(pages, note.pages.size)
             // Tab restoration starts at the current page, which may no longer be the first
             // visible one. Keep its actual position rather than the previous page's offset.
-            val offset = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index == current }?.let { -it.offset }
+            val offset = if (viewportPaged) 0 else pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index == current }?.let { -it.offset }
                 ?: pages.firstVisibleItemScrollOffset
             WorkspaceViewport(documentZoom, documentPan, offset,
                 savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom) to tool
@@ -654,23 +645,36 @@ private fun paperLabel(p: Paper): String = when (p) {
             InkGeometry.contentBounds(page.strokes, page.texts, page.images, { InkRenderer.textHeight(it) }, page.width, page.height)
         )
     }
+    val navigation = remember(note.id) { PageNavigation() }
+    var navigationGeneration by remember(note.id) { mutableIntStateOf(0) }
     fun jumpTo(index: Int) {
-        activeInkView?.suspendWritingFollow(); motion.reset(); model.selectPage(index)
-        // The column is not composed in the single-page view, and scrollToItem would wait for a layout that never comes.
-        if (paged) pages.requestScrollToItem(index) else scope.launch { pages.scrollToItem(index) }
+        val live = model.state.value.active?.takeIf { it.id == note.id } ?: return
+        if (live.pages.isEmpty()) return
+        val target = index.coerceIn(0, live.pages.lastIndex)
+        finishTextEditing()
+        activeInkView?.suspendWritingFollow()
+        motion.reset()
+        navigation.request(live.pages[target].id, pages.layoutInfo)
+        navigationGeneration++
+        model.selectPage(target)
+        // One synchronous request replaces all earlier requests, including an in-flight fling.
+        // It also survives a column that is temporarily absent (paged view or a canvas).
+        pages.requestScrollToItem(target)
     }
     /** Previous/next page in either view; the single-page view starts each page fitted. */
     fun turnPage(forward: Boolean) {
-        val target = (state.pageIndex + if (forward) 1 else -1).coerceIn(0, note.pages.lastIndex)
-        if (target == state.pageIndex) return
-        jumpTo(target)
+        val live = model.state.value.takeIf { it.activeId == note.id } ?: return
+        val last = live.active?.pages?.lastIndex ?: return
+        val target = (live.pageIndex + if (forward) 1 else -1).coerceIn(0, last)
+        if (target != live.pageIndex) jumpTo(target)
     }
     fun jumpToEnd(last: Boolean) {
-        val target = if (last) note.pages.lastIndex else 0
-        if (target != state.pageIndex) jumpTo(target)
+        val live = model.state.value.takeIf { it.activeId == note.id } ?: return
+        val target = if (last) live.active?.pages?.lastIndex ?: return else 0
+        if (target != live.pageIndex) jumpTo(target)
     }
     // Every way of changing page (thumbnails, search, outline, delete, undo) starts the next page fitted.
-    LaunchedEffect(page.id, paged) { if (paged) { documentZoom = 1f; documentPan = 0f } }
+    LaunchedEffect(page.id, paged) { if (paged) { canvasReset++; documentZoom = 1f; documentPan = 0f } }
     fun setSinglePage(on: Boolean) {
         singlePage = on
         appPrefs.edit().putBoolean(AppPrefs.SINGLE_PAGE_VIEW, on).apply()
@@ -678,7 +682,7 @@ private fun paperLabel(p: Paper): String = when (p) {
         motion.reset()
         documentZoom = 1f; documentPan = 0f
         // The scrolling column is not composed while paged, so it reopens on the current page.
-        if (!on) pages.requestScrollToItem(state.pageIndex.coerceIn(0, note.pages.lastIndex))
+        if (!on) jumpTo(model.state.value.pageIndex)
     }
     /** Follows a tapped PDF link: another page jumps there, a web address opens in the browser. */
     fun openPdfLink(link: PdfLink) {
@@ -699,16 +703,9 @@ private fun paperLabel(p: Paper): String = when (p) {
         }
     }
     fun addPage() {
-        motion.reset()
-        val index = note.pages.size
         model.addPage(nextPagePaper)
         nextPagePaper = null
-        if (page.infinite) return
-        scope.launch {
-            snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it > index + 1 }
-            pages.scrollToItem(index)
-            model.selectPage(index)
-        }
+        jumpTo(model.state.value.pageIndex)
     }
     fun pullAddPage() {
         pullAdding = true
@@ -724,17 +721,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         motion.pullEnabled = { !pullAdding && appPrefs.getBoolean(EditorQuickPrefs.PULL_TO_ADD_PAGE, true) && note.pages.lastOrNull()?.infinite == false && peekShown == null }
         motion.onPullCommit = { pullAddPage() }
     }
-    /** Waits for the lazy list to grow, then lands on a page created mid-notebook. */
-    fun revealNewPage(index: Int) {
-        motion.reset()
-        if (page.infinite) return
-        val expected = note.pages.size + 2 // the fresh page plus the trailing Add button
-        scope.launch {
-            snapshotFlow { pages.layoutInfo.totalItemsCount }.first { it >= expected }
-            pages.scrollToItem(index)
-            model.selectPage(index)
-        }
-    }
+    /** A pending scroll request lands after the new page is measured, in either layout. */
+    fun revealNewPage(index: Int) { jumpTo(index) }
     fun selectAllInk() {
         val view = activeInkView
         if (view != null) view.selectAll()
@@ -851,14 +839,26 @@ private fun paperLabel(p: Paper): String = when (p) {
             motion.reset()
             if (!page.infinite) {
                 val target = state.pageIndex.coerceIn(0, note.pages.lastIndex)
-                if (paged) pages.requestScrollToItem(target) else pages.scrollToItem(target)
+                navigation.request(note.pages[target].id, pages.layoutInfo)
+                navigationGeneration++
+                pages.requestScrollToItem(target)
             }
             handledNavigation = state.navigationRequest
         }
         // A score has no scrolling column: the stage decides which pages are on view.
         if (page.infinite || music != null || paged) return@LaunchedEffect
-        snapshotFlow { visibleCurrentPage(pages, note.pages.size) }
-            .distinctUntilChanged().collect { index -> index?.let(model::selectPage) }
+        snapshotFlow {
+            val layout = pages.layoutInfo
+            navigationGeneration to PageNavigation.Viewport(
+                PageNavigation.Position(pages.firstVisibleItemIndex, pages.firstVisibleItemScrollOffset),
+                layout.visibleItemsInfo.map { it.index }.toSet(), pages.canScrollForward,
+                visibleCurrentPage(pages, note.pages.size), layout)
+        }.collect { (_, viewport) ->
+            val live = model.state.value.active?.takeIf { it.id == note.id } ?: return@collect
+            navigation.observe(live.pages.map { it.id }, viewport)
+                ?.takeIf { it != model.state.value.pageIndex }
+                ?.let(model::selectPage)
+        }
     }
     // The pages beside the open one are read before they are scrolled to, so previous/next and
     // the fast-scroll thumb land on ink instead of a spinner. Loading is deduplicated in the
@@ -1007,15 +1007,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                 }
             }
             if (paged || (music != null && musicInsets != null)) {
-                val sheet: @Composable (NotePage, Int) -> Unit = { item, index ->
-                    EditorPage(note.id, item, model, if (music?.performance == true) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, item.id == page.id,
-                        onActive = { model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
+                val sheet: @Composable (NotePage, Int, Boolean) -> Unit = { item, index, preview ->
+                    EditorPage(note.id, item, model, if (music?.performance == true) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, !preview && item.id == page.id,
+                        onActive = { if (!preview && music != null) model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
                         onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
                         onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
                         textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
                         onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                         onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music?.onKey,
-                        canvasReset = canvasReset, onCanvasZoom = { documentZoom = it }, activeLayer = model.activeLayerOf(item),
+                        canvasReset = canvasReset, onCanvasZoom = { if (!preview) documentZoom = it }, activeLayer = model.activeLayerOf(item),
                         selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                         onImageSelected = { image -> selectedImage = image?.let { item.id to it } },
                         onCropMode = { if (item.id == page.id) cropActive = it }, onNavigating = { inkNavigating = it },
@@ -1025,20 +1025,26 @@ private fun paperLabel(p: Paper): String = when (p) {
                         eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                         palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                         onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                        onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                        inputBlocked = music?.performance == true, laserPointer = laserPointer && item.id == page.id,
+                        onSelectAllView = { if (!preview && item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
+                        inputBlocked = preview || music?.performance == true, readOnly = preview, hideFromAccessibility = preview, laserPointer = laserPointer && item.id == page.id,
                         ruler = ruler?.takeIf { it.first == item.id }?.second, onRulerChanged = { line -> ruler = item.id to line },
                         onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                         selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                         selectionMenuViewport = selectionViewport,
-                        selectionMenu = if (item.id != page.id || inkNavigating || restyleSelection != null || music?.performance == true) null
+                        selectionMenu = if (preview || item.id != page.id || inkNavigating || restyleSelection != null || music?.performance == true) null
                             else if (selected.isNotEmpty()) selectionMenu else pictureMenu)
                 }
                 if (music != null && musicInsets != null) MusicSheets(note, music, musicInsets, zoomed = documentZoom > 1.02f, onFit = { canvasReset++; documentZoom = 1f },
-                    tapTurns = music.performance || tool == Tool.HAND || (!finger && tool != Tool.TEXT && tool != Tool.LASSO), sheet)
-                else PagedSheet(note.pages[state.pageIndex.coerceIn(0, note.pages.lastIndex)], state.pageIndex.coerceIn(0, note.pages.lastIndex), note.pages.size,
-                    top = floatingToolbarTop + FolioSpacing.dp4, swipeTurns = tool == Tool.HAND || !finger,
-                    zoomed = documentZoom > 1.02f, onTurn = ::turnPage, sheet = sheet)
+                    tapTurns = music.performance || tool == Tool.HAND || (!finger && tool != Tool.TEXT && tool != Tool.LASSO)) { item, index -> sheet(item, index, false) }
+                else SinglePageSheet(note.pages, state.pageIndex.coerceIn(0, note.pages.lastIndex),
+                    top = floatingToolbarTop + FolioSpacing.dp4,
+                    swipeTurns = (tool == Tool.HAND || !finger) && textEditor == null && !cropActive && selected.isEmpty() && selectedImage == null && !peekOpen,
+                    zoomed = documentZoom > 1.02f, haptics = haptics,
+                    onSelect = { origin, destination ->
+                        val live = model.state.value
+                        val target = live.active?.pages?.indexOfFirst { it.id == destination } ?: -1
+                        if (live.page?.id == origin && target >= 0) jumpTo(target)
+                    }, sheet = sheet)
             } else if (page.infinite) {
                 EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
@@ -1615,11 +1621,11 @@ private fun paperLabel(p: Paper): String = when (p) {
                             },
                             pageIndex = state.pageIndex,
                             pageCount = note.pages.size,
-                            onPrevious = { jumpTo(state.pageIndex - 1) },
-                            onNext = { jumpTo(state.pageIndex + 1) },
+                            onPrevious = { turnPage(false) },
+                            onNext = { turnPage(true) },
                             onPages = { pageBrowser = true },
-                            onFirstPage = { jumpTo(0) },
-                            onLastPage = { jumpTo(note.pages.size - 1) },
+                            onFirstPage = { jumpToEnd(false) },
+                            onLastPage = { jumpToEnd(true) },
                             zoomPercent = (documentZoom * 100).roundToInt(),
                             onFit = ::resetZoom,
                             onFitAll = if (page.infinite) ::fitAllContent else null,
@@ -2322,7 +2328,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, laserPointer: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, hideFromAccessibility: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, laserPointer: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2509,7 +2515,11 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                     sticky = if (box != null && frame != null) StickyFocus(box, frame, typing) else null
                 }
                 view.canvasBackgroundColor = canvasBackground.toArgb()
-                if (readOnly) view.contentDescription = "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+                view.importantForAccessibility = if (hideFromAccessibility) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                view.isFocusable = !hideFromAccessibility
+                view.contentDescription = if (readOnly) "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+                    else "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
                 view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.pageCamera = pageCamera; view.onPageKey = onPageKey; view.tool = tool; view.inkColor = options.color
                 view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
@@ -2668,105 +2678,13 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
 }
 
 /**
- * One page fitted to the room. A horizontal finger swipe drags the page with the finger and turns
- * it on release past a quarter of the width or a flick; at the first/last page it rubber-bands
- * back. Never while zoomed in or writing with a finger.
- */
-@Composable private fun PagedSheet(
-    page: NotePage, index: Int, count: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, onTurn: (forward: Boolean) -> Unit,
-    sheet: @Composable (NotePage, Int) -> Unit,
-) {
-    val inputStylusActivity = LocalStylusActivity.current
-    val turn by rememberUpdatedState(onTurn)
-    val scope = rememberCoroutineScope()
-    var dragX by remember { mutableFloatStateOf(0f) }
-    var width by remember { mutableFloatStateOf(1f) }
-    var settle by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // A swipe already slid the page, so its turn skips the button transition.
-    var swiped by remember { mutableStateOf(false) }
-    val lastIndex = count - 1
-    fun settleTo(from: Float, to: Float, ms: Int, then: (() -> Unit)? = null) {
-        settle?.cancel()
-        settle = scope.launch {
-            animate(from, to, animationSpec = tween(ms)) { v, _ -> dragX = v }
-            then?.invoke()
-        }
-    }
-    Box(Modifier.fillMaxSize().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp8, top = top, bottom = FolioSpacing.dp8)
-        .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
-        .pointerInput(inputStylusActivity, swipeTurns, zoomed, index, lastIndex) {
-            if (!swipeTurns || zoomed) return@pointerInput
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                val cancellationSerial = inputStylusActivity.cancellationSerial
-                if (down.type != PointerType.Touch) return@awaitEachGesture
-                settle?.cancel()
-                val slop = viewConfiguration.touchSlop
-                val tracker = VelocityTracker()
-                tracker.addPosition(down.uptimeMillis, down.position)
-                var dragging = false
-                var abandoned = false
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    if (inputStylusActivity.cancellationSerial != cancellationSerial ||
-                        event.changes.size > 1 || event.changes.any { it.type != PointerType.Touch }) { abandoned = true; break }
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: run { abandoned = true; null } ?: break
-                    if (!change.pressed) break
-                    val delta = change.position - down.position
-                    if (!dragging) {
-                        // Vertical or diagonal gestures belong to the page underneath.
-                        if (kotlin.math.abs(delta.y) > slop && kotlin.math.abs(delta.y) > kotlin.math.abs(delta.x)) return@awaitEachGesture
-                        if (kotlin.math.abs(delta.x) <= slop || kotlin.math.abs(delta.x) < kotlin.math.abs(delta.y) * 1.2f) continue
-                        dragging = true
-                    }
-                    change.consume()
-                    tracker.addPosition(change.uptimeMillis, change.position)
-                    val atEdge = (delta.x > 0f && index == 0) || (delta.x < 0f && index == lastIndex)
-                    dragX = if (atEdge) delta.x * 0.3f else delta.x
-                }
-                if (!dragging) return@awaitEachGesture
-                val vx = tracker.calculateVelocity().x
-                val forward = dragX < 0f
-                val canTurn = if (forward) index < lastIndex else index > 0
-                val commit = !abandoned && canTurn && (kotlin.math.abs(dragX) > width * 0.25f || kotlin.math.abs(vx) > 900f && (vx < 0f) == forward)
-                if (commit) {
-                    val sign = if (forward) -1f else 1f
-                    settleTo(dragX, sign * width * 0.6f, 110) {
-                        swiped = true
-                        turn(forward)
-                        dragX = -sign * width * 0.2f
-                        settleTo(dragX, 0f, 160)
-                    }
-                } else settleTo(dragX, 0f, 180)
-            }
-        }) {
-        // A button turn slides in from the side it came from; only the page on view is ever the active one.
-        AnimatedContent(targetState = index to page, contentKey = { it.second.id }, label = "pagedSheet",
-            modifier = Modifier.graphicsLayer { translationX = dragX; alpha = 1f - 0.4f * (kotlin.math.abs(dragX) / width).coerceIn(0f, 1f) },
-            transitionSpec = {
-                if (swiped) {
-                    swiped = false
-                    EnterTransition.None togetherWith ExitTransition.None
-                } else {
-                    val forward = targetState.first >= initialState.first
-                    (slideInHorizontally(tween(200)) { if (forward) it / 4 else -it / 4 } + fadeIn(tween(200))) togetherWith
-                        (slideOutHorizontally(tween(200)) { if (forward) -it / 4 else it / 4 } + fadeOut(tween(120)))
-                }
-            }) { (i, p) -> Box(Modifier.fillMaxSize().clip(FolioShapes.medium)) { sheet(p, i) } }
-    }
-}
-
-/**
  * Bottom-corner page controls: previous/next, the position, and the single-page view switch.
- * Holding an arrow runs to the first or last page. The pill is dimmed until touched so it
- * costs the writing corner as little as possible.
+ * Holding an arrow runs to the first or last page; releasing it never fires a second turn.
  */
 @Composable private fun PageNavigator(
     index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onJumpToEnd: (last: Boolean) -> Unit,
     onToggleView: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    val back = rememberLongPressGuard()
-    val next = rememberLongPressGuard()
     Surface(modifier.semantics { contentDescription = "Page ${index + 1} of $count" }, shape = FolioShapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .92f), tonalElevation = 3.dp, shadowElevation = 2.dp) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
@@ -2775,18 +2693,14 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                     if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
                     tint = if (singlePage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(back.click { onTurn(false) }, Modifier.longPressAction(back) { onJumpToEnd(false) }, enabled = index > 0) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page. Hold for the first page")
-            }
+            PageNavigationArrow(false, index > 0, { onTurn(false) }, { onJumpToEnd(false) })
             // Sized for the widest label ("12 / 12") with tabular digits, so the arrows never shift as the page changes.
             val counter = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
             Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
                 Text("$count / $count", style = counter, color = Color.Transparent)
                 Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(next.click { onTurn(true) }, Modifier.longPressAction(next) { onJumpToEnd(true) }, enabled = index < count - 1) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page. Hold for the last page")
-            }
+            PageNavigationArrow(true, index < count - 1, { onTurn(true) }, { onJumpToEnd(true) })
         }
     }
 }
