@@ -109,7 +109,7 @@ import androidx.compose.ui.unit.dp
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     Row(Modifier.padding(FolioSpacing.dp6), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                         FolioToolToggle(penSelected, { penSelected = true }, Icons.Rounded.Edit, "Pen")
-                        FolioToolToggle(!penSelected, { penSelected = false }, Icons.Rounded.Gesture, "Lasso select")
+                        FolioToolToggle(!penSelected, { penSelected = false }, ToolIcons.Lasso, "Lasso select")
                     }
                 }
                 LoadingIndicator()

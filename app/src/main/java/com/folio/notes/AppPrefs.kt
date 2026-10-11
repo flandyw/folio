@@ -9,6 +9,15 @@ package com.folio.notes
  * and every screen reads the same value.
  */
 object AppPrefs {
+    /** Width of the pale sideways-follow hint; zero hides it without changing movement. */
+    const val FOLLOW_EDGE_STRIP_WIDTH = "follow.edgeStripWidth"
+    const val DEFAULT_FOLLOW_EDGE_STRIP_WIDTH = .1f
+    fun followEdgeStripWidth(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_FOLLOW_EDGE_STRIP_WIDTH).coerceIn(0f, .35f)
+    const val ZOOM_PANE_HEIGHT = "writing.zoomPaneHeight"
+    const val DEFAULT_ZOOM_PANE_HEIGHT = 280f
+    fun zoomPaneHeight(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_ZOOM_PANE_HEIGHT).coerceIn(180f, 480f)
     const val FULLSCREEN = "fullscreen"
     const val KEEP_SCREEN_ON = "editor.keepScreenOn"
     const val AUTO_UPDATE = "updates.auto"
@@ -73,6 +82,15 @@ object AppPrefs {
     const val EXPORT_PAGES_FORMAT = "export.pagesFormat"
     /** Long-press action for the editor's share button, stored as a `ShareShortcut` name. */
     const val SHARE_LONG_PRESS = "share.longPress"
+    /** Editor chrome layout, stored as a `ToolbarStyle` name; the tool order and pins are shared by both. */
+    const val TOOLBAR_STYLE = "editor.toolbarStyle"
+    /** What the toolbar shows beyond its tools (`ToolbarOptions`); both styles read the same values. */
+    const val TOOLBAR_UNDO = "toolbar.undoRedo"
+    const val TOOLBAR_COLOUR_DOTS = "toolbar.colourDots"
+    const val TOOLBAR_PINNED_PRESETS = "toolbar.showPinned"
+    const val TOOLBAR_TIMER = "toolbar.timer"
+    const val TOOLBAR_INK_OPTIONS_OPEN = "toolbar.inkOptionsOpen"
+    const val TOOLBAR_TABS = "toolbar.tabs"
     /** Editor shows one fitted page at a time instead of the scrolling column. */
     const val SINGLE_PAGE_VIEW = "singlePageView"
     const val SPLIT_FRACTION = "workspace.splitFraction"
@@ -209,6 +227,8 @@ object AppPrefs {
     fun pdfExportMode(raw: String?): PdfExportMode = PdfExportMode.safeValueOf(raw)
 
     fun exportPagesFormat(raw: String?): PageExportFormat = PageExportFormat.safeValueOf(raw)
+
+    fun toolbarStyle(raw: String?): ToolbarStyle = ToolbarStyle.safeValueOf(raw)
 
     fun shareShortcut(raw: String?): ShareShortcut = ShareShortcut.safeValueOf(raw)
 

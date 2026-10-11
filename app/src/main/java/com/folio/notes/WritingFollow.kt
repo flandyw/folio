@@ -72,6 +72,24 @@ internal class FollowBackHistory(private val limit: Int = 8) {
     fun pop(): Entry? = entries.removeLastOrNull()
 }
 
+/** Keep an automatic return's screen destination through pen-down interruptions. */
+internal class FollowReturnTarget {
+    private var line: Pair<Float, Float>? = null
+    private var screenY = 0f
+
+    fun target(advance: WritingAdvance, screenFromY: Float, preferredY: Float): Float {
+        val nextLine = advance.from.y to advance.to.y
+        if (line != nextLine) {
+            line = nextLine
+            // Returning from above the preferred height must still scroll down one line.
+            screenY = minOf(screenFromY, preferredY)
+        }
+        return screenY
+    }
+
+    fun clear() { line = null }
+}
+
 class WritingFollow {
     var state = WritingFollowState()
     /** Corrections behind the writing frontier must not move the page. */
@@ -98,6 +116,14 @@ class WritingFollow {
             if (fraction < minOf(1f - edgeThreshold.coerceIn(.55f, .95f), destination - .08f).coerceAtLeast(.05f))
                 (destination - fraction).coerceAtLeast(0f) else 0f
         }
+    }
+
+    /** Following within a line and placing natural line breaks obey the vertical toggle. */
+    fun verticalShift(screenY: Float, targetY: Float, viewportHeight: Float, preferences: FollowPreferences,
+                      placing: Boolean = false): Float {
+        if (!preferences.verticalFollow) return 0f
+        return if (placing || screenY > targetY + viewportHeight * preferences.verticalDeadBand)
+            targetY - screenY else 0f
     }
 
     fun suspend(now: Long) {
@@ -156,14 +182,15 @@ class WritingFollow {
     }
 
     fun returnFor(region: WritingLane, guides: List<WritingGuide>, preferences: FollowPreferences,
-                  columnStart: Float? = null): WritingAdvance? {
+                  columnStart: Float? = null, startOverride: Float? = null): WritingAdvance? {
         val baseline = state.baselineY ?: return null
         if (preferences.mode != FollowMode.TEXT || state.needsPlacement || state.candidateLane != null || !readyForReturn()) return null
         val frontier = if (preferences.direction == WritingDirection.LTR) state.frontierRight else state.frontierLeft
         if (frontier == null || !(FollowNavigation.nearEnd(frontier, region, preferences.direction, preferences.endMargin) ||
                 reachedLearnedEnd(frontier, region, preferences.direction))) return null
         return FollowNavigation.next(baseline, region, guides, lineSpacing(preferences.spacing, preferences.adaptiveSpacing),
-            state.textStartX ?: columnStart ?: state.lineStartX, preferences.direction)
+            startOverride ?: state.textStartX ?: columnStart ?: state.lineStartX, preferences.direction,
+            overrideStart = startOverride != null)
     }
 
     /**
@@ -529,6 +556,8 @@ data class FollowPreferences(
     val endMargin: Float = .08f,
     /** Mark where the next line begins while a return is pending and until writing resumes. */
     val showLandingGuide: Boolean = true,
+    /** Visual edge hint only; edgeThreshold controls when following begins. */
+    val edgeStripWidth: Float = .1f,
 ) {
     val automaticReturnDelayMs: Int get() = returnDelayMs.coerceIn(300, 2000)
     /** Fixed quiet period, independent of stroke history and distance from the visible edge. */
@@ -674,7 +703,8 @@ object FollowNavigation {
     }
 
     fun next(baseline: Float, region: WritingLane, guides: List<WritingGuide>, spacing: Float,
-             lineStartX: Float? = null, direction: WritingDirection = WritingDirection.LTR): WritingAdvance? {
+             lineStartX: Float? = null, direction: WritingDirection = WritingDirection.LTR,
+             overrideStart: Boolean = false): WritingAdvance? {
         if (!baseline.isFinite() || baseline > region.bottom) return null
         val currentY = baseline.coerceAtLeast(region.top)
         val eligible = guides.filter { it.left >= region.left - 6 && it.right <= region.right + 6 && it.y in region.top..region.bottom }
@@ -684,12 +714,15 @@ object FollowNavigation {
         if (current != null && next == null) return null
         val y = next?.y ?: (currentY + spacing.coerceIn(16f, 96f))
         if (y > region.bottom) return null
-        // Printed rules keep their margins. On blank pages return to where writing began.
+        // Printed rules keep their margins unless the writer deliberately overrides the indent.
         val start = lineStartX?.takeIf { it.isFinite() }?.coerceIn(region.left, region.right)
         val left = if (direction == WritingDirection.LTR) start ?: region.left else region.left
         val right = if (direction == WritingDirection.RTL) start ?: region.right else region.right
-        return WritingAdvance(current ?: WritingGuide(left, right, baseline),
-            next ?: WritingGuide(left, right, y))
+        val destination = if (next != null && overrideStart && start != null)
+            if (direction == WritingDirection.LTR) next.copy(left = start.coerceIn(next.left, next.right))
+            else next.copy(right = start.coerceIn(next.left, next.right))
+            else next ?: WritingGuide(left, right, y)
+        return WritingAdvance(current ?: WritingGuide(left, right, baseline), destination)
     }
     /**
      * The line above [baseline], for going back to correct or add to it: the printed rule before

@@ -40,15 +40,17 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Unit)?> { null }
+
 /**
  * Settings, as one stack of grouped pages. A phone shows a home list that drills into a category;
  * a tablet keeps the category list beside the page. Search looks at individual settings, not just
  * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList()) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
-    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(if (startWithWritingFollow) SettingsCategory.FOLLOW else null) }
     var query by rememberSaveable { mutableStateOf("") }
     val searching = query.isNotBlank()
 
@@ -266,7 +268,7 @@ private enum class SettingsSection(val title: String) {
 
 private enum class SettingsCategory(val title: String, val summary: String, val icon: ImageVector, val section: SettingsSection) {
     APPEARANCE("Appearance", "Theme, accent colour, text size and display", Icons.Rounded.Palette, SettingsSection.PERSONAL),
-    WRITING("Writing & tools", "Finger drawing, shapes, default tool and text", Icons.Rounded.Edit, SettingsSection.WRITING),
+    WRITING("Writing & tools", "Toolbar, finger drawing, shapes, default tool and text", Icons.Rounded.Edit, SettingsSection.WRITING),
     STYLUS("Stylus & touch", "Pencil shortcut, haptics, palm rejection, gestures", Icons.Rounded.Gesture, SettingsSection.WRITING),
     ERASING("Erasing", "Pressure, whole strokes and scribble to erase", Icons.Rounded.CleaningServices, SettingsSection.WRITING),
     FOLLOW("Writing follow", "Page movement, direction and line return", Icons.Rounded.AutoStories, SettingsSection.WRITING),
@@ -296,7 +298,11 @@ private object SettingsIndex {
         e(SettingsCategory.WRITING, "Tidy up shapes", "shape recognition hold delay pause stylus line arrow circle oval square rectangle triangle diamond pentagon hexagon star"),
         e(SettingsCategory.WRITING, "Live shape measurements", "length angle width height"),
         e(SettingsCategory.WRITING, "Snap to grid and 15°", "math maths angle graph"),
-        e(SettingsCategory.WRITING, "Tool in hand", "default tool pen highlighter open"),
+        e(SettingsCategory.WRITING, "Toolbar style", "goodnotes folio tabs pills layout editor bar"),
+        e(SettingsCategory.WRITING, "Toolbar tools and order", "customise customize edit hide reorder pin presets strip"),
+        e(SettingsCategory.WRITING, "Toolbar undo and redo", "history buttons"),
+        e(SettingsCategory.WRITING, "Toolbar colour dots, presets and timer", "color indicator pinned focal chip ink options tabs"),
+        e(SettingsCategory.WRITING, "Tool in hand", "default tool pen highlighter open lasso hand sticky note shape"),
         e(SettingsCategory.WRITING, "Typed text size and alignment", "font default left centre right"),
         e(SettingsCategory.STYLUS, "Pencil double-tap", "stylus shortcut action oneplus oppo"),
         e(SettingsCategory.STYLUS, "Pen haptics", "vibration buzz bluetooth"),
@@ -310,6 +316,11 @@ private object SettingsIndex {
         e(SettingsCategory.FOLLOW, "Reading direction", "left right rtl ltr"),
         e(SettingsCategory.FOLLOW, "Hand holding the pen", "left handed right handed"),
         e(SettingsCategory.FOLLOW, "Automatic line return", "next line answer area"),
+        e(SettingsCategory.FOLLOW, "Pale edge strip width", "tinted rectangle bar length visual hint hidden"),
+        e(SettingsCategory.FOLLOW, "Writing position and line spacing", "height column millimetres learn adaptive"),
+        e(SettingsCategory.FOLLOW, "Movement feel and timing", "relaxed balanced responsive delay glide speed pause threshold tolerance"),
+        e(SettingsCategory.FOLLOW, "Answer areas", "detect outline switch boundaries"),
+        e(SettingsCategory.FOLLOW, "Zoom pane height and auto peek", "enlarged panel size overview"),
         e(SettingsCategory.LIBRARY, "Sort by", "order shelf recent name"),
         e(SettingsCategory.LIBRARY, "Library layout", "covers compact list view grid"),
         e(SettingsCategory.LIBRARY, "Default paper", "new notebook ruled grid dots blank"),

@@ -3,6 +3,8 @@ package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,6 +15,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlin.math.roundToInt
@@ -45,7 +53,7 @@ internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: (
 
 private fun <E : Enum<E>> readEnum(raw: String?, fallback: E, values: Array<E>): E = values.firstOrNull { it.name == raw } ?: fallback
 
-private fun title(name: String) = name.lowercase().replaceFirstChar(Char::uppercase)
+private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 // ---- Appearance ---------------------------------------------------------------------------------
 
@@ -168,8 +176,9 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
         SettingsDivider()
         SettingsPrefSwitch("mathSnap", true, "Snap to grid and 15°", "Lines snap to 15° and to the grid on Maths, Grid and Graph paper. Toggle any time in the editor.")
     }
-    SettingsGroup("When a notebook opens", footer = "Ink colour, width and opacity stay per tool in the editor's tool settings.") {
-        SettingsChipRow("Tool in hand", Tool.entries.map { it to title(it.name) }, defaultTool, { p.write { putString(AppPrefs.DEFAULT_TOOL, it.name) } })
+    ToolbarGroups()
+    SettingsGroup("Tool in hand", footer = "The tool a notebook opens with. Ink colour, width and opacity stay per tool in the editor's tool settings.") {
+        DefaultToolPicker(defaultTool) { p.write { putString(AppPrefs.DEFAULT_TOOL, it.name) } }
     }
     SettingsGroup("Typed text", footer = "New text boxes use these. Existing boxes are unchanged.") {
         SettingsSliderRow(
@@ -179,6 +188,106 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
         )
         SettingsDivider()
         SettingsSegmentedRow("Alignment", TextAlignMode.entries.map { it to title(it.name) }, textAlign, { p.write { putString("text.align", it.name) } })
+    }
+}
+
+/**
+ * The editor toolbar: its layout, which tools it carries, and what sits beside them. Every
+ * option applies to both styles except the tab strip, which only the Goodnotes-inspired bar has.
+ */
+@Composable private fun ToolbarGroups() {
+    val p = rememberPrefs()
+    val style by rememberPref(p, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
+    val options by rememberPref(p, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
+    val layouts = rememberToolbarLayoutState(p)
+    val inkPrefs = LocalContext.current.let { context -> remember(context) { context.getSharedPreferences("ink-tools", 0) } }
+    val presets = remember(inkPrefs) { ToolPresetState(inkPrefs) }
+    var editTools by rememberSaveable { mutableStateOf(false) }
+    SettingsGroup("Toolbar style") {
+        SettingsRadioGroup {
+            ToolbarStyle.entries.forEach { option ->
+                SettingsRadioRow(option.label, option.description, option == style) { p.write { putString(AppPrefs.TOOLBAR_STYLE, option.name) } }
+            }
+        }
+    }
+    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away: undo and redo in the … menu, the timer in the notebook menu.") {
+        val layout = layouts.layout
+        SettingsLinkRow(
+            "Tools and order",
+            "${layout.primary.size} on the strip" +
+                (if (layout.overflow.isNotEmpty()) " · ${layout.overflow.size} under …" else "") +
+                (if (layout.hidden.isNotEmpty()) " · ${layout.hidden.size} hidden" else "") +
+                (if (layout.pinnedPresetIds.isNotEmpty()) " · ${layout.pinnedPresetIds.size} pinned" else ""),
+            onClick = { editTools = true },
+            leadingContent = {
+                Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                    layout.primary.take(3).forEach { slot ->
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.size(28.dp)) {
+                            Box(contentAlignment = Alignment.Center) { Icon(toolIcon(slot.tools.first()), null, Modifier.size(16.dp)) }
+                        }
+                    }
+                }
+            },
+        )
+        SettingsDivider()
+        SettingsSegmentedRow("Undo and redo", UndoButtons.entries.map { it to it.label }, options.undo,
+            { p.write { putString(AppPrefs.TOOLBAR_UNDO, it.name) } })
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_COLOUR_DOTS, true, "Colour dots", "The pen and highlighter buttons show the colour each will draw in.")
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_PINNED_PRESETS, true, "Pinned presets", "Show presets you have pinned beside the tools. Turning this off keeps them pinned.")
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show the exam timer and Focal chips beside the tools when there is room.")
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false, "Start with ink options open", "Widths and colours appear under the toolbar as soon as a notebook opens.")
+        if (style == ToolbarStyle.GOODNOTES) {
+            SettingsDivider()
+            SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents as tabs above the tools. Off: a back button joins the bar.")
+        }
+    }
+    if (editTools) ToolbarEditPanel(layouts, presets.presets, onDismiss = { editTools = false })
+}
+
+/** The tools a notebook can open with, as labelled tiles; shapes are a second, smaller row. */
+@Composable private fun DefaultToolPicker(selected: Tool, onSelect: (Tool) -> Unit) {
+    // Mark area only means something on an imported PDF, so it is never a sensible starting tool.
+    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.TEXT, Tool.HAND, Tool.STICKY_NOTE)
+    SettingsBlock(verticalSpacing = FolioSpacing.dp12) {
+        FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            tools.forEach { tool -> ToolTile(tool, tool == selected, large = true) { onSelect(tool) } }
+        }
+        SettingsBlockHint("Or start with a shape")
+        FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            ShapePickerTools.forEach { tool -> ToolTile(tool, tool == selected, large = false) { onSelect(tool) } }
+        }
+    }
+}
+
+@Composable private fun ToolTile(tool: Tool, selected: Boolean, large: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val label = toolLabel(tool)
+    Surface(
+        selected = selected, onClick = onClick,
+        shape = FolioShapes.large,
+        color = if (selected) scheme.primaryContainer else scheme.surfaceContainerHigh,
+        contentColor = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+        border = if (selected) BorderStroke(2.dp, scheme.primary) else null,
+        modifier = Modifier.semantics { role = Role.RadioButton; contentDescription = label }
+            .then(if (large) Modifier.width(96.dp).height(80.dp) else Modifier.height(40.dp)),
+    ) {
+        if (large) Column(Modifier.padding(FolioSpacing.dp8), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.CenterVertically)) {
+            Icon(toolIcon(tool), null, Modifier.size(24.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (selected) scheme.onPrimaryContainer else scheme.onSurface)
+        } else Row(Modifier.padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Icon(toolIcon(tool), null, Modifier.size(18.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        }
     }
 }
 
@@ -240,33 +349,6 @@ private fun title(name: String) = name.lowercase().replaceFirstChar(Char::upperc
 }
 
 // ---- Writing follow -----------------------------------------------------------------------------
-
-@Composable internal fun FollowPage() {
-    val p = rememberPrefs()
-    val enabled by rememberPref(p, "writingFollow") { it.getBoolean("writingFollow", false) }
-    val mode by rememberPref(p, "follow.mode") { readEnum(it.getString("follow.mode", null), FollowMode.TEXT, FollowMode.entries.toTypedArray()) }
-    val direction by rememberPref(p, "follow.direction") { readEnum(it.getString("follow.direction", null), WritingDirection.LTR, WritingDirection.entries.toTypedArray()) }
-    val hand by rememberPref(p, "writingHand") { readEnum(it.getString("writingHand", null), WritingHand.RIGHT, WritingHand.entries.toTypedArray()) }
-    val autoReturn by rememberPref(p, "follow.autoReturn") { it.getBoolean("follow.autoReturn", false) }
-    SettingsGroup("Writing follow", footer = "Defaults for new sessions. Height, column, line spacing and glide timing stay in the editor's Writing follow dialog.") {
-        SettingsSwitchRow("On by default", "The page stays still while the pen is down and reveals space after a lift.", enabled, { p.write { putBoolean("writingFollow", it) } })
-    }
-    SettingsGroup("How you write") {
-        SettingsSegmentedRow("Mode", listOf(FollowMode.TEXT to "Text", FollowMode.MATH to "Maths"), mode, { p.write { putString("follow.mode", it.name) } })
-        SettingsDivider()
-        SettingsSegmentedRow("Reading direction", listOf(WritingDirection.LTR to "Left → right", WritingDirection.RTL to "Right → left"), direction, { p.write { putString("follow.direction", it.name) } })
-        SettingsDivider()
-        SettingsSegmentedRow("Hand holding the pen", listOf(WritingHand.RIGHT to "Right", WritingHand.LEFT to "Left"), hand, { p.write { putString("writingHand", it.name) } })
-    }
-    SettingsGroup("Line return") {
-        SettingsSwitchRow(
-            "Automatic line return",
-            if (mode == FollowMode.TEXT) "After writing across a line, pause near the answer area's edge to return. Touch down to cancel."
-            else "Available in Text mode. In Maths, tap Next line when you want a new row.",
-            autoReturn, { p.write { putBoolean("follow.autoReturn", it) } }, enabled = mode == FollowMode.TEXT,
-        )
-    }
-}
 
 // ---- Library & covers ---------------------------------------------------------------------------
 

@@ -99,7 +99,16 @@ internal val EditorFloatingGroupHeight = 46.dp
     onKeyboardShortcuts: () -> Unit,
     pageActions: @Composable (() -> Unit) -> Unit,
     /** False where leaving the editor mid-task is wrong (mistake review has its own back button). */
-    showBack: Boolean = true
+    showBack: Boolean = true,
+    style: ToolbarStyle = ToolbarStyle.FOLIO,
+    toolbarOptions: ToolbarOptions = ToolbarOptions(),
+    /** Open documents for the Goodnotes-inspired tab strip; the Folio style ignores them. */
+    tabs: List<EditorTabChip> = emptyList(),
+    activeTabId: String? = null,
+    onSelectTab: (String) -> Unit = {},
+    onCloseTab: (String) -> Unit = {},
+    /** Null hides the strip's "+" (nowhere to pick another document from). */
+    onNewTab: (() -> Unit)? = null
 ) {
     var navMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
@@ -123,12 +132,56 @@ internal val EditorFloatingGroupHeight = 46.dp
         val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
         val leftNatural = 40.dp * navButtons + FolioSpacing.dp8
         val rightWithTimer = documentWidth + timerNeed + FolioSpacing.dp6
-        val compact = maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
+        // Settings can keep the timer in the notebook menu even where it would fit.
+        val compact = !toolbarOptions.timer || maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
         val rightNatural = documentWidth + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
         val sideWidth = maxOf(leftNatural, rightNatural)
         // Reflow before either side squeezes the tool tray below a useful width. This also
         // accounts for a running timer's actual size instead of a fixed window breakpoint.
         val narrow = maxWidth < toolsNeed + sideWidth * 2 + groupGaps
+        @Composable fun NotebookMenu(timerInMenu: Boolean) {
+            FolioPopover({ overflow = false }, width = 320.dp) {
+                val dismiss = { overflow = false }
+                val run: (() -> Unit) -> Unit = { dismiss(); it() }
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
+                if (timerInMenu) timer()
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onRename) }
+                    PopoverTile(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                        "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
+                    PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                    PopoverGroup("Go to page · ${pageIndex + 1} of $pageCount") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous", Modifier.weight(1f), enabled = pageIndex > 0) { run(onPrevious) }
+                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next", Modifier.weight(1f), enabled = pageIndex < pageCount - 1) { run(onNext) }
+                        }
+                        PopoverRow(Icons.Rounded.FirstPage, "First page", enabled = pageIndex > 0) { run(onFirstPage) }
+                        PopoverRow(Icons.AutoMirrored.Rounded.LastPage, "Last page", enabled = pageIndex < pageCount - 1) { run(onLastPage) }
+                    }
+                    HorizontalDivider()
+                    PopoverGroup("Add page") {
+                        PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
+                        PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
+                        PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
+                    }
+                    HorizontalDivider()
+                    PopoverGroup("View") {
+                        PopoverRow(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
+                        if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
+                    }
+                    HorizontalDivider()
+                    pageActions(dismiss)
+                    HorizontalDivider()
+                    PopoverGroup("Workspace") { notebookActions(dismiss) }
+                    HorizontalDivider()
+                    PopoverRow(Icons.Rounded.Keyboard, "Keyboard shortcuts") { run(onKeyboardShortcuts) }
+                    PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
+                }
+            }
+        }
         @Composable fun NavigationControls() {
             Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
@@ -179,52 +232,98 @@ internal val EditorFloatingGroupHeight = 46.dp
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                                 { overflow = true },
                                 tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
-                            if (overflow) FolioPopover({ overflow = false }, width = 320.dp) {
-                                val dismiss = { overflow = false }
-                                val run: (() -> Unit) -> Unit = { dismiss(); it() }
-                                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
-                                if (compact) timer()
-                                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onRename) }
-                                    PopoverTile(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                                        "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
-                                    PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
-                                }
-                                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                    PopoverGroup("Go to page · ${pageIndex + 1} of $pageCount") {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous", Modifier.weight(1f), enabled = pageIndex > 0) { run(onPrevious) }
-                                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next", Modifier.weight(1f), enabled = pageIndex < pageCount - 1) { run(onNext) }
-                                        }
-                                        PopoverRow(Icons.Rounded.FirstPage, "First page", enabled = pageIndex > 0) { run(onFirstPage) }
-                                        PopoverRow(Icons.AutoMirrored.Rounded.LastPage, "Last page", enabled = pageIndex < pageCount - 1) { run(onLastPage) }
-                                    }
-                                    HorizontalDivider()
-                                    PopoverGroup("Add page") {
-                                        PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
-                                        PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
-                                        PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
-                                    }
-                                    HorizontalDivider()
-                                    PopoverGroup("View") {
-                                        PopoverRow(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
-                                        if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
-                                    }
-                                    HorizontalDivider()
-                                    pageActions(dismiss)
-                                    HorizontalDivider()
-                                    PopoverGroup("Workspace") { notebookActions(dismiss) }
-                                    HorizontalDivider()
-                                    PopoverRow(Icons.Rounded.Keyboard, "Keyboard shortcuts") { run(onKeyboardShortcuts) }
-                                    PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
-                                }
-                            }
+                            if (overflow) NotebookMenu(timerInMenu = compact)
                         }
                     }
                 }
             }
         }
+        if (style == ToolbarStyle.GOODNOTES) {
+            // One flat bar: pages, find and layers on the left; the tools in the middle; the timer, add
+            // page, share and notebook menu on the right. Narrow panes fold the left side into a menu and
+            // finally stack the tools onto their own row, so nothing the Folio style offers goes missing.
+            // The row's side insets come out of the width first, so the fold points match what is drawn.
+            val rowWidth = maxWidth - GoodnotesBarInset * 2
+            val barGap = FolioSpacing.dp12
+            // With the tab strip turned off, the way home moves onto the bar.
+            val showTabs = showBack && toolbarOptions.tabs
+            val homeOnBar = showBack && !showTabs
+            val leftFull = 40.dp * (if (homeOnBar) 4 else 3)
+            val leftFolded = 40.dp * (if (homeOnBar) 3 else 2)
+            val rightBase = 40.dp * 3
+            val rightWithTimer = rightBase + timerWidth.value + FolioSpacing.dp8
+            val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
+            val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
+            val stacked = rowWidth < toolsNeed + maxOf(leftFolded, rightBase) * 2 + barGap * 2
+            val side = maxOf(if (fold) leftFolded else leftFull, if (timerInline) rightWithTimer else rightBase)
+            @Composable fun LeftControls() {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (homeOnBar) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
+                    DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
+                    if (fold) Box {
+                        DockButton(Icons.Rounded.MoreHoriz, "Find and layers", { navMenu = true })
+                        FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
+                            val closeThen: (() -> Unit) -> Unit = { navMenu = false; it() }
+                            FolioMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            FolioMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
+                        }
+                        layersPopover()
+                    } else {
+                        DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
+                        Box {
+                            DockButton(Icons.Rounded.Layers, "Layers", onLayers)
+                            layersPopover()
+                        }
+                    }
+                }
+            }
+            @Composable fun RightControls() {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (timerInline) Row(Modifier.padding(end = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) { timer() }
+                    Box {
+                        DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
+                        FolioMenuPopover(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add a page") {
+                            FolioMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                            FolioMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
+                            FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                        }
+                    }
+                    DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
+                    Box {
+                        DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
+                            if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
+                            { overflow = true },
+                            tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
+                        if (overflow) NotebookMenu(timerInMenu = !timerInline)
+                    }
+                }
+            }
+            GoodnotesBar(
+                tabs = if (showTabs) tabs else null, activeId = activeTabId,
+                onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab
+            ) {
+                val row = Modifier.fillMaxWidth().height(GoodnotesRowHeight).padding(horizontal = GoodnotesBarInset)
+                if (stacked) {
+                    Row(row, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        LeftControls(); RightControls()
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = GoodnotesBarInset), color = BarTones.divider)
+                    Box(row, contentAlignment = Alignment.Center) { mainTools() }
+                } else {
+                    Row(row, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(barGap)) {
+                        Box(Modifier.width(side), contentAlignment = Alignment.CenterStart) { LeftControls() }
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+                        Box(Modifier.width(side), contentAlignment = Alignment.CenterEnd) { RightControls() }
+                    }
+                }
+                if (layerStatus != null) TextButton(onLayers, Modifier.align(Alignment.CenterHorizontally).padding(bottom = FolioSpacing.dp4),
+                    colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current)) {
+                    Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
+                }
+            }
+        } else
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
             if (layerStatus != null) Box {
                 TextButton(onLayers) {

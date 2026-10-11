@@ -17,7 +17,14 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -162,15 +169,21 @@ import kotlin.math.abs
 }
 
 /** One recognizer owns tap and hold, including cancellation and accessible long-click actions. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun PageNavigationArrow(forward: Boolean, enabled: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val feedback = LocalHapticFeedback.current
     val label = if (forward) "Next page" else "Previous page"
     val hold = if (forward) "Go to last page" else "Go to first page"
-    Box(Modifier.size(48.dp).clip(CircleShape)
-        .combinedClickable(enabled = enabled, role = Role.Button, onClickLabel = label, onLongClickLabel = hold,
-            onLongClick = { feedback.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() }, onClick = onClick),
-        contentAlignment = Alignment.Center) {
-        Icon(if (forward) Icons.AutoMirrored.Rounded.KeyboardArrowRight else Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-            label, tint = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f))
+    // Sized like the writing-follow bar's controls (40dp circle, 20dp glyph) so the two bars read as one family.
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text("$label · hold: ${hold.replaceFirstChar { it.lowercase() }}") } }, state = rememberTooltipState()) {
+        Box(Modifier.size(40.dp).clip(CircleShape)
+            .combinedClickable(enabled = enabled, role = Role.Button, onClickLabel = label, onLongClickLabel = hold,
+                onLongClick = { feedback.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() }, onClick = onClick),
+            contentAlignment = Alignment.Center) {
+            Icon(if (forward) Icons.AutoMirrored.Rounded.KeyboardArrowRight else Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                label, Modifier.size(20.dp),
+                tint = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f))
+        }
     }
 }

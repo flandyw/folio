@@ -131,7 +131,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null, onOpenDocument: (() -> Unit)? = null) {
     val inputStylusActivity = LocalStylusActivity.current
     val note = state.active ?: return
     val page = state.page ?: return
@@ -139,6 +139,8 @@ private fun paperLabel(p: Paper): String = when (p) {
     val session = state.tabs.find { it.notebookId == note.id }
     val prefs = context.getSharedPreferences("ink-tools", 0)
     val appPrefs = context.getSharedPreferences("preferences", 0)
+    val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
+    val toolbarOptions by rememberPref(appPrefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var tool by rememberSaveable { mutableStateOf(session?.tool ?: AppPrefs.defaultTool(appPrefs.getString(AppPrefs.DEFAULT_TOOL, null))) }
     var previousTool by rememberSaveable { mutableStateOf(Tool.PEN) }
     var palette by rememberSaveable { mutableStateOf(false) }
@@ -167,49 +169,17 @@ private fun paperLabel(p: Paper): String = when (p) {
     )) { mutableStateOf<WorkspaceViewport?>(null) }
     val writingFollowEnabled = if (page.infinite) canvasResponse != null else pageFollowEnabled
     var writingFollowPaused by rememberSaveable(note.id) { mutableStateOf(false) }
-    var autoDetectAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.autoDetectAnswerAreas", false)) }
-    var showAnswerAreas by remember { mutableStateOf(appPrefs.getBoolean("follow.showAnswerAreas", true)) }
-    var writingHand by remember { mutableStateOf(runCatching { WritingHand.valueOf(appPrefs.getString("writingHand", "RIGHT")!!) }.getOrDefault(WritingHand.RIGHT)) }
-    var followSettingsOpen by remember { mutableStateOf(false) }
-    var followPreferences by remember { mutableStateOf(FollowPreferences(
-        direction = runCatching { WritingDirection.valueOf(appPrefs.getString("follow.direction", "LTR")!!) }.getOrDefault(WritingDirection.LTR),
-        mode = runCatching { FollowMode.valueOf(appPrefs.getString("follow.mode", "TEXT")!!) }.getOrDefault(FollowMode.TEXT),
-        automaticReturn = appPrefs.getBoolean("follow.autoReturn", false),
-        position = appPrefs.getFloat("follow.position", .55f).coerceIn(.35f, .7f),
-        horizontalPosition = appPrefs.getFloat("follow.horizontal", .5f).coerceIn(.35f, .65f),
-        spacing = appPrefs.getFloat("follow.spacing", 32f).coerceIn(FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
-        returnDelayMs = appPrefs.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
-        adaptiveSpacing = appPrefs.getBoolean("follow.adaptiveSpacing", true),
-        horizontalFollow = appPrefs.getBoolean("follow.horizontalFollow", true),
-        verticalFollow = appPrefs.getBoolean("follow.verticalFollow", true),
-        autoSwitchAreas = appPrefs.getBoolean("follow.autoSwitchAreas", true),
-        minimumZoom = appPrefs.getFloat("follow.minimumZoom", 1.4f).coerceIn(1f, 3f),
-        edgeThreshold = appPrefs.getFloat("follow.edgeThreshold", .72f).coerceIn(.55f, .95f),
-        verticalDeadBand = appPrefs.getFloat("follow.verticalDeadBand", .15f).coerceIn(.05f, .3f),
-        endMargin = appPrefs.getFloat("follow.endMargin", .08f).coerceIn(.02f, .2f),
-        glideDurationMs = appPrefs.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
-        lineSpeedMs = appPrefs.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500),
-        showLandingGuide = appPrefs.getBoolean("follow.showLanding", true))) }
-    LaunchedEffect(followPreferences) {
-        appPrefs.edit()
-            .putBoolean("follow.adaptiveSpacing", followPreferences.adaptiveSpacing)
-            .putBoolean("follow.horizontalFollow", followPreferences.horizontalFollow)
-            .putBoolean("follow.verticalFollow", followPreferences.verticalFollow)
-            .putBoolean("follow.autoSwitchAreas", followPreferences.autoSwitchAreas)
-            .putFloat("follow.minimumZoom", followPreferences.minimumZoom)
-            .putFloat("follow.edgeThreshold", followPreferences.edgeThreshold)
-            .putFloat("follow.verticalDeadBand", followPreferences.verticalDeadBand)
-            .putFloat("follow.endMargin", followPreferences.endMargin)
-            .putString("follow.direction", followPreferences.direction.name)
-            .putString("follow.mode", followPreferences.mode.name).putBoolean("follow.autoReturn", followPreferences.automaticReturn)
-            .putFloat("follow.horizontal", followPreferences.horizontalPosition).putFloat("follow.position", followPreferences.position).putFloat("follow.spacing", followPreferences.spacing)
-            .putInt("follow.returnDelayMs", followPreferences.returnDelayMs).putInt("follow.glideMs", followPreferences.glideDurationMs)
-            .putInt("follow.lineSpeedMs", followPreferences.lineSpeedMs)
-            .putBoolean("follow.showLanding", followPreferences.showLandingGuide).apply()
-    }
-    fun setWritingHand(value: WritingHand) {
-        writingHand = value
-        appPrefs.edit().putString("writingHand", value.name).apply()
+    val autoDetectAnswerAreas by rememberPref(appPrefs, "follow.autoDetectAnswerAreas") { it.getBoolean("follow.autoDetectAnswerAreas", false) }
+    val showAnswerAreas by rememberPref(appPrefs, "follow.showAnswerAreas") { it.getBoolean("follow.showAnswerAreas", true) }
+    val writingHand by rememberPref(appPrefs, "writingHand", read = FollowPreferenceStore::hand)
+    val followPreferences by rememberPref(appPrefs, *FollowPreferenceStore.keys, read = FollowPreferenceStore::read)
+    val openFollowSettings = LocalOpenWritingFollowSettings.current ?: onSettings
+    DisposableEffect(appPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefsChanged, key ->
+            if (key == "writingFollow" || key == null) pageFollowEnabled = prefsChanged.getBoolean("writingFollow", false)
+        }
+        appPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var followStatus by remember(page.id) { mutableStateOf(WritingFollowStatus()) }
     val regionKey = "follow.region.${note.id}.${page.id}"
@@ -230,25 +200,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     val effectiveFollowPreferences = if (page.infinite)
         canvasResponse?.preferences(followPreferences) ?: followPreferences.copy(mode = FollowMode.TEXT, automaticReturn = false)
         else followPreferences
-    if (followSettingsOpen) FollowSettingsDialog(
-        preferences = effectiveFollowPreferences,
-        proseOnly = page.infinite,
-        writingHand = writingHand,
-        onPreferences = {
-            if (page.infinite) {
-                canvasResponse = canvasResponse?.copy(automaticReturn = it.automaticReturn, direction = it.direction)
-                followPreferences = it.copy(mode = followPreferences.mode, automaticReturn = followPreferences.automaticReturn,
-                    autoSwitchAreas = followPreferences.autoSwitchAreas)
-            } else followPreferences = it
-        },
-        onHand = ::setWritingHand,
-        onDismiss = { followSettingsOpen = false },
-    )
     var followMenu by remember { mutableStateOf(false) }
     // One peek view per notebook. A held peek closes on release; a tapped one stays until closed.
     val pinnedPeek = note.livePeekAnchor
     // Auto peek needs no pin: it is always the whole of the page being written on (a canvas has no page edge).
-    var autoPeek by remember { mutableStateOf(appPrefs.getBoolean(AppPrefs.AUTO_PEEK, false)) }
+    val autoPeek by rememberPref(appPrefs, AppPrefs.AUTO_PEEK) { it.getBoolean(AppPrefs.AUTO_PEEK, false) }
     val peekAnchor = if (autoPeek && !page.infinite) PeekAnchor.wholePage(page) else pinnedPeek
     var peekMode by remember(note.id) { mutableStateOf<PeekMode?>(null) }
     // The view is fixed when the peek opens, so the page behind it changing can never re-frame it.
@@ -258,7 +214,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     val peekOpen = peekMode != null && (peekShown ?: peekAnchor) != null
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
-    val toolbarLayouts = remember(appPrefs) { ToolbarLayoutState(appPrefs) }
+    val toolbarLayouts = rememberToolbarLayoutState(appPrefs)
     var options by remember(tool) { mutableStateOf(ToolOptions.load(prefs, tool)) }
     fun changeOptions(value: ToolOptions) { options = value; value.save(prefs, tool) }
     /** Applies a saved favorite tool setup: switches tool and restores its colour/width/opacity/style. */
@@ -339,7 +295,25 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { penHaptics?.stop() }
     }
     var mainInkView by remember { mutableStateOf<InkView?>(null) }
-    val activeInkView = mainInkView
+    var zoomPaneOpen by rememberSaveable(note.id, page.id) { mutableStateOf(false) }
+    var zoomTarget by remember(note.id, page.id) { mutableStateOf<PeekAnchor?>(null) }
+    var zoomWindow by rememberSaveable(note.id, page.id, stateSaver = Saver<PeekAnchor?, List<Any>>(
+        save = { it?.let { a -> listOf(a.pageId, a.left, a.top, a.right, a.bottom) } ?: emptyList() },
+        restore = { if (it.size == 5) PeekAnchor(it[0] as String, it[1] as Float, it[2] as Float, it[3] as Float, it[4] as Float) else null },
+    )) { mutableStateOf<PeekAnchor?>(null) }
+    var zoomInkView by remember(page.id) { mutableStateOf<InkView?>(null) }
+    var zoomInitialState by remember(page.id) { mutableStateOf<WritingFollowState?>(null) }
+    var zoomGesture by remember(page.id) { mutableStateOf(false) }
+    val zoomHeight by rememberPref(appPrefs, AppPrefs.ZOOM_PANE_HEIGHT) { AppPrefs.zoomPaneHeight(it.getFloat(AppPrefs.ZOOM_PANE_HEIGHT, AppPrefs.DEFAULT_ZOOM_PANE_HEIGHT)) }
+    var editorSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(zoomPaneOpen) {
+        if (zoomPaneOpen && zoomTarget == null) {
+            zoomTarget = zoomWindow
+            if (zoomTarget == null) zoomPaneOpen = false
+        }
+    }
+    val editorDensity = LocalDensity.current
+    val activeInkView = if (zoomPaneOpen) zoomInkView else mainInkView
     fun pasteInView() {
         val visible = activeInkView?.currentPeekAnchor()?.takeIf { it.pageId == page.id }
         model.pasteClipboard(visible?.let { InkPoint(it.left + 24f, it.top + 48f) })
@@ -365,6 +339,47 @@ private fun paperLabel(p: Paper): String = when (p) {
             view.resumeWritingFollow()
             view.followEnabled = enabled && overviewReturn == null
         }
+    }
+    fun openZoomPane() {
+        val view = mainInkView?.takeIf { it.page.id == page.id } ?: return
+        if (view.isWritingGesture || peekOpen || overviewReturn != null) return
+        val visible = view.currentPeekAnchor() ?: return
+        val viewport = WritingLane(visible.left, visible.top, visible.right, visible.bottom)
+        if (!writingFollowEnabled) setWritingFollow(true)
+        val area = if (page.infinite) canvasResponse?.column ?: return
+            else writingRegion ?: WritingGuides.regionAt(WritingGuides.regions(view.writingGuides), viewport.centerX,
+                view.writingFollow.state.baselineY ?: viewport.top + viewport.height * .5f)
+                ?: WritingLane(36f, 0f, page.width - 36f, page.height - 24f)
+        if (!page.infinite && area != writingRegion && area.top > 0f) {
+            writingRegion = area
+            appPrefs.edit().putString(regionKey, "${area.left},${area.top},${area.right},${area.bottom}").apply()
+        }
+        zoomInitialState = view.writingFollow.state
+        val start = view.writingFollow.state.baselineY ?: if (writingRegion == null && !page.infinite)
+            viewport.top + viewport.height * .5f else null
+        val window = ZoomWriting.initial(area, viewport, effectiveFollowPreferences.direction,
+            effectiveFollowPreferences.spacing, start)
+        zoomTarget = PeekAnchor(page.id, window.left, window.top, window.right, window.bottom)
+        zoomWindow = zoomTarget
+        view.holdWritingFollow(); view.clearSelection()
+        zoomPaneOpen = true
+        writingFollowPaused = false
+    }
+    fun closeZoomPane() {
+        if (zoomInkView?.isWritingGesture == true) return
+        val tracking = zoomInkView?.writingFollow?.state
+        zoomInkView?.pauseWritingFollow()
+        mainInkView?.liveInkPreview = null
+        mainInkView?.followLandingPreview = null
+        zoomPaneOpen = false; zoomGesture = false; zoomWindow = null
+        writingFollowPaused = true
+        tracking?.let { mainInkView?.writingFollow?.state = it }
+        mainInkView?.writingIndent = zoomInkView?.writingIndent
+        zoomInkView = null
+    }
+    BackHandler(enabled = zoomPaneOpen && !peekOpen) { closeZoomPane() }
+    LaunchedEffect(writingFollowEnabled, zoomPaneOpen, zoomGesture) {
+        if (zoomPaneOpen && !writingFollowEnabled && !zoomGesture) closeZoomPane()
     }
     fun applyStylusShortcut(action: StylusShortcut) {
         val effect = StylusShortcuts.effect(action, tool, previousTool)
@@ -420,7 +435,16 @@ private fun paperLabel(p: Paper): String = when (p) {
         if (view.isWritingFollowManuallyPaused != writingFollowPaused) {
             if (writingFollowPaused) view.pauseWritingFollow() else view.resumeWritingFollow()
         }
-        view.onFollowStatus = { followStatus = it }
+        if (view === activeInkView) view.onFollowStatus = { followStatus = it }
+        else view.onFollowStatus = {}
+    }
+    fun configureOverview(view: InkView) {
+        configureFollow(view)
+        view.navigationOnly = zoomPaneOpen
+        view.writingWindow = if (zoomPaneOpen) zoomWindow else null
+        view.onWritingWindowRequest = { anchor ->
+            if (!zoomGesture) { zoomTarget = anchor; zoomWindow = anchor }
+        }
     }
     // Text defaults live with the app, not the notebook, so a new label keeps the last look.
     var textSize by rememberSaveable { mutableFloatStateOf(appPrefs.getFloat("text.size", 26f)) }
@@ -628,7 +652,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     fun returnToWorking() {
         val previous = overviewReturn ?: return
-        val view = activeInkView ?: return
+        val view = (if (zoomPaneOpen) mainInkView else activeInkView) ?: return
         if (view.isWritingGesture) return
         view.returnToCanvasView(previous)
         overviewReturn = null
@@ -636,10 +660,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     /** Inspect all working without losing the exact position and zoom being used. */
     fun fitAllContent() {
         if (!page.infinite || !page.loaded) return
-        val view = activeInkView ?: return
+        val view = (if (zoomPaneOpen) mainInkView else activeInkView) ?: return
         if (view.isWritingGesture) return
         if (overviewReturn != null) { returnToWorking(); return }
         overviewReturn = view.canvasView()
+        zoomInkView?.holdWritingFollow()
         view.followEnabled = false
         view.fitCanvas(
             InkGeometry.contentBounds(page.strokes, page.texts, page.images, { InkRenderer.textHeight(it) }, page.width, page.height)
@@ -881,7 +906,10 @@ private fun paperLabel(p: Paper): String = when (p) {
     }
     var editorChromeHeightPx by remember { mutableFloatStateOf(0f) }
     var canvasWindowBounds by remember(note.id) { mutableStateOf<Rect?>(null) }
-    Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+    LaunchedEffect(tool, laserPointer) {
+        if (zoomPaneOpen && (tool in setOf(Tool.TEXT, Tool.LASSO, Tool.MARK_AREA, Tool.STICKY_NOTE) || laserPointer)) closeZoomPane()
+    }
+    Column(Modifier.fillMaxSize().onSizeChanged { editorSize = it }.onPreviewKeyEvent { event ->
         if (textEditor != null && event.type == KeyEventType.KeyDown &&
             (event.key == Key.Escape || (event.key == Key.Enter && event.isCtrlPressed))) { finishTextEditing(); true }
         else if (textEditor == null && music != null && music.onKey(event.nativeKeyEvent)) true
@@ -1008,7 +1036,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             if (paged || (music != null && musicInsets != null)) {
                 val sheet: @Composable (NotePage, Int, Boolean) -> Unit = { item, index, preview ->
-                    EditorPage(note.id, item, model, if (music?.performance == true) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, !preview && item.id == page.id,
+                    EditorPage(note.id, item, model, if (music?.performance == true || zoomPaneOpen) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, !preview && item.id == page.id,
                         onActive = { if (!preview && music != null) model.selectPage(index) }, onPan = { _, _ -> }, onPanEnd = {},
                         onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
                         onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
@@ -1025,8 +1053,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                         eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                         palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                         onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                        onSelectAllView = { if (!preview && item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                        inputBlocked = preview || music?.performance == true, readOnly = preview, hideFromAccessibility = preview, laserPointer = laserPointer && item.id == page.id,
+                        onSelectAllView = { if (!preview && item.id == page.id) { mainInkView = it; configureOverview(it) } }, inkStyle = options.style,
+                        followEnabled = writingFollowEnabled && !zoomPaneOpen && !preview && item.id == page.id,
+                        writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
+                        inputBlocked = preview || music?.performance == true || (zoomPaneOpen && zoomGesture), readOnly = preview, hideFromAccessibility = preview, laserPointer = laserPointer && item.id == page.id,
                         ruler = ruler?.takeIf { it.first == item.id }?.second, onRulerChanged = { line -> ruler = item.id to line },
                         onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect },
                         selectionAnchor = if (item.id == page.id) selectionAnchor else null,
@@ -1046,7 +1076,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         if (live.page?.id == origin && target >= 0) jumpTo(target)
                     }, sheet = sheet)
             } else if (page.infinite) {
-                EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
+                EditorPage(note.id, page, model, if (zoomPaneOpen) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, true,
                     onActive = {}, onPan = { _, _ -> }, onPanEnd = {},
                     onSelection = { selection = page.id to it },                    onTextEdit = { editTextBox(page, it) }, onTextCreate = { placeTextBox(page, it) },
                     textDraft = textEditor?.takeIf { it.pageId == page.id }?.box,
@@ -1062,8 +1092,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                     palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                     onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                    onSelectAllView = { mainInkView = it; configureFollow(it) }, inkStyle = options.style,
-                    followEnabled = writingFollowEnabled && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen,
+                    onSelectAllView = { mainInkView = it; configureOverview(it) }, inkStyle = options.style,
+                    followEnabled = writingFollowEnabled && !zoomPaneOpen && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen || (zoomPaneOpen && zoomGesture),
                     onSelectionAnchor = { selectionAnchor = it },
                     selectionAnchor = selectionAnchor,
                     selectionMenuViewport = selectionViewport,
@@ -1203,7 +1233,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 ) {
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), modifier = Modifier.fillMaxWidth()) {
-                            EditorPage(note.id, item, model, tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
+                            EditorPage(note.id, item, model, if (zoomPaneOpen) Tool.HAND else tool, options, finger, snapEnabled, shapeRecognition, active = item.id == page.id,
                                 onActive = { model.selectPage(index) }, onPan = ::panBy, onPanEnd = motion::release,
                                 onSelection = { picked -> if (item.id == page.id) selection = item.id to picked },
                                 onTextEdit = { editTextBox(item, it) }, onTextCreate = { placeTextBox(item, it) },
@@ -1237,10 +1267,10 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo, graphStyle = graphStyle,
                                 palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
                                 onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
-                                onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureFollow(it) } }, inkStyle = options.style,
-                                followEnabled = writingFollowEnabled && item.id == page.id && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
+                                onSelectAllView = { if (item.id == page.id) { mainInkView = it; configureOverview(it) } }, inkStyle = options.style,
+                                followEnabled = writingFollowEnabled && !zoomPaneOpen && item.id == page.id && overviewReturn == null, writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
                                 autoDetectAnswerAreas = autoDetectAnswerAreas,
-                                inputBlocked = peekOpen, onFollowPan = { dx, dy ->
+                                inputBlocked = peekOpen || (zoomPaneOpen && zoomGesture), onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
                                     documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentScale * documentZoom, viewportWidth)
                                     val movedY = -pages.dispatchRawDelta(-dy)
@@ -1412,8 +1442,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                     var followSub by remember { mutableStateOf<FollowSub?>(null) }
                     val openSub: (FollowSub) -> Unit = { followSub = if (followSub == it) null else it }
                     WritingFollowControl(Icons.Rounded.Tune, "Writing follow and peek options",
-                        enabled = !peekOpen, onClick = { followMenu = true })
+                        enabled = !peekOpen, onClick = { followSub = null; followMenu = true })
                     FolioMenuPopover(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches(), title = "Writing & peek") {
+                        FolioMenuItem({ Text(if (zoomPaneOpen) "Close zoom pane" else "Open zoom pane") },
+                            { if (zoomPaneOpen) closeZoomPane() else { finishTextEditing(); selectTool(Tool.PEN); openZoomPane() }; followMenu = false },
+                            enabled = !peekOpen && overviewReturn == null,
+                            leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) })
                         if (page.infinite) {
                             FolioMenuItem({ Text(responseLabel) },
                                 { setWritingFollow(!writingFollowEnabled); followMenu = false },
@@ -1432,11 +1466,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            SubmenuItem("Lines & indentation…", Icons.AutoMirrored.Rounded.KeyboardReturn, followSub == FollowSub.LINES, { openSub(FollowSub.LINES) }) {
                             FolioMenuItem({ Text("Previous writing line") },
                                 { followView?.previousWritingLine(); followMenu = false },
                                 enabled = overviewReturn == null,
                                 leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
                                 trailingIcon = { Text("Alt+↑", style = MaterialTheme.typography.labelSmall) })
+                            FolioMenuItem({ Text("New paragraph · leave a blank line") },
+                                { followView?.nextWritingLine(paragraph = true); followMenu = false }, enabled = overviewReturn == null)
+                            FolioMenuItem({ Text("Indent next lines") },
+                                { followView?.indentWritingLine(); followMenu = false }, enabled = overviewReturn == null)
+                            FolioMenuItem({ Text("Reset indent") },
+                                { followView?.indentWritingLine(reset = true); followMenu = false }, enabled = overviewReturn == null)
+                            }
                             if (overflowFollowActions) {
                                 FolioMenuItem({ Text("Next writing line") },
                                     { followView?.nextWritingLine(); followMenu = false },
@@ -1452,59 +1494,19 @@ private fun paperLabel(p: Paper): String = when (p) {
                             }
                             HorizontalDivider()
                         }
-                        if (!page.infinite) FolioMenuItem(
-                            { Text("Writing: " + if (followPreferences.mode == FollowMode.TEXT) "Text" else "Maths") },
-                            {
-                                followPreferences = followPreferences.copy(
-                                    mode = if (followPreferences.mode == FollowMode.TEXT) FollowMode.MATH else FollowMode.TEXT)
-                                followMenu = false
-                            },
-                            leadingIcon = { Icon(if (followPreferences.mode == FollowMode.TEXT) Icons.Rounded.TextFields else Icons.Rounded.Functions, null) }
-                        )
-                        FolioMenuItem(
-                            { Text("Writing hand: " + writingHand.name.lowercase().replaceFirstChar(Char::uppercase)) },
-                            {
-                                setWritingHand(if (writingHand == WritingHand.RIGHT) WritingHand.LEFT else WritingHand.RIGHT)
-                                followView?.suspendWritingFollow()
-                            },
-                            leadingIcon = { Icon(Icons.Rounded.PanTool, null) }
-                        )
                         if (!page.infinite) SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
                             FolioMenuItem({ Text("Select answer area") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
                             FolioMenuItem({ Text("Detect answer areas") }, { pageFollowEnabled = true; appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
-                            FolioMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Auto-detect answer areas")
-                                        Text("Current page only, as you scroll", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                },
-                                trailingIcon = { Checkbox(checked = autoDetectAnswerAreas, onCheckedChange = null) },
-                                onClick = {
-                                    autoDetectAnswerAreas = !autoDetectAnswerAreas
-                                    val edit = appPrefs.edit().putBoolean("follow.autoDetectAnswerAreas", autoDetectAnswerAreas)
-                                    if (autoDetectAnswerAreas) {
-                                        pageFollowEnabled = true
-                                        edit.putBoolean("writingFollow", true)
-                                    }
-                                    edit.apply()
-                                    followMenu = false
-                                })
-                            FolioMenuItem(
-                                text = { Text("Show answer area box") },
-                                trailingIcon = { Checkbox(checked = showAnswerAreas, onCheckedChange = null) },
-                                onClick = {
-                                    showAnswerAreas = !showAnswerAreas
-                                    appPrefs.edit().putBoolean("follow.showAnswerAreas", showAnswerAreas).apply()
-                                    followMenu = false
-                                })
                             if (writingRegion != null) FolioMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
                         }
-                        if (!page.infinite || canvasResponse != null) FolioMenuItem({ Text(if (page.infinite) "Response settings…" else "Writing follow settings…") }, { followSettingsOpen = true; followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+                        if (page.infinite && canvasResponse != null) FolioMenuItem(
+                            { Text("Auto-return for this response") },
+                            { canvasResponse = canvasResponse?.copy(automaticReturn = canvasResponse?.automaticReturn != true); followMenu = false },
+                            trailingIcon = { Checkbox(checked = canvasResponse?.automaticReturn == true, onCheckedChange = null) })
+                        FolioMenuItem({ Text("Writing follow settings…") }, { openFollowSettings(); followMenu = false },
+                            leadingIcon = { Icon(Icons.Rounded.Settings, null) })
                         HorizontalDivider()
-                        Text("Peek view", Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        SubmenuItem("Peek view…", Icons.Rounded.PushPin, followSub == FollowSub.PEEK, { openSub(FollowSub.PEEK) }) {
                         FolioMenuItem(
                             { Text(if (pinnedPeek == null) "Pin this view" else "Replace with this view") },
                             { pinPeekView(wholePage = false); followMenu = false },
@@ -1515,16 +1517,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             { pinPeekView(wholePage = true); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.FitScreen, null) }
                         )
-                        FolioMenuItem(
-                            { Text(if (autoPeek) "Auto peek: whole page (on)" else "Auto peek: whole page (off)") },
-                            { autoPeek = !autoPeek; appPrefs.edit().putBoolean(AppPrefs.AUTO_PEEK, autoPeek).apply(); followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.Visibility, null) }
-                        )
                         if (pinnedPeek != null) FolioMenuItem(
                             { Text("Remove peek view") },
                             { model.setPeekAnchor(null); followMenu = false },
                             leadingIcon = { Icon(Icons.Rounded.Close, null) }
                         , destructive = true)
+                        }
                     }
                 }
                 if (peekAnchor == null) {
@@ -1551,11 +1549,13 @@ private fun paperLabel(p: Paper): String = when (p) {
                 index = state.pageIndex.coerceIn(0, note.pages.lastIndex), count = note.pages.size, singlePage = singlePage,
                 onTurn = ::turnPage, onJumpToEnd = ::jumpToEnd, onToggleView = { setSinglePage(!singlePage) },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
-                    .padding(FolioSpacing.dp8).guardUiTouches().zIndex(11f))
+                    .padding(followInset).guardUiTouches().zIndex(11f))
             Column(
                 Modifier.align(Alignment.TopCenter).zIndex(11f)
                     .fillMaxWidth()
-                    .padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6)
+                    // The Goodnotes-inspired bar runs edge to edge; the Folio pills float inside a small margin.
+                    .then(if (toolbarStyle == ToolbarStyle.GOODNOTES && music == null) Modifier
+                    else Modifier.padding(top = FolioSpacing.dp6, start = FolioSpacing.dp6, end = FolioSpacing.dp6))
                     .onSizeChanged { editorChromeHeightPx = it.height.toFloat() + with(density) { 6.dp.toPx() } },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
@@ -1590,9 +1590,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
-                    actions = listOf(
-                        ToolbarAction(Icons.Rounded.Settings, "Settings") { finishTextEditing(); onSettings() }
-                    ),
+                    style = if (music == null) toolbarStyle else ToolbarStyle.FOLIO,
+                    toolbarOptions = toolbarOptions,
                     header = { mainTools ->
                         if (music != null) FolioExpand(true) { mainTools() } else EditorTopBar(
                             title = note.title,
@@ -1609,6 +1608,14 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onRetrySave = model::retrySave,
                             onClose = { finishTextEditing(); model.close() },
                             showBack = showBack,
+                            style = toolbarStyle,
+                            toolbarOptions = toolbarOptions,
+                            // A notebook's title can change while its tab keeps the name it opened with.
+                            tabs = state.tabs.map { tab -> EditorTabChip(tab.notebookId, state.notes.find { it.id == tab.notebookId }?.title ?: tab.title) },
+                            activeTabId = note.id,
+                            onSelectTab = { id -> if (id != note.id) { finishTextEditing(); model.open(id) } },
+                            onCloseTab = { id -> finishTextEditing(); model.closeTab(id) },
+                            onNewTab = onOpenDocument?.let { open -> { finishTextEditing(); open() } },
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                                     TimingChip(state.timer, onLongClick = {
@@ -1686,6 +1693,56 @@ private fun paperLabel(p: Paper): String = when (p) {
                             textEditor = draft.copy(box = draft.box.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f))
                         })
                 }
+            }
+        }
+        if (zoomPaneOpen && music == null && zoomTarget != null) {
+            val available = with(editorDensity) { editorSize.height.toDp().value }
+            val paneHeight = zoomHeight.coerceAtMost(maxOf(160f, available * .55f)).dp
+            ZoomWritingPane(paneHeight, followStatus, writingHand,
+                onResize = { delta ->
+                    if (zoomInkView?.isWritingGesture != true) {
+                        appPrefs.edit().putFloat(AppPrefs.ZOOM_PANE_HEIGHT, AppPrefs.zoomPaneHeight(zoomHeight + delta)).apply()
+                    }
+                },
+                onAhead = { zoomInkView?.revealWritingAhead() }, onNext = { zoomInkView?.nextWritingLine() },
+                onBack = { zoomInkView?.backWritingView() },
+                onPause = {
+                    writingFollowPaused = !followStatus.paused
+                    if (writingFollowPaused) zoomInkView?.pauseWritingFollow() else zoomInkView?.resumeWritingFollow()
+                }, onOptions = openFollowSettings, onClose = ::closeZoomPane) {
+                EditorPage(note.id, page, model, tool, options, finger, snapEnabled, shapeRecognition, true,
+                    onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {},
+                    onTextEdit = {}, onTextCreate = {}, onLoad = { model.loadPage(page.id) },
+                    fullscreen = true, pageCamera = true, zoomWritingPane = true, writingWindowTarget = zoomTarget,
+                    activeLayer = model.activeLayerOf(page),
+                    onSelectAllView = { view ->
+                        val first = zoomInkView !== view
+                        zoomInkView = view
+                        configureFollow(view)
+                        if (first) zoomInitialState?.let { view.writingFollow.state = it }
+                        if (first) view.writingIndent = mainInkView?.writingIndent
+                        view.onWritingWindowChanged = { anchor ->
+                            zoomWindow = anchor
+                            if (overviewReturn == null) mainInkView?.revealWritingWindow(anchor, editorChromeHeightPx)
+                        }
+                        view.onFollowLanding = { guide ->
+                            mainInkView?.followLandingPreview = guide?.takeIf { view.followPreferences.showLandingGuide }
+                        }
+                        view.onLiveInk = { stroke, busy ->
+                            mainInkView?.liveInkPreview = stroke
+                            if (zoomGesture != busy) zoomGesture = busy
+                            mainInkView?.inputBlocked = busy || peekOpen
+                        }
+                    },
+                    followEnabled = writingFollowEnabled && overviewReturn == null, writingHand = writingHand,
+                    followZoom = 2f, showAnswerAreas = showAnswerAreas, inputBlocked = peekOpen || overviewReturn != null,
+                    autoDetectAnswerAreas = autoDetectAnswerAreas,
+                    eraserPressureEnabled = eraserPressure, scribbleToErase = scribbleToErase, scribbleSensitivity = scribbleSensitivity,
+                    eraserWholeStroke = eraserWholeStroke, shapeMeasurements = shapeMeasurements, multiTouchUndo = multiTouchUndo,
+                    graphStyle = graphStyle, palmRejectMs = palmRejectMs, panMultiplier = panMultiplier,
+                    onEraserFinished = ::finishSingleStrokeEraser, onUndo = model::undo, onRedo = model::redo,
+                    inkStyle = options.style,
+                    ruler = ruler?.takeIf { it.first == page.id }?.second, onRulerChanged = { ruler = page.id to it })
             }
         }
     }
@@ -2332,6 +2389,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
+    zoomWritingPane: Boolean = false, writingWindowTarget: PeekAnchor? = null,
     /** Selection frame in view fractions (0..1); null while the selection is manipulated. */
     selectionAnchor: Rect? = null,
     /** The paper's width in a document; the page view is wider by the workspace beside it. Null fits the paper to the view. */
@@ -2495,6 +2553,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
             }
             else if (ready) AndroidView(factory = { context -> InkView(context).also { boundInkView = it } }, modifier = Modifier.fillMaxSize(), update = { view ->
                 view.inputStylusActivity = inputStylusActivity
+                view.zoomWritingPane = zoomWritingPane
                 view.documentPaperWidth = paperWidthPx
                 view.documentTop = workspaceTop
                 view.onTextEditorFrame = { textFrame = it }
@@ -2531,6 +2590,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
                 view.laserPointer = laserPointer; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
+                if (zoomWritingPane && writingWindowTarget != null) view.frameWritingWindow(writingWindowTarget)
                 onSelectAllView?.invoke(view)
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
                 view.shapeRecognition = shapeRecognition
@@ -2685,23 +2745,29 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onJumpToEnd: (last: Boolean) -> Unit,
     onToggleView: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    Surface(modifier.semantics { contentDescription = "Page ${index + 1} of $count" }, shape = FolioShapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .92f), tonalElevation = 3.dp, shadowElevation = 2.dp) {
-        Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onToggleView) {
-                Icon(if (singlePage) Icons.Rounded.ViewAgenda else Icons.Rounded.ViewCarousel,
-                    if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
-                    tint = if (singlePage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            PageNavigationArrow(false, index > 0, { onTurn(false) }, { onJumpToEnd(false) })
-            // Sized for the widest label ("12 / 12") with tabular digits, so the arrows never shift as the page changes.
-            val counter = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
-            Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
-                Text("$count / $count", style = counter, color = Color.Transparent)
-                Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            PageNavigationArrow(true, index < count - 1, { onTurn(true) }, { onJumpToEnd(true) })
+    // The writing-follow bar, repurposed: the same floating toolbar container, 44dp height and 40dp circular controls.
+    // A second tap inside the settle window is a bounce or a resting palm, not a deliberate turn.
+    var lastTap by remember { mutableLongStateOf(0L) }
+    fun settled(): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        return (now - lastTap >= 125L).also { if (it) lastTap = now }
+    }
+    HorizontalFloatingToolbar(
+        expanded = true,
+        modifier = modifier.height(44.dp).semantics { contentDescription = "Page ${index + 1} of $count" },
+        contentPadding = PaddingValues(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2),
+    ) {
+        WritingFollowControl(if (singlePage) Icons.Rounded.ViewAgenda else Icons.Rounded.ViewCarousel,
+            if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
+            active = singlePage, onClick = { if (settled()) onToggleView() })
+        PageNavigationArrow(false, index > 0, { if (settled()) onTurn(false) }, { if (settled()) onJumpToEnd(false) })
+        // Sized for the widest label ("12 / 12") with tabular digits, so the arrows never shift as the page changes.
+        val counter = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
+        Box(Modifier.height(40.dp).widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
+            Text("$count / $count", style = counter, color = Color.Transparent)
+            Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        PageNavigationArrow(true, index < count - 1, { if (settled()) onTurn(true) }, { if (settled()) onJumpToEnd(true) })
     }
 }
 
@@ -2954,7 +3020,7 @@ private fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () ->
     }
 }
 
-private enum class FollowSub { AREAS }
+private enum class FollowSub { AREAS, LINES, PEEK }
 
 /**
  * A small chip beside a printed "[4 marks]" label: tick awards every mark at once, cross opens a − / +

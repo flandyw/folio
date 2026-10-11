@@ -39,6 +39,70 @@ private fun advanceGlide(glide: FollowGlide, from: Long, to: Long,
 fun main() {
     val prefs = FollowPreferences(automaticReturn = true)
     val guides = listOf(100f, 128f, 156f).map { WritingGuide(36f, 300f, it) }
+    scenario("A zoom window reveals with overlap in either direction without wrapping at its edge") {
+        val area = WritingLane(36f, 70f, 800f, 200f)
+        val view = WritingLane(36f, 70f, 336f, 180f)
+        check(ZoomWriting.reveal(view, area, WritingDirection.LTR) == 210f)
+        check(ZoomWriting.reveal(view.copy(left = 560f, right = 800f), area, WritingDirection.LTR) == 0f)
+        check(ZoomWriting.reveal(view.copy(left = 550f, right = 790f), area, WritingDirection.LTR) == 10f)
+        check(ZoomWriting.reveal(view.copy(left = 400f, right = 700f), area, WritingDirection.RTL) == -210f)
+        check(ZoomWriting.reveal(view, area, WritingDirection.RTL) == 0f)
+        check(ZoomWriting.reveal(area, area, WritingDirection.LTR) == 0f)
+        val follow = seeded()
+        check(follow.returnFor(area, emptyList(), prefs) == null)
+    }
+    scenario("Moving and resizing a source window preserve its scale, aspect ratio and separate answer margins") {
+        val window = WritingLane(36f, 90f, 236f, 190f)
+        val moved = ZoomWriting.move(window, 100f, 25f, 840f, 1188f, false)
+        check(moved.width == window.width && moved.height == window.height)
+        check(moved.left == 136f && moved.top == 115f)
+        val clamped = ZoomWriting.move(window, 2000f, -2000f, 840f, 1188f, false)
+        check(clamped.left == 640f && clamped.top == 0f)
+        val canvas = ZoomWriting.move(window, -400f, -300f, 840f, 1188f, true)
+        check(canvas.left == -364f && canvas.top == -210f)
+        val resized = ZoomWriting.resize(window, 436f, 290f)
+        check(resized.left == window.left && resized.top == window.top)
+        check(resized.width / resized.height == window.width / window.height)
+        val tiny = ZoomWriting.resize(window, 0f, 0f)
+        check(tiny.width >= 24f && tiny.height >= 16f)
+    }
+    scenario("A new zoom window starts at the fixed column margin and keeps an existing baseline") {
+        val area = WritingLane(36f, 70f, 800f, 200f)
+        val visible = WritingLane(0f, 0f, 840f, 1188f)
+        val ltr = ZoomWriting.initial(area, visible, WritingDirection.LTR, 32f, 128f)
+        val rtl = ZoomWriting.initial(area, visible, WritingDirection.RTL, 32f, 128f)
+        check(ltr.left == area.left && rtl.right == area.right)
+        check(ltr.top == rtl.top && ltr.top < 128f && ltr.bottom > 128f)
+        check(area == WritingLane(36f, 70f, 800f, 200f))
+    }
+    scenario("Return timing learns natural breaks independently of horizontal urgency and interruptions") {
+        val rhythm = FollowRhythm()
+        check(rhythm.returnDelay(700) == 700)
+        var now = 0L
+        for (gap in listOf(600L, 800L, 1000L)) {
+            rhythm.lifted(now); now += gap; rhythm.touched(now); rhythm.lineBreak(); now += 50L
+        }
+        check(rhythm.returnDelay(700) == 1200)
+        repeat(4) { rhythm.interrupted() }
+        check(rhythm.glideDelay(350, 1f) < 350)
+        check(rhythm.returnDelay(700) == 1200)
+        rhythm.reset()
+        check(rhythm.returnDelay(700) == 1200)
+        check(rhythm.returnDelay(2000) == 2000)
+    }
+    scenario("Confirming a natural line retains its first-stroke pause instead of the next letter's gap") {
+        val rhythm = FollowRhythm()
+        var now = 0L
+        repeat(3) {
+            rhythm.lifted(now); now += 1000L; rhythm.touched(now); rhythm.possibleLineBreak()
+            now += 20L; rhythm.lifted(now); now += 50L; rhythm.touched(now); rhythm.lineBreak()
+        }
+        check(rhythm.returnDelay(700) == 1200)
+        rhythm.lifted(now); now += 1400L; rhythm.touched(now); rhythm.possibleLineBreak()
+        rhythm.discardLineBreak()
+        rhythm.reset()
+        check(rhythm.returnDelay(700) == 1200)
+    }
     scenario("Canvas prose starts manually regardless of global maths and automatic return settings") {
         val global = prefs.copy(mode = FollowMode.MATH, automaticReturn = true, autoSwitchAreas = true)
         val response = CanvasWritingSession.start(WritingLane(-300f, -100f, 300f, 500f), global)!!
@@ -160,6 +224,51 @@ fun main() {
             follow.retract(emptyList(), direction)
             check(follow.state.frontierLeft == null && follow.state.baselineY == 100f && follow.state.lineStrokeCount == 0)
         }
+    }
+    scenario("Vertical follow off holds height during writing and natural line placement") {
+        val follow = WritingFollow()
+        for (mode in FollowMode.entries) {
+            val off = prefs.copy(mode = mode, verticalFollow = false)
+            for (y in listOf(200f, 800f)) {
+                check(follow.verticalShift(y, 550f, 1000f, off) == 0f)
+                check(follow.verticalShift(y, 550f, 1000f, off, placing = true) == 0f)
+            }
+        }
+    }
+    scenario("Automatic returns always scroll down, including above the preferred writing height") {
+        for (direction in WritingDirection.entries) {
+            for (enabled in listOf(false, true)) {
+                val custom = prefs.copy(direction = direction, verticalFollow = enabled)
+                val advance = FollowNavigation.next(100f, WritingLane(0f, 0f, 600f, 1000f),
+                    emptyList(), custom.spacing, 40f, direction)!!
+                for (screenFromY in listOf(200f, 550f, 800f)) {
+                    val placement = FollowReturnTarget()
+                    val target = placement.target(advance, screenFromY, 1000f * custom.position)
+                    val screenNextY = screenFromY + advance.to.y - advance.from.y
+                    check(target - screenNextY <= -custom.spacing)
+                }
+            }
+        }
+    }
+    scenario("Interrupted automatic returns resume their destination without adding another line step") {
+        val placement = FollowReturnTarget()
+        val advance = WritingAdvance(WritingGuide(40f, 600f, 100f), WritingGuide(40f, 600f, 132f))
+        check(placement.target(advance, 200f, 550f) == 200f)
+        // Ten pixels of downward scrolling move the old line to 190 and the new one to 222.
+        check(placement.target(advance, 190f, 550f) - 222f == -22f)
+        check(placement.target(advance, 168f, 550f) - 200f == 0f)
+        val next = WritingAdvance(advance.to, WritingGuide(40f, 600f, 164f))
+        check(placement.target(next, 200f, 550f) == 200f)
+        placement.clear()
+        check(placement.target(advance, 300f, 550f) == 300f)
+    }
+    scenario("Vertical follow on retains its dead band and places new lines at the requested height") {
+        val follow = WritingFollow()
+        check(follow.verticalShift(200f, 550f, 1000f, prefs) == 0f)
+        check(follow.verticalShift(700f, 550f, 1000f, prefs) == 0f)
+        check(follow.verticalShift(701f, 550f, 1000f, prefs) == -151f)
+        check(follow.verticalShift(200f, 550f, 1000f, prefs, placing = true) == 350f)
+        check(follow.verticalShift(800f, 550f, 1000f, prefs, placing = true) == -250f)
     }
     scenario("Reduced motion lands a glide on its first moving frame with exact travel") {
         val glide = FollowGlide()
@@ -316,12 +425,23 @@ fun main() {
         }
         check(item.state.lineStartX == 40f && item.state.textStartX == 76f)
         check(item.returnFor(region, emptyList(), prefs)!!.to.left == 76f)
+        check(item.returnFor(region, emptyList(), prefs, startOverride = 100f)!!.to.left == 100f)
         check(FollowNavigation.next(100f, region, emptyList(), 28f, item.state.lineStartX)!!.to.left == 40f)
         val plain = WritingFollow()
         listOf(40f, 60f, 80f, 100f, 120f, 140f, 160f, 180f, 200f, 220f, 240f, 260f, 280f).forEachIndexed { i, x ->
             check(plain.completed(letter(x), i * 200L, prefs) == WritingProgress.SAME_LINE)
         }
         check(plain.state.textStartX == null && plain.returnFor(region, emptyList(), prefs)!!.to.left == 40f)
+    }
+    scenario("Explicit indents override printed margins in both directions without changing the rules") {
+        val area = WritingLane(36f, 72f, 300f, 156f)
+        val ltr = FollowNavigation.next(100f, area, guides, 28f, 80f, overrideStart = true)!!
+        check(ltr.to.y == 128f && ltr.to.left == 80f && ltr.to.right == 300f)
+        val rtl = FollowNavigation.next(100f, area, guides, 28f, 250f, WritingDirection.RTL, overrideStart = true)!!
+        check(rtl.to.y == 128f && rtl.to.right == 250f && rtl.to.left == 36f)
+        check(FollowNavigation.next(100f, area, guides, 28f, 80f)!!.to.left == 36f)
+        check(guides[1] == WritingGuide(36f, 300f, 128f))
+        check(FollowNavigation.next(156f, area, guides, 28f, 80f, overrideStart = true) == null)
     }
     scenario("A cursive word's own dots and crossbars resume a glide; a smooth flat word is still text") {
         val follow = WritingFollow()

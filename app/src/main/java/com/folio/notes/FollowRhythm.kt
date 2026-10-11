@@ -12,6 +12,9 @@ import kotlin.math.roundToInt
 class FollowRhythm {
     private val gaps = ArrayDeque<Long>()
     private var liftedAt: Long? = null
+    private var lastGap: Long? = null
+    private var candidateBreakGap: Long? = null
+    private val returnGaps = ArrayDeque<Long>()
     /** Glides cancelled by touch-down before they moved, since the last glide that did. */
     var interruptions = 0
         private set
@@ -20,10 +23,12 @@ class FollowRhythm {
 
     /** A pen touch-down: the time since the last lift is one pause in the writer's rhythm. */
     fun touched(now: Long) {
+        lastGap = null
         val lift = liftedAt ?: return
         liftedAt = null
         val gap = now - lift
         if (gap in MIN_GAP_MS..MAX_GAP_MS) {
+            lastGap = gap
             gaps.addLast(gap)
             while (gaps.size > MAX_GAPS) gaps.removeFirst()
         }
@@ -32,7 +37,29 @@ class FollowRhythm {
     fun interrupted() { interruptions = (interruptions + 1).coerceAtMost(MAX_INTERRUPTIONS) }
     fun glided() { interruptions = 0 }
     /** Navigation or a page change; the rhythm itself is the writer's and is kept. */
-    fun reset() { liftedAt = null; interruptions = 0 }
+    fun reset() { liftedAt = null; lastGap = null; candidateBreakGap = null; interruptions = 0 }
+
+    /** A natural line is confirmed by later ink; retain the pause before its first stroke. */
+    fun possibleLineBreak() { if (candidateBreakGap == null) candidateBreakGap = lastGap }
+    fun discardLineBreak() { candidateBreakGap = null }
+
+    /** Confirmed natural line breaks teach a separate, conservative return cadence. */
+    fun lineBreak() {
+        (candidateBreakGap ?: lastGap)?.let {
+            returnGaps.addLast(it)
+            while (returnGaps.size > 12) returnGaps.removeFirst()
+        }
+        lastGap = null; candidateBreakGap = null
+    }
+
+    /** Horizontal urgency and interrupted glides must never rush a line return. */
+    fun returnDelay(configuredMs: Int): Int {
+        val configured = configuredMs.coerceIn(300, 2000)
+        if (returnGaps.size < 3) return configured
+        val sorted = returnGaps.sorted()
+        val observed = sorted[((sorted.size - 1) * WORD_QUANTILE).roundToInt()]
+        return maxOf(configured, (observed * 1.2f).roundToInt()).coerceAtMost(2000)
+    }
 
     /** The pause between words: the upper part of the pause distribution, once there is enough of it. */
     fun wordPause(): Long? {

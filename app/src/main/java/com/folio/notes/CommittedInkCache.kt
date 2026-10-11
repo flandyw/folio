@@ -80,7 +80,7 @@ internal class CommittedInkCache(
         // a different one asks for it itself, so a pinch cannot queue a bitmap per step.
         if (bitmap != null || job != null) return
         clip.set(area)
-        obtainDeferred(current, pixelsPerUnit)
+        obtainDeferred(current, pixelsPerUnit, area)
     }
 
     /**
@@ -90,21 +90,23 @@ internal class CommittedInkCache(
      * rasterized inside the frame that asked for it, which is what a dense page entering the screen
      * paid for in one go.
      */
-    private fun obtainDeferred(current: List<Stroke>, pixelsPerUnit: Float): Boolean {
+    private fun obtainDeferred(current: List<Stroke>, pixelsPerUnit: Float, required: Rect): Boolean {
         val running = job
         if (running != null) {
             if (running.failed) { job = null; deferBroken = true; return true }
-            if (running.area == clip && running.pixelsPerUnit == pixelsPerUnit &&
+            // A build that already covers the screen is kept: a glide moving a few pixels per frame
+            // used to cancel it every frame, so nothing landed until the motion stopped.
+            if (running.area.contains(required) && running.pixelsPerUnit == pixelsPerUnit &&
                 appendedInkStart(running.strokes, current) == running.strokes.size) {
                 val done = running.bitmap ?: return false
-                install(done, running.strokes, pixelsPerUnit)
+                install(done, running.strokes, running.area, pixelsPerUnit)
                 job = null
                 return true
             }
             running.cancelled = true; job = null
         }
-        InkRasterStore.take(current, clip, pixelsPerUnit)?.let { kept ->
-            install(kept.bitmap, kept.strokes, pixelsPerUnit)
+        InkRasterStore.take(current, required, pixelsPerUnit)?.let { kept ->
+            install(kept.bitmap, kept.strokes, kept.viewport, pixelsPerUnit)
             return true
         }
         val width = ceil(clip.width() * pixelsPerUnit.toDouble()).toInt()
@@ -134,10 +136,11 @@ internal class CommittedInkCache(
         return false
     }
 
-    private fun install(layer: Bitmap, drawn: List<Stroke>, pixelsPerUnit: Float) {
+    private fun install(layer: Bitmap, drawn: List<Stroke>, area: Rect, pixelsPerUnit: Float) {
         bitmap = layer
         strokes = drawn
-        viewport.set(clip)
+        viewport.set(area)
+        clip.set(area)
         scale = pixelsPerUnit
     }
 
@@ -159,15 +162,25 @@ internal class CommittedInkCache(
         /** When true, pen strokes draw as one uniform path (preview); settled frames use full taper. */
         fastPreview: Boolean = false,
         /** Build a dense page's raster off the UI thread instead of inside this frame (finite pages). */
-        deferred: Boolean = false
+        deferred: Boolean = false,
+        /**
+         * What is actually on screen, inside [rasterViewport]. A raster held (or being built) at this
+         * scale that covers it keeps serving, so the overscan absorbs a pan without a rebuild.
+         */
+        visible: Rect? = null,
+        /** Draws a cheap stand-in while a deferred raster is built, so revealed ink never pops in from blank. */
+        placeholder: ((Canvas) -> Unit)? = null
     ) {
         if (rasterViewport != null) clip.set(rasterViewport) else canvas.getClipBounds(clip)
         if (clip.isEmpty || current.isEmpty()) {
             clear()
             return
         }
-        val width = ceil(clip.width() * pixelsPerUnit.toDouble()).toInt()
-        val height = ceil(clip.height() * pixelsPerUnit.toDouble()).toInt()
+        val required = visible ?: clip
+        val held = bitmap
+        if (held != null && scale == pixelsPerUnit && viewport.contains(required)) clip.set(viewport)
+        var width = ceil(clip.width() * pixelsPerUnit.toDouble()).toInt()
+        var height = ceil(clip.height() * pixelsPerUnit.toDouble()).toInt()
         // Bound memory per visible page (32 MB). Oversized surfaces keep full vector quality.
         if (!pixelsPerUnit.isFinite() || pixelsPerUnit <= 0f || width <= 0 || height <= 0 ||
             width.toLong() * height > maxPixels) {
@@ -175,18 +188,26 @@ internal class CommittedInkCache(
             drawRange(canvas, current, 0, clip, boundsOf, renderOf, fastPreview)
             return
         }
-        val held = bitmap
         val holdsThisView = held != null && viewport == clip && scale == pixelsPerUnit
         if (!holdsThisView && deferred && !fastPreview && !deferBroken && current.size >= DEFER_MIN_STROKES &&
-            !obtainDeferred(current, pixelsPerUnit)) {
-            // Until the new raster lands, what the cache last held is still the closest picture.
-            if (held != null && scale > 0f) {
-                staleDestination.set(viewport.left.toFloat(), viewport.top.toFloat(),
-                    viewport.left + held.width / scale, viewport.top + held.height / scale)
-                canvas.drawBitmap(held, null, staleDestination, paint)
+            !obtainDeferred(current, pixelsPerUnit, required)) {
+            // Until the new raster lands, what the cache last held is still the closest picture;
+            // the stand-in fills only what it does not cover, so translucent ink is not doubled.
+            val stale = held != null && scale > 0f
+            if (stale) staleDestination.set(viewport.left.toFloat(), viewport.top.toFloat(),
+                viewport.left + held!!.width / scale, viewport.top + held.height / scale)
+            if (placeholder != null) {
+                canvas.save()
+                if (stale) canvas.clipOutRect(staleDestination)
+                placeholder(canvas)
+                canvas.restore()
             }
+            if (stale) canvas.drawBitmap(held!!, null, staleDestination, paint)
             return
         }
+        // A landed raster may cover more than was asked for (its own overscan).
+        width = ceil(clip.width() * pixelsPerUnit.toDouble()).toInt()
+        height = ceil(clip.height() * pixelsPerUnit.toDouble()).toInt()
         var layer = bitmap
         val viewportChanged = layer == null || viewport != clip || scale != pixelsPerUnit
         if (layer == null || layer.width != width || layer.height != height) {
@@ -237,7 +258,7 @@ internal class CommittedInkCache(
  * because that view then appends to it in place.
  */
 internal object InkRasterStore {
-    class Kept(val strokes: List<Stroke>, val bitmap: Bitmap)
+    class Kept(val strokes: List<Stroke>, val viewport: Rect, val bitmap: Bitmap)
     private class Entry(val strokes: List<Stroke>, val viewport: Rect, val scale: Float, val bitmap: Bitmap)
 
     private const val MAX_BYTES = 64L * 1024 * 1024
@@ -250,14 +271,14 @@ internal object InkRasterStore {
         while (bytes > MAX_BYTES && entries.size > 1) bytes -= entries.removeFirst().bitmap.allocationByteCount
     }
 
-    /** The newest raster drawn for these strokes (or an earlier prefix of them) at this viewport and scale. */
-    @Synchronized fun take(strokes: List<Stroke>, viewport: Rect, scale: Float): Kept? {
+    /** The newest raster drawn for these strokes (or an earlier prefix of them) at this scale that covers [visible]. */
+    @Synchronized fun take(strokes: List<Stroke>, visible: Rect, scale: Float): Kept? {
         for (i in entries.indices.reversed()) {
             val entry = entries[i]
-            if (entry.scale != scale || entry.viewport != viewport) continue
+            if (entry.scale != scale || !entry.viewport.contains(visible)) continue
             if (appendedInkStart(entry.strokes, strokes) != entry.strokes.size) continue
             entries.removeAt(i)
-            return Kept(entry.strokes, entry.bitmap)
+            return Kept(entry.strokes, entry.viewport, entry.bitmap)
         }
         return null
     }

@@ -63,13 +63,15 @@ import kotlin.math.roundToInt
     hiddenSlots: Set<ToolbarSlot> = emptySet(),
     shapeTools: List<Tool> = ShapePickerTools.toList(),
     actions: List<ToolbarAction> = emptyList(),
+    style: ToolbarStyle = ToolbarStyle.FOLIO,
+    toolbarOptions: ToolbarOptions = ToolbarOptions(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
     var shapes by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
     var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
-    var quickBarOpen by rememberSaveable { mutableStateOf(false) }
+    var quickBarOpen by rememberSaveable { mutableStateOf(toolbarOptions.inkOptionsOpen) }
     // The strip's own long-press opens Edit toolbar. A tool or pinned preset claims the
     // gesture first (and cancels the strip menu again if the strip handler ran first), so
     // a hold over a button only ever opens that button's own action.
@@ -90,8 +92,9 @@ import kotlin.math.roundToInt
         if (!markAreaAvailable) base.copy(hidden = base.hidden + ToolbarSlot.MARK_AREA)
         else if (ToolbarSlot.MARK_AREA in base.hidden) base else base.copy(maxPrimary = base.maxPrimary + 1)
     }
-    val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds) {
-        toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
+    val pinnedPresets = remember(presets, toolbarLayout.pinnedPresetIds, toolbarOptions.pinnedPresets) {
+        if (!toolbarOptions.pinnedPresets) emptyList()
+        else toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
     }
     val toolPrefsContext = LocalContext.current
     val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
@@ -130,8 +133,10 @@ import kotlin.math.roundToInt
             ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
         }
     }
-    @Composable fun ToolbarDivider() {
-        Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+    // A selected tool's tile reaches its button's edge, so a divider beside the tools keeps a
+    // little air on that side (budgeted in DividerAir below).
+    @Composable fun ToolbarDivider(modifier: Modifier = Modifier) {
+        Box(modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
     }
     @Composable fun QuickColors() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2), modifier = Modifier.padding(horizontal = FolioSpacing.dp2)) {
@@ -231,28 +236,28 @@ import kotlin.math.roundToInt
       Box {
         if (tool in slot.tools) ToolSettingsPopover()
         when (slot) {
-            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot), onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.SHAPES -> ShapesSlot()
-            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, Icons.Rounded.BorderColor, "Highlighter", indicatorColor = Color(highlighterDot), onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, Icons.Rounded.AutoFixNormal, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, ToolIcons.Highlighter, "Highlighter", indicatorColor = Color(highlighterDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, ToolIcons.Eraser, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.STICKY_NOTE -> ToolButton(Tool.STICKY_NOTE, tool, Icons.AutoMirrored.Rounded.StickyNote2, "Sticky note — drag a rectangle, then type or draw", onLongPress = { claimStripLongPress(); pick(Tool.STICKY_NOTE) }) { pick(it) }
             ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, Icons.Rounded.Gesture, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
+            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, ToolIcons.Lasso, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
             ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
             ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
         }
       }
     }
-    val controls: @Composable RowScope.(Boolean, Boolean, List<ToolbarSlot>, Boolean) -> Unit = { compactTools, showUndo, primary, showExtras ->
+    val controls: @Composable RowScope.(Boolean, Boolean, List<ToolbarSlot>, Boolean) -> Unit = { showRedo, showUndo, primary, showExtras ->
         val overflow = toolbarLayout.visible.filterNot { it in primary }
         val hasTray = primary.isNotEmpty() || (showExtras && (pinnedPresets.isNotEmpty() || actions.isNotEmpty()))
         if (showUndo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
         }
-        if (!compactTools) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+        if (showRedo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.size(20.dp)) }
         }
-        if (showUndo && hasTray) ToolbarDivider()
+        if (showUndo && hasTray) ToolbarDivider(Modifier.padding(start = DividerAir / 2, end = DividerAir))
         // Tools yield slots to overflow as the pane narrows. Keep the selected tool on the
         // strip, rather than leaving it off-screen at an old horizontal scroll position.
         if (hasTray) {
@@ -264,10 +269,11 @@ import kotlin.math.roundToInt
                 primary.forEach { slot -> key(slot) { ToolbarSlotButton(slot) } }
                 if (showExtras) pinnedPresets.forEach { preset ->
                     key(preset.id) {
+                        val presetActive = tool == preset.tool && options.color == preset.color && options.width == preset.width &&
+                            options.opacity == preset.opacity && options.style == preset.style
                         Box {
                             FilterChip(
-                                selected = tool == preset.tool && options.color == preset.color && options.width == preset.width &&
-                                    options.opacity == preset.opacity && options.style == preset.style,
+                                selected = presetActive,
                                 onClick = stripGuard.click { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
                                 label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
                                 leadingIcon = {
@@ -291,7 +297,7 @@ import kotlin.math.roundToInt
                     }
                 }
             }
-            ToolbarDivider()
+            ToolbarDivider(Modifier.padding(start = DividerAir, end = DividerAir / 2))
         }
         // Overflow for less frequent actions — keep palette access separate from quick controls
         Box {
@@ -315,7 +321,7 @@ import kotlin.math.roundToInt
             FolioMenuPopover(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
                 if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); shapes = false }, enabled = canUndo,
                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
-                if (compactTools) {
+                if (!showRedo) {
                     FolioMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
                     HorizontalDivider()
@@ -343,7 +349,7 @@ import kotlin.math.roundToInt
                         MenuSectionHeader("Presets")
                         presets.forEach { preset ->
                             FolioMenuItem(
-                                { Text("${preset.name} · ${preset.tool.name.lowercase()}") },
+                                { Text("${preset.name} · ${toolLabel(preset.tool).lowercase()}") },
                                 { onApplyPreset(preset); shapes = false },
                                 leadingIcon = { Icon(Icons.Rounded.Bookmark, null) }
                             )
@@ -357,7 +363,7 @@ import kotlin.math.roundToInt
                         if (onShapeMeasurements != null) FolioMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
                     }
                     if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                        if (onEraserSingleStroke != null) FolioMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.AutoFixNormal, null) })
+                        if (onEraserSingleStroke != null) FolioMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(ToolIcons.Eraser, null) })
                         if (onEraserPressure != null) FolioMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
                         if (onEraserWholeStroke != null) FolioMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
                         if (onScribbleToErase != null) FolioMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
@@ -381,15 +387,13 @@ import kotlin.math.roundToInt
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             header {
                 BoxWithConstraints {
-                    val compactTools = maxWidth < 360.dp
-                    val showUndo = maxWidth >= 184.dp
-                    // 40dp buttons, 2dp gaps, two 1dp dividers and 12dp outer padding. Budget the
-                    // fixed buttons first, then whole tool slots; presets never crowd those slots out.
-                    val fixedWidth = when {
-                        !showUndo -> 97.dp
-                        compactTools -> 142.dp
-                        else -> 184.dp
-                    }
+                    // Undo and redo follow Settings, and narrow panes drop redo, then undo, into the … menu.
+                    val showUndo = toolbarOptions.undo != UndoButtons.NONE && maxWidth >= 192.dp
+                    val showRedo = showUndo && toolbarOptions.undo == UndoButtons.BOTH && maxWidth >= 360.dp
+                    // 40dp buttons, 2dp gaps, two 1dp dividers with their air and 12dp outer padding.
+                    // Budget the fixed buttons first, then whole tool slots; presets never crowd those slots out.
+                    val fixedWidth = 97.dp + DividerAir * 3 / 2 +
+                        (if (showUndo) 45.dp + DividerAir * 3 / 2 else 0.dp) + (if (showRedo) 42.dp else 0.dp)
                     // Leave two dp of slack for per-button pixel rounding at fractional densities.
                     val capacity = ((maxWidth - fixedWidth) / 42.dp).toInt()
                         .coerceIn(0, toolbarLayout.primary.size)
@@ -403,18 +407,20 @@ import kotlin.math.roundToInt
                         if (actions.isNotEmpty()) 3.dp else 0.dp
                     val showExtras = primary.size == toolbarLayout.primary.size &&
                         maxWidth >= fixedWidth + 42.dp * primary.size + extrasWidth
-                    EditorGlassSurface(
-                        Modifier.longPressAction(stripGuard) {
-                            if (System.currentTimeMillis() - childLongPressAt <= 400) {
-                                // A tool or preset claimed the gesture first; its own action stands alone.
-                                stripGuard.begin()
-                            } else if (toolbarLayoutState != null) editToolbar = true
-                        }
-                    ) {
+                    val stripHold = Modifier.longPressAction(stripGuard) {
+                        if (System.currentTimeMillis() - childLongPressAt <= 400) {
+                            // A tool or preset claimed the gesture first; its own action stands alone.
+                            stripGuard.begin()
+                        } else if (toolbarLayoutState != null) editToolbar = true
+                    }
+                    val strip: @Composable () -> Unit = {
                         Row(Modifier.padding(horizontal = FolioSpacing.dp6, vertical = FolioSpacing.dp2).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                            controls(compactTools, showUndo, primary, showExtras)
+                            controls(showRedo, showUndo, primary, showExtras)
                         }
                     }
+                    // The Goodnotes-inspired bar already is the surface, so its tools sit on it without a pill.
+                    if (style == ToolbarStyle.GOODNOTES) Box(stripHold.height(EditorFloatingGroupHeight), contentAlignment = Alignment.Center) { strip() }
+                    else EditorGlassSurface(stripHold) { strip() }
                 }
             }
         }
@@ -463,6 +469,9 @@ import kotlin.math.roundToInt
     }
 }
 
+/** Space a divider keeps from the tool tray beside it, so a selected tile never touches it. */
+private val DividerAir = 6.dp
+
 /** A one-tap action shown beside the tools in the dock. */
 internal class ToolbarAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)
 
@@ -481,11 +490,11 @@ private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
 private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
     ToolbarSlot.PEN -> Icons.Rounded.Edit
     ToolbarSlot.SHAPES -> shapeIcon(if (tool in ShapePickerTools) tool else lastShape)
-    ToolbarSlot.HIGHLIGHTER -> Icons.Rounded.BorderColor
-    ToolbarSlot.ERASER -> Icons.Rounded.AutoFixNormal
+    ToolbarSlot.HIGHLIGHTER -> ToolIcons.Highlighter
+    ToolbarSlot.ERASER -> ToolIcons.Eraser
     ToolbarSlot.STICKY_NOTE -> Icons.AutoMirrored.Rounded.StickyNote2
     ToolbarSlot.TEXT -> Icons.Rounded.TextFields
-    ToolbarSlot.LASSO -> Icons.Rounded.Gesture
+    ToolbarSlot.LASSO -> ToolIcons.Lasso
     ToolbarSlot.HAND -> Icons.Rounded.PanTool
     ToolbarSlot.MARK_AREA -> Icons.Rounded.CropFree
 }
@@ -497,7 +506,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
  * the sheet stays usable without fine motor control.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun ToolbarEditPanel(
+@Composable internal fun ToolbarEditPanel(
     layoutState: ToolbarLayoutState,
     presets: List<ToolPreset>,
     onDismiss: () -> Unit
@@ -513,7 +522,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                 .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
         ) {
-            Text("Long-press the tool strip any time to come back here. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Also in a notebook: long-press the tool strip. Hidden tools leave the strip and the … menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Primary tools · first ${layout.maxPrimary} shown", style = MaterialTheme.typography.titleSmall)
             Text("Narrow panes show fewer; the active tool always keeps its slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -591,7 +600,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                             Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape))
                             Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
                                 Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(preset.tool.name.lowercase(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(toolLabel(preset.tool), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (pinned) {
                                 IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }, enabled = pinnedIndex > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
@@ -635,7 +644,7 @@ private val GraphAxesIcon by lazy {
 }
 
 private fun shapeIcon(tool: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (tool) {
-    Tool.LINE -> Icons.AutoMirrored.Rounded.ShowChart
+    Tool.LINE -> ToolIcons.Line
     Tool.ELLIPSE -> Icons.Rounded.Circle
     Tool.TRIANGLE -> Icons.Rounded.ChangeHistory
     Tool.DIAMOND -> Icons.Rounded.Diamond
@@ -649,8 +658,18 @@ private fun shapeIcon(tool: Tool): androidx.compose.ui.graphics.vector.ImageVect
 private fun shapeLabel(tool: Tool) = when (tool) {
     Tool.LINE -> "Straight line"
     Tool.GRAPH -> "Graph axes"
-    else -> tool.name.lowercase().replaceFirstChar(Char::uppercase)
+    else -> tool.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
+
+/** A tool's name for people, never its enum constant (no "Mark_area"). */
+internal fun toolLabel(tool: Tool): String =
+    if (tool in ShapePickerTools) shapeLabel(tool)
+    else ToolbarSlot.entries.first { tool in it.tools }.let(::toolbarSlotLabel)
+
+/** The glyph a tool wears on the toolbar. */
+internal fun toolIcon(tool: Tool): ImageVector =
+    if (tool in ShapePickerTools) shapeIcon(tool)
+    else toolbarSlotIcon(ToolbarSlot.entries.first { tool in it.tools }, tool, Tool.LINE)
 
 /** The second-level menus under the toolbar's ⋯ menu. */
 private enum class ToolSub { PRESETS, TOOL }

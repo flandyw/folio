@@ -128,6 +128,8 @@ import kotlinx.coroutines.withContext
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var settings by rememberSaveable { mutableStateOf(false) }
+    var settingsStartWithFollow by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(settings) { if (!settings) settingsStartWithFollow = false }
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
@@ -422,7 +424,8 @@ import kotlinx.coroutines.withContext
             // Full screen hides the status bar, so its inset is zero. Screens without a top bar of
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (FolioSpacing.dp16 - padding.calculateTopPadding()).coerceAtLeast(0.dp)
-            CompositionLocalProvider(LocalDestinationTopGap provides topGap) {
+            CompositionLocalProvider(LocalDestinationTopGap provides topGap,
+                LocalOpenWritingFollowSettings provides { settingsStartWithFollow = true; settings = true }) {
             Box(Modifier.fillMaxSize().padding(padding).then(
                 if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
@@ -542,6 +545,7 @@ import kotlinx.coroutines.withContext
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
                     folders = state.folders,
+                    startWithWritingFollow = settingsStartWithFollow,
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
                     onBackupExclusions = { backupExclusionsOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },

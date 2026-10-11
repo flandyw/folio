@@ -46,6 +46,7 @@ import kotlin.math.roundToInt
                 key(state.activeId) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         onShareLongPress = onShareLongPress,
+                        onOpenDocument = { picker = PickerPurpose.OPEN },
                         notebookActions = { dismiss ->
                             PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); picker = PickerPurpose.COMPANION }
                             PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); picker = PickerPurpose.TABS }

@@ -11,8 +11,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 
-private const val HOLD_CLAIM_MS = 800L
-
 /**
  * Tap-and-hold pairing for one control or gesture area.
  *
@@ -34,26 +32,28 @@ private const val HOLD_CLAIM_MS = 800L
  */
 @Stable
 class LongPressGuard internal constructor() {
-    private var heldAt = 0L
+    // Not time-limited: the user may keep holding long after the long-press tick, and that release
+    // is still the hold's, however late it comes.
+    private var held = false
 
     /**
      * Wraps a control's tap action so the release after a hold never also triggers it. Each
      * gesture's claim is spent by the first click that sees it, so the next tap runs normally.
      */
     fun click(action: () -> Unit): () -> Unit = {
-        val claimed = System.currentTimeMillis() - heldAt <= HOLD_CLAIM_MS
-        heldAt = 0L
+        val claimed = held
+        held = false
         if (!claimed) action()
     }
 
     /** Marks the gesture as claimed by a hold; the release's tap is swallowed. */
     fun claim() {
-        heldAt = System.currentTimeMillis()
+        held = true
     }
 
     /** Every fresh press starts unclaimed, so a tap right after a hold still clicks. */
     internal fun begin() {
-        heldAt = 0L
+        held = false
     }
 }
 

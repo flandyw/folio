@@ -20,10 +20,37 @@ internal class StylusActivity {
     fun endNavigation() { navigationDevice = -1; navigationStart = -1L }
     fun isNavigation(device: Int, start: Long) = device == navigationDevice && start == navigationStart
 
-    fun record(now: Long) { lastSeen = now }
-    fun contact(now: Long, down: Boolean) { record(now); touching = down; if (down) hovering = false }
-    fun hover(now: Long, inRange: Boolean) { record(now); hovering = inRange }
+    private val arrivalListeners = mutableListOf<(Long) -> Unit>()
+    fun addArrivalListener(listener: (Long) -> Unit) { arrivalListeners += listener }
+    fun removeArrivalListener(listener: (Long) -> Unit) { arrivalListeners -= listener }
+
+    fun record(now: Long) { val arriving = !isRecent(now); lastSeen = now; if (arriving) arrived(now) }
+    fun contact(now: Long, down: Boolean) {
+        val arriving = down && !isRecent(now)
+        lastSeen = now; touching = down; if (down) hovering = false
+        if (arriving) arrived(now)
+    }
+    fun hover(now: Long, inRange: Boolean) {
+        val arriving = inRange && !isRecent(now)
+        lastSeen = now; hovering = inRange
+        if (arriving) arrived(now)
+    }
     fun clear() { lastSeen = null; touching = false; hovering = false; endNavigation() }
+
+    /**
+     * Retroactive rejection: a finger stroke that lifted only just before the pen came into range
+     * was the writing hand landing, not a deliberate mark. The window never exceeds the grace
+     * period, so "System only" (0) turns this off with the rest of the app's heuristics.
+     */
+    fun withdraws(endedAt: Long, arrivedAt: Long): Boolean =
+        graceMs > 0 && arrivedAt - endedAt in 0..minOf(graceMs, RETRO_MAX_MS)
+
+    private fun arrived(now: Long) { arrivalListeners.toList().forEach { it(now) } }
+
+    companion object {
+        /** Longest gap between a finger lift and the pen's arrival that still reads as one hand landing. */
+        const val RETRO_MAX_MS = 400L
+    }
     fun canceled(window: Boolean = true) { if (window) cancellationSerial++ }
     fun isRecent(now: Long): Boolean = graceMs > 0 &&
         (touching || hovering || lastSeen?.let { now - it in 0 until graceMs } == true)
@@ -47,8 +74,12 @@ internal class PalmRejection(private val stylus: StylusActivity) {
 
     fun reset() { forwarded = 0; forwardedTouches = 0; rejected = 0; pending = 0; navigating = false; dispatchMask = 0; cancel = false }
 
+    /**
+     * [palms] are contacts the digitizer itself labels as a palm (Android's hidden TOOL_TYPE_PALM).
+     * They never dispatch, and a forwarded finger the firmware re-labels mid-contact is canceled.
+     */
     fun route(action: Action, ids: Int, pens: Int, touches: Int, actionId: Int,
-              time: Long, canceled: Boolean = false, navigation: Boolean = false) {
+              time: Long, canceled: Boolean = false, navigation: Boolean = false, palms: Int = 0) {
         dispatchMask = 0
         cancel = false
         if (action == Action.CANCEL) {
@@ -60,6 +91,8 @@ internal class PalmRejection(private val stylus: StylusActivity) {
             cancel = forwarded != 0
             forwarded = 0; forwardedTouches = 0; rejected = 0; pending = 0; navigating = navigation
         }
+        rejected = rejected or palms
+        pending = pending and palms.inv()
         val bit = 1 shl actionId
         val down = action == Action.DOWN || action == Action.POINTER_DOWN
         val up = action == Action.UP || action == Action.POINTER_UP
@@ -162,6 +195,13 @@ internal class PinchNavigation(private val slop: Float) {
         return (1 shl first) or (1 shl second)
     }
 }
+
+/**
+ * Finger drawing follows the user's explicit choice; until they make one, it is on only for a device
+ * that has never written with a pen. Once a pen is used a finger scrolls, so a resting palm can no
+ * longer leave ink (the usual "stylus only" default of pen-first note apps).
+ */
+internal fun fingerDrawing(explicit: Boolean?, stylusSeen: Boolean): Boolean = explicit ?: !stylusSeen
 
 /** Android action values are stable; mapping is pure so pointer-index transitions are traceable. */
 internal fun filteredPointerAction(action: Int, count: Int, changedIndex: Int): Int = when (action) {

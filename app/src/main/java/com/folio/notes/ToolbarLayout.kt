@@ -1,7 +1,10 @@
 package com.folio.notes
 
 import android.content.SharedPreferences
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -57,6 +60,65 @@ data class ToolbarLayout(
 
     /** Visible slots pushed into the overflow menu. */
     val overflow: List<ToolbarSlot> get() = visible.drop(primary.size)
+}
+
+/**
+ * How the editor's chrome is laid out. [FOLIO] floats the navigation, tools and document actions
+ * as separate glass pills; [GOODNOTES] is one flat bar with document tabs above the tools.
+ * Both read the same [ToolbarLayout], tools and actions, so only the arrangement differs.
+ */
+enum class ToolbarStyle(val label: String, val description: String) {
+    FOLIO("Folio", "Floating pills for navigation, tools and document actions."),
+    GOODNOTES("Goodnotes-inspired", "One flat bar with document tabs on top and the tools in the middle.");
+
+    companion object {
+        val DEFAULT = FOLIO
+
+        fun safeValueOf(name: String?): ToolbarStyle =
+            entries.firstOrNull { it.name == name } ?: DEFAULT
+    }
+}
+
+/** Which history buttons sit at the start of the tool strip; whatever is left off lives in the … menu. */
+enum class UndoButtons(val label: String) {
+    BOTH("Undo & redo"), UNDO("Undo only"), NONE("In … menu");
+
+    companion object {
+        fun safeValueOf(name: String?): UndoButtons = entries.firstOrNull { it.name == name } ?: BOTH
+    }
+}
+
+/**
+ * What the toolbar shows beyond the tools themselves, shared by both [ToolbarStyle]s. Nothing here
+ * removes a feature: undo and redo fall back to the … menu, the timer to the notebook menu, and the
+ * tab strip's way home to a button on the bar.
+ */
+data class ToolbarOptions(
+    val undo: UndoButtons = UndoButtons.BOTH,
+    /** The pen and highlighter buttons wear a dot of their current colour. */
+    val colourDots: Boolean = true,
+    /** Pinned presets sit beside the tools (they stay pinned when this is off). */
+    val pinnedPresets: Boolean = true,
+    /** The exam timer and Focal chips sit on the bar when there is room, otherwise in the notebook menu. */
+    val timer: Boolean = true,
+    /** The ink options bar (widths and colours) starts open when a notebook opens. */
+    val inkOptionsOpen: Boolean = false,
+    /** Goodnotes-inspired style only: open documents as tabs above the tools. */
+    val tabs: Boolean = true,
+) {
+    companion object {
+        val KEYS = arrayOf(AppPrefs.TOOLBAR_UNDO, AppPrefs.TOOLBAR_COLOUR_DOTS, AppPrefs.TOOLBAR_PINNED_PRESETS,
+            AppPrefs.TOOLBAR_TIMER, AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, AppPrefs.TOOLBAR_TABS)
+
+        fun read(prefs: SharedPreferences): ToolbarOptions = ToolbarOptions(
+            undo = UndoButtons.safeValueOf(prefs.getString(AppPrefs.TOOLBAR_UNDO, null)),
+            colourDots = prefs.getBoolean(AppPrefs.TOOLBAR_COLOUR_DOTS, true),
+            pinnedPresets = prefs.getBoolean(AppPrefs.TOOLBAR_PINNED_PRESETS, true),
+            timer = prefs.getBoolean(AppPrefs.TOOLBAR_TIMER, true),
+            inkOptionsOpen = prefs.getBoolean(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false),
+            tabs = prefs.getBoolean(AppPrefs.TOOLBAR_TABS, true),
+        )
+    }
 }
 
 /**
@@ -143,6 +205,12 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
     var layout by mutableStateOf(load())
         private set
 
+    /** Picks up a change written by another holder (Settings while an editor is open). */
+    fun reload() {
+        val stored = load()
+        if (stored != layout) layout = stored
+    }
+
     private fun load(): ToolbarLayout = ToolbarLayouts.normalize(
         order = ToolbarLayouts.decodeOrder(prefs.getString(KEY_ORDER, null)),
         hidden = ToolbarLayouts.decodeHidden(prefs.getString(KEY_HIDDEN, null)),
@@ -195,10 +263,22 @@ class ToolbarLayoutState(private val prefs: SharedPreferences) {
         persist(ToolbarLayouts.default())
     }
 
-    private companion object {
+    internal companion object {
         const val KEY_ORDER = "toolbar.order"
         const val KEY_HIDDEN = "toolbar.hidden"
         const val KEY_PRIMARY = "toolbar.primary"
         const val KEY_PINNED = "toolbar.pinned"
+        val KEYS = setOf(KEY_ORDER, KEY_HIDDEN, KEY_PRIMARY, KEY_PINNED)
     }
+}
+
+/** A [ToolbarLayoutState] that follows the store, so the editor and Settings never disagree. */
+@Composable internal fun rememberToolbarLayoutState(prefs: SharedPreferences): ToolbarLayoutState {
+    val state = remember(prefs) { ToolbarLayoutState(prefs) }
+    DisposableEffect(prefs, state) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key in ToolbarLayoutState.KEYS) state.reload() }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return state
 }
