@@ -63,6 +63,10 @@ object AppPrefs {
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val QUICK_FOLDER = "notebook.quickFolder"
     const val PALM_MS = "input.palmMs"
+    /** Legacy key: an explicit finger-drawing choice. Absent means "follow [STYLUS_SEEN]" ([fingerDrawing]). */
+    const val FINGER = "finger"
+    /** Set the first time a pen tip touches the screen; from then on a finger scrolls unless the user chose otherwise. */
+    const val STYLUS_SEEN = "input.stylusSeen"
     /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
     const val SHAPE_HOLD_MS = "input.shapeHoldMs"
     const val DEFAULT_SHAPE_HOLD_MS = 650L
@@ -200,6 +204,9 @@ object AppPrefs {
     /** The default cover keeps its design but its colour always points into the built-in covers, never a removable custom one. */
     fun defaultCover(cover: Int): Int =
         CoverStyle.withColor(cover, CoverStyle.colorIndex(cover).coerceIn(0, BuiltInCoverColors.lastIndex))
+
+    fun fingerDrawing(prefs: android.content.SharedPreferences): Boolean = com.folio.notes.fingerDrawing(
+        prefs.getBoolean(FINGER, true).takeIf { prefs.contains(FINGER) }, prefs.getBoolean(STYLUS_SEEN, false))
 
     fun palmMs(value: Long?): Long =
         (value ?: DEFAULT_PALM_MS).coerceIn(PALM_MIN_MS, PALM_MAX_MS)

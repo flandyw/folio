@@ -1644,6 +1644,29 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             PageEdit(StrokesEdit.Add(listOf(stroke))) to
                 PageEdit(StrokesEdit.Remove(listOf(beforeStrokes.size))))
     }
+    /**
+     * Takes back a finger stroke palm rejection judged after the fact, as though it was never drawn:
+     * the removal pops the stroke's own undo entry and pushes nothing onto redo, so the palm's ink
+     * cannot come back with an undo. Refused unless the stroke is still the page's last one and its
+     * Add is still on top of the undo stack, i.e. nothing has happened on the page since.
+     */
+    fun withdrawStroke(pageId: String, stroke: Stroke) {
+        val page = findPageContent(pageId) ?: return
+        if (!page.loaded || page.strokes.lastOrNull() !== stroke) return
+        val stack = undo[pageId] ?: return
+        val forward = PageEdit(StrokesEdit.Remove(listOf(page.strokes.lastIndex)))
+        if (stack.lastOrNull() != forward) return
+        val note = _state.value.notes.find { note -> note.pages.any { it.id == pageId } } ?: return
+        stack.removeAt(stack.lastIndex)
+        val revised = page.copy(strokes = page.strokes.dropLast(1)).revised()
+        val updated = note.copy(pages = note.pages.map { if (it.id == pageId) revised else it }, updated = System.currentTimeMillis())
+        _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
+        historyState()
+        // The palm may have landed on a companion pane's page, which historyState does not publish.
+        publishedHistory[pageId] = PageJournal.History(stack.toList(), redo[pageId]?.toList().orEmpty())
+        repository.requestCompaction(note.id, pageId) { currentCheckpoint(note.id, pageId) }
+        queue(WriteOp.Page(note.id, pageId, PageTransaction(0, revised.revision, forward, undoPop = true)))
+    }
     fun texts(texts: List<TextBox>) {
         val page = _state.value.page ?: return
         texts(page.id, texts)

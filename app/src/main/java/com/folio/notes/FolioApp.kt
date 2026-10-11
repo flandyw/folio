@@ -92,7 +92,7 @@ import kotlinx.coroutines.withContext
     // edits made in Settings without the theme re-reading storage itself.
     val accentState = rememberAccentState()
     var uiTextScale by remember { mutableFloatStateOf(AppPrefs.uiTextScale(prefs.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { prefs.contains(AppPrefs.UI_TEXT_SCALE) })) }
-    var finger by rememberSaveable { mutableStateOf(prefs.getBoolean("finger", true)) }
+    var finger by remember { mutableStateOf(AppPrefs.fingerDrawing(prefs)) }
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
     var haptics by rememberSaveable { mutableStateOf(prefs.getBoolean("penHaptics", false)) }
     var shapeRecognition by rememberSaveable { mutableStateOf(prefs.getBoolean("shapeRecognition", false)) }
@@ -122,6 +122,7 @@ import kotlinx.coroutines.withContext
                 AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
                 AppPrefs.UI_TEXT_SCALE -> uiTextScale = AppPrefs.uiTextScale(prefs.getFloat(key, AppPrefs.DEFAULT_UI_TEXT_SCALE))
                 "shapeRecognition" -> shapeRecognition = prefs.getBoolean(key, false)
+                AppPrefs.FINGER, AppPrefs.STYLUS_SEEN -> finger = AppPrefs.fingerDrawing(prefs)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -530,7 +531,7 @@ import kotlinx.coroutines.withContext
                     themeMode, { themeMode = it; prefs.edit().putString(ThemeMode.PREF_KEY, it.name).apply() },
                     themePalette, { themePalette = it; prefs.edit().putString(ThemePalette.PREF_KEY, it.name).apply() },
                     amoled, { amoled = it; prefs.edit().putBoolean(AppTheme.AMOLED_PREF_KEY, it).apply() },
-                    finger, { finger = it; prefs.edit().putBoolean("finger", it).apply() },
+                    finger, { finger = it; prefs.edit().putBoolean(AppPrefs.FINGER, it).apply() },
                     stylusShortcut, { stylusShortcut = it; prefs.edit().putString(StylusShortcut.PREF_KEY, it.name).apply() },
                     haptics, { wanted ->
                         if (!wanted) { haptics = false; prefs.edit().putBoolean("penHaptics", false).apply() }

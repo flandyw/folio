@@ -67,11 +67,19 @@ class InkView(context: Context) : View(context) {
         set(value) {
             if (field === value) return
             inputRouter.reset(::handleTouchEvent)
-            if (isAttachedToWindow) inputRouter.stylus.detachNavigationSurface()
+            if (isAttachedToWindow) { inputRouter.stylus.detachNavigationSurface(); inputRouter.stylus.removeArrivalListener(penArrival) }
             field = value
             inputRouter = StylusInputRouter(value ?: StylusActivity(), ViewConfiguration.get(context).scaledTouchSlop.toFloat())
-            if (isAttachedToWindow) inputRouter.stylus.attachNavigationSurface()
+            if (isAttachedToWindow) { inputRouter.stylus.attachNavigationSurface(); inputRouter.stylus.addArrivalListener(penArrival) }
         }
+    /**
+     * Finger strokes committed in the last moments, newest last, with their lift times. If the pen
+     * comes into range right after, they were the writing hand landing and are taken back.
+     */
+    private val recentFingerInk = ArrayList<Pair<Stroke, Long>>()
+    private val penArrival: (Long) -> Unit = { arrivedAt -> withdrawPalmInk(arrivedAt) }
+    /** Removes one palm stroke from storage without leaving an undo step; null edits through [onStrokesChanged]. */
+    var onStrokeWithdrawn: ((Stroke) -> Unit)? = null
     /** Proximity grace for a standalone surface; app windows use their shared preference. */
     var palmRejectMs: Long
         get() = inputRouter.stylus.graceMs
@@ -1285,10 +1293,13 @@ class InkView(context: Context) : View(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         inputRouter.stylus.attachNavigationSurface()
+        inputRouter.stylus.addArrivalListener(penArrival)
     }
 
     override fun onDetachedFromWindow() {
         inputRouter.stylus.detachNavigationSurface()
+        inputRouter.stylus.removeArrivalListener(penArrival)
+        recentFingerInk.clear()
         inputRouter.reset(::handleTouchEvent)
         onLiveInk(null, false)
         onFollowLanding(null)
@@ -2079,6 +2090,7 @@ class InkView(context: Context) : View(context) {
     }
     private fun finishGesture() {
         val wasErasing = erasing != null
+        val byFinger = !stylus
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
         var scribbleErased: List<Stroke>? = null
         if (heldShape == null && drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
@@ -2123,8 +2135,32 @@ class InkView(context: Context) : View(context) {
             } else if (appendedStroke != null && onStrokeAppended != null)
                 onStrokeAppended!!.invoke(beforeStrokes, appendedStroke, page.strokes)
             else onStrokesChanged(page.strokes)
+            if (byFinger && appendedStroke != null && !readOnly) {
+                val now = SystemClock.uptimeMillis()
+                recentFingerInk.removeAll { now - it.second > StylusActivity.RETRO_MAX_MS }
+                recentFingerInk += page.strokes.last() to now
+            }
         }
         if (shouldNotifyEraser) onEraserFinished?.invoke()
+    }
+
+    /**
+     * The pen just came into range. Finger ink that lifted moments earlier was the hand settling
+     * to write; it is withdrawn newest first, and only while it is still the page's last stroke, so
+     * nothing drawn since (or on top of it) is ever touched.
+     */
+    private fun withdrawPalmInk(arrivedAt: Long) {
+        var withdrew = false
+        while (recentFingerInk.isNotEmpty() && !readOnly) {
+            val (stroke, endedAt) = recentFingerInk.removeAt(recentFingerInk.lastIndex)
+            // The arrival may be stamped a little before this view finished the lift; that is still "right after".
+            if (!inputRouter.stylus.withdraws(endedAt, maxOf(arrivedAt, endedAt)) || page.strokes.lastOrNull() !== stroke) break
+            page = page.copy(strokes = page.strokes.dropLast(1))
+            onStrokeWithdrawn?.invoke(stroke) ?: onStrokesChanged(page.strokes)
+            withdrew = true
+        }
+        recentFingerInk.clear()
+        if (withdrew) invalidate()
     }
 
     private fun followCompletedStroke(drawn: Stroke) {

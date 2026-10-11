@@ -67,8 +67,9 @@ internal fun Modifier.guardUiTouches(): Modifier = composed {
                 event.changes.filter { it.type == PointerType.Stylus || it.type == PointerType.Eraser }
                     .forEach { stylus.record(it.uptimeMillis) }
                 event.changes.forEach { change ->
-                    if (gesture.reject(change.id.value, change.type == PointerType.Touch,
-                            change.pressed, change.uptimeMillis)) change.consume()
+                    // Compose reports palm and vendor tool types as Unknown; treat them as hands.
+                    val hand = change.type == PointerType.Touch || change.type == PointerType.Unknown
+                    if (gesture.reject(change.id.value, hand, change.pressed, change.uptimeMillis)) change.consume()
                 }
             }
         }

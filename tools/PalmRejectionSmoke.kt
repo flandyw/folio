@@ -8,8 +8,8 @@ private class Trace(val stylus: StylusActivity = StylusActivity()) {
     val policy = PalmRejection(stylus)
     fun event(action: PalmRejection.Action, ids: Int, pen: Int = 0, touch: Int = ids and pen.inv(),
               id: Int = Integer.numberOfTrailingZeros(ids), time: Long = 0L, canceled: Boolean = false,
-              sent: Int = ids, cancel: Boolean = false, navigation: Boolean = false) {
-        policy.route(action, ids, pen, touch, id, time, canceled, navigation)
+              sent: Int = ids, cancel: Boolean = false, navigation: Boolean = false, palm: Int = 0) {
+        policy.route(action, ids, pen, touch, id, time, canceled, navigation, palm)
         check(policy.dispatchMask == sent && policy.cancel == cancel) {
             "$action id=$id: expected mask=$sent cancel=$cancel, got mask=${policy.dispatchMask} cancel=${policy.cancel}"
         }
@@ -326,6 +326,74 @@ fun main() {
             check(!policy.startNavigation(mask(1, 2)))
             event(MOVE, mask(1, 2), time = 30, sent = 0)
         }
+    }
+    scenario("A digitizer-labelled palm never dispatches, even with no pen anywhere") {
+        Trace().apply {
+            event(DOWN, mask(3), touch = 0, palm = mask(3), sent = 0)
+            event(MOVE, mask(3), touch = 0, palm = mask(3), sent = 0)
+            event(POINTER_DOWN, mask(3, 4), touch = mask(4), palm = mask(3), id = 4, sent = mask(4))
+            event(MOVE, mask(3, 4), touch = mask(4), palm = mask(3), sent = mask(4))
+            event(POINTER_UP, mask(3, 4), touch = mask(4), palm = mask(3), id = 4, sent = mask(4))
+            event(UP, mask(3), touch = 0, palm = mask(3), sent = 0)
+        }
+    }
+    scenario("A finger the firmware re-labels as a palm mid-contact cancels its gesture") {
+        Trace().apply {
+            event(DOWN, mask(1))
+            event(MOVE, mask(1))
+            event(MOVE, mask(1), touch = 0, palm = mask(1), sent = 0, cancel = true)
+            event(MOVE, mask(1), sent = 0)
+            event(UP, mask(1), sent = 0)
+            event(DOWN, mask(1))
+        }
+    }
+    scenario("A palm-labelled contact never becomes pinch navigation") {
+        Trace().apply {
+            stylus.hover(0, true)
+            event(DOWN, mask(1), time = 10, sent = 0)
+            event(POINTER_DOWN, mask(1, 2), touch = mask(1), palm = mask(2), id = 2, time = 20, sent = 0)
+            check(!policy.startNavigation(mask(1, 2)))
+        }
+    }
+    scenario("Pen arrival is announced once per approach, after the pen was truly away") {
+        val stylus = StylusActivity()
+        val arrivals = mutableListOf<Long>()
+        val listener: (Long) -> Unit = { arrivals += it }
+        stylus.addArrivalListener(listener)
+        stylus.hover(100, true)
+        stylus.hover(120, true)
+        stylus.hover(130, false)          // EXIT just before the tip lands
+        stylus.contact(140, true)
+        stylus.contact(400, false)
+        stylus.hover(600, true)           // back within grace: same approach
+        check(arrivals == listOf(100L)) { "$arrivals" }
+        stylus.hover(700, false)
+        stylus.contact(1300, true)        // grace (500 ms) expired: a new approach
+        check(arrivals == listOf(100L, 1300L)) { "$arrivals" }
+        stylus.contact(1400, false)
+        stylus.record(5000)               // a pen seen by a popup control counts too
+        check(arrivals == listOf(100L, 1300L, 5000L)) { "$arrivals" }
+        stylus.removeArrivalListener(listener)
+        stylus.clear()
+        stylus.hover(9000, true)
+        check(arrivals.size == 3)
+    }
+    scenario("Finger ink is withdrawn only when the pen arrives right after it lifted") {
+        val stylus = StylusActivity()
+        check(stylus.withdraws(1000, 1000))
+        check(stylus.withdraws(1000, 1400))
+        check(!stylus.withdraws(1000, 1401))
+        check(!stylus.withdraws(1000, 999))
+        stylus.graceMs = 150
+        check(stylus.withdraws(1000, 1150) && !stylus.withdraws(1000, 1151))
+        stylus.graceMs = 0
+        check(!stylus.withdraws(1000, 1000))
+    }
+    scenario("Finger drawing defaults off once a pen is used, but an explicit choice always wins") {
+        check(fingerDrawing(null, stylusSeen = false))
+        check(!fingerDrawing(null, stylusSeen = true))
+        check(fingerDrawing(true, stylusSeen = true))
+        check(!fingerDrawing(false, stylusSeen = false))
     }
     println("Palm rejection: $checks scenarios passed.")
 }

@@ -2600,6 +2600,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.onStrokeAppended = { before, stroke, after ->
                     if (!readOnly) model.appendStroke(page.id, before, stroke, after)
                 }
+                view.onStrokeWithdrawn = { if (!readOnly) model.withdrawStroke(page.id, it) }
                 view.onPenInput = { beginsStroke -> if (!readOnly) model.onPenActivity(beginsStroke) }
                 view.onSelectionChanged = onSelection
                 view.onSelectionViewBounds = onSelectionAnchor

@@ -157,7 +157,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
     val shapeHoldMs by rememberPref(p, AppPrefs.SHAPE_HOLD_MS) { AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS)) }
     SettingsGroup("Input") {
-        SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
+        SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
         SettingsDivider()
@@ -315,7 +315,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsSliderRow(
             "Palm rejection", if (palmMs == 0L) "System only" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
             { p.write { putLong(AppPrefs.PALM_MS, AppPrefs.palmMs(it.roundToInt().toLong())) } },
-            subtitle = "Protects against palm touches while the pen is in range and for this long afterwards. Deliberate two-finger zoom still works. 0 keeps Android palm cancellation and pen-only input while the tip is down.",
+            subtitle = "Protects against palm touches while the pen is in range and for this long afterwards, and takes back finger ink drawn just before the pen arrived. Deliberate two-finger zoom still works. 0 keeps Android palm cancellation and pen-only input while the tip is down.",
             onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
         )
         SettingsDivider()

@@ -22,6 +22,8 @@ class MainActivity : ComponentActivity() {
     private val palmPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == AppPrefs.PALM_MS) stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(key, AppPrefs.DEFAULT_PALM_MS))
     }
+    /** Cached so the first-pen check costs one boolean per touch event. */
+    private var stylusSeen = true
     private val model: FolioViewModel by viewModels()
     private var shortcutRequest by mutableIntStateOf(0)
     /** Page rasters kept for pages scrolled away and cached text layouts are the first thing to give back. */
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("preferences", 0)
         stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS))
         prefs.registerOnSharedPreferenceChangeListener(palmPreferenceListener)
+        stylusSeen = prefs.getBoolean(AppPrefs.STYLUS_SEEN, false)
         enableEdgeToEdge()
         hideSystemBars()
         // Ask for the fastest mode as early as possible: the first frames are the ones the user
@@ -54,7 +57,22 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (!stylusSeen && event.actionMasked == MotionEvent.ACTION_DOWN && isStylusPointer(event, 0)) penFirstSeen()
         return inputRouter.touch(event) { super.dispatchTouchEvent(it) }
+    }
+
+    /**
+     * The first pen tip on this device switches finger drawing to its pen-first default (a finger
+     * scrolls), unless the user already chose. Said once, because fingers stop drawing from here on.
+     */
+    private fun penFirstSeen() {
+        stylusSeen = true
+        val prefs = getSharedPreferences("preferences", 0)
+        val changes = !prefs.contains(AppPrefs.FINGER)
+        prefs.edit().putBoolean(AppPrefs.STYLUS_SEEN, true).apply()
+        if (changes) android.widget.Toast.makeText(this,
+            "Pen detected: only the pen writes now, a finger scrolls. Change it in Settings › Writing & tools.",
+            android.widget.Toast.LENGTH_LONG).show()
     }
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         inputRouter.hover(event) { super.dispatchTouchEvent(it) }

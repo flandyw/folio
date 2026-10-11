@@ -21,7 +21,7 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity(), 
     private val indices = IntArray(32)
 
     fun touch(event: MotionEvent, dispatch: (MotionEvent) -> Boolean): Boolean {
-        var ids = 0; var pens = 0; var touches = 0
+        var ids = 0; var pens = 0; var touches = 0; var palms = 0
         for (i in 0 until event.pointerCount) {
             val bit = 1 shl event.getPointerId(i)
             ids = ids or bit
@@ -29,7 +29,11 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity(), 
                 MotionEvent.TOOL_TYPE_STYLUS, MotionEvent.TOOL_TYPE_ERASER -> pens = pens or bit
                 MotionEvent.TOOL_TYPE_FINGER -> if (!event.isFromSource(InputDevice.SOURCE_MOUSE) &&
                     !event.isFromSource(InputDevice.SOURCE_TOUCHPAD)) touches = touches or bit
-                MotionEvent.TOOL_TYPE_UNKNOWN -> if (event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) touches = touches or bit
+                MotionEvent.TOOL_TYPE_MOUSE -> {}
+                TOOL_TYPE_PALM -> palms = palms or bit
+                // Unknown or vendor tool types on a touchscreen are hands until proven otherwise:
+                // they obey proximity like a finger instead of passing through like a mouse.
+                else -> if (event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) touches = touches or bit
             }
         }
         val action = when (event.actionMasked) {
@@ -65,7 +69,7 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity(), 
             }
         }
         val navigation = navigationOwner || stylus.isNavigation(event.deviceId, event.downTime)
-        rejection.route(action, ids, pens, touches, id, event.eventTime, canceled, navigation)
+        rejection.route(action, ids, pens, touches, id, event.eventTime, canceled, navigation, palms)
         if (rejection.cancel) cancelDispatch(dispatch)
         val mask = rejection.dispatchMask
         if (mask == 0) { if (navigationOwner) endNavigation(); return true }
@@ -200,6 +204,9 @@ internal class StylusInputRouter(val stylus: StylusActivity = StylusActivity(), 
         return result
     }
 }
+
+/** MT_TOOL_PALM as Android reports it. The constant is hidden in the SDK, but some firmware sends it. */
+private const val TOOL_TYPE_PALM = 5
 
 internal fun isStylusPointer(event: MotionEvent, index: Int): Boolean =
     event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
