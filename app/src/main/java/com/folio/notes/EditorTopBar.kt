@@ -258,7 +258,9 @@ internal val EditorFloatingGroupHeight = 46.dp
 /** One compact 40dp icon button shared by the dock pills. */
 @Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null) {
     val hold = rememberLongPressGuard()
-    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(),
+        // The tooltip's own long-press would swallow the hold, so a button with a hold action gives it up.
+        enableUserInput = onLongClick == null) {
         // The hold and the tap share one guard so a long-press never also fires the tap on release.
         IconButton(hold.click(onClick), modifier = Modifier.size(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
             Icon(icon, label, Modifier.size(20.dp), tint = tint)

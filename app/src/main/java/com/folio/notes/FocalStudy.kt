@@ -7,10 +7,7 @@ import android.util.AtomicFile
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
-import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
@@ -23,9 +20,12 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
@@ -35,8 +35,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import com.folio.notes.sync.rpcObject
 import com.folio.notes.sync.SupabaseSyncRemote
+import com.folio.notes.mistakes.focalSyncError
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -734,6 +734,8 @@ class FocalStudyManager(context: Context) {
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
+    private val syncRequests = Channel<Unit>(Channel.CONFLATED)
+    private fun requestSync() { syncRequests.trySend(Unit) }
     private var remoteNoticeReadyUser: String? = null
     // Change ids this device authored, so their echo in the feed is never read as another device.
     private val ownChangeIds = LinkedHashSet<String>()
@@ -769,23 +771,25 @@ class FocalStudyManager(context: Context) {
     }
 
     init {
+        // Auth refresh and foreground changes may cancel their collectors, never this
+        // worker's RPC or receipt handling. Bursts of realtime wakeups share one pull.
+        scope.launch { for (request in syncRequests) sync() }
         scope.launch {
             lifecycle.awaitRestoration()
             lifecycle.restoredUser?.let { user ->
                 detachFocusForAccount(user.id)
                 _state.update { it.copy(userId = user.id, email = user.email) }
             }
-            combine(client.auth.sessionStatus, foreground) { status, visible -> status to visible }
-                .collectLatest { (status, visible) ->
-                    when (status) {
+            client.auth.sessionStatus.collect { status ->
+                when (status) {
                         is SessionStatus.Authenticated -> {
                             status.session.user?.let { user ->
                                 detachFocusForAccount(user.id)
                                 if (_state.value.userId != user.id) { remoteNoticeReadyUser = null; clearSyncMemory() }
-                                _state.update { it.copy(userId = user.id, email = user.email, error = null,
+                                _state.update { it.copy(userId = user.id, email = user.email,
+                                    error = if (it.userId == user.id) it.error else null,
                                     subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
-                                sync()
-                                if (visible) watchRemoteSessions(user.id)
+                                requestSync()
                             }
                         }
                         is SessionStatus.NotAuthenticated -> {
@@ -795,7 +799,13 @@ class FocalStudyManager(context: Context) {
                             _state.update { it.copy(userId = null, email = null) }
                         }
                         else -> Unit
-                    }
+                }
+            }
+        }
+        scope.launch {
+            combine(_state.map { it.userId }.distinctUntilChanged(), foreground) { user, visible -> user to visible }
+                .collectLatest { (user, visible) ->
+                    if (visible && user != null) { requestSync(); watchRemoteSessions(user) }
                 }
         }
         scope.launch {
@@ -806,7 +816,8 @@ class FocalStudyManager(context: Context) {
                 // row_id and replaces the in-progress record in a correct Focal consumer.
                 delay(30_000)
                 if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = now())
-                if (_state.value.userId != null) sync()
+                if (_state.value.userId != null && (foreground.value ||
+                    _state.value.entries.any { !it.synced && (it.userId == null || it.userId == _state.value.userId) })) requestSync()
             }
         }
     }
@@ -820,12 +831,12 @@ class FocalStudyManager(context: Context) {
                         channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                             table = "sync_log"
                             filter("entity", FilterOperator.EQ, entity)
-                        }.onEach { sync() }.launchIn(this)
+                        }.onEach { requestSync() }.launchIn(this)
                     }
                     // A reconnect can miss messages while the socket is down. Joining also
                     // closes the gap between the initial pull and this subscription.
                     channel.status.onEach { status ->
-                        if (status == RealtimeChannel.Status.SUBSCRIBED) sync()
+                        if (status == RealtimeChannel.Status.SUBSCRIBED) requestSync()
                     }.launchIn(this)
                     channel.subscribe(blockUntilSubscribed = true)
                     awaitCancellation()
@@ -1200,7 +1211,7 @@ class FocalStudyManager(context: Context) {
                 }
                 _state.update { it.copy(error = null) }
             }
-            sync()
+            requestSync()
         }
     }
 
@@ -1215,6 +1226,7 @@ class FocalStudyManager(context: Context) {
         scope.launch {
             try {
                 lifecycle.awaitRestoration()
+                lifecycle.cancelRestoration()
                 client.auth.signInWith(Email) { this.email = email.trim(); this.password = password }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _state.update { it.copy(error = "Could not sign in. Check your email, password and connection.") } }
@@ -1227,6 +1239,7 @@ class FocalStudyManager(context: Context) {
         scope.launch {
             try {
                 lifecycle.awaitRestoration()
+                lifecycle.cancelRestoration()
                 client.auth.signUpWith(Email) { this.email = email.trim(); this.password = password }
                 _state.update { it.copy(authMessage = "Account created. If asked, confirm your email, then sign in.") }
             } catch (e: CancellationException) { throw e }
@@ -1249,6 +1262,7 @@ class FocalStudyManager(context: Context) {
     }
     fun signOut() {
         scope.launch {
+            lifecycle.cancelRestoration()
             gate.withLock {
                 detachFocusForAccount(null)
                 client.auth.clearSession()
@@ -1272,11 +1286,6 @@ class FocalStudyManager(context: Context) {
                 error = "Focal sync is not configured in this build. Sessions remain on this device.") }
             return@withLock
         }
-        if (client.auth.currentUserOrNull()?.id != user) {
-            _state.update { it.copy(userId = null, email = null, syncing = false, syncDetail = null,
-                error = "Your Focal session expired. Sign in again to sync your saved sessions.") }
-            return@withLock
-        }
         _state.update { state -> state.copy(entries = state.entries.map { if (it.userId == null) it.copy(userId = user) else it }) }
         // Keep the last error visible while retrying. Clearing it at the start makes the chip
         // flash "synced" between every failed attempt, which is misleading and distracting.
@@ -1284,14 +1293,18 @@ class FocalStudyManager(context: Context) {
         try {
             if (!persist()) error("Could not save the local account ownership")
             loadRemoteSessions(user)
+            val publishing = _state.value.entries.any { !it.synced && (it.userId == null || it.userId == user) }
             publishUnsyncedEntries(user)
-            _state.update { it.copy(syncDetail = "Checking that Focal received the changes…") }
-            loadRemoteSessions(user)
-            _state.update { it.copy(syncDetail = "Loading Focal subjects…") }
-            loadCustomSubjects(user)
+            if (publishing) {
+                _state.update { it.copy(syncDetail = "Checking that Focal received the changes…") }
+                loadRemoteSessions(user)
+            }
             _state.update { it.copy(error = if (it.localSaveFailed) it.error else null) }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { reportPublishFailure(_state.value.syncDetail?.removeSuffix("…") ?: "Syncing with Focal", e) }
+        catch (e: Exception) {
+            if (_state.value.userId == user)
+                reportPublishFailure(_state.value.syncDetail?.removeSuffix("…") ?: "Syncing with Focal", e)
+        }
         finally { _state.update { it.copy(syncing = false, syncDetail = null) } }
     }
 
@@ -1487,15 +1500,11 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun reportPublishFailure(step: String, e: Exception) {
-        val causes = generateSequence(e as Throwable?) { it.cause }.toList()
         val reason = when {
             e.message?.startsWith("This offline timer") == true ||
                 e.message?.startsWith("This session") == true ||
                 e.message?.startsWith("This exam session") == true -> e.message!!
-            causes.any { it is java.net.UnknownHostException } -> "Focal could not be reached. Check your internet connection."
-            causes.any { it is java.net.SocketTimeoutException } -> "Focal did not respond in time. Check your connection and try again."
-            causes.any { it is java.io.IOException } -> "The connection to Focal was interrupted. Check your connection and try again."
-            else -> "Focal could not complete the request. A server or account issue may be involved. Try again, or sign out and reconnect your account."
+            else -> focalSyncError(e)
         }
         val advice = if (reason == e.message) "This session remains saved on this device; review it before retrying."
             else "Sessions remain saved on this device and will be sent when you are back online."
@@ -1505,7 +1514,13 @@ class FocalStudyManager(context: Context) {
     private suspend fun loadRemoteSessions(user: String) {
         val prior = _state.value
         var cursor = prior.remoteRevision.takeIf { prior.remoteRevisionUser == user } ?: 0L
+        // Subjects share this feed. Resume at the older cursor once for existing installs,
+        // then checkpoint both projections together instead of downloading the feed twice.
+        cursor = minOf(cursor, prior.remoteSubjectsRevision.takeIf { prior.remoteSubjectsUser == user } ?: 0L)
         val startCursor = cursor
+        val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
+        val custom = (if (prior.remoteSubjectsUser == user) prior.subjects else emptyList())
+            .filterNot { it.id in builtInIds }.associateBy { it.id }.toMutableMap()
         val latest = linkedMapOf<String, Pair<JSONObject, String>>()
         val observedSessionIds = mutableSetOf<String>()
         var latestLamport = if (prior.remoteRevisionUser == user) prior.remoteLamport else 0L
@@ -1515,6 +1530,10 @@ class FocalStudyManager(context: Context) {
             observeServerNow(page.serverNow)
             if (page.mode == "snapshot") {
                 latest.clear()
+                custom.clear()
+                page.rows.filter { it.entity == "custom_subjects" }.forEach { row ->
+                    focalApplyCustomSubject(custom, row.rowId, row.operation, row.payload)
+                }
                 page.rows.filter { it.entity == "study_sessions" && it.payload != null }.forEach { row ->
                     latest[row.rowId] = row.payload!! to "snapshot:${row.rowId}:${row.lamport}"
                     latestLamport = maxOf(latestLamport, row.lamport)
@@ -1524,6 +1543,8 @@ class FocalStudyManager(context: Context) {
             }
             page.changes.forEach { change ->
                 cursor = maxOf(cursor, change.seq)
+                if (change.entity == "custom_subjects")
+                    focalApplyCustomSubject(custom, change.rowId, change.operation, change.payload)
                 if (change.entity == "study_sessions" && change.payload != null) {
                     latest[change.rowId] = change.payload to change.changeId
                     observedSessionIds += change.rowId
@@ -1558,46 +1579,14 @@ class FocalStudyManager(context: Context) {
             }
             state.copy(entries = merged.values.toList() + otherAccounts, focus = focus,
                 remoteRevision = maxOf(startCursor, cursor), remoteRevisionUser = user,
+                subjects = FocalSubjects.builtIn + custom.values,
+                remoteSubjectsRevision = maxOf(startCursor, cursor), remoteSubjectsUser = user,
                 remoteLamport = latestLamport,
                 remoteNotice = notice ?: state.remoteNotice,
                 remoteNoticeId = if (notice != null) state.remoteNoticeId + 1 else state.remoteNoticeId)
         }
-        persist()
+        if (!persist()) error("Could not save the Folio session and subject sync cursor")
         remoteNoticeReadyUser = user
-    }
-
-    private suspend fun loadCustomSubjects(user: String) {
-        val prior = _state.value
-        val sameUser = prior.remoteSubjectsUser == user
-        var cursor = if (sameUser) prior.remoteSubjectsRevision else 0L
-        val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
-        val custom = (if (sameUser) prior.subjects else emptyList())
-            .filterNot { it.id in builtInIds }.associateBy { it.id }.toMutableMap()
-        var pages = 0
-        while (pages++ < 100) {
-            val page = syncRemote.read(user, cursor, 500)
-            observeServerNow(page.serverNow)
-            if (page.mode == "snapshot") {
-                custom.clear()
-                page.rows.filter { it.entity == "custom_subjects" }.forEach { row ->
-                    focalApplyCustomSubject(custom, row.rowId, row.operation, row.payload)
-                }
-                cursor = page.head
-                break
-            }
-            page.changes.sortedBy { it.seq }.forEach { change ->
-                if (change.entity == "custom_subjects")
-                    focalApplyCustomSubject(custom, change.rowId, change.operation, change.payload)
-                cursor = maxOf(cursor, change.seq)
-            }
-            if (cursor >= page.head || page.changes.size < 500) break
-        }
-        if (_state.value.userId == user) {
-            _state.update { it.copy(subjects = FocalSubjects.builtIn + custom.values,
-                remoteSubjectsRevision = if (sameUser) maxOf(it.remoteSubjectsRevision, cursor) else cursor,
-                remoteSubjectsUser = user) }
-            if (!persist()) error("Could not save the Folio subject sync cursor")
-        }
     }
 }
 

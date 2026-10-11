@@ -2,6 +2,9 @@ package com.folio.notes.sync
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.exceptions.HttpRequestException
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.postgrest.result.PostgrestResult
@@ -12,6 +15,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -45,8 +54,18 @@ interface SyncRemote {
  * client cannot write on someone else's behalf and cannot read a row that is not theirs.
  */
 class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
-    private fun checkUser(accountId: String) {
-        check(client.auth.currentUserOrNull()?.id == accountId) { "Sign in again" }
+    private suspend fun checkUser(accountId: String) {
+        // RefreshFailure temporarily hides currentUserOrNull in SDK 3.0.3. Let its one
+        // refresh job recover; starting another exchange would race refresh-token rotation.
+        val status = withTimeoutOrNull(15_000) {
+            client.auth.sessionStatus.first { status ->
+                status is SessionStatus.NotAuthenticated || (status is SessionStatus.Authenticated &&
+                    (status.session.user?.id != accountId ||
+                        status.session.expiresAt.toEpochMilliseconds() > System.currentTimeMillis()))
+            }
+        } ?: throw FocalSessionRefreshingException()
+        if (status !is SessionStatus.Authenticated || status.session.user?.id != accountId)
+            throw FocalSessionRequiredException()
     }
 
     override suspend fun apply(
@@ -73,8 +92,23 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
     }
 
     override suspend fun read(accountId: String, cursor: Long, limit: Int): ReadResult {
-        checkUser(accountId)
-        val result = rpcObject(client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit)))
+        // Only reads retry here. A write's durable mutation/receipt belongs to its caller.
+        var attempt = 0
+        val response = run {
+            while (true) {
+                checkUser(accountId)
+                try {
+                    return@run client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit))
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    if (attempt >= 2 || !focalReadCanRetry(e)) throw e
+                    delay(750L shl attempt++)
+                }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            error("Unreachable")
+        }
+        val result = rpcObject(response)
         val rows = result.optJSONArray("rows") ?: JSONArray()
         val snapshot = result.optString("mode") == "snapshot"
         return ReadResult(
@@ -91,6 +125,16 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
         checkUser(accountId)
         return rpcObject(client.postgrest.rpc("study_session_mutate", mutateParams(accountId, command)))
     }
+}
+
+internal class FocalSessionRefreshingException : IOException("Focal login refresh is still pending")
+internal class FocalSessionRequiredException : IllegalStateException("Sign in to Focal again")
+
+internal fun focalReadCanRetry(error: Throwable): Boolean {
+    val causes = generateSequence(error) { it.cause }.take(12).toList()
+    val response = causes.filterIsInstance<RestException>().firstOrNull()
+    if (response != null) return response.statusCode == 408 || response.statusCode == 429 || response.statusCode in 500..599
+    return causes.any { it is IOException || it is HttpRequestException || it is HttpRequestTimeoutException }
 }
 
 /**
