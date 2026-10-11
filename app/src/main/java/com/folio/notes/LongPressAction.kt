@@ -1,6 +1,7 @@
 package com.folio.notes
 
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -8,8 +9,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Tap-and-hold pairing for one control or gesture area.
@@ -69,14 +72,27 @@ fun rememberLongPressGuard(): LongPressGuard = remember { LongPressGuard() }
 fun Modifier.longPressAction(guard: LongPressGuard, onLongClick: () -> Unit): Modifier {
     val haptics = LocalHapticFeedback.current
     val current by rememberUpdatedState(onLongClick)
+    // Watched on the Initial pass without consuming anything: the button's own click handling sits
+    // below this modifier and sees the press first, so a Main-pass detector (detectTapGestures)
+    // never gets to start its hold timer.
     return pointerInput(guard) {
-        detectTapGestures(
-            onPress = { guard.begin() },
-            onLongPress = {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            guard.begin()
+            val slop = viewConfiguration.touchSlop
+            // Finishing the loop means released or moved away; only the timeout (null) is a hold.
+            val settled = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                var holding = true
+                while (holding) {
+                    val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id }
+                    holding = change != null && change.pressed && (change.position - down.position).getDistance() <= slop
+                }
+            }
+            if (settled == null) {
                 guard.claim()
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 current()
             }
-        )
+        }
     }
 }

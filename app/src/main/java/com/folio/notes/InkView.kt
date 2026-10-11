@@ -763,6 +763,14 @@ class InkView(context: Context) : View(context) {
         return PeekAnchor(page.id, (followVisible.left - originX) / scale, (followVisible.top - originY) / scale,
             (followVisible.right - originX) / scale, (followVisible.bottom - originY) / scale).fittedTo(page)
     }
+    private var pendingRegion: PeekAnchor? = null
+    /** Frames [anchor] in the editable view ("go to" from a peek), once the view has a size if it has none yet. */
+    fun showRegion(anchor: PeekAnchor) {
+        if (anchor.pageId != page.id || isWritingGesture) return
+        suspendWritingFollow()
+        if (width > 0 && height > 0) { pendingRegion = null; fitPeekAnchor(anchor); reportCanvasViewport() }
+        else pendingRegion = anchor
+    }
     fun fitPeekAnchor(anchor: PeekAnchor) {
         if (width == 0 || height == 0 || anchor.pageId != page.id) return
         val base = if (page.infinite) 1f else pageScale
@@ -959,7 +967,8 @@ class InkView(context: Context) : View(context) {
                 fitPeekAnchor(PeekAnchor(page.id, previous.left,
                     previous.top, previous.left + w / unit, previous.top + h / unit))
             } else writingWindowTarget?.let(::fitPeekAnchor)
-        } else peekRegion?.let(::fitPeekAnchor)
+        } else (peekRegion ?: pendingRegion?.takeIf { it.pageId == page.id })?.let(::fitPeekAnchor)
+        pendingRegion = null
         reportCanvasViewport()
     }
     fun canvasView(): WorkspaceViewport = WorkspaceViewport(

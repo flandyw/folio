@@ -535,6 +535,28 @@ fun main() {
         check(follow.state.candidateLane == null && follow.state.candidateAt == null)
         check(follow.state.baselineY == 100f && follow.finishingMark(FollowNavigation.bounds(dot)!!, prefs))
     }
+    scenario("Feel knobs keep the old defaults and carry older separate settings over") {
+        val balanced = FollowPreferences()
+        check(abs(balanced.edgeThreshold - .72f) < .001f && abs(balanced.verticalDeadBand - .15f) < .001f)
+        check(balanced.glideDurationMs == WritingFollow.DEFAULT_GLIDE_MS && balanced.lineSpeedMs == FollowGlide.MS_PER_VIEWPORT.toInt())
+        check(FollowFeel.of(balanced) == FollowFeel.BALANCED) { "Defaults should read as Balanced, not Custom" }
+        for (feel in FollowFeel.entries) check(FollowFeel.of(feel.apply(balanced.copy(endMargin = .15f, position = .4f))) == feel)
+        check(FollowFeel.RELAXED.apply(balanced).let { it.edgeThreshold > balanced.edgeThreshold && it.glideDurationMs > balanced.glideDurationMs })
+        check(FollowFeel.RESPONSIVE.apply(balanced).let { it.verticalDeadBand < balanced.verticalDeadBand && it.lineSpeedMs < balanced.lineSpeedMs })
+        check(FollowFeel.RELAXED.apply(balanced.copy(automaticReturn = true, endMargin = .15f)).let { it.automaticReturn && it.endMargin == .15f })
+        check(FollowPreferences.roomFrom(.72f, .15f) == balanced.room && FollowPreferences.paceFrom(280, 700) == balanced.pace)
+        check(FollowPreferences.roomFrom(.95f, .3f) == 1f && FollowPreferences.roomFrom(.55f, .05f) == 0f)
+        check(FollowPreferences.paceFrom(800, 1500) == 0f && FollowPreferences.paceFrom(120, 250) == 1f)
+        for (pace in listOf(0f, .25f, .6f, .85f, 1f)) {
+            val p = balanced.copy(pace = pace)
+            check(p.glideDurationMs in 120..800 && p.lineSpeedMs in 250..1500)
+            check(FollowPreferences.paceFrom(p.glideDurationMs, p.lineSpeedMs) == pace) { "pace $pace does not round-trip" }
+        }
+        for (room in listOf(0f, .3f, .4f, .75f, 1f)) {
+            val p = balanced.copy(room = room)
+            check(FollowPreferences.roomFrom(p.edgeThreshold, p.verticalDeadBand) == room) { "room $room does not round-trip" }
+        }
+    }
     scenario("Configured pauses stay fixed through fast writing, long gaps and finishing marks") {
         for (delay in listOf(300, 650, 2000)) {
             val custom = prefs.copy(returnDelayMs = delay)
@@ -564,7 +586,7 @@ fun main() {
     scenario("Dotting an i interrupts the edge glide and starts a fresh full pause") {
         for (direction in WritingDirection.entries) {
             val follow = seeded(direction)
-            val custom = prefs.copy(direction = direction, glideDurationMs = 650)
+            val custom = prefs.copy(direction = direction, pace = 0f)
             val frontier = if (direction == WritingDirection.LTR) follow.state.frontierRight!! else follow.state.frontierLeft!!
             val fraction = if (direction == WritingDirection.LTR) .94f else .06f
             val glide = FollowGlide()

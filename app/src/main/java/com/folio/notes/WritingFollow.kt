@@ -533,6 +533,11 @@ data class CanvasWritingSession(
         }
     }
 }
+/**
+ * Everything the writer chooses about following. Movement feel is three independent knobs
+ * ([returnDelayMs], [room], [pace]); the thresholds and timings the engine reads are derived
+ * from them, so no two settings fight over the same behaviour.
+ */
 data class FollowPreferences(
     val direction: WritingDirection = WritingDirection.LTR,
     val mode: FollowMode = FollowMode.TEXT,
@@ -542,23 +547,30 @@ data class FollowPreferences(
     val spacing: Float = 32f,
     /** Pause before automatic return; sideways follow uses half this pause. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
-    /** Minimum glide length. 120..800 ms; longer travel takes extra time. */
-    val glideDurationMs: Int = WritingFollow.DEFAULT_GLIDE_MS,
-    /** Next-line glide pace: ms to cross one screen width or height. 250..1500; sideways follow keeps the default. */
-    val lineSpeedMs: Int = FollowGlide.MS_PER_VIEWPORT.toInt(),
+    /** How far into the view you can write before it moves: 0 moves early, 1 waits for the edge. */
+    val room: Float = DEFAULT_ROOM,
+    /** How quickly the view travels: 0 gentle, 1 snappy. Sets glide length and next-line pace together. */
+    val pace: Float = DEFAULT_PACE,
     val adaptiveSpacing: Boolean = true,
     val horizontalFollow: Boolean = true,
     val verticalFollow: Boolean = true,
     val autoSwitchAreas: Boolean = true,
     val minimumZoom: Float = 1.4f,
-    val edgeThreshold: Float = .72f,
-    val verticalDeadBand: Float = .15f,
+    /** How close to the answer margin a line must end before a return is offered; a writing habit, not a feel. */
     val endMargin: Float = .08f,
     /** Mark where the next line begins while a return is pending and until writing resumes. */
     val showLandingGuide: Boolean = true,
-    /** Visual edge hint only; edgeThreshold controls when following begins. */
+    /** Visual edge hint only; [room] controls when following begins. */
     val edgeStripWidth: Float = .1f,
 ) {
+    /** Sideways trigger, as a fraction across the view (mirrored for RTL). */
+    val edgeThreshold: Float get() = ROOM_EDGE_MIN + ROOM_EDGE_SPAN * room.coerceIn(0f, 1f)
+    /** Room below the writing height before the view moves down, as a fraction of the view. */
+    val verticalDeadBand: Float get() = ROOM_BAND_MIN + ROOM_BAND_SPAN * room.coerceIn(0f, 1f)
+    /** Minimum glide length; longer travel takes extra time. */
+    val glideDurationMs: Int get() = knob(pace, GLIDE_GENTLE, WritingFollow.DEFAULT_GLIDE_MS.toFloat(), GLIDE_SNAPPY).roundToInt()
+    /** Next-line glide pace: ms to cross one screen width or height. Sideways follow keeps the default. */
+    val lineSpeedMs: Int get() = knob(pace, LINE_GENTLE, FollowGlide.MS_PER_VIEWPORT, LINE_SNAPPY).roundToInt()
     val automaticReturnDelayMs: Int get() = returnDelayMs.coerceIn(300, 2000)
     /** Fixed quiet period, independent of stroke history and distance from the visible edge. */
     val glideDelayMs: Int get() = (automaticReturnDelayMs * .5f).roundToInt()
@@ -572,6 +584,36 @@ data class FollowPreferences(
 
     companion object {
         const val UNITS_PER_MM = 4f
+        const val DEFAULT_ROOM = .4f
+        const val DEFAULT_PACE = .6f
+        private const val ROOM_EDGE_MIN = .6f
+        private const val ROOM_EDGE_SPAN = .3f
+        private const val ROOM_BAND_MIN = .07f
+        private const val ROOM_BAND_SPAN = .2f
+        private const val GLIDE_GENTLE = 700f
+        private const val GLIDE_SNAPPY = 140f
+        private const val LINE_GENTLE = 1500f
+        private const val LINE_SNAPPY = 300f
+
+        /** Piecewise-linear through the default at [DEFAULT_PACE], so the default stays exact. */
+        private fun knob(t: Float, gentle: Float, default: Float, snappy: Float): Float {
+            val v = t.coerceIn(0f, 1f)
+            return if (v <= DEFAULT_PACE) gentle + (default - gentle) * v / DEFAULT_PACE
+            else default + (snappy - default) * (v - DEFAULT_PACE) / (1f - DEFAULT_PACE)
+        }
+        private fun unknob(value: Float, gentle: Float, default: Float, snappy: Float): Float =
+            if (value >= default) DEFAULT_PACE * (gentle - value) / (gentle - default)
+            else DEFAULT_PACE + (1f - DEFAULT_PACE) * (default - value) / (default - snappy)
+        private fun step(v: Float) = ((v.coerceIn(0f, 1f) * 20f).roundToInt() / 20f)
+
+        /** Carries the older separate thresholds over to [room], on the same 5% grid as the slider. */
+        fun roomFrom(edgeThreshold: Float, verticalDeadBand: Float): Float = step(
+            ((edgeThreshold - ROOM_EDGE_MIN) / ROOM_EDGE_SPAN + (verticalDeadBand - ROOM_BAND_MIN) / ROOM_BAND_SPAN) / 2f)
+        /** Carries the older separate glide and next-line timings over to [pace]. */
+        fun paceFrom(glideMs: Int, lineSpeedMs: Int): Float = step((
+            unknob(glideMs.toFloat(), GLIDE_GENTLE, WritingFollow.DEFAULT_GLIDE_MS.toFloat(), GLIDE_SNAPPY) +
+            unknob(lineSpeedMs.toFloat(), LINE_GENTLE, FollowGlide.MS_PER_VIEWPORT, LINE_SNAPPY)) / 2f)
+
         const val MIN_SPACING = 16f
         const val MAX_SPACING = 96f
 
@@ -612,16 +654,16 @@ data class FollowPreferences(
             else -> "Right of centre"
         }
 
-        fun returnDelayLabel(ms: Int): String = "${"%.1f".format(ms / 1000f)} s"
-        fun lineSpeedLabel(ms: Int): String = when {
-            ms <= 450 -> "Fast"
-            ms <= 900 -> "Smooth"
-            else -> "Gentle"
+        fun returnDelayLabel(ms: Int): String = "${(if (ms % 100 == 0) "%.1f" else "%.2f").format(ms / 1000f)} s"
+        fun roomLabel(room: Float): String = when {
+            room < .3f -> "Moves early"
+            room <= .6f -> "Some room"
+            else -> "Near the edge"
         }
-        fun glideLabel(ms: Int): String = when {
-            ms <= 170 -> "Snappy"
-            ms <= 350 -> "Smooth"
-            else -> "Gentle"
+        fun paceLabel(pace: Float): String = when {
+            pace < .35f -> "Gentle"
+            pace <= .75f -> "Smooth"
+            else -> "Snappy"
         }
     }
 }
@@ -779,29 +821,20 @@ object FollowLegibility {
     fun isReadable(laneHeight: Float, scale: Float): Boolean = strokePx(laneHeight, scale) >= MIN_STROKE_PX
 }
 
-/** One approachable control for related movement thresholds and timing. Personal choices stay intact. */
-object FollowComfort {
-    fun apply(preferences: FollowPreferences, responsiveness: Float): FollowPreferences {
-        val t = responsiveness.coerceIn(0f, 1f)
-        fun blend(calm: Float, quick: Float) = calm + (quick - calm) * t
-        return preferences.copy(
-            returnDelayMs = blend(1100f, 400f).roundToInt(),
-            glideDurationMs = blend(440f, 180f).roundToInt(),
-            edgeThreshold = blend(.88f, .66f),
-            verticalDeadBand = blend(.24f, .08f),
-            endMargin = blend(.04f, .12f),
-        )
-    }
+/**
+ * Starting points for the three feel knobs. They never touch where you write, your hand,
+ * direction, line spacing, line-end zone or automatic-return choice.
+ */
+enum class FollowFeel(val label: String, val returnDelayMs: Int, val room: Float, val pace: Float) {
+    RELAXED("Relaxed", 1100, .9f, .2f),
+    BALANCED("Balanced", WritingFollow.DEFAULT_RETURN_MS, FollowPreferences.DEFAULT_ROOM, FollowPreferences.DEFAULT_PACE),
+    RESPONSIVE("Responsive", 400, .1f, .9f);
 
-    fun value(preferences: FollowPreferences): Float =
-        ((1100f - preferences.returnDelayMs) / 700f).coerceIn(0f, 1f)
+    fun apply(preferences: FollowPreferences) = preferences.copy(returnDelayMs = returnDelayMs, room = room, pace = pace)
+    fun matches(preferences: FollowPreferences) = preferences.returnDelayMs == returnDelayMs &&
+        abs(preferences.room - room) < .01f && abs(preferences.pace - pace) < .01f
 
-    fun matches(preferences: FollowPreferences, value: Float): Boolean {
-        val target = apply(preferences, value)
-        return preferences.returnDelayMs == target.returnDelayMs &&
-            preferences.glideDurationMs == target.glideDurationMs &&
-            abs(preferences.edgeThreshold - target.edgeThreshold) < .001f &&
-            abs(preferences.verticalDeadBand - target.verticalDeadBand) < .001f &&
-            abs(preferences.endMargin - target.endMargin) < .001f
+    companion object {
+        fun of(preferences: FollowPreferences): FollowFeel? = entries.firstOrNull { it.matches(preferences) }
     }
 }

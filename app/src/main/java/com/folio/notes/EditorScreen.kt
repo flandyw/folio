@@ -212,6 +212,11 @@ private fun paperLabel(p: Paper): String = when (p) {
     LaunchedEffect(peekMode) { if (peekMode == null) peekShown = null }
     LaunchedEffect(peekAnchor == null) { if (peekAnchor == null) peekMode = null }
     val peekOpen = peekMode != null && (peekShown ?: peekAnchor) != null
+    // The read-only page inside a kept-open peek, for re-centring and pinning what it shows.
+    var peekInkView by remember(note.id) { mutableStateOf<InkView?>(null) }
+    LaunchedEffect(peekOpen) { if (!peekOpen) peekInkView = null }
+    // "Go to" from a peek on a canvas frames the peeked area once that page's view is bound.
+    var peekGoTo by remember(note.id) { mutableStateOf<PeekAnchor?>(null) }
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
     val toolbarLayouts = rememberToolbarLayoutState(appPrefs)
@@ -1335,6 +1340,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     }
                 }
             }
+            val peekContext = LocalContext.current
             // Keep the original composition and cameras alive underneath. Closing the peek is an
             // exact return, including scroll offset, tool and the follow engine's line.
             if (peekOpen) {
@@ -1345,6 +1351,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     EditorPage(note.id, target, model, Tool.HAND, options, false, false, false, false,
                         onActive = {}, onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
                         onLoad = { model.loadPage(target.id) }, fullscreen = true, readOnly = true,
+                        onSelectAllView = { peekInkView = it },
                         inputBlocked = peekMode == PeekMode.HELD, peekRegion = anchor)
                     Surface(
                         Modifier.align(Alignment.TopCenter).padding(top = FolioSpacing.dp12).guardUiTouches(),
@@ -1355,18 +1362,52 @@ private fun paperLabel(p: Paper): String = when (p) {
                         Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4, top = FolioSpacing.dp4, bottom = FolioSpacing.dp4).heightIn(min = 40.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            val pageNumber = note.pages.indexOfFirst { it.id == target.id } + 1
-                            Text(if (peekMode == PeekMode.HELD) "Peeking at page $pageNumber · release to return" else "Peek · page $pageNumber",
-                                style = MaterialTheme.typography.labelLarge)
-                            if (peekMode == PeekMode.LATCHED) TextButton({ peekMode = null }, shapes = ButtonDefaults.shapes()) { Text("Close") }
+                            val pageIndex = note.pages.indexOfFirst { it.id == target.id }
+                            val pageName = target.title.takeIf { it.isNotBlank() }?.let { "page ${pageIndex + 1} · $it" } ?: "page ${pageIndex + 1}"
+                            Text(if (peekMode == PeekMode.HELD) "Peeking at $pageName · release to return" else "Peek · $pageName",
+                                Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (peekMode == PeekMode.LATCHED) {
+                                // A kept-open peek can be panned; these bring it back, keep the new framing, or go there to write.
+                                IconButton({ peekInkView?.fitPeekAnchor(anchor) }, Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.CenterFocusStrong, "Re-centre on the pinned view", Modifier.size(20.dp))
+                                }
+                                // Auto peek always shows the whole current page, so a pin made here would not show.
+                                if (!autoPeek || page.infinite) IconButton({
+                                    val shown = peekInkView?.currentPeekAnchor() ?: return@IconButton
+                                    model.setPeekAnchor(shown); peekShown = shown.fittedTo(target)
+                                    android.widget.Toast.makeText(peekContext, "Peek view updated", android.widget.Toast.LENGTH_SHORT).show()
+                                }, Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.PushPin, "Pin what the peek shows now", Modifier.size(20.dp))
+                                }
+                                TextButton({
+                                    val shown = peekInkView?.currentPeekAnchor() ?: anchor
+                                    peekMode = null
+                                    if (pageIndex >= 0 && pageIndex != model.state.value.pageIndex) jumpTo(pageIndex)
+                                    // Only a canvas has a camera to aim; a fixed page is shown from its top in the column.
+                                    if (target.infinite) peekGoTo = shown
+                                }, shapes = ButtonDefaults.shapes()) { Text("Go to") }
+                                TextButton({ peekMode = null }, shapes = ButtonDefaults.shapes()) { Text("Close") }
+                            }
                         }
                     }
                 }
             }
             BackHandler(enabled = peekMode == PeekMode.LATCHED) { peekMode = null }
+            LaunchedEffect(peekGoTo, mainInkView, page.id) {
+                val anchor = peekGoTo ?: return@LaunchedEffect
+                // Navigating elsewhere first drops the request instead of aiming a later visit.
+                if (page.id != anchor.pageId) { peekGoTo = null; return@LaunchedEffect }
+                val view = mainInkView?.takeIf { it.page.id == anchor.pageId } ?: return@LaunchedEffect
+                view.showRegion(anchor); peekGoTo = null
+            }
             fun pinPeekView(wholePage: Boolean) {
                 val anchor = if (wholePage) PeekAnchor.wholePage(page) else activeInkView?.currentPeekAnchor() ?: PeekAnchor.wholePage(page)
+                val replacing = pinnedPeek != null
                 model.setPeekAnchor(anchor)
+                val number = note.pages.indexOfFirst { it.id == anchor.pageId } + 1
+                val what = if (wholePage || anchor == PeekAnchor.wholePage(page).fittedTo(page)) "Page $number" else "View on page $number"
+                android.widget.Toast.makeText(peekContext, "$what ${if (replacing) "replaces the peek view" else "pinned"} · hold the eye to look",
+                    android.widget.Toast.LENGTH_SHORT).show()
             }
             // Keep the default Material shape, colors and elevation, with a shorter container.
             // Secondary actions overflow in narrow companion panes instead of shrinking targets.

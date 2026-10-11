@@ -14,9 +14,22 @@ The Writing & peek menu groups **New paragraph · leave a blank line**, **Indent
 
 Infinite canvases still require an explicit CanvasWritingSession. Opening the pane starts a response only when needed. Each new response starts with automatic return off, and its column survives pan, pinch, resize and view changes. See all working uses the upper overview while pausing the pane; Return to working restores that overview camera. Finish response closes the pane and ends the session.
 
-All global controls are in **Settings → Writing follow**. The editor menu and zoom pane's Options button open that category directly. The page groups setup, movement feel, screen position, the pale edge strip, next-line return, spacing, answer areas, zoom/peek and fine movement controls. Movement thresholds and glide timings are expandable; controls save immediately and the open editor observes the same preferences without writing a stale copy back.
+All global controls are in **Settings → Writing follow**. The editor menu and zoom pane's Options button open that category directly. Controls save immediately and the open editor observes the same preferences without writing a stale copy back.
 
-**Pale edge strip → Strip width** has a live preview and ranges from Hidden (0%) to 35% of the view; the default is 10%. It mirrors for RTL. This changes only the visual hint, not the sideways movement threshold or the answer margin. A separate movement-zone preview shows the actual horizontal/vertical triggers. The editor menu keeps answer-area selection and line/indent/peek actions, plus **Auto-return for this response** as a per-visit canvas choice. Global return and mode defaults never start canvas following or turn on a new response's automatic return.
+The page is grouped by the question a writer asks, and each behaviour has exactly one control:
+
+- **Start here** — follow on pages, Text/Maths, writing direction, hand.
+- **Feel** — three independent knobs: **Pause before moving** (`returnDelayMs`; sideways waits half), **Room before moving** (`room`, 0–1, which derives both the sideways trigger `edgeThreshold` .60–.90 and the downward dead band `verticalDeadBand` .07–.27) and **Movement speed** (`pace`, 0–1, which derives both the minimum glide 700→140 ms and next-line pace 1500→300 ms/screen, piecewise through the defaults at .6). **Start from** Relaxed / Balanced / Responsive sets only these three; Balanced is the default, and any other mix reads as Custom. Presets never touch hand, direction, writing position, line settings, line-end zone or automatic return.
+- **Where your writing sits** — writing height, position after a sideways move, and the **Pale edge strip** (0–35%, default 10%, mirrored for RTL). The strip is a visual hint only; Room before moving decides when the view moves, and the movement-zone preview shows the real triggers.
+- **Next line** — automatic return, **Line-end zone** (`endMargin`, a writing habit kept out of the presets), landing guide, learned/starting line spacing.
+- **When following runs** — one **Move the view** choice (sideways and down / down only / sideways only / only when I tap; Maths offers down or tap) over the `horizontalFollow`/`verticalFollow` pair, and the minimum page zoom.
+- **Answer areas**, **Zoom pane & peek**, **Reset**.
+
+Older builds stored `follow.edgeThreshold`, `follow.verticalDeadBand`, `follow.glideMs` and `follow.lineSpeedMs` separately. `FollowPreferenceStore` reads them once to seed `follow.room`/`follow.pace` (averaging each pair onto the 5% slider grid; the old defaults map exactly to Balanced) and drops them on the next write. These are app preferences, not notebook data.
+
+The editor menu keeps answer-area selection and line/indent/peek actions, plus **Auto-return for this response** as a per-visit canvas choice. Global return and mode defaults never start canvas following or turn on a new response's automatic return.
+
+**Peek** keeps one view per notebook (`Notebook.peekAnchor`). The eye beside the follow controls opens it: hold to glance and release to return, or tap to keep it open. Pinning from the eye or **Writing & peek → Peek view…** confirms with a short message. A kept-open peek can be panned and zoomed, and its bar offers **Re-centre** (back to the pinned framing), **Pin** (replace the pinned view with what the peek shows now; hidden while whole-page auto peek is on for a fixed page), **Go to** (close the peek and go to that page; on a canvas the editor frames the peeked area) and **Close**. The bar names the page and its title. None of this touches the storage format.
 
 No notebook, journal or snapshot format changes are involved. Pane cameras, source frames and visit state are presentation state.
 

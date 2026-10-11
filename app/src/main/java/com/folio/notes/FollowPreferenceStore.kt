@@ -5,9 +5,13 @@ import android.content.SharedPreferences
 /** One mapping shared by Settings and every editor; existing preference keys remain intact. */
 internal object FollowPreferenceStore {
     val keys = arrayOf("follow.direction", "follow.mode", "follow.autoReturn", "follow.position", "follow.horizontal",
-        "follow.spacing", "follow.returnDelayMs", "follow.glideMs", "follow.lineSpeedMs", "follow.adaptiveSpacing",
+        "follow.spacing", "follow.returnDelayMs", ROOM, PACE, "follow.adaptiveSpacing",
         "follow.horizontalFollow", "follow.verticalFollow", "follow.autoSwitchAreas", "follow.minimumZoom",
-        "follow.edgeThreshold", "follow.verticalDeadBand", "follow.endMargin", "follow.showLanding", AppPrefs.FOLLOW_EDGE_STRIP_WIDTH)
+        "follow.endMargin", "follow.showLanding", AppPrefs.FOLLOW_EDGE_STRIP_WIDTH)
+    private const val ROOM = "follow.room"
+    private const val PACE = "follow.pace"
+    /** Older builds stored each threshold and timing separately; read once to seed [ROOM]/[PACE], then dropped. */
+    private val legacy = arrayOf("follow.edgeThreshold", "follow.verticalDeadBand", "follow.glideMs", "follow.lineSpeedMs")
 
     private inline fun <reified E : Enum<E>> enum(p: SharedPreferences, key: String, default: E): E =
         enumValues<E>().firstOrNull { it.name == p.getString(key, null) } ?: default
@@ -22,15 +26,16 @@ internal object FollowPreferenceStore {
         horizontalPosition = float(p, "follow.horizontal", .5f, .35f, .65f),
         spacing = float(p, "follow.spacing", 32f, FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
         returnDelayMs = p.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
-        glideDurationMs = p.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
-        lineSpeedMs = p.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500),
+        room = if (p.contains(ROOM)) float(p, ROOM, FollowPreferences.DEFAULT_ROOM, 0f, 1f)
+            else FollowPreferences.roomFrom(float(p, "follow.edgeThreshold", .72f, .55f, .95f), float(p, "follow.verticalDeadBand", .15f, .05f, .3f)),
+        pace = if (p.contains(PACE)) float(p, PACE, FollowPreferences.DEFAULT_PACE, 0f, 1f)
+            else FollowPreferences.paceFrom(p.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
+                p.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500)),
         adaptiveSpacing = p.getBoolean("follow.adaptiveSpacing", true),
         horizontalFollow = p.getBoolean("follow.horizontalFollow", true),
         verticalFollow = p.getBoolean("follow.verticalFollow", true),
         autoSwitchAreas = p.getBoolean("follow.autoSwitchAreas", true),
         minimumZoom = float(p, "follow.minimumZoom", 1.4f, 1f, 3f),
-        edgeThreshold = float(p, "follow.edgeThreshold", .72f, .55f, .95f),
-        verticalDeadBand = float(p, "follow.verticalDeadBand", .15f, .05f, .3f),
         endMargin = float(p, "follow.endMargin", .08f, .02f, .2f),
         showLandingGuide = p.getBoolean("follow.showLanding", true),
         edgeStripWidth = AppPrefs.followEdgeStripWidth(p.getFloat(AppPrefs.FOLLOW_EDGE_STRIP_WIDTH, AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_WIDTH)),
@@ -44,15 +49,14 @@ internal object FollowPreferenceStore {
         putFloat("follow.horizontal", value.horizontalPosition)
         putFloat("follow.spacing", value.spacing)
         putInt("follow.returnDelayMs", value.returnDelayMs)
-        putInt("follow.glideMs", value.glideDurationMs)
-        putInt("follow.lineSpeedMs", value.lineSpeedMs)
+        putFloat(ROOM, value.room.coerceIn(0f, 1f))
+        putFloat(PACE, value.pace.coerceIn(0f, 1f))
+        legacy.forEach(::remove)
         putBoolean("follow.adaptiveSpacing", value.adaptiveSpacing)
         putBoolean("follow.horizontalFollow", value.horizontalFollow)
         putBoolean("follow.verticalFollow", value.verticalFollow)
         putBoolean("follow.autoSwitchAreas", value.autoSwitchAreas)
         putFloat("follow.minimumZoom", value.minimumZoom)
-        putFloat("follow.edgeThreshold", value.edgeThreshold)
-        putFloat("follow.verticalDeadBand", value.verticalDeadBand)
         putFloat("follow.endMargin", value.endMargin)
         putBoolean("follow.showLanding", value.showLandingGuide)
         putFloat(AppPrefs.FOLLOW_EDGE_STRIP_WIDTH, AppPrefs.followEdgeStripWidth(value.edgeStripWidth))
