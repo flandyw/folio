@@ -54,26 +54,12 @@ interface SyncRemote {
  * client cannot write on someone else's behalf and cannot read a row that is not theirs.
  */
 class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
-    private suspend fun checkUser(accountId: String) {
-        // RefreshFailure temporarily hides currentUserOrNull in SDK 3.0.3. Let its one
-        // refresh job recover; starting another exchange would race refresh-token rotation.
-        val status = withTimeoutOrNull(15_000) {
-            client.auth.sessionStatus.first { status ->
-                status is SessionStatus.NotAuthenticated || (status is SessionStatus.Authenticated &&
-                    (status.session.user?.id != accountId ||
-                        status.session.expiresAt.toEpochMilliseconds() > System.currentTimeMillis()))
-            }
-        } ?: throw FocalSessionRefreshingException()
-        if (status !is SessionStatus.Authenticated || status.session.user?.id != accountId)
-            throw FocalSessionRequiredException()
-    }
-
     override suspend fun apply(
         accountId: String,
         changes: List<SyncProtocol.QueuedChange>,
         clientId: String
     ): ApplyResult {
-        checkUser(accountId)
+        awaitFocalSyncSession(client, accountId)
         val result = rpcObject(client.postgrest.rpc("sync_apply_changes", applyParams(accountId, changes, clientId)))
         val receipts = result.optJSONArray("receipts") ?: JSONArray()
         val applied = (0 until receipts.length()).mapNotNull { index ->
@@ -94,19 +80,17 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
     override suspend fun read(accountId: String, cursor: Long, limit: Int): ReadResult {
         // Only reads retry here. A write's durable mutation/receipt belongs to its caller.
         var attempt = 0
-        val response = run {
-            while (true) {
-                checkUser(accountId)
-                try {
-                    return@run client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit))
-                } catch (e: CancellationException) { throw e }
-                catch (e: Exception) {
-                    if (attempt >= 2 || !focalReadCanRetry(e)) throw e
-                    delay(750L shl attempt++)
-                }
+        var response: PostgrestResult
+        while (true) {
+            awaitFocalSyncSession(client, accountId)
+            try {
+                response = client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit))
+                break
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (attempt >= 2 || !focalReadCanRetry(e)) throw e
+                delay(750L shl attempt++)
             }
-            @Suppress("UNREACHABLE_CODE")
-            error("Unreachable")
         }
         val result = rpcObject(response)
         val rows = result.optJSONArray("rows") ?: JSONArray()
@@ -122,9 +106,24 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
     }
 
     override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
-        checkUser(accountId)
+        awaitFocalSyncSession(client, accountId)
         return rpcObject(client.postgrest.rpc("study_session_mutate", mutateParams(accountId, command)))
     }
+}
+
+/** Shared by feed RPCs and authenticated attachment downloads. */
+internal suspend fun awaitFocalSyncSession(client: SupabaseClient, accountId: String) {
+    // RefreshFailure temporarily hides currentUserOrNull in SDK 3.0.3. Let its one
+    // refresh job recover; starting another exchange would race refresh-token rotation.
+    val status = withTimeoutOrNull(15_000) {
+        client.auth.sessionStatus.first { status ->
+            status is SessionStatus.NotAuthenticated || (status is SessionStatus.Authenticated &&
+                (status.session.user?.id != accountId ||
+                    status.session.expiresAt.toEpochMilliseconds() > System.currentTimeMillis()))
+        }
+    } ?: throw FocalSessionRefreshingException()
+    if (status !is SessionStatus.Authenticated || status.session.user?.id != accountId)
+        throw FocalSessionRequiredException()
 }
 
 internal class FocalSessionRefreshingException : IOException("Focal login refresh is still pending")

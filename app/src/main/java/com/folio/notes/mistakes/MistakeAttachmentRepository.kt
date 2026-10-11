@@ -2,8 +2,8 @@ package com.folio.notes.mistakes
 
 import android.content.Context
 import android.util.AtomicFile
+import com.folio.notes.sync.awaitFocalSyncSession
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,10 +20,10 @@ class MistakeAttachmentRepository(context: Context, private val client: Supabase
         val hash = MessageDigest.getInstance("SHA-256").digest(attachment.storagePath.toByteArray()).joinToString("") { "%02x".format(it) }
         val file = AtomicFile(File(root, "$user/$hash"))
         if (file.baseFile.exists()) return@withContext file.baseFile
-        check(client.auth.currentUserOrNull()?.id == user)
+        awaitFocalSyncSession(client, user)
         val bytes = client.storage.from("mistake-attachments").downloadAuthenticated(attachment.storagePath)
         require(bytes.size <= 5 * 1024 * 1024)
-        check(client.auth.currentUserOrNull()?.id == user)
+        awaitFocalSyncSession(client, user)
         file.baseFile.parentFile!!.mkdirs()
         val output = file.startWrite()
         try { output.write(bytes); file.finishWrite(output) }

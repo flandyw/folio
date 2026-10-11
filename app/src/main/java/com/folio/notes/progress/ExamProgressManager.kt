@@ -8,6 +8,7 @@ import com.folio.notes.mistakes.ExamTrackAuthRepository
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.ExamTrackMistakeCodec
 import com.folio.notes.mistakes.isoTime
+import com.folio.notes.mistakes.mistakeSyncError
 import com.folio.notes.sync.SupabaseSyncRemote
 import com.folio.notes.sync.SyncProtocol
 import io.github.jan.supabase.auth.auth
@@ -231,7 +232,7 @@ class ExamProgressManager(context: Context) {
                     }
                     commit(c.copy(lastSynced = isoTime()))
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { _state.update { if (it.userId == user) it.copy(error = "Focal sync could not finish. Your saved edits will retry when connected.") else it } }
+                catch (e: Exception) { _state.update { if (it.userId == user) it.copy(error = mistakeSyncError(e)) else it } }
                 finally { _state.update { if (it.userId == user) it.copy(syncing = false) else it } }
             }
         }

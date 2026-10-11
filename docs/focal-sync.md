@@ -23,7 +23,8 @@ token trouble, but the old generic message cannot establish the actual HTTP erro
   SDK is still retrying. Study treated that null as an expired account. The shared
   RPC boundary now waits up to 15 seconds for a usable, unexpired session; a real
   sign-out or different account fails immediately. It does not launch a competing
-  refresh exchange. Mistakes no longer performs a redundant immediate-user check.
+  refresh exchange. Mistakes no longer performs a redundant immediate-user check;
+  authenticated attachment downloads use the same recovery guard.
 - Restoring an expired saved session exposes its identity before network refresh.
   Sync now waits for token recovery rather than sending that expired token.
 - Auth/foreground `collectLatest` previously owned the sync RPC, so changing either
@@ -42,7 +43,7 @@ token trouble, but the old generic message cannot establish the actual HTTP erro
   when there were local sessions to publish. Both existing cursor fields are
   checkpointed together, starting at the older cursor on the first shared pass.
   Background polling skips accounts with no pending session work.
-- Study now distinguishes HTTP authentication, permissions, missing backend,
+- Study and Progress now distinguish HTTP authentication, permissions, missing backend,
   rate limits, server failures, request timeouts and transport failures. SDK 3.0.3
   wraps some network failures in `HttpRequestException` without keeping the cause;
   that previously produced the misleading server/account advice. Raw SDK messages,
@@ -82,11 +83,15 @@ See [Supabase session policies](https://supabase.com/docs/guides/auth/sessions) 
 
 The canonical signed/published build is `./build.sh -p`. The existing
 `node tools/focal-study-smoke.cjs` checks timer intervals and restore behavior.
-Focused local checks compile the actual shared RPC/error sources against cached
-SDK 3.0.3 and use a loopback HTTP server: transient/permanent failures, expired
+`python3 tools/focal-sync-smoke.py` compiles the actual shared RPC/error sources against cached
+SDK 3.0.3 and uses a loopback HTTP server: transient/permanent failures, expired
 session recovery, `RefreshFailure` recovery, account mismatch, sign-out,
 cancellation and safe error classification. Focal's `bun run check` checks its
 unchanged frontend types and lint.
+
+These checks passed, and `./build.sh -p` built, signature-verified and published
+Folio **4.0.7-exp.1** (version code 4070001). Focal's check completed with five
+warnings in unchanged code. The tablet scenarios below remain manual checks.
 
 On the tablet, leave Folio signed in across token expiry and sleep/wake; disconnect
 and restore Wi-Fi; use Focal concurrently; retry from Study and Mistakes; and sign
