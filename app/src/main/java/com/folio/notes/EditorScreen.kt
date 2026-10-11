@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -1061,6 +1062,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         onSelectAllView = { if (!preview && item.id == page.id) { mainInkView = it; configureOverview(it) } }, inkStyle = options.style,
                         followEnabled = writingFollowEnabled && !zoomPaneOpen && !preview && item.id == page.id,
                         writingHand = writingHand, followZoom = documentZoom, showAnswerAreas = showAnswerAreas,
+                        autoDetectAnswerAreas = autoDetectAnswerAreas && music == null,
                         inputBlocked = preview || music?.performance == true || (zoomPaneOpen && zoomGesture), readOnly = preview, hideFromAccessibility = preview,
                         rulerEnabled = rulerOn && !preview && item.id == page.id,
                         ruler = rulers[item.id], onRulerChanged = { line -> rulers = rulers + (item.id to line) },
@@ -1664,7 +1666,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                                     TimingChip(state.timer, onLongClick = {
                                         if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
                                     }) { timerPanel = true }
-                                    FocalStudyChip(state.timer, onLongClick = {
+                                    FocalStudyChip(state.timer, note.id, onLongClick = {
                                         (context.applicationContext as FolioApplication).focalStudy.toggleFocus()
                                     }) { studyPanel = true }
                                 }
@@ -1937,7 +1939,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
                 placeholder = { Text("e.g. Quadratics homework") },
                 supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { savePageName() }),
                 shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus))
             LaunchedEffect(target.id) { nameFocus.requestFocus() }
@@ -1982,7 +1984,7 @@ private fun paperLabel(p: Paper): String = when (p) {
             Button(::saveRename, enabled = renameChanged, shapes = ButtonDefaults.shapes()) { Text("Save") }
         }) {
             OutlinedTextField(renameTitle, { renameTitle = it }, label = { Text("Notebook title") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { saveRename() }),
                 shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(renameFocus))
             LaunchedEffect(Unit) { renameFocus.requestFocus() }

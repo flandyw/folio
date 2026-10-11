@@ -712,14 +712,14 @@ private fun scoreMeta(score: MusicScore): String {
             Text("${score.pages} ${if (score.pages == 1) "page" else "pages"} · ${score.marks.size} rehearsal ${if (score.marks.size == 1) "mark" else "marks"}",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { composerFocus.requestFocus() }))
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(composer, { composer = it }, Modifier.weight(1f).focusRequester(composerFocus), label = { Text("Composer") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = ImeAction.Next),
                     keyboardActions = KeyboardActions(onNext = { partFocus.requestFocus() }))
                 OutlinedTextField(part, { part = it }, Modifier.weight(1f).focusRequester(partFocus), label = { Text("Instrument / part") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }))
             }
             OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") },

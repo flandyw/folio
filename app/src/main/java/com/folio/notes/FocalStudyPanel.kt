@@ -47,7 +47,7 @@ import java.util.Calendar
 import java.util.Date
 
 @Composable
-fun FocalStudyChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     // The hold claims the gesture so the release after it never also opens the panel.
     val hold = rememberLongPressGuard()
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
@@ -65,7 +65,8 @@ fun FocalStudyChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onC
     }
     val examActive = timer.active && timer.startedAt != null
     val focus = state.visibleFocus
-    val sharedActive = entries.firstOrNull { it.active }
+    // A sitting recorded from a notebook's timer belongs to that notebook; the sessions dialog lists it everywhere.
+    val sharedActive = entries.firstOrNull { it.active && (it.kind != "exam" || it.notebookId == notebookId) }
     val activeElapsed = when {
         focus != null -> focus.elapsed(now)
         sharedActive != null -> sharedActive.intervals.sumOf { interval ->

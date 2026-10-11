@@ -464,7 +464,7 @@ object EditorQuickPrefs {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Name this preset so you can bring these colours back in any notebook.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(presetName, { presetName = it.take(InkColors.MAX_PRESET_NAME) }, label = { Text("Preset name") }, singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
                         if (presetName.isNotBlank()) { quick.savePreset(group, presetName); naming = false }
                     }))
@@ -512,7 +512,7 @@ object EditorQuickPrefs {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Saves colour, width, opacity and line style for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
                         if (presetName.isNotBlank() && presets.save(presetName, tool, options, options.style)) naming = false
                     }))

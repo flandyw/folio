@@ -107,7 +107,7 @@ import androidx.compose.ui.unit.dp
             title = { Text("Rename layer") },
             text = {
                 OutlinedTextField(name, { name = it.take(PageLayers.MAX_NAME) }, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("Layer name") }, supportingText = { Text("${name.length}/${PageLayers.MAX_NAME}") },
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
                         if (name.isNotBlank() && name.trim() != layer.name) { model.renameLayer(layer.id, name); renaming = null }
                     }))

@@ -191,7 +191,7 @@ import kotlinx.coroutines.withContext
                                                         instruments = instruments.toMutableList().also { it[index] = value }
                                                     },
                                                         Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true, enabled = !busy,
-                                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
                                                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { rangeFocus.requestFocus() }))
                                                     OutlinedTextField(ranges[index], { value -> ranges = ranges.toMutableList().also { it[index] = value } },
                                                         Modifier.weight(1f).focusRequester(rangeFocus), label = { Text("Pages, e.g. 3-6, 9") }, singleLine = true, enabled = !busy,
@@ -204,7 +204,7 @@ import kotlinx.coroutines.withContext
                                                 }
                                                 OutlinedTextField(titles[index], { value -> titles = titles.toMutableList().also { it[index] = value } },
                                                     Modifier.fillMaxWidth().focusRequester(titleFocus), label = { Text("Title in Music") }, singleLine = true, enabled = !busy,
-                                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                                                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { partKeyboard?.hide() }))
                                             }
                                         }

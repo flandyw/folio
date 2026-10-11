@@ -165,7 +165,7 @@ import java.util.Date
     if (renameId != null) AlertDialog(onDismissRequest = { renameId = null }, title = { Text("Attempt name") },
         text = {
             OutlinedTextField(name, { name = it.take(120) }, singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
                     if (name.isNotBlank()) { model.renameResponseAttempt(note.id, renameId!!, name); renameId = null }
                 }))

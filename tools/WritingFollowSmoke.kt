@@ -557,9 +557,35 @@ fun main() {
             check(FollowPreferences.roomFrom(p.edgeThreshold, p.verticalDeadBand) == room) { "room $room does not round-trip" }
         }
     }
+    scenario("The edge strip is the sideways trigger for every room setting, hand, landing column and direction") {
+        val follow = WritingFollow()
+        for (direction in WritingDirection.entries) for (hand in WritingHand.entries)
+            for (room in listOf(0f, .1f, .4f, .9f, 1f)) for (position in listOf(.35f, .5f, .65f)) {
+                val p = prefs.copy(direction = direction, room = room, horizontalPosition = position)
+                val target = p.horizontalTarget(hand)
+                val trigger = p.horizontalTrigger(hand)
+                val stripStart = if (direction == WritingDirection.LTR) 1f - p.edgeStripWidth(hand) else p.edgeStripWidth(hand)
+                check(abs(stripStart - trigger) < .00001f)
+                val sign = if (direction == WritingDirection.LTR) 1f else -1f
+                check(follow.horizontalShift(trigger - sign * .001f, target, direction, p.edgeThreshold) == 0f)
+                check(follow.horizontalShift(trigger, target, direction, p.edgeThreshold) * sign < 0f)
+                check(follow.horizontalShift(trigger + sign * .001f, target, direction, p.edgeThreshold) * sign < 0f)
+                check(p.copy(edgeStripOpacity = 0f).horizontalTrigger(hand) == trigger)
+                val early = p.copy(room = 0f).edgeStripWidth(hand)
+                val late = p.copy(room = 1f).edgeStripWidth(hand)
+                check(early > late)
+            }
+        val area = WritingLane(100f, 0f, 900f, 200f)
+        check(FollowNavigation.hasRoomAhead(100f, 500f, area, WritingDirection.LTR))
+        check(!FollowNavigation.hasRoomAhead(500f, 900f, area, WritingDirection.LTR))
+        check(FollowNavigation.hasRoomAhead(500f, 900f, area, WritingDirection.RTL))
+        check(!FollowNavigation.hasRoomAhead(100f, 500f, area, WritingDirection.RTL))
+        for (direction in WritingDirection.entries) check(!FollowNavigation.hasRoomAhead(0f, 1000f, area, direction))
+    }
     scenario("Configured pauses stay fixed through fast writing, long gaps and finishing marks") {
         for (delay in listOf(300, 650, 2000)) {
             val custom = prefs.copy(returnDelayMs = delay)
+            check(custom.glideDelayMs == delay)
             val follow = seeded()
             var now = 400L
             for ((i, gap) in listOf(60L, 110L, 450L, 1600L, 75L, 900L).withIndex()) {
@@ -567,8 +593,8 @@ fun main() {
                 check(follow.completed(letter(160f + i * 24), now, custom) == WritingProgress.SAME_LINE)
                 val glide = FollowGlide()
                 glide.start(-400f, 0f, now, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
-                check(glide.step(now + delay / 2 - 1).waitMs == 1L)
-                check(glide.step(now + delay / 2).dx == 0f)
+                check(glide.step(now + delay - 1).waitMs == 1L)
+                check(glide.step(now + delay).dx == 0f)
                 glide.cancel()
                 val frontier = follow.state.frontierRight!!
                 val dot = listOf(InkPoint(frontier - 3f, 82f), InkPoint(frontier - 2f, 83f))
@@ -576,7 +602,7 @@ fun main() {
                 check(follow.completed(dot, now, custom) == WritingProgress.NONE)
                 check(follow.finishingMark(FollowNavigation.bounds(dot)!!, custom))
                 glide.start(-400f, 0f, now, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
-                check(glide.step(now + delay / 2 - 1).waitMs == 1L)
+                check(glide.step(now + delay - 1).waitMs == 1L)
                 glide.start(-400f, -32f, now, custom.automaticReturnDelayMs, custom.glideDurationMs, 1000f, 1000f)
                 check(glide.step(now + delay - 1).waitMs == 1L)
                 check(glide.step(now + delay).dx == 0f)
@@ -592,17 +618,17 @@ fun main() {
             val glide = FollowGlide()
             val dx = follow.horizontalShift(fraction, .5f, direction) * 1000f
             glide.start(dx, 0f, 400, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
-            check(glide.step(500).waitMs == 225L) { "The edge started moving during a letter gap" }
+            check(glide.step(500).waitMs == 550L) { "The edge started moving during a letter gap" }
             glide.cancel()
             val dot = listOf(InkPoint(frontier - 2f, 82f), InkPoint(frontier - 1f, 83f))
             check(follow.completed(dot, 600, custom) == WritingProgress.NONE)
             check(follow.finishingMark(FollowNavigation.bounds(dot)!!, custom))
             glide.start(dx, 0f, 600, custom.glideDelayMs, custom.glideDurationMs, 1000f, 1000f)
-            check(glide.step(800).waitMs == 125L)
-            check(glide.step(925).dx == 0f)
-            val half = advanceGlide(glide, 925, 1250) { glide.applied(it.dx, it.dy) }
+            check(glide.step(800).waitMs == 450L)
+            check(glide.step(1250).dx == 0f)
+            val half = advanceGlide(glide, 1250, 1575) { glide.applied(it.dx, it.dy) }
             check(!half.finished) { "A Gentle glide was shortened at the edge" }
-            check(glide.step(1266).dx != 0f)
+            check(glide.step(1591).dx != 0f)
         }
     }
     scenario("RTL uses the same descender, frontier, return and natural line mechanics") {

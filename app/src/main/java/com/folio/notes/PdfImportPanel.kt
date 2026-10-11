@@ -279,7 +279,7 @@ private fun ImportExamFields(item: PendingPdfImport, onUpdate: (PendingPdfImport
             val subject = VceSubject.match(value)
             update { it.copy(subject = subject, subjectText = if (subject == null) value.take(60) else "") }
         }, Modifier.fillMaxWidth(), label = { Text("Subject") }, singleLine = true, shape = MaterialTheme.shapes.large,
-            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { yearFocus.requestFocus() }))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(tags.year?.toString().orEmpty(), { value -> update { it.copy(year = value.filter(Char::isDigit).take(4).toIntOrNull()) } },
@@ -297,7 +297,7 @@ private fun ImportExamFields(item: PendingPdfImport, onUpdate: (PendingPdfImport
         }
         OutlinedTextField(tags.company, { value -> update { it.copy(company = value.take(40)) } }, Modifier.fillMaxWidth().focusRequester(companyFocus),
             label = { Text("Company / source") }, placeholder = { Text("e.g. VCAA, NEAP") }, singleLine = true, shape = MaterialTheme.shapes.large,
-            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { importKeyboard?.hide() }))
         var expanded by remember { mutableStateOf(false) }
         Box {

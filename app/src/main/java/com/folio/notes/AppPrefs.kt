@@ -9,11 +9,11 @@ package com.folio.notes
  * and every screen reads the same value.
  */
 object AppPrefs {
-    /** Width of the pale sideways-follow hint; zero hides it without changing movement. */
-    const val FOLLOW_EDGE_STRIP_WIDTH = "follow.edgeStripWidth"
-    const val DEFAULT_FOLLOW_EDGE_STRIP_WIDTH = .1f
-    fun followEdgeStripWidth(value: Float?): Float =
-        (value?.takeIf(Float::isFinite) ?: DEFAULT_FOLLOW_EDGE_STRIP_WIDTH).coerceIn(0f, .35f)
+    /** Tint opacity of the sideways-follow zone; zero hides it without changing its trigger. */
+    const val FOLLOW_EDGE_STRIP_OPACITY = "follow.edgeStripOpacity"
+    const val DEFAULT_FOLLOW_EDGE_STRIP_OPACITY = .2f
+    fun followEdgeStripOpacity(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_FOLLOW_EDGE_STRIP_OPACITY).coerceIn(0f, .5f)
     const val ZOOM_PANE_HEIGHT = "writing.zoomPaneHeight"
     const val DEFAULT_ZOOM_PANE_HEIGHT = 280f
     fun zoomPaneHeight(value: Float?): Float =

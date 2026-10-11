@@ -896,7 +896,7 @@ class InkView(context: Context) : View(context) {
     private fun startLineAdvance(advance: WritingAdvance, manual: Boolean) {
         if (!getLocalVisibleRect(followVisible)) return
         followBack.begin(writingFollow.state)
-        val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
+        val target = followPreferences.horizontalTarget(writingHand)
         val desiredX = followVisible.left + followVisible.width() * target
         val desiredY = followVisible.top + followVisible.height() * followPreferences.position
         val dx = if (followPreferences.mode == FollowMode.MATH) 0f else responseDx(desiredX -
@@ -1508,18 +1508,18 @@ class InkView(context: Context) : View(context) {
             canvas.drawLine(window.right - handle, window.bottom, window.right, window.bottom - handle, writingRegionPaint)
             canvas.drawLine(window.right - handle * .6f, window.bottom, window.right, window.bottom - handle * .6f, writingRegionPaint)
         }
-        if (canFollow && followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT) {
-            val left = -originX / scale
-            val right = (width - originX) / scale
+        if (canFollow && followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && getLocalVisibleRect(followVisible)) {
+            val left = (followVisible.left - originX) / scale
+            val right = (followVisible.right - originX) / scale
             val area = followRegion()
             val ltr = followPreferences.direction == WritingDirection.LTR
-            if (if (ltr) right < area.right else left > area.left) {
+            if (FollowNavigation.hasRoomAhead(left, right, area, followPreferences.direction)) {
                 writingRegionPaint.color = answerAreaColor
-                writingRegionPaint.alpha = 18
+                writingRegionPaint.alpha = (AppPrefs.followEdgeStripOpacity(followPreferences.edgeStripOpacity) * 255).roundToInt()
                 writingRegionPaint.style = Paint.Style.FILL
-                val strip = (right - left) * AppPrefs.followEdgeStripWidth(followPreferences.edgeStripWidth)
-                canvas.drawRect(if (ltr) right - strip else left, -originY / scale,
-                    if (ltr) right else left + strip, (height - originY) / scale, writingRegionPaint)
+                val strip = (right - left) * followPreferences.edgeStripWidth(writingHand)
+                canvas.drawRect(if (ltr) right - strip else left, (followVisible.top - originY) / scale,
+                    if (ltr) right else left + strip, (followVisible.bottom - originY) / scale, writingRegionPaint)
                 writingRegionPaint.style = Paint.Style.STROKE
             }
         }
@@ -2317,8 +2317,10 @@ class InkView(context: Context) : View(context) {
         val sx = originX + frontier * scale
         val sy = originY + baseline * scale
         val fraction = (sx - followVisible.left) / followVisible.width().coerceAtLeast(1)
-        val target = followPreferences.horizontalPosition + if (writingHand == WritingHand.RIGHT) -.02f else .02f
-        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT) 0f
+        val target = followPreferences.horizontalTarget(writingHand)
+        val roomAhead = FollowNavigation.hasRoomAhead((followVisible.left - originX) / scale,
+            (followVisible.right - originX) / scale, region, followPreferences.direction)
+        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT || (!placing && !roomAhead)) 0f
         else responseDx(if (placing) {
             val startX = writingFollow.state.lineStartX ?: frontier
             (followVisible.left + followVisible.width() * target) - (originX + startX * scale)
@@ -2334,11 +2336,8 @@ class InkView(context: Context) : View(context) {
             }
             return
         }
-        // The writer's own word pause, shorter after cancelled waits and near the visible edge.
-        val urgency = FollowRhythm.urgency(fraction, (sy - followVisible.top) / followVisible.height().coerceAtLeast(1),
-            followPreferences.edgeThreshold, followPreferences.direction)
-        val delay = followRhythm.glideDelay(followPreferences.glideDelayMs, if (placing) 0f else urgency)
-        followGlide.start(dx, dy, now, delay, followPreferences.glideDurationMs,
+        // Every pen lift starts the full configured pause; entering the strip never rushes it.
+        followGlide.start(dx, dy, now, followPreferences.glideDelayMs, followPreferences.glideDurationMs,
             followVisible.width().toFloat(), followVisible.height().toFloat(), instant = reducedMotion)
         captureFollowBack = true
         scheduleFollow()

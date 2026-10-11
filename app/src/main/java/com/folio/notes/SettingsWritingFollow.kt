@@ -40,16 +40,17 @@ import kotlin.math.roundToInt
         SettingsDivider()
         SettingsSliderRow("Pause before moving", FollowPreferences.returnDelayLabel(f.returnDelayMs), f.returnDelayMs / 1000f, .3f..2f,
             { change(f.copy(returnDelayMs = ((it * 20).roundToInt() * 50).coerceIn(300, 2000))) }, steps = 33,
-            subtitle = "How long the pen rests before the next line. Sideways moves wait half as long. Folio learns longer pauses from your own line breaks and word gaps.",
+            subtitle = "How long the pen rests before the view glides. Every pen lift starts the full pause again. Automatic line return can learn a longer pause from your line breaks.",
             onReset = if (f.returnDelayMs != balanced.returnDelayMs) ({ change(f.copy(returnDelayMs = balanced.returnDelayMs)) }) else null,
             lowLabel = "Shorter", highLabel = "Longer")
         SettingsDivider()
         SettingsSliderRow("Room before moving", FollowPreferences.roomLabel(f.room), f.room, 0f..1f,
             { change(f.copy(room = (it * 20).roundToInt() / 20f)) }, steps = 19,
-            subtitle = (if (text) "Sideways once you write past ${(f.edgeThreshold * 100).roundToInt()}% across; d" else "D") +
+            subtitle = (if (text) "The edge strip is ${(f.edgeStripWidth(hand) * 100).roundToInt()}% of the view: write into it, then lift and pause to reveal more space. D" else "D") +
                 "own once you write ${(f.verticalDeadBand * 100).roundToInt()}% of the view below your writing height.",
             onReset = if (f.room != balanced.room) ({ change(f.copy(room = balanced.room)) }) else null,
             lowLabel = "Move sooner", highLabel = "Wait for the edge")
+        SettingsBlock { FollowEdgeStripPreview(f, hand) }
         SettingsDivider()
         SettingsSliderRow("Movement speed", FollowPreferences.paceLabel(f.pace), f.pace, 0f..1f,
             { change(f.copy(pace = (it * 20).roundToInt() / 20f)) }, steps = 19,
@@ -58,7 +59,7 @@ import kotlin.math.roundToInt
             lowLabel = "Gentler", highLabel = "Snappier")
         SettingsBlock { FollowTimingPreview(f) }
     }
-    SettingsGroup("Where your writing sits", footer = "The pale edge strip is only a hint that there is more room ahead; Room before moving decides when the view moves. It is hidden at the answer area's final edge.") {
+    SettingsGroup("Where your writing sits", footer = "Room before moving controls the edge strip's width. It disappears when the answer area's final edge is already visible. Touch down during a glide to stop it.") {
         SettingsBlock { FollowPreview(f, hand) }
         SettingsSliderRow("Writing height", "${f.positionPercent}% down", f.position, .35f.. .7f, { change(f.copy(position = it)) },
             subtitle = "Where the line sits after the view moves. 55% is just below the middle.", lowLabel = "Higher", highLabel = "Lower")
@@ -67,11 +68,12 @@ import kotlin.math.roundToInt
             subtitle = "Where the end of your writing lands. Next line still returns to the answer margin.", enabled = text,
             lowLabel = "Further left", highLabel = "Further right")
         SettingsDivider()
-        SettingsSliderRow("Pale edge strip", if (f.edgeStripWidth == 0f) "Hidden" else "${(f.edgeStripWidth * 100).roundToInt()}% of view",
-            f.edgeStripWidth, 0f.. .35f, { change(f.copy(edgeStripWidth = AppPrefs.followEdgeStripWidth(it))) }, steps = 34,
-            onReset = if (f.edgeStripWidth != AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_WIDTH) ({ change(f.copy(edgeStripWidth = AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_WIDTH)) }) else null,
-            enabled = text, lowLabel = "Hidden", highLabel = "Wider")
-        SettingsBlock { FollowEdgeStripPreview(f) }
+        SettingsSliderRow("Edge strip visibility", if (f.edgeStripOpacity == 0f) "Hidden" else "${(f.edgeStripOpacity * 100).roundToInt()}% opacity",
+            f.edgeStripOpacity, 0f.. .5f, { change(f.copy(edgeStripOpacity = AppPrefs.followEdgeStripOpacity((it * 20).roundToInt() / 20f))) }, steps = 9,
+            subtitle = "A stronger tint makes the movement zone easier to see. Hiding it keeps the same trigger. Ink remains visible through it.",
+            onReset = if (f.edgeStripOpacity != AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY) ({ change(f.copy(edgeStripOpacity = AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY)) }) else null,
+            enabled = text, lowLabel = "Hidden", highLabel = "Stronger")
+        SettingsBlock { FollowEdgeStripPreview(f, hand) }
     }
     SettingsGroup("Next line", footer = "Printed lines take priority over spacing. Spacing applies where the page has no printed lines.") {
         SettingsSwitchRow("Automatic line return", if (text) "Write across the line, then pause near the answer margin to return. Touch down to stop."
@@ -101,7 +103,7 @@ import kotlin.math.roundToInt
             subtitle = "Page following waits until you zoom in this far. Canvas responses use handwriting size on screen instead.", lowLabel = "Always", highLabel = "Zoomed in")
     }
     SettingsGroup("Answer areas", footer = "Use the editor's Answer areas menu to select, detect or clear the area on the current page. A canvas response keeps the column you explicitly started.") {
-        SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas as I scroll", "Look for answer lines on the current PDF page while following is on.")
+        SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas automatically", "Look for answer lines on the current PDF page while following is on, in scrolling or one-page view.")
         SettingsDivider()
         SettingsPrefSwitch("follow.showAnswerAreas", true, "Show answer area outlines", "Make the active writing area's boundaries visible.")
         SettingsDivider()
@@ -116,7 +118,7 @@ import kotlin.math.roundToInt
     }
     SettingsGroup("Reset") {
         SettingsBlock {
-            SettingsBlockHint("Restore writing-follow defaults, including the hand, answer-area display, strip width and pane height. Saved answer areas and pinned peek views are kept.")
+            SettingsBlockHint("Restore writing-follow defaults, including the hand, answer-area display, movement zone and strip visibility, and pane height. Saved answer areas and pinned peek views are kept.")
             TextButton({
                 FollowPreferenceStore.write(p, FollowPreferences())
                 p.write {

@@ -430,7 +430,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         OutlinedTextField(name, { name = it }, Modifier.weight(1f), singleLine = true, shape = FolioShapes.medium,
             placeholder = { Text("Mark page ${page + 1}, e.g. Coda") },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }))
+            keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }))
         FilledTonalIconButton(::add, enabled = name.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add rehearsal mark") }
     }
 }

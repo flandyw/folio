@@ -109,11 +109,12 @@ class WritingFollow {
     fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection, edgeThreshold: Float = .72f): Float {
         if (!fraction.isFinite() || !target.isFinite()) return 0f
         val destination = target.coerceIn(.1f, .9f)
+        val trigger = horizontalTrigger(target, direction, edgeThreshold)
         return if (direction == WritingDirection.LTR) {
-            if (fraction > maxOf(edgeThreshold.coerceIn(.55f, .95f), destination + .08f).coerceAtMost(.95f))
+            if (fraction >= trigger)
                 (destination - fraction).coerceAtMost(0f) else 0f
         } else {
-            if (fraction < minOf(1f - edgeThreshold.coerceIn(.55f, .95f), destination - .08f).coerceAtLeast(.05f))
+            if (fraction <= trigger)
                 (destination - fraction).coerceAtLeast(0f) else 0f
         }
     }
@@ -465,6 +466,14 @@ class WritingFollow {
         ((now - liftedAt).toFloat() / durationMs.coerceIn(120, 800).toFloat()).coerceIn(0f, 1f)
 
     companion object {
+        /** Shared by movement and the visible strip, including the minimum gap from the landing column. */
+        fun horizontalTrigger(target: Float, direction: WritingDirection, edgeThreshold: Float): Float {
+            val destination = target.coerceIn(.1f, .9f)
+            val edge = edgeThreshold.coerceIn(.55f, .95f)
+            return if (direction == WritingDirection.LTR) maxOf(edge, destination + .08f).coerceAtMost(.95f)
+            else minOf(1f - edge, destination - .08f).coerceAtLeast(.05f)
+        }
+
         /** Default carriage-return glide, in ms; exposed so settings can offer speeds. */
         const val DEFAULT_GLIDE_MS = 280
         /** Default pause after pen lift before an automatic return fires, in ms. */
@@ -545,7 +554,7 @@ data class FollowPreferences(
     val position: Float = .55f,
     val horizontalPosition: Float = .5f,
     val spacing: Float = 32f,
-    /** Pause before automatic return; sideways follow uses half this pause. */
+    /** Pen-up pause before following; automatic return may learn a longer line-break pause. */
     val returnDelayMs: Int = WritingFollow.DEFAULT_RETURN_MS,
     /** How far into the view you can write before it moves: 0 moves early, 1 waits for the edge. */
     val room: Float = DEFAULT_ROOM,
@@ -560,8 +569,8 @@ data class FollowPreferences(
     val endMargin: Float = .08f,
     /** Mark where the next line begins while a return is pending and until writing resumes. */
     val showLandingGuide: Boolean = true,
-    /** Visual edge hint only; [room] controls when following begins. */
-    val edgeStripWidth: Float = .1f,
+    /** Tint opacity of the visual hint; independent of movement thresholds. */
+    val edgeStripOpacity: Float = .2f,
 ) {
     /** Sideways trigger, as a fraction across the view (mirrored for RTL). */
     val edgeThreshold: Float get() = ROOM_EDGE_MIN + ROOM_EDGE_SPAN * room.coerceIn(0f, 1f)
@@ -573,7 +582,12 @@ data class FollowPreferences(
     val lineSpeedMs: Int get() = knob(pace, LINE_GENTLE, FollowGlide.MS_PER_VIEWPORT, LINE_SNAPPY).roundToInt()
     val automaticReturnDelayMs: Int get() = returnDelayMs.coerceIn(300, 2000)
     /** Fixed quiet period, independent of stroke history and distance from the visible edge. */
-    val glideDelayMs: Int get() = (automaticReturnDelayMs * .5f).roundToInt()
+    val glideDelayMs: Int get() = automaticReturnDelayMs
+
+    /** Actual sideways trigger and strip width use the same landing column and palm offset. */
+    fun horizontalTarget(hand: WritingHand): Float = horizontalPosition + if (hand == WritingHand.RIGHT) -.02f else .02f
+    fun horizontalTrigger(hand: WritingHand): Float = WritingFollow.horizontalTrigger(horizontalTarget(hand), direction, edgeThreshold)
+    fun edgeStripWidth(hand: WritingHand): Float = horizontalTrigger(hand).let { if (direction == WritingDirection.LTR) 1f - it else it }
 
     /** Page units are A4 at 4 units per mm (840 x 1188), so users see millimetres. */
     val spacingMm: Float get() = spacing / UNITS_PER_MM
@@ -669,6 +683,10 @@ data class FollowPreferences(
 }
 
 object FollowNavigation {
+    /** A sideways trigger is useful only while the answer area still extends beyond the visible edge. */
+    fun hasRoomAhead(left: Float, right: Float, area: WritingLane, direction: WritingDirection): Boolean =
+        if (direction == WritingDirection.LTR) right < area.right else left > area.left
+
     /** A lane narrower than this is a mistake, not a column; returns never aim that far in. */
     const val MIN_LANE_UNITS = 48f
 
