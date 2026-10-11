@@ -101,12 +101,12 @@ class MainActivity : ComponentActivity() {
         (application as FolioApplication).focalStudy.retry()
     }
     override fun onStop() {
-        super.onStop()
-        (application as FolioApplication).focalStudy.setForeground(false)
         // The exam clock only runs while the user is looking at the pages: backgrounding the app
         // or turning the screen off parks it, and parked time never counts. Rotation also stops
         // the activity, so it is skipped — the timer keeps running across a rotate.
         if (!isChangingConfigurations) model.autoPauseTimer()
+        (application as FolioApplication).focalStudy.setForeground(false)
+        super.onStop()
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }
     override fun onWindowFocusChanged(hasFocus: Boolean) {

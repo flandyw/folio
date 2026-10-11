@@ -113,11 +113,9 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
                 Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(16.dp))
-                    Text(when {
-                        examActive -> label.removePrefix("Focal · ")
-                        isPaused -> "$pauseWord · ${formatChipElapsed(activeElapsed)}"
-                        else -> formatChipElapsed(activeElapsed)
-                    }, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                    if (examActive) Text(label.removePrefix("Focal · "),
+                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                    else ToolbarClockText(formatChipElapsed(activeElapsed), prefix = if (isPaused) "$pauseWord · " else "")
                 }
             }
         } else {
@@ -184,11 +182,7 @@ internal fun FocalStudyContent(
             timeInMillis = now
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val activeToday = entries.filter { it.active && it.kind == "study" && !focalIsCalendarPlaceholder(it) }.sumOf { entry ->
-            val activeMillis = entry.intervals.sumOf { ((it.endAt ?: now) - it.startAt).coerceAtLeast(0L) }
-            focalActiveMillisBetween(entry.copy(endedAt = now, activeMillis = activeMillis), start, now)
-        }
-        (focalStudyMillisBetween(entries, start, now) + activeToday) / 60_000L
+        (focalStudyMillisBetween(entries, start, now) + 30_000L) / 60_000L
     }
     val history = remember(entries) {
         entries.filter { it.completed && !focalIsCalendarPlaceholder(it) }.sortedByDescending { it.endedAt }
@@ -208,7 +202,7 @@ internal fun FocalStudyContent(
             Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Text("Exam recording · $phase", style = MaterialTheme.typography.titleSmall)
-                    Text("Writing time is being saved to Focal as this exam runs. Reading time and pauses are excluded.",
+                    Text("Reading and writing time are being saved to Focal as this exam runs. Pauses are excluded.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }

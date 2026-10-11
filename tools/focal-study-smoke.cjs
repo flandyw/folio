@@ -24,7 +24,7 @@ function cached(group, module, version, extension = '.jar', compatible = false) 
       if (fs.existsSync(file)) return file;
     }
   }
-  throw new Error(`Missing cached ${module} ${version}; run ./gradlew :app:assembleDebug first.`);
+  throw new Error(`Missing cached ${module} ${version}; run ./build.sh -p and ./gradlew :app:prepareBackupSmoke first.`);
 }
 const compiler = cached('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', version);
 const pom = fs.readFileSync(cached('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', version, '.pom'), 'utf8');
@@ -48,11 +48,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-study-'));
 try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
   const focal = fs.readFileSync(path.join(source, 'FocalStudy.kt'), 'utf8');
-  // Compile the actual pure helpers without the Android/Supabase manager. Models come from the app jar.
+  // Compile the actual session models, recovery and command helpers without the Android manager.
   const pure = path.join(temp, 'FocalStudy.kt');
   fs.writeFileSync(pure, 'package com.folio.notes\nimport org.json.*\nimport java.util.UUID\nimport java.time.Instant\n' +
-    focal.slice(focal.indexOf('data class FocalStudyEntry('), focal.indexOf('data class FocalFocus(')) +
-    focal.slice(focal.indexOf('internal fun focalControlledEntry('), focal.indexOf('data class FocalStudyState(')));
+    focal.slice(focal.indexOf('data class FocalStudyEntry('), focal.indexOf('/** Durable local sessions.')) +
+    focal.slice(focal.indexOf('private fun focalLegacyMetadata(')));
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',

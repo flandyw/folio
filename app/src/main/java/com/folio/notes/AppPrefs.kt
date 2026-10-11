@@ -11,7 +11,7 @@ package com.folio.notes
 object AppPrefs {
     /** Tint opacity of the sideways-follow zone; zero hides it without changing its trigger. */
     const val FOLLOW_EDGE_STRIP_OPACITY = "follow.edgeStripOpacity"
-    const val DEFAULT_FOLLOW_EDGE_STRIP_OPACITY = .2f
+    const val DEFAULT_FOLLOW_EDGE_STRIP_OPACITY = .1f
     fun followEdgeStripOpacity(value: Float?): Float =
         (value?.takeIf(Float::isFinite) ?: DEFAULT_FOLLOW_EDGE_STRIP_OPACITY).coerceIn(0f, .5f)
     const val ZOOM_PANE_HEIGHT = "writing.zoomPaneHeight"

@@ -2331,13 +2331,15 @@ private fun paperLabel(p: Paper): String = when (p) {
                         else Icons.Rounded.Timer,
                         null, Modifier.size(15.dp)
                     )
-                    Text(
-                        if (timer.paused) "${if (timer.autoParked) "Stopped" else "Paused"} · ${timer.clockText()}"
-                        else if (timer.phase == ExamTimerPhase.WRITING) timer.clockText()
-                        else if (timer.phase == ExamTimerPhase.READING) "R · ${timer.clockText()}"
-                        else "Pens down",
-                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false
-                    )
+                    if (done && !timer.paused) Text("Pens down",
+                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
+                    else ToolbarClockText(timer.clockText(),
+                        prefix = when {
+                            timer.paused -> "${if (timer.autoParked) "Stopped" else "Paused"} · "
+                            timer.phase == ExamTimerPhase.READING -> "R · "
+                            else -> ""
+                        },
+                        fontFamily = FontFamily.Monospace)
                 }
             }
         }

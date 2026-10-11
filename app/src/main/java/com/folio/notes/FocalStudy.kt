@@ -221,12 +221,8 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
 
 internal fun focalRecoverFocus(entry: FocalStudyEntry, focus: FocalFocus): FocalStudyEntry = entry.copy(
     changeId = UUID.randomUUID().toString(), synced = false, paused = true,
-    // A persisted open interval proves only its start, not how long it ran before process death.
-    intervals = focus.intervals.mapIndexed { index, interval ->
-        if (index == focus.intervals.lastIndex && interval.endAt == null) interval.copy(endAt = interval.startAt)
-        else interval
-    },
-    activeMillis = focus.accumulatedMillis
+    endedAt = maxOf(entry.startedAt, focus.intervals.lastOrNull()?.endAt ?: entry.endedAt),
+    intervals = focus.intervals, activeMillis = focus.accumulatedMillis
 )
 
 /** A stable, readable title for a regular study session. */
@@ -236,15 +232,22 @@ internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>)
 /**
  * Count only the part of a session that overlaps the requested day. This matters for a session
  * that begins before midnight: the old UI added its whole duration whenever it ended today.
- * Active intervals exclude pauses in both reading and writing phases.
+ * Finished, paused and running study all count; only the active intervals overlap the day.
  */
 private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
 
 internal fun focalStudyMillisBetween(entries: Iterable<FocalStudyEntry>, from: Long, until: Long): Long =
     entries.asSequence()
-        .filter { it.kind == "study" && it.completed && !focalIsCalendarPlaceholder(it) &&
-            it.endedAt >= from && it.startedAt < until }
-        .sumOf { focalActiveMillisBetween(it, from, until) }
+        .filter { it.kind == "study" && !it.planned && !it.deleted && !focalIsCalendarPlaceholder(it) }
+        .sumOf { entry ->
+            val measured = if (entry.active) entry.copy(
+                endedAt = if (entry.paused) entry.endedAt else until,
+                activeMillis = maxOf(entry.activeMillis, entry.intervals.sumOf {
+                    ((it.endAt ?: until) - it.startAt).coerceAtLeast(0L)
+                })
+            ) else entry
+            focalActiveMillisBetween(measured, from, until)
+        }
 
 /** Imported calendar blocks are scheduled time, not measured study, regardless of duration. */
 internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
@@ -383,11 +386,14 @@ data class FocalFocus(
     val parkReason: String? = null
 ) {
     fun elapsed(now: Long) = accumulatedMillis + (resumedAt?.let { (now - it).coerceAtLeast(0) } ?: 0L)
-    fun pause(now: Long, reason: String? = null) = if (resumedAt == null) this else copy(resumedAt = null,
-        parkReason = reason,
-        accumulatedMillis = elapsed(now), intervals = intervals.mapIndexed { i, interval ->
-            if (i == intervals.lastIndex && interval.endAt == null) interval.copy(endAt = now) else interval
-        })
+    fun pause(now: Long, reason: String? = null): FocalFocus {
+        val start = resumedAt ?: return this
+        val end = now.coerceAtLeast(start)
+        return copy(resumedAt = null, parkReason = reason,
+            accumulatedMillis = elapsed(end), intervals = intervals.map { interval ->
+                if (interval.endAt == null) interval.copy(endAt = end.coerceAtLeast(interval.startAt)) else interval
+            })
+    }
     fun resume(now: Long) = if (resumedAt != null) this else copy(resumedAt = now, parkReason = null,
         intervals = intervals + FocalStudyInterval(now, null))
 
@@ -402,6 +408,15 @@ data class FocalFocus(
         const val PARK_UPDATE = "update"
     }
 }
+
+/** Old saves may contain an open interval without a heartbeat. Its start is all we can prove. */
+internal fun focalRecoveredFocus(focus: FocalFocus): FocalFocus = focus.copy(
+    resumedAt = null,
+    parkReason = if (focus.resumedAt != null) FocalFocus.PARK_CLOSED else focus.parkReason,
+    intervals = focus.intervals.map { interval ->
+        if (interval.endAt == null) interval.copy(endAt = interval.startAt) else interval
+    }
+)
 
 /** What a paused session should say about itself; null while it is running. */
 internal fun focalFocusStatus(focus: FocalFocus): String? = when {
@@ -419,7 +434,7 @@ internal fun focalFocusStatusDetail(focus: FocalFocus): String? = when {
         "Keeps counting when you leave this page. If Folio closes, it recovers paused at the last checkpoint."
     focus.parkReason == FocalFocus.PARK_AWAY -> "Time away was not counted. Resume to carry on."
     focus.parkReason == FocalFocus.PARK_CLOSED ->
-        "Time after the last checkpoint (up to 30 seconds before Folio closed) was not counted. Resume to carry on."
+        "Recovered at the last saved time. Time since that save was not counted. Resume to carry on."
     focus.parkReason == FocalFocus.PARK_EXAM -> "Resume regular study after the exam timer stops."
     focus.parkReason == FocalFocus.PARK_UPDATE -> "Folio paused your session to install an update. Resume to carry on."
     else -> null
@@ -433,9 +448,13 @@ internal fun focalReconcileFocus(current: FocalFocus, session: FocalStudyEntry):
     // An incomplete server timeline cannot establish a new start; keep the last known timer.
     if (!session.paused && runningStart == null) return current
     val accumulated = session.intervals.sumOf { ((it.endAt ?: it.startAt) - it.startAt).coerceAtLeast(0L) }
+    val resumedAt = if (session.paused) null else runningStart
     return current.copy(intervals = session.intervals,
-        accumulatedMillis = maxOf(session.activeMillis, accumulated),
-        resumedAt = if (session.paused) null else runningStart)
+        // activeMillis on a running row can include a checkpoint of its open interval.
+        // elapsed() adds that interval itself; only closed intervals belong in this base.
+        accumulatedMillis = if (session.paused) maxOf(session.activeMillis, accumulated) else accumulated,
+        resumedAt = resumedAt,
+        parkReason = current.parkReason.takeIf { resumedAt == null && current.resumedAt == null })
 }
 
 internal fun focalControlledEntry(current: FocalStudyEntry, action: String, now: Long): FocalStudyEntry? {
@@ -524,6 +543,16 @@ data class FocalStudyState(
         pendingCount > 0 -> "$pendingCount waiting to sync"
         else -> "Synced with Focal"
     }
+}
+
+/** A crash-recoverable copy; the app-owned running focus is never changed by a disk write. */
+internal fun focalStudyCheckpoint(state: FocalStudyState, now: Long): FocalStudyState {
+    val focus = state.focus ?: return state
+    if (focus.resumedAt == null) return state
+    val parked = focus.pause(now, FocalFocus.PARK_CLOSED)
+    return state.copy(focus = parked, entries = state.entries.map { entry ->
+        if (entry.id == focus.sessionId && entry.active) focalRecoverFocus(entry, parked) else entry
+    })
 }
 
 internal data class FocalSessionCommandTiming(val occurredAt: String?, val elapsedMs: Long)
@@ -757,7 +786,12 @@ class FocalStudyManager(context: Context) {
         noticedExternalChanges.clear()
     }
 
-    fun setForeground(value: Boolean) { foreground.value = value }
+    fun setForeground(value: Boolean) {
+        foreground.value = value
+        // Android may kill a stopped process before the next periodic heartbeat. Background
+        // study keeps running in memory, but its recoverable copy is saved right now.
+        if (!value) persist()
+    }
 
     /** Never carry one account's local timer into another account's controls. */
     private fun detachFocusForAccount(userId: String?) {
@@ -765,9 +799,7 @@ class FocalStudyManager(context: Context) {
         val owner = _state.value.entries.firstOrNull { it.id == focus.sessionId }?.userId ?: return
         if (owner == userId) return
         val now = now()
-        saveFocusEntry(focus.pause(now), now, forceUpload = true)
-        _state.update { it.copy(focus = null) }
-        persist()
+        saveFocusEntry(focus.pause(now), now, forceUpload = true, detach = true)
     }
 
     init {
@@ -810,12 +842,13 @@ class FocalStudyManager(context: Context) {
         }
         scope.launch {
             while (true) {
-                // The first active checkpoint is published so another Focal client can show the
-                // sitting immediately. Later checkpoints stay local; this avoids turning a long
-                // exam into dozens of immutable changes. The terminal update keeps the same
-                // row_id and replaces the in-progress record in a correct Focal consumer.
+                delay(FOCUS_CHECKPOINT_INTERVAL_MS)
+                if (_state.value.focus?.resumedAt != null) persist()
+            }
+        }
+        scope.launch {
+            while (true) {
                 delay(30_000)
-                if (_state.value.focus?.resumedAt != null) persist(parkRunningAt = now())
                 if (_state.value.userId != null && (foreground.value ||
                     _state.value.entries.any { !it.synced && (it.userId == null || it.userId == _state.value.userId) })) requestSync()
             }
@@ -848,7 +881,7 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun load(): FocalStudyState = runCatching {
-        if (!file.baseFile.exists()) return@runCatching FocalStudyState()
+        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return@runCatching FocalStudyState()
         val data = JSONObject(file.openRead().bufferedReader().use { it.readText() })
         val rows = data.optJSONArray("entries") ?: JSONArray()
         val entries = (0 until rows.length()).mapNotNull { index -> runCatching {
@@ -898,8 +931,7 @@ class FocalStudyManager(context: Context) {
         // Recovery closes at the last durable checkpoint. A new process cannot reuse the
         // prior process's monotonic delta, and a reboot cannot reuse elapsedRealtime at all.
         // A session saved while running (resumedAt set) was cut off by the process ending.
-        val recoveredFocus = focus?.copy(resumedAt = null,
-            parkReason = if (focus.resumedAt != null) FocalFocus.PARK_CLOSED else focus.parkReason)?.takeUnless { current ->
+        val recoveredFocus = focus?.let(::focalRecoveredFocus)?.takeUnless { current ->
             entries.any { it.id == current.sessionId && (it.deleted || it.completed) }
         }
         val builtInIds = FocalSubjects.builtIn.mapTo(mutableSetOf()) { it.id }
@@ -910,7 +942,7 @@ class FocalStudyManager(context: Context) {
             }.getOrNull() }.filterNot { it.id in builtInIds }
         }
         FocalStudyState(entries = entries.map { entry ->
-            if (recoveredFocus?.sessionId == entry.id && !entry.paused)
+            if (recoveredFocus?.sessionId == entry.id && (!entry.paused || entry.intervals != recoveredFocus.intervals))
                 focalRecoverFocus(entry, recoveredFocus) else entry
         }, focus = recoveredFocus, subjects = FocalSubjects.builtIn + savedSubjects,
             remoteRevision = data.optLong("remoteRevision"), remoteRevisionUser = data.optString("remoteRevisionUser").ifBlank { null },
@@ -920,8 +952,11 @@ class FocalStudyManager(context: Context) {
             )
     }.getOrDefault(FocalStudyState())
 
-    @Synchronized private fun persist(parkRunningAt: Long? = null): Boolean {
-        val snapshot = _state.value
+    @Synchronized private fun persist(): Boolean {
+        // Every write is a heartbeat, including sync receipts and unrelated entry changes.
+        // Store the focus and its entry at the same cutoff without pausing the live timer.
+        // Otherwise an ordinary sync write can replace a good heartbeat with the old start.
+        val snapshot = focalStudyCheckpoint(_state.value, now())
         val rows = JSONArray()
         snapshot.entries.forEach { entry -> rows.put(JSONObject()
             .put("id", entry.id).put("changeId", entry.changeId).put("notebookId", entry.notebookId)
@@ -942,7 +977,7 @@ class FocalStudyManager(context: Context) {
                     .put("request", event.request))
             } })
             .put("intervals", focalEncodeIntervals(entry.intervals))) }
-        val focus = snapshot.focus?.let { if (parkRunningAt == null) it else it.pause(parkRunningAt, FocalFocus.PARK_CLOSED) }?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
+        val focus = snapshot.focus?.let { JSONObject().put("sessionId", it.sessionId).put("notebookId", it.notebookId)
             .put("title", it.title).put("subjectId", it.subjectId).put("notebookTitle", it.notebookTitle)
             .put("startedAt", it.startedAt).put("attended", it.attended).put("parkReason", it.parkReason)
             .put("resumedAt", it.resumedAt).put("accumulatedMillis", it.accumulatedMillis)
@@ -976,7 +1011,6 @@ class FocalStudyManager(context: Context) {
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
             startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title,
             attended = attended)
-        _state.update { it.copy(focus = focus, error = null) }
         saveFocusEntry(focus, now)
     }
     fun toggleFocus(now: Long = this.now()) {
@@ -985,7 +1019,6 @@ class FocalStudyManager(context: Context) {
             it.active && !it.paused && it.id != focus.sessionId
         }) return
         val next = if (focus.resumedAt == null) focus.resume(now) else focus.pause(now)
-        _state.update { it.copy(focus = next, error = null) }
         // Publish pause/resume boundaries. While running, the macOS client can derive elapsed
         // time from the open interval's start and does not need a checkpoint every few seconds.
         saveFocusEntry(next, now, forceUpload = true)
@@ -999,36 +1032,45 @@ class FocalStudyManager(context: Context) {
         val focus = _state.value.focus ?: return
         if (focus.resumedAt == null || (attendedOnly && !focus.attended)) return
         val next = focus.pause(now, reason)
-        _state.update { it.copy(focus = next) }
         saveFocusEntry(next, now, forceUpload = true)
     }
     fun discardFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
-        _state.update { it.copy(focus = null) }
         saveFocusEntry(focus.pause(now), now, deleted = true)
     }
     fun finishFocus(notes: String, confidence: Int?, now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         val active = focus.elapsed(now)
-        if (active < 1_000L) { discardFocus(); return }
-        _state.update { it.copy(focus = null, error = null) }
+        if (active < 1_000L) { discardFocus(now); return }
         saveFocusEntry(focus.pause(now), now, completed = true, notes = notes.trim(), confidence = confidence)
     }
 
     private fun saveFocusEntry(focus: FocalFocus, now: Long, completed: Boolean = false, deleted: Boolean = false,
-                               notes: String = "", confidence: Int? = null, forceUpload: Boolean = false) {
-        val previous = _state.value.entries.firstOrNull { it.id == focus.sessionId }
-        if (previous?.deleted == true || previous?.completed == true) return
-        val entry = FocalStudyEntry(id = focus.sessionId, notebookId = focus.notebookId, title = focus.title,
-            revision = previous?.revision ?: 0L, remotePayload = previous?.remotePayload,
-            subjectId = focus.subjectId, kind = "study", startedAt = focus.startedAt,
-            endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
-            notes = notes.take(500), confidence = confidence?.takeIf { it in 1..5 },
-            userId = previous?.userId ?: _state.value.userId,
-            completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
-            intervals = focus.intervals, changeId = UUID.randomUUID().toString(), notebookTitle = focus.notebookTitle,
-            synced = if (!completed && !deleted && !forceUpload) _state.value.entries.firstOrNull { it.id == focus.sessionId }?.synced ?: false else false)
-        saveEntry(entry)
+                               notes: String = "", confidence: Int? = null, forceUpload: Boolean = false,
+                               detach: Boolean = false) {
+        val changeId = UUID.randomUUID().toString()
+        var saved: FocalStudyEntry? = null
+        _state.update { state ->
+            saved = null
+            val previous = state.entries.firstOrNull { it.id == focus.sessionId }
+            if (previous?.deleted == true || previous?.completed == true) return@update state
+            val entry = FocalStudyEntry(id = focus.sessionId, notebookId = focus.notebookId, title = focus.title,
+                revision = previous?.revision ?: 0L, remotePayload = previous?.remotePayload,
+                subjectId = focus.subjectId, kind = "study", startedAt = focus.startedAt,
+                endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
+                notes = notes.take(500), confidence = confidence?.takeIf { it in 1..5 },
+                userId = previous?.userId ?: state.userId,
+                completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
+                intervals = focus.intervals, changeId = changeId, notebookTitle = focus.notebookTitle,
+                synced = if (!completed && !deleted && !forceUpload) previous?.synced ?: false else false)
+            saved = entry
+            // A heartbeat or receipt must never see new focus state with the old entry, or a
+            // removed focus before its terminal entry has been recorded.
+            state.copy(focus = focus.takeUnless { completed || deleted || detach },
+                entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null)
+        }
+        val entry = saved ?: return
+        if (persist()) scope.launch { publishEntry(entry) }
     }
 
     private fun saveEntry(entry: FocalStudyEntry) {
@@ -1216,6 +1258,7 @@ class FocalStudyManager(context: Context) {
     }
 
     companion object {
+        private const val FOCUS_CHECKPOINT_INTERVAL_MS = 5_000L
         private const val EXAM_SYNC_INTERVAL_MS = 30_000L
         private const val MAX_OWN_CHANGE_IDS = 200
     }

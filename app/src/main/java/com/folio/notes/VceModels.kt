@@ -611,13 +611,22 @@ data class ExamTimerState(
          * first ([clampUnseenGap]), so this catch-up only ever covers moments the user was
          * confirmed to be looking. [parkAuto] restores whether the park was the app's own, only
          * used for display (Stopped vs Paused).
+         * [recoverRunning] is for disk restoration after process death: it always parks at
+         * [lastSeen], including a restart within the live-process grace period.
          * Returns null when there is nothing sane to restore: no preset,
          * a missing or future start moment, or a record older than [MAX_RESUME_AGE_MS].
          */
         fun resume(preset: ExamTimerPreset?, startedAt: Long?, now: Long = System.currentTimeMillis(),
                    pausedAt: Long? = null, pausedMillis: Long = 0L, parkAuto: Boolean = false,
-                   lastSeen: Long? = null): ExamTimerState? {
+                   lastSeen: Long? = null, recoverRunning: Boolean = false): ExamTimerState? {
             if (preset == null || startedAt == null || startedAt <= 0 || startedAt > now) return null
+            // Disk restoration means the owning process ended. Even an immediate restart
+            // must stop at the heartbeat; the grace period is only for a live process.
+            if (recoverRunning && pausedAt == null) {
+                return resume(preset, startedAt, now,
+                    pausedAt = (lastSeen ?: (startedAt + pausedMillis.coerceAtLeast(0L))).coerceIn(startedAt, now),
+                    pausedMillis = pausedMillis, parkAuto = true)
+            }
             // A sitting still running after a kill is frozen at its last heartbeat *before* it is
             // caught up: ticking to [now] first would finish it (or age it out) on time nobody
             // was watching, and the later clamp could no longer park a finished sitting.

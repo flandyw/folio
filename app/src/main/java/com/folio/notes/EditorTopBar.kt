@@ -18,13 +18,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 internal val EditorFloatingGroupHeight = 46.dp
+
+/** Reserve an hours-sized clock with equal-width digits so ticking never reflows the tool strip. */
+@Composable internal fun ToolbarClockText(clock: String, prefix: String = "", fontFamily: FontFamily? = null) {
+    val style = MaterialTheme.typography.labelLarge.copy(fontFamily = fontFamily, fontFeatureSettings = "tnum")
+    val measurer = rememberTextMeasurer()
+    val width = with(LocalDensity.current) {
+        measurer.measure(prefix + "00:00:00", style = style, maxLines = 1, softWrap = false).size.width.toDp()
+    }
+    Text(prefix + clock, modifier = Modifier.widthIn(min = width), style = style, maxLines = 1, softWrap = false)
+}
 
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(

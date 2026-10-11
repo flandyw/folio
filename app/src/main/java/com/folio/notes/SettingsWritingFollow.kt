@@ -34,6 +34,7 @@ import kotlin.math.roundToInt
     // A preset only sets these three, so tuning one never silently changes another.
     val feel = FollowFeel.of(f)
     val balanced = FollowPreferences()
+    val widestStrip = (f.maximumEdgeStripWidth(hand) * 100).roundToInt()
     SettingsGroup("Feel", footer = "A starting point sets the three controls below; adjust any of them afterwards. Your hand, direction, writing position, line settings and automatic-return choice are kept.") {
         SettingsChipRow<FollowFeel?>("Start from", FollowFeel.entries.map { it to it.label }, feel, { it?.apply(f)?.let(change) },
             subtitle = if (feel == null) "Custom · your own mix of the controls below." else null)
@@ -44,8 +45,8 @@ import kotlin.math.roundToInt
             onReset = if (f.returnDelayMs != balanced.returnDelayMs) ({ change(f.copy(returnDelayMs = balanced.returnDelayMs)) }) else null,
             lowLabel = "Shorter", highLabel = "Longer")
         SettingsDivider()
-        SettingsSliderRow("Room before moving", FollowPreferences.roomLabel(f.room), f.room, 0f..1f,
-            { change(f.copy(room = (it * 20).roundToInt() / 20f)) }, steps = 19,
+        SettingsSliderRow("Room before moving", "${(f.edgeStripWidth(hand) * 100).roundToInt()}% strip", 1f - f.edgeStripWidth(hand), (1f - widestStrip / 100f).. .9f,
+            { change(f.copy(room = FollowPreferences.roomForStripWidth((100 - (it * 100).roundToInt()) / 100f))) }, steps = widestStrip - 11,
             subtitle = (if (text) "The edge strip is ${(f.edgeStripWidth(hand) * 100).roundToInt()}% of the view: write into it, then lift and pause to reveal more space. D" else "D") +
                 "own once you write ${(f.verticalDeadBand * 100).roundToInt()}% of the view below your writing height.",
             onReset = if (f.room != balanced.room) ({ change(f.copy(room = balanced.room)) }) else null,
@@ -69,7 +70,7 @@ import kotlin.math.roundToInt
             lowLabel = "Further left", highLabel = "Further right")
         SettingsDivider()
         SettingsSliderRow("Edge strip visibility", if (f.edgeStripOpacity == 0f) "Hidden" else "${(f.edgeStripOpacity * 100).roundToInt()}% opacity",
-            f.edgeStripOpacity, 0f.. .5f, { change(f.copy(edgeStripOpacity = AppPrefs.followEdgeStripOpacity((it * 20).roundToInt() / 20f))) }, steps = 9,
+            f.edgeStripOpacity, 0f.. .5f, { change(f.copy(edgeStripOpacity = AppPrefs.followEdgeStripOpacity((it * 100).roundToInt() / 100f))) }, steps = 49,
             subtitle = "A stronger tint makes the movement zone easier to see. Hiding it keeps the same trigger. Ink remains visible through it.",
             onReset = if (f.edgeStripOpacity != AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY) ({ change(f.copy(edgeStripOpacity = AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY)) }) else null,
             enabled = text, lowLabel = "Hidden", highLabel = "Stronger")
@@ -100,7 +101,7 @@ import kotlin.math.roundToInt
             { (sideways, down) -> change(f.copy(horizontalFollow = sideways, verticalFollow = down)) })
         SettingsDivider()
         SettingsSliderRow("Start following at this zoom", "${"%.1f".format(f.minimumZoom)}×", f.minimumZoom, 1f..3f, { change(f.copy(minimumZoom = it)) },
-            subtitle = "Page following waits until you zoom in this far. Canvas responses use handwriting size on screen instead.", lowLabel = "Always", highLabel = "Zoomed in")
+            subtitle = "Normal page following waits until you zoom in this far. Writing into the edge strip still reveals more room. Canvas responses use handwriting size on screen instead.", lowLabel = "Always", highLabel = "Zoomed in")
     }
     SettingsGroup("Answer areas", footer = "Use the editor's Answer areas menu to select, detect or clear the area on the current page. A canvas response keeps the column you explicitly started.") {
         SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas automatically", "Look for answer lines on the current PDF page while following is on, in scrolling or one-page view.")

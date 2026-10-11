@@ -1,6 +1,7 @@
 package com.folio.notes
 
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private fun letter(x: Float, top: Float = 88f, bottom: Float = 100f, width: Float = 16f) = listOf(
     InkPoint(x, top), InkPoint(x + width, top + (bottom - top) * .25f),
@@ -265,8 +266,8 @@ fun main() {
     scenario("Vertical follow on retains its dead band and places new lines at the requested height") {
         val follow = WritingFollow()
         check(follow.verticalShift(200f, 550f, 1000f, prefs) == 0f)
-        check(follow.verticalShift(700f, 550f, 1000f, prefs) == 0f)
-        check(follow.verticalShift(701f, 550f, 1000f, prefs) == -151f)
+        check(follow.verticalShift(786f, 550f, 1000f, prefs) == 0f)
+        check(follow.verticalShift(787f, 550f, 1000f, prefs) == -237f)
         check(follow.verticalShift(200f, 550f, 1000f, prefs, placing = true) == 350f)
         check(follow.verticalShift(800f, 550f, 1000f, prefs, placing = true) == -250f)
     }
@@ -535,16 +536,18 @@ fun main() {
         check(follow.state.candidateLane == null && follow.state.candidateAt == null)
         check(follow.state.baselineY == 100f && follow.finishingMark(FollowNavigation.bounds(dot)!!, prefs))
     }
-    scenario("Feel knobs keep the old defaults and carry older separate settings over") {
+    scenario("Feel knobs use the requested strip defaults and preserve older separate settings") {
         val balanced = FollowPreferences()
-        check(abs(balanced.edgeThreshold - .72f) < .001f && abs(balanced.verticalDeadBand - .15f) < .001f)
+        check(abs(balanced.edgeThreshold - .85f) < .001f)
+        for (hand in WritingHand.entries) check(abs(balanced.edgeStripWidth(hand) - .15f) < .00001f)
+        check(balanced.edgeStripOpacity == .1f)
         check(balanced.glideDurationMs == WritingFollow.DEFAULT_GLIDE_MS && balanced.lineSpeedMs == FollowGlide.MS_PER_VIEWPORT.toInt())
         check(FollowFeel.of(balanced) == FollowFeel.BALANCED) { "Defaults should read as Balanced, not Custom" }
         for (feel in FollowFeel.entries) check(FollowFeel.of(feel.apply(balanced.copy(endMargin = .15f, position = .4f))) == feel)
         check(FollowFeel.RELAXED.apply(balanced).let { it.edgeThreshold > balanced.edgeThreshold && it.glideDurationMs > balanced.glideDurationMs })
         check(FollowFeel.RESPONSIVE.apply(balanced).let { it.verticalDeadBand < balanced.verticalDeadBand && it.lineSpeedMs < balanced.lineSpeedMs })
         check(FollowFeel.RELAXED.apply(balanced.copy(automaticReturn = true, endMargin = .15f)).let { it.automaticReturn && it.endMargin == .15f })
-        check(FollowPreferences.roomFrom(.72f, .15f) == balanced.room && FollowPreferences.paceFrom(280, 700) == balanced.pace)
+        check(abs(FollowPreferences.roomFrom(.72f, .15f) - .4f) < .00001f && FollowPreferences.paceFrom(280, 700) == balanced.pace)
         check(FollowPreferences.roomFrom(.95f, .3f) == 1f && FollowPreferences.roomFrom(.55f, .05f) == 0f)
         check(FollowPreferences.paceFrom(800, 1500) == 0f && FollowPreferences.paceFrom(120, 250) == 1f)
         for (pace in listOf(0f, .25f, .6f, .85f, 1f)) {
@@ -554,7 +557,7 @@ fun main() {
         }
         for (room in listOf(0f, .3f, .4f, .75f, 1f)) {
             val p = balanced.copy(room = room)
-            check(FollowPreferences.roomFrom(p.edgeThreshold, p.verticalDeadBand) == room) { "room $room does not round-trip" }
+            check(abs(FollowPreferences.roomFrom(p.edgeThreshold, p.verticalDeadBand) - room) < .00001f) { "room $room does not round-trip" }
         }
     }
     scenario("The edge strip is the sideways trigger for every room setting, hand, landing column and direction") {
@@ -581,6 +584,54 @@ fun main() {
         check(FollowNavigation.hasRoomAhead(500f, 900f, area, WritingDirection.RTL))
         check(!FollowNavigation.hasRoomAhead(100f, 500f, area, WritingDirection.RTL))
         for (direction in WritingDirection.entries) check(!FollowNavigation.hasRoomAhead(0f, 1000f, area, direction))
+    }
+    scenario("Strip width changes in one-percent steps, including extreme landing columns and both hands") {
+        for (direction in WritingDirection.entries) for (hand in WritingHand.entries)
+            for (position in listOf(.35f, .5f, .65f)) {
+                val p = prefs.copy(direction = direction, horizontalPosition = position)
+                val maximum = (p.maximumEdgeStripWidth(hand) * 100).roundToInt()
+                for (percent in 10..maximum) {
+                    val width = percent / 100f
+                    val changed = p.copy(room = FollowPreferences.roomForStripWidth(width))
+                    check(abs(changed.edgeStripWidth(hand) - width) < .00001f) { "$percent% did not round-trip: $changed / $hand" }
+                }
+            }
+    }
+    scenario("Unrecognised ink in the strip reveals room after the full pause without changing line evidence") {
+        val view = WritingLane(0f, 0f, 1000f, 400f)
+        for (direction in WritingDirection.entries) for (hand in WritingHand.entries) {
+            val p = prefs.copy(direction = direction)
+            val area = if (direction == WritingDirection.LTR) WritingLane(0f, -100f, 2200f, 600f)
+                else WritingLane(-1200f, -100f, 1000f, 600f)
+            fun at(x: Float, y: Float) = InkPoint(if (direction == WritingDirection.LTR) x else 1000f - x, y)
+            val cases = listOf(listOf(at(875f, 100f)), listOf(at(600f, 100f), at(880f, 100f)),
+                listOf(at(875f, 80f), at(876f, 160f)))
+            for (points in cases) {
+                val follow = WritingFollow()
+                check(follow.completed(points, 100, p) == WritingProgress.NONE)
+                val before = follow.state
+                val dx = follow.stripShift(FollowNavigation.bounds(points)!!, view, area, p, hand)
+                check(if (direction == WritingDirection.LTR) dx < 0f else dx > 0f)
+                check(follow.state == before) { "Revealing room must not invent a baseline or return evidence" }
+                val glide = FollowGlide()
+                glide.start(dx, 0f, 100, p.glideDelayMs, p.glideDurationMs, view.width, view.height)
+                check(glide.step(100 + p.glideDelayMs - 1L).waitMs == 1L)
+                check(glide.step(100 + p.glideDelayMs.toLong()).dx == 0f)
+                val step = advanceGlide(glide, 100 + p.glideDelayMs.toLong(), 1600) { glide.applied(it.dx, it.dy) }
+                check(step.finished && glide.moved)
+                check(follow.stripShift(FollowNavigation.bounds(points)!!, view, view, p, hand) == 0f)
+                check(follow.stripShift(FollowNavigation.bounds(points)!!, view, area, p.copy(horizontalFollow = false), hand) == 0f)
+                check(follow.stripShift(FollowNavigation.bounds(points)!!, view, area, p.copy(mode = FollowMode.MATH), hand) == 0f)
+            }
+            val inside = FollowNavigation.bounds(listOf(at(840f, 100f)))!!
+            check(WritingFollow().stripShift(inside, view, area, p, hand) == 0f)
+            val outside = FollowNavigation.bounds(listOf(at(875f, 800f)))!!
+            check(WritingFollow().stripShift(outside, view, area, p, hand) == 0f)
+            val shiftedView = view.copy(left = 300f, right = 1300f)
+            val shiftedArea = area.copy(left = area.left + 300f, right = area.right + 300f)
+            val shiftedBox = FollowNavigation.bounds(cases.first())!!.let { it.copy(left = it.left + 300f, right = it.right + 300f) }
+            check(WritingFollow().stripShift(shiftedBox, shiftedView, shiftedArea, p, hand) != 0f)
+        }
     }
     scenario("Configured pauses stay fixed through fast writing, long gaps and finishing marks") {
         for (delay in listOf(300, 650, 2000)) {

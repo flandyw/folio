@@ -1750,9 +1750,6 @@ class InkView(context: Context) : View(context) {
             if (pendingReturn != null) { reportFollowStatus("Return cancelled · keep writing"); landingGuide = null }
             else if (lineAdvance != null || followGlide.moved) reportFollowStatus("Movement stopped · keep writing")
             val resume = pendingReturn != null || followGlide.active
-            // A sideways glide still waiting out its pause when the pen came down was too slow
-            // for this writer; the next one waits less.
-            if (followGlide.active && !followGlide.moved && lineAdvance == null) followRhythm.interrupted()
             if (tool == Tool.PEN && event.actionMasked == MotionEvent.ACTION_DOWN) followRhythm.touched(SystemClock.uptimeMillis())
             cancelFollowMotion()
             resumeFollowAfterMark = resume
@@ -2157,8 +2154,8 @@ class InkView(context: Context) : View(context) {
             // Shapes tidied or generated from the drag are new strokes; they join the layer being drawn on.
             ?.map { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
             ?.let { page.strokes + it } ?: erasing
-        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null && tidied == null) {
-            followCompletedStroke(drawn)
+        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null) {
+            followCompletedStroke(drawn, recognise = tidied == null)
         }
         val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
         val beforeStrokes = page.strokes
@@ -2242,7 +2239,7 @@ class InkView(context: Context) : View(context) {
         if (withdrew) invalidate()
     }
 
-    private fun followCompletedStroke(drawn: Stroke) {
+    private fun followCompletedStroke(drawn: Stroke, recognise: Boolean = true) {
         val box = FollowNavigation.bounds(drawn.points) ?: return
         val now = SystemClock.uptimeMillis()
         followRhythm.lifted(now)
@@ -2269,7 +2266,8 @@ class InkView(context: Context) : View(context) {
         }
         followPaused = false
         writingFollow.state = writingFollow.state.copy(suspendedUntil = 0)
-        val progress = writingFollow.completed(drawn.points, now, followPreferences, writingGuides)
+        val progress = if (recognise) writingFollow.completed(drawn.points, now, followPreferences, writingGuides)
+            else WritingProgress.NONE
         if (progress == WritingProgress.NEW_LINE) followRhythm.lineBreak()
         else if (writingFollow.state.candidateLane != null) followRhythm.possibleLineBreak()
         else followRhythm.discardLineBreak()
@@ -2277,21 +2275,40 @@ class InkView(context: Context) : View(context) {
         val resumeMark = resumeFollowAfterMark && writingFollow.finishingMark(box, followPreferences)
         resumeFollowAfterMark = false
         if (followManuallyPaused) { reportFollowStatus("Paused · tap Resume when ready"); return }
+        // The strip is an input zone, not a handwriting-recognition result. Dots, tall letters,
+        // retraced strokes and the first mark in a line must all be able to reveal more room.
+        if (!getLocalVisibleRect(followVisible)) return
+        val visible = WritingLane((followVisible.left - originX) / scale, (followVisible.top - originY) / scale,
+            (followVisible.right - originX) / scale, (followVisible.bottom - originY) / scale)
+        val stripShift = writingFollow.stripShift(box, visible, strokeRegion, followPreferences, writingHand) * scale
+        val stripDx = if (kotlin.math.abs(stripShift) >= .5f) responseDx(stripShift) else 0f
+        fun revealStrip(): Boolean {
+            if (kotlin.math.abs(stripDx) < .5f) return false
+            followGlide.start(stripDx, 0f, now, followPreferences.glideDelayMs, followPreferences.glideDurationMs,
+                followVisible.width().toFloat(), followVisible.height().toFloat(), instant = reducedMotion)
+            captureFollowBack = true
+            reportFollowStatus("More room in ${FollowPreferences.returnDelayLabel(followPreferences.glideDelayMs)} · touch down to cancel")
+            scheduleFollow()
+            return true
+        }
         if (progress == WritingProgress.NONE && !resumeMark) {
+            if (revealStrip()) return
             reportFollowStatus(if (writingFollow.state.candidateLane != null) "New line · keep writing" else "View held · keep writing")
             return
         }
-        val baseline = writingFollow.state.baselineY ?: return
+        val baseline = writingFollow.state.baselineY ?: run { revealStrip(); return }
         // A natural canvas line break can establish a different start column. Use it
         // immediately rather than deciding whether to return against the previous lane.
         val region = if (page.infinite && writingRegion == null) followRegion(drawn.points) else strokeRegion
         val next = nextFollowLine(baseline, region)
         if (page.infinite || zoomWritingPane) {
             if (!FollowLegibility.isReadable(writingFollow.laneHeight(), scale)) {
+                if (revealStrip()) return
                 reportFollowStatus("Zoom in a little for writing follow · Next line moves manually", attention = true)
                 return
             }
         } else if (documentFollowZoom < followPreferences.minimumZoom) {
+            if (revealStrip()) return
             reportFollowStatus("Zoom to ${"%.1f".format(followPreferences.minimumZoom)}× to follow · Next line moves manually", attention = true)
             return
         }
@@ -2303,12 +2320,13 @@ class InkView(context: Context) : View(context) {
         val atEnd = returnAdvance != null
         val returnDelay = followRhythm.returnDelay(followPreferences.automaticReturnDelayMs)
         reportFollowStatus(when {
+            kotlin.math.abs(stripDx) >= .5f -> "More room in ${FollowPreferences.returnDelayLabel(followPreferences.glideDelayMs)} · touch down to cancel"
             atEnd && followPreferences.automaticReturn -> "Next line in ${FollowPreferences.returnDelayLabel(returnDelay)} · touch down to cancel"
             atEnd -> "Next line ready · tap Next line"
             next == null -> "End of answer area"
             else -> "Following"
         })
-        if (atEnd && followPreferences.automaticReturn) {
+        if (atEnd && followPreferences.automaticReturn && kotlin.math.abs(stripDx) < .5f) {
             queueFollowReturn(returnAdvance!!)
             return
         }
@@ -2320,7 +2338,8 @@ class InkView(context: Context) : View(context) {
         val target = followPreferences.horizontalTarget(writingHand)
         val roomAhead = FollowNavigation.hasRoomAhead((followVisible.left - originX) / scale,
             (followVisible.right - originX) / scale, region, followPreferences.direction)
-        val dx = if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT || (!placing && !roomAhead)) 0f
+        val dx = if (kotlin.math.abs(stripDx) >= .5f) stripDx
+        else if (!followPreferences.horizontalFollow || followPreferences.mode != FollowMode.TEXT || (!placing && !roomAhead)) 0f
         else responseDx(if (placing) {
             val startX = writingFollow.state.lineStartX ?: frontier
             (followVisible.left + followVisible.width() * target) - (originX + startX * scale)

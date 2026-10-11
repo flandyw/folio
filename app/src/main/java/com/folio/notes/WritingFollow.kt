@@ -119,6 +119,20 @@ class WritingFollow {
         }
     }
 
+    /** A pen stroke reaching the visible strip can reveal room without being recognised as text. */
+    fun stripShift(box: WritingLane, visible: WritingLane, area: WritingLane,
+                   preferences: FollowPreferences, hand: WritingHand): Float {
+        if (!preferences.horizontalFollow || preferences.mode != FollowMode.TEXT || visible.width <= 0f ||
+            !listOf(box.left, box.top, box.right, box.bottom, visible.left, visible.right).all(Float::isFinite) ||
+            box.bottom < visible.top || box.top > visible.bottom ||
+            !FollowNavigation.contains(box, area, preferences.spacing) ||
+            !FollowNavigation.hasRoomAhead(visible.left, visible.right, area, preferences.direction)) return 0f
+        val edge = if (preferences.direction == WritingDirection.LTR) box.right else box.left
+        val fraction = (edge - visible.left) / visible.width
+        return horizontalShift(fraction, preferences.horizontalTarget(hand), preferences.direction,
+            preferences.edgeThreshold) * visible.width
+    }
+
     /** Following within a line and placing natural line breaks obey the vertical toggle. */
     fun verticalShift(screenY: Float, targetY: Float, viewportHeight: Float, preferences: FollowPreferences,
                       placing: Boolean = false): Float {
@@ -570,7 +584,7 @@ data class FollowPreferences(
     /** Mark where the next line begins while a return is pending and until writing resumes. */
     val showLandingGuide: Boolean = true,
     /** Tint opacity of the visual hint; independent of movement thresholds. */
-    val edgeStripOpacity: Float = .2f,
+    val edgeStripOpacity: Float = .1f,
 ) {
     /** Sideways trigger, as a fraction across the view (mirrored for RTL). */
     val edgeThreshold: Float get() = ROOM_EDGE_MIN + ROOM_EDGE_SPAN * room.coerceIn(0f, 1f)
@@ -588,6 +602,7 @@ data class FollowPreferences(
     fun horizontalTarget(hand: WritingHand): Float = horizontalPosition + if (hand == WritingHand.RIGHT) -.02f else .02f
     fun horizontalTrigger(hand: WritingHand): Float = WritingFollow.horizontalTrigger(horizontalTarget(hand), direction, edgeThreshold)
     fun edgeStripWidth(hand: WritingHand): Float = horizontalTrigger(hand).let { if (direction == WritingDirection.LTR) 1f - it else it }
+    fun maximumEdgeStripWidth(hand: WritingHand): Float = copy(room = 0f).edgeStripWidth(hand)
 
     /** Page units are A4 at 4 units per mm (840 x 1188), so users see millimetres. */
     val spacingMm: Float get() = spacing / UNITS_PER_MM
@@ -598,7 +613,8 @@ data class FollowPreferences(
 
     companion object {
         const val UNITS_PER_MM = 4f
-        const val DEFAULT_ROOM = .4f
+        /** 85% across the view: the default strip is exactly 15% wide. */
+        const val DEFAULT_ROOM = 5f / 6f
         const val DEFAULT_PACE = .6f
         private const val ROOM_EDGE_MIN = .6f
         private const val ROOM_EDGE_SPAN = .3f
@@ -620,9 +636,11 @@ data class FollowPreferences(
             else DEFAULT_PACE + (1f - DEFAULT_PACE) * (default - value) / (default - snappy)
         private fun step(v: Float) = ((v.coerceIn(0f, 1f) * 20f).roundToInt() / 20f)
 
-        /** Carries the older separate thresholds over to [room], on the same 5% grid as the slider. */
-        fun roomFrom(edgeThreshold: Float, verticalDeadBand: Float): Float = step(
-            ((edgeThreshold - ROOM_EDGE_MIN) / ROOM_EDGE_SPAN + (verticalDeadBand - ROOM_BAND_MIN) / ROOM_BAND_SPAN) / 2f)
+        /** Carries older thresholds over without rounding away the one-percent strip precision. */
+        fun roomFrom(edgeThreshold: Float, verticalDeadBand: Float): Float = (
+            ((edgeThreshold - ROOM_EDGE_MIN) / ROOM_EDGE_SPAN + (verticalDeadBand - ROOM_BAND_MIN) / ROOM_BAND_SPAN) / 2f).coerceIn(0f, 1f)
+        /** One width control owns both the visible trigger and the downward dead band. */
+        fun roomForStripWidth(width: Float): Float = ((1f - width - ROOM_EDGE_MIN) / ROOM_EDGE_SPAN).coerceIn(0f, 1f)
         /** Carries the older separate glide and next-line timings over to [pace]. */
         fun paceFrom(glideMs: Int, lineSpeedMs: Int): Float = step((
             unknob(glideMs.toFloat(), GLIDE_GENTLE, WritingFollow.DEFAULT_GLIDE_MS.toFloat(), GLIDE_SNAPPY) +

@@ -27,7 +27,9 @@ internal object FollowPreferenceStore {
         spacing = float(p, "follow.spacing", 32f, FollowPreferences.MIN_SPACING, FollowPreferences.MAX_SPACING),
         returnDelayMs = p.getInt("follow.returnDelayMs", WritingFollow.DEFAULT_RETURN_MS).coerceIn(300, 2000),
         room = if (p.contains(ROOM)) float(p, ROOM, FollowPreferences.DEFAULT_ROOM, 0f, 1f)
-            else FollowPreferences.roomFrom(float(p, "follow.edgeThreshold", .72f, .55f, .95f), float(p, "follow.verticalDeadBand", .15f, .05f, .3f)),
+            else if (p.contains("follow.edgeThreshold") || p.contains("follow.verticalDeadBand"))
+                FollowPreferences.roomFrom(float(p, "follow.edgeThreshold", .72f, .55f, .95f), float(p, "follow.verticalDeadBand", .15f, .05f, .3f))
+            else FollowPreferences.DEFAULT_ROOM,
         pace = if (p.contains(PACE)) float(p, PACE, FollowPreferences.DEFAULT_PACE, 0f, 1f)
             else FollowPreferences.paceFrom(p.getInt("follow.glideMs", WritingFollow.DEFAULT_GLIDE_MS).coerceIn(120, 800),
                 p.getInt("follow.lineSpeedMs", FollowGlide.MS_PER_VIEWPORT.toInt()).coerceIn(250, 1500)),

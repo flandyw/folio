@@ -256,13 +256,14 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             _state.update { it.copy(timer = ExamTimerState(), lastTimedSeconds = null) }
             return
         }
-        val cached = notebookSittings.restore(id)
+        val cached = notebookSittings.restore(id, now)
         val timer = cached?.timer
-            ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L),
+            ?: ExamTimerState.resume(storedSitting(), prefs.getLong(timerKey(TIMER_START_KEY), 0L), now = now,
                 pausedAt = prefs.getLong(timerKey(TIMER_PAUSED_AT_KEY), 0L).takeIf { it > 0L },
                 pausedMillis = prefs.getLong(timerKey(TIMER_PAUSED_MILLIS_KEY), 0L),
                 parkAuto = prefs.getInt(timerKey(TIMER_PARK_AUTO_KEY), 0) != 0,
-                lastSeen = prefs.getLong(timerKey(TIMER_LAST_SEEN_KEY), 0L).takeIf { it > 0L })
+                lastSeen = prefs.getLong(timerKey(TIMER_LAST_SEEN_KEY), 0L).takeIf { it > 0L },
+                recoverRunning = true)
             ?: ExamTimerState()
         // A crash or kill while foregrounded leaves a running sitting with no recorded pause;
         // anything past the last confirmed-visible moment never counts.
@@ -2283,7 +2284,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * counting it.
      */
     private fun saveSitting(timer: ExamTimerState, lastSeen: Long = timerNow()) {
-        prefs.edit()
+        val saved = prefs.edit()
             .putLong(timerKey(TIMER_START_KEY), timer.startedAt ?: 0L)
             .putLong(timerKey(TIMER_PAUSED_AT_KEY), timer.pausedAt ?: 0L)
             .putLong(timerKey(TIMER_PAUSED_MILLIS_KEY), timer.pausedMillis)
@@ -2292,15 +2293,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             .putInt(timerKey(TIMER_WRITING_KEY), timer.preset.writingSeconds)
             .putInt(timerKey(TIMER_READING_KEY), timer.preset.readingSeconds)
             .putString(timerKey(TIMER_LABEL_KEY), timer.preset.label)
-            .apply()
+            .commit()
+        if (!saved) _state.update { it.copy(error = "Could not save the exam timer on this device. Check free storage.") }
     }
 
     private fun clearSitting() {
-        prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
+        val saved = prefs.edit().remove(timerKey(TIMER_START_KEY)).remove(timerKey(TIMER_WRITING_KEY))
             .remove(timerKey(TIMER_PAUSED_AT_KEY)).remove(timerKey(TIMER_PAUSED_MILLIS_KEY))
             .remove(timerKey(TIMER_LAST_SEEN_KEY)).remove(timerKey(TIMER_PARK_AUTO_KEY))
             .remove(timerKey(TIMER_READING_KEY)).remove(timerKey(TIMER_LABEL_KEY))
-            .remove(timerKey(TIMER_VISITS_KEY)).apply()
+            .remove(timerKey(TIMER_VISITS_KEY)).commit()
+        if (!saved) _state.update { it.copy(error = "Could not save the stopped exam timer on this device. Check free storage.") }
     }
 
     /** The preset of a saved sitting, or null when none was running when the app last stopped. */
