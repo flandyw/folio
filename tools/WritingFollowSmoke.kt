@@ -817,5 +817,31 @@ fun main() {
         check(WritingGuides.next(first, guides) == left[1])
         check(WritingGuides.regions(guides).size == 2)
     }
+    scenario("A labelled first rule joins the full-width line below it, and each label starts a new area") {
+        // 840 × 1188 page at 0.6 units per pixel; rules are 2 px, labels are letter bars resting on the rule.
+        val width = 1400
+        val height = 1980
+        val pixels = IntArray(width * height) { -1 }
+        fun fill(x0: Int, x1: Int, y0: Int, y1: Int) {
+            for (y in y0..y1) for (x in x0..x1) pixels[y * width + x] = 0xFF000000.toInt()
+        }
+        fun rule(x0: Int, y: Int) = fill(x0, 1216, y, y + 1)
+        fun label(x0: Int, x1: Int, y: Int) { var x = x0; while (x + 5 <= x1) { fill(x, x + 4, y - 26, y + 1); x += 8 } }
+        val margin = 92
+        // "Advantage ____" / ____ / "Disadvantage ____" / ____, one spacing apart, as in a VCE paper.
+        label(margin, 210, 600); rule(218, 600); rule(margin, 670)
+        label(margin, 240, 740); rule(248, 740); rule(margin, 810)
+        // A plain block further down; an unlabelled indented rule under it stays out of it.
+        for (y in listOf(1000, 1070, 1140)) rule(margin, y)
+        rule(300, 1210)
+        val found = WritingGuides.analyze(pixels, width, height, 840f, 1188f)
+        val blocks = found.guides.groupBy { it.block }.values.map { lane -> lane.map { (it.y / .6f).toInt() } }
+        check(blocks.take(3) == listOf(listOf(600, 670), listOf(740, 810), listOf(1000, 1070, 1140))) { "$blocks" }
+        val advantage = found.guides.first()
+        check(advantage.left > 120f && WritingGuides.next(advantage, found.guides)!!.left < 60f)
+        check(WritingGuides.regions(found.guides).take(3).map { it.left < 60f } == listOf(true, true, true))
+        // The writing room above the labelled rule is not cut short by its own label.
+        check(found.areas.first().top < advantage.y - 20f)
+    }
     println("Writing follow: $checks scenarios passed.")
 }

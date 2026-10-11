@@ -60,9 +60,11 @@ object WritingGuides {
         val overlap = min(line.right, next.right) - max(line.left, next.left)
         val gap = next.y - line.y
         val stepOk = if (line.block == HANZI_BLOCK) abs(gap - HANZI_STEP) < .5f else gap in 12f..64f
+        // Detection already joined a labelled first rule ("Advantage ____") to the full-width line under it.
+        val detected = line.block != null && line.block >= 0
         return line.block == next.block && stepOk &&
             overlap >= min(line.right - line.left, next.right - next.left) * .8f &&
-            abs(next.left - line.left) <= 32f && abs(next.right - line.right) <= 32f
+            (detected || abs(next.left - line.left) <= 32f) && abs(next.right - line.right) <= 32f
     }
 
     fun spacing(line: WritingGuide, guides: List<WritingGuide>): Float? =
@@ -149,6 +151,7 @@ object WritingGuides {
         val sx = pageWidth / width
         val sy = pageHeight / height
         val gap = ceil(6f / sx).toInt().coerceAtLeast(1)
+        val fine = (gap / 4).coerceAtLeast(1)
         val minLength = max(60f, pageWidth * .12f) / sx
         val mask = darkMask(width, height, readRow)
         fun dark(x: Int, y: Int): Boolean = x in 0 until width && y in 0 until height && mask[y * width + x]
@@ -176,12 +179,25 @@ object WritingGuides {
             var x = 0
             while (x < width) {
                 if (!dark(x, y)) { x++; continue }
-                val left = x
+                var left = x
                 var right = x
                 var ink = 0
+                // The longest unbroken stretch: a label sitting on the rule ("Advantage ____") joins
+                // across the dash gap, but its letters break the stretch, so it stays off the rule.
+                var start = x
+                var solidLeft = x
+                var solidRight = x
                 while (x < width && x - right <= gap) {
-                    if (dark(x, y)) { right = x; ink++ }
+                    if (dark(x, y)) {
+                        if (x - right > fine) start = x
+                        right = x; ink++
+                        if (right - start > solidRight - solidLeft) { solidLeft = start; solidRight = right }
+                    }
                     x++
+                }
+                if (solidRight - solidLeft >= minLength && solidRight - solidLeft < right - left) {
+                    left = solidLeft; right = solidRight
+                    ink = (left..right).count { dark(it, y) }
                 }
                 if (right - left < minLength || ink.toFloat() / (right - left + 1) < .15f) continue
                 if (ink.toFloat() / (right - left + 1) < .45f && !regularDashes(y, left, right)) continue
@@ -230,9 +246,30 @@ object WritingGuides {
             }
             return true
         }
+        /** Fraction of the columns in [x0, x1] (pixels) with ink anywhere in rows [y0, y1]. */
+        fun coverage(x0: Int, x1: Int, y0: Int, y1: Int): Float {
+            if (x1 < x0) return 0f
+            var columns = 0
+            for (x in x0..x1) if ((y0..y1).any { dark(x, it) }) columns++
+            return columns.toFloat() / (x1 - x0 + 1)
+        }
+        /**
+         * "Advantage ____" over a full-width line: the first rule starts after its label, and the
+         * answer continues on the line below, which runs back under the label to the margin.
+         */
+        fun continuation(above: WritingGuide): WritingGuide? = candidates.asSequence().filter { below ->
+            val indent = above.left - below.left
+            below.y - above.y in 12f..64f && abs(below.right - above.right) <= 32f &&
+                indent > 32f && indent <= (below.right - below.left) * .4f
+        }.minByOrNull { it.y }?.takeIf { below ->
+            val row = (above.y / sy).toInt()
+            val label = coverage(ceil(below.left / sx).toInt(), (above.left / sx).toInt() - 1,
+                row - ceil(12f / sy).toInt(), row)
+            label >= .15f && candidates.none { it !== below && it.y in above.y..below.y && follows(above, it) }
+        }
         val ordered = candidates.sortedWith(compareBy({ it.y }, { it.left }))
         val following = ordered.associateWith { above ->
-            next(above, ordered)?.takeIf { clearBetween(above, it) }
+            (next(above, ordered) ?: continuation(above))?.takeIf { clearBetween(above, it) }
         }
         // Measure the local pitch at both ends. A larger gap between two regularly spaced
         // groups is a question break, even when it is inside the broad 12..64 rule range.
@@ -250,13 +287,6 @@ object WritingGuides {
                     min(pitches.getValue(previous), pitches.getValue(guide)) * 1.35f + 2f
             }
             if (block == null) blocks += mutableListOf(guide) else block += guide
-        }
-        /** Fraction of the columns in [x0, x1] (pixels) with ink anywhere in rows [y0, y1]. */
-        fun coverage(x0: Int, x1: Int, y0: Int, y1: Int): Float {
-            if (x1 < x0) return 0f
-            var columns = 0
-            for (x in x0..x1) if ((y0..y1).any { dark(x, it) }) columns++
-            return columns.toFloat() / (x1 - x0 + 1)
         }
         fun textLeft(rule: WritingGuide, reachUnits: Float): Boolean {
             val reach = ceil(reachUnits / sx).toInt()
@@ -359,7 +389,8 @@ object WritingGuides {
             val pitch = block.zipWithNext { a, b -> b.y - a.y }.minOrNull() ?: 28f
             val id = areas.size
             guides += block.map { it.copy(block = id) }
-            areas += AnswerArea(block.minOf { it.left }, topOf(block.first(), block.minOf { it.left }, block.maxOf { it.right }, pitch),
+            // Over the first rule only: a label beside it is not question text above the area.
+            areas += AnswerArea(block.minOf { it.left }, topOf(block.first(), block.first().left, block.first().right, pitch),
                 block.maxOf { it.right }, block.last().y)
         }
         return DetectedGuides(guides.sortedWith(compareBy({ it.y }, { it.left })), areas)
