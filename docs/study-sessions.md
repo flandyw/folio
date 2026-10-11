@@ -51,6 +51,22 @@ timeline from both mutation receipts and remote updates, including its earlier
 start time. Merging happens when sessions sync; offline entries remain separate
 until then. Both clients must use the migrated Supabase database.
 
+## Duplicate interval recovery
+
+Focus command batches are frozen in durable preferences under the account and
+session ID before any RPC. Requests keep their mutation IDs, revisions and timing
+across timeouts and process restarts. Each acknowledged prefix advances the saved
+batch; newer local actions wait until that batch finishes. Previously, rebuilding
+a partly accepted batch minted new IDs for later pause/resume commands and could
+replay them as extra intervals. Timed commands are never rebased onto a conflicting
+server timeline.
+
+Focal migration `0023` cleans completed focus history and subsequent completions:
+it removes sub-second intervals and exact copies within or across sessions of the
+same subject, then recalculates active time. Sessions left empty are deleted via
+the normal tombstone feed. Folio adopts the cleaned canonical receipt immediately.
+Minute labels alone are not duplicate evidence; distinct real intervals remain.
+
 ## Verification
 
 `node tools/focal-study-smoke.cjs` exercises the actual pure models and helpers:

@@ -1083,6 +1083,12 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun commandsFor(entry: FocalStudyEntry): List<JSONObject> {
+        val user = entry.userId ?: _state.value.userId
+        val pending = user?.let { timingPreferences.getString("commands:$it:${entry.id}", null) }
+        if (pending != null) {
+            val frozen = JSONObject(pending).getJSONArray("commands")
+            return (0 until frozen.length()).map { frozen.getJSONObject(it) }
+        }
         val desired = focalDesiredState(entry)
         val monoNow = SystemClock.elapsedRealtime()
         var previousMono = timingPreferences.getLong("elapsed:${entry.id}", -1L).takeIf { it > 0L }
@@ -1461,6 +1467,9 @@ class FocalStudyManager(context: Context) {
             if (it.id == sessionId) it.copy(synced = true) else it
         }) }
         if (!persist()) error("Could not save the session receipt")
+        val user = _state.value.userId ?: return
+        if (!timingPreferences.edit().remove("commands:$user:$sessionId").commit())
+            error("Could not clear the acknowledged study commands")
     }
 
     /**
@@ -1484,7 +1493,9 @@ class FocalStudyManager(context: Context) {
                 entry.changeId !in ack.mutationIds -> entry.copy(
                     revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
                 else -> ack.canonical?.takeIf {
-                    it.optJSONObject("metadata")?.has("auto_merge_sources") == true
+                    it.optJSONObject("metadata")?.let { metadata ->
+                        metadata.has("auto_merge_sources") || metadata.has("auto_pruned_intervals")
+                    } == true
                 }?.let { canonical ->
                     focalEntryFromCanonical(sessionId, canonical, mutationId ?: entry.changeId,
                         entry.userId ?: state.userId ?: return@let null)
@@ -1494,19 +1505,32 @@ class FocalStudyManager(context: Context) {
             }
         }) }
         if (!persist()) error("Could not save the session receipt")
+        val user = _state.value.userId ?: return
+        if (!timingPreferences.edit().remove("commands:$user:$sessionId").commit())
+            error("Could not clear the acknowledged study commands")
     }
 
     /** Returns false when the server refused the change, true once the session is acknowledged. */
     private suspend fun sendCommands(user: String, commands: List<JSONObject>): FocalPublishAck {
         var command = commands.first()
         var rest = commands.drop(1)
+        val key = "commands:$user:${command.getString("session_id")}"
+        val snapshotId = timingPreferences.getString(key, null)?.let { JSONObject(it).getString("changeId") }
+            ?: command.getString("mutation_id")
         var rebases = 0
         // Every mutation id this device puts on the wire, including the ones a stale rebase
         // mints. The feed echoes them back as change ids, so they are how a later pull knows
         // that a row moved because of this device and not another one.
-        val mutationIds = mutableListOf<String>()
+        val mutationIds = mutableListOf(snapshotId)
         var canonical: JSONObject? = null
         while (true) {
+            // Freeze every request before sending, including rebases. A lost response must
+            // retry the same receipt instead of synthesizing another pause/resume interval.
+            // ponytail: rewriting the remaining batch costs O(n²) bytes for large offline batches; use a journal queue if needed.
+            val frozen = JSONObject().put("changeId", snapshotId)
+                .put("commands", JSONArray().also { array -> (listOf(command) + rest).forEach { array.put(it) } })
+            if (!timingPreferences.edit().putString(key, frozen.toString()).commit())
+                error("Could not save study commands before sending")
             val result = syncRemote.mutateStudySession(user, command)
             command.optString("mutation_id").takeIf { it.isNotBlank() }?.let { mutationIds += it }
             observeServerNow(result.optString("server_now").takeIf { it.isNotBlank() })
@@ -1527,6 +1551,8 @@ class FocalStudyManager(context: Context) {
                 if (terminal || !focalMutationCanRebase(action, state)) {
                     return FocalPublishAck(false, canonical, mutationIds)
                 }
+                if ((!command.isNull("occurred_at")) || command.has("elapsed_since_previous_ms"))
+                    error("This session's timed boundary conflicts with a newer server timeline")
                 if (rebases++ >= 2) error("Study session changed repeatedly; retry sync to rebase the command")
                 command = JSONObject(command.toString())
                     .put("mutation_id", UUID.randomUUID().toString())
