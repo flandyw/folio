@@ -564,6 +564,8 @@ private fun paperLabel(p: Paper): String = when (p) {
         onDispose { textLifecycle.lifecycle.removeObserver(observer); flushDraft() }
     }
     BackHandler(enabled = textEditor != null) { finishTextEditing() }
+    var pageEdgeLeft by remember { mutableStateOf(true) }
+    var pageEdgeRight by remember { mutableStateOf(true) }
     var documentZoom by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.zoom ?: 1f) }
     var documentPan by rememberSaveable(note.id) { mutableFloatStateOf(session?.viewport?.pan ?: 0f) }
     var pageBrowser by remember { mutableStateOf(false) }
@@ -1049,7 +1051,8 @@ private fun paperLabel(p: Paper): String = when (p) {
                         textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
                         onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                         onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music?.onKey,
-                        canvasReset = canvasReset, onCanvasZoom = { if (!preview) documentZoom = it }, activeLayer = model.activeLayerOf(item),
+                        canvasReset = canvasReset, onCanvasZoom = { if (!preview) documentZoom = it },
+                        onPageEdges = { left, right -> if (!preview && item.id == page.id) { pageEdgeLeft = left; pageEdgeRight = right } }, activeLayer = model.activeLayerOf(item),
                         selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                         onImageSelected = { image -> selectedImage = image?.let { item.id to it } },
                         onCropMode = { if (item.id == page.id) cropActive = it }, onNavigating = { inkNavigating = it },
@@ -1077,7 +1080,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                 else SinglePageSheet(note.pages, state.pageIndex.coerceIn(0, note.pages.lastIndex),
                     top = floatingToolbarTop + FolioSpacing.dp4,
                     swipeTurns = (tool == Tool.HAND || !finger) && textEditor == null && !cropActive && selected.isEmpty() && selectedImage == null && !peekOpen,
-                    zoomed = documentZoom > 1.02f, haptics = haptics,
+                    zoomed = documentZoom > 1.02f, atLeftEdge = pageEdgeLeft, atRightEdge = pageEdgeRight, haptics = haptics,
                     onSelect = { origin, destination ->
                         val live = model.state.value
                         val target = live.active?.pages?.indexOfFirst { it.id == destination } ?: -1
@@ -2426,7 +2429,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     }
 }
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, hideFromAccessibility: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, rulerEnabled: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
+@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, tool: Tool, options: ToolOptions, finger: Boolean, snapEnabled: Boolean, shapeRecognition: Boolean, active: Boolean, onActive: () -> Unit, onPan: (Float, Float) -> Unit, onPanEnd: (Float) -> Unit, onSelection: (CanvasSelection) -> Unit, onTextEdit: (TextBox) -> Unit, onTextCreate: (InkPoint) -> Unit, onLoad: () -> Unit, fullscreen: Boolean = false, pageCamera: Boolean = false, onPageKey: ((android.view.KeyEvent) -> Boolean)? = null, canvasReset: Int = 0, onCanvasZoom: (Float) -> Unit = {}, onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}, onPageEdges: (Boolean, Boolean) -> Unit = { _, _ -> }, selectedImageId: String? = null, onImageSelected: (PageImage?) -> Unit = {}, pdfLinks: List<PdfLink> = emptyList(), onPdfLink: (PdfLink) -> Unit = {}, eraserPressureEnabled: Boolean = true, scribbleToErase: Boolean = true, scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT, eraserWholeStroke: Boolean = false, shapeMeasurements: Boolean = true, multiTouchUndo: Boolean = true, graphStyle: GraphStyle = GraphStyle.DEFAULT, palmRejectMs: Long = AppPrefs.DEFAULT_PALM_MS, panMultiplier: Float = 1f, onEraserFinished: (() -> Unit)? = null, onUndo: (() -> Unit)? = null, onRedo: (() -> Unit)? = null, onSelectAllView: ((InkView) -> Unit)? = null, inkStyle: StrokeStyle = StrokeStyle.SOLID, readOnly: Boolean = false, hideFromAccessibility: Boolean = false, initialViewport: WorkspaceViewport? = null, onCameraChanged: (WorkspaceViewport) -> Unit = {}, activeLayer: Int = 0, followEnabled: Boolean = false, rulerEnabled: Boolean = false, ruler: RulerLine? = null, onRulerChanged: (RulerLine) -> Unit = {},
     writingHand: WritingHand = WritingHand.RIGHT, followZoom: Float = 1f,
     autoDetectAnswerAreas: Boolean = false, showAnswerAreas: Boolean = true,
     onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }, inputBlocked: Boolean = false, peekRegion: PeekAnchor? = null,
@@ -2624,7 +2627,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.contentDescription = if (readOnly) "Reference page. Use the hand or two fingers to pan and zoom. Read only."
                     else "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
                 view.onShapeMeasurement = { shapeMeasurement.value = it }
-                view.onCanvasViewport = onCanvasViewport; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.pageCamera = pageCamera; view.onPageKey = onPageKey; view.tool = tool; view.inkColor = options.color
+                view.onCanvasViewport = onCanvasViewport; view.onPageEdges = onPageEdges; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.pageCamera = pageCamera; view.onPageKey = onPageKey; view.tool = tool; view.inkColor = options.color
                 view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
                 view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
                 view.peekRegion = peekRegion

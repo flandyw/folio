@@ -51,12 +51,28 @@ internal object PageSwipe {
         return sign(offset) * width * .4f * fraction / (1f - fraction)
     }
 
-    fun target(index: Int, count: Int, distance: Float, velocity: Float, width: Float, density: Float): Int {
+    /**
+     * A deliberate swipe: the finger must travel further than a tap's jitter and be clearly more
+     * horizontal than vertical, and more so on a zoomed page, where drags are mostly panning.
+     */
+    fun claims(dx: Float, dy: Float, slop: Float, zoomed: Boolean): Boolean =
+        abs(dx) > slop * (if (zoomed) 3f else 2f) && abs(dx) >= abs(dy) * (if (zoomed) 2.5f else 2f)
+
+    /**
+     * A zoomed page only turns from a fresh drag that began with the page already flush against the
+     * side being dragged past, so panning to an edge and carrying on never flips it by accident.
+     */
+    fun mayTurn(dx: Float, zoomed: Boolean, atLeft: Boolean, atRight: Boolean): Boolean =
+        !zoomed || (dx > 0f && atLeft) || (dx < 0f && atRight)
+
+    fun target(index: Int, count: Int, distance: Float, velocity: Float, width: Float, density: Float,
+               zoomed: Boolean = false): Int {
         if (count <= 1 || width <= 0f) return index
         // A reversing flick retracts the turn even after a long drag. Tiny flicks remain taps.
-        val flick = abs(velocity) >= 700f * density && abs(distance) >= 24f * density
+        val flick = abs(velocity) >= (if (zoomed) 1000f else 800f) * density &&
+            abs(distance) >= (if (zoomed) 72f else 40f) * density
         if (flick && sign(velocity) != sign(distance)) return index
-        val direction = if (flick || abs(distance) >= width * .24f) sign(distance) else 0f
+        val direction = if (flick || abs(distance) >= width * (if (zoomed) .4f else .3f)) sign(distance) else 0f
         return (index - direction.toInt()).coerceIn(0, count - 1)
     }
 }

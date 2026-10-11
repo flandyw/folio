@@ -942,6 +942,20 @@ class InkView(context: Context) : View(context) {
     }
     private val camera = InfiniteViewport()
     var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
+    /**
+     * Whether a zoomed page card is panned flush against its left / right side (both when it is
+     * narrower than the view). The one-page editor lets a swipe turn the page only from such an edge.
+     */
+    var onPageEdges: (left: Boolean, right: Boolean) -> Unit = { _, _ -> }
+    private fun reportPageEdges() {
+        if (!pageCamera || zoomWritingPane || page.infinite || width <= 0 || page.width <= 0f) return
+        val zoom = camera.zoom.coerceIn(1f, 4f)
+        val fitted = pageScale
+        val pageW = page.width * fitted * zoom
+        val left = (width - page.width * fitted) / 2 * zoom + camera.x
+        val slack = 2f
+        onPageEdges(left >= -slack, left + pageW <= width + slack)
+    }
     /** Keeps a zoomed score on its sheet: never smaller than the fit, never panned past an edge. */
     private fun clampPageCamera() {
         if (zoomWritingPane) return
@@ -963,6 +977,7 @@ class InkView(context: Context) : View(context) {
     }
     private fun reportCanvasViewport() {
         clampPageCamera()
+        reportPageEdges()
         if (zoomWritingPane && width > 0 && height > 0) {
             lastWritingWindow = visibleWritingWindow()
             lastWritingScale = scale

@@ -12,9 +12,13 @@ The corner arrows use a single `combinedClickable` for tap and hold. Holding jum
 end, and releasing does not also turn a page. Both actions have accessibility labels.
 
 `SinglePageSheet` uses a keyed, lazy `HorizontalPager`. A horizontal touch claims the drag
-after directional touch slop; vertical movement, pen input, finger writing, zooming and
-editing retain their page interactions. Each gesture can move only one page. Distance and
-density-scaled velocity decide release; a reversing flick retracts the turn. The edges have
+only once it has travelled twice the touch slop and is at least twice as horizontal as vertical;
+vertical movement, pen input, finger writing, pinching and editing retain their page
+interactions. A zoomed page can be swiped too, but only by a fresh drag that *began* with the page
+already flush against the side being dragged past (`InkView.onPageEdges`), so panning to an edge
+and carrying on never turns it; zoomed drags also need a longer claim, a more horizontal angle,
+40% of the width (30% fitted) and a faster, longer flick. Each gesture can move only one page.
+Distance and density-scaled velocity decide release; a reversing flick retracts the turn. The edges have
 bounded resistance. A fresh drag can catch a settling sheet. A changed destination cancels
 the old animation, and swipe completion checks its original page before selecting anything.
 Adjacent and moving sheets are blocked from editing and hidden from accessibility. Each
@@ -35,6 +39,9 @@ Run `./build.sh -p` for the signed experimental build.
   and drag beyond the first/last page. Sheets follow continuously; one gesture never skips pages.
 - Catch a settling swipe and reverse it. Tap an arrow or pick a different page during settling;
   the new destination wins. Resize/rotate during a drag; the sheet does not remain displaced.
+- Zoom in and pan sideways until the page stops: a further deliberate swipe turns it, but keep
+  panning in one stroke past the edge and nothing turns; a diagonal or short drag at an edge pans.
+  Dragging fitted pages diagonally or with small flicks does not turn them.
 - Pinch a fitted page, pan while zoomed, then use an arrow and return. The new page is fitted.
   Check pen writing, palms, finger writing, selections, text and image editing produce no turns.
 - With TalkBack, adjacent sheets are absent from focus; arrows expose disabled states and the

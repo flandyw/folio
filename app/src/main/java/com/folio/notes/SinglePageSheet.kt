@@ -48,7 +48,7 @@ import kotlin.math.abs
 
 /** Lazy, keyed sheets share one continuous track; the model changes only on a completed turn. */
 @Composable internal fun SinglePageSheet(
-    pages: List<NotePage>, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, haptics: Boolean,
+    pages: List<NotePage>, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, atLeftEdge: Boolean, atRightEdge: Boolean, haptics: Boolean,
     onSelect: (origin: String, destination: String) -> Unit,
     sheet: @Composable (NotePage, Int, preview: Boolean) -> Unit,
 ) {
@@ -58,6 +58,8 @@ import kotlin.math.abs
     val density = LocalDensity.current.density
     val feedback = LocalHapticFeedback.current
     val select by rememberUpdatedState(onSelect)
+    val edgeLeft by rememberUpdatedState(atLeftEdge)
+    val edgeRight by rememberUpdatedState(atRightEdge)
     val ids = pages.map { it.id }
     val selectedId by rememberUpdatedState(ids[index])
     var width by remember { mutableFloatStateOf(1f) }
@@ -103,12 +105,15 @@ import kotlin.math.abs
     Box(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = top, bottom = 8.dp)
         .clipToBounds().onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
         .pointerInput(stylusActivity, swipeTurns, zoomed, index, ids) {
-            if (!swipeTurns || zoomed) return@pointerInput
+            if (!swipeTurns) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 if (down.type != PointerType.Touch || down.isConsumed || programmatic) return@awaitEachGesture
                 val serial = stylusActivity.cancellationSerial
                 val origin = ids[index]
+                // Zoomed, the drag must begin flush with an edge; panning there and carrying on is not a turn.
+                val leftAtDown = edgeLeft
+                val rightAtDown = edgeRight
                 val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
                 val slop = viewConfiguration.touchSlop
                 var claimed = false
@@ -127,7 +132,8 @@ import kotlin.math.abs
                         if (!claimed) {
                             if (!change.pressed || change.isConsumed) break
                             if (abs(delta.y) > slop && abs(delta.y) >= abs(delta.x)) break
-                            if (abs(delta.x) <= slop || abs(delta.x) < abs(delta.y) * 1.25f) continue
+                            if (abs(delta.x) > slop && !PageSwipe.mayTurn(delta.x, zoomed, leftAtDown, rightAtDown)) break
+                            if (!PageSwipe.claims(delta.x, delta.y, slop, zoomed)) continue
                             // A fresh drag can catch a settling sheet without jumping back to its origin.
                             settle?.cancel()
                             settle = null
@@ -150,7 +156,7 @@ import kotlin.math.abs
                 } finally {
                     if (claimed && selectedId == origin) {
                         val target = if (released && serial == stylusActivity.cancellationSerial)
-                            PageSwipe.target(index, ids.size, distance, tracker.calculateVelocity().x, width, density)
+                            PageSwipe.target(index, ids.size, distance, tracker.calculateVelocity().x, width, density, zoomed)
                         else index
                         finish(target, origin, target != index)
                     }

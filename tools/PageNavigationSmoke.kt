@@ -46,6 +46,19 @@ fun main() {
     check(PageSwipe.target(9, 10, -500f, -1000f, 1000f, 1f) == 9)
     check(PageSwipe.target(0, 1, -500f, -1000f, 1000f, 1f) == 0)
     check(PageSwipe.target(4, 10, -5000f, -10000f, 1000f, 1f) == 5) { "One gesture skipped pages" }
+    check(PageSwipe.target(4, 10, -350f, 0f, 1000f, 1f, zoomed = true) == 4) { "Zoomed turns need a longer drag" }
+    check(PageSwipe.target(4, 10, -450f, 0f, 1000f, 1f, zoomed = true) == 5)
+    check(PageSwipe.target(4, 10, -60f, -1500f, 1000f, 1f, zoomed = true) == 4) { "Short zoomed flick must not turn" }
+    check(PageSwipe.target(4, 10, -120f, -1500f, 1000f, 1f, zoomed = true) == 5)
+    check(PageSwipe.target(4, 10, -250f, 0f, 1000f, 1f) == 4) { "Fitted turn below 30% must retract" }
+    check(!PageSwipe.claims(14f, 0f, 8f, false) && PageSwipe.claims(40f, 10f, 8f, false))
+    check(!PageSwipe.claims(40f, 25f, 8f, false)) { "Diagonal drift must not claim a swipe" }
+    check(!PageSwipe.claims(20f, 0f, 8f, true) && PageSwipe.claims(40f, 10f, 8f, true))
+    check(!PageSwipe.claims(40f, 20f, 8f, true))
+    check(PageSwipe.mayTurn(-5f, false, false, false)) { "Fitted pages turn anywhere" }
+    check(!PageSwipe.mayTurn(-5f, true, true, false)) { "Zoomed, not at the right edge" }
+    check(PageSwipe.mayTurn(-5f, true, false, true))
+    check(PageSwipe.mayTurn(5f, true, true, false) && !PageSwipe.mayTurn(5f, true, false, true))
     check(PageSwipe.offset(-5000f, 1000f, 4, 10) == -1000f)
     check(PageSwipe.offset(0f, 1000f, 0, 10) == 0f)
     val edge = PageSwipe.offset(500f, 1000f, 0, 10)
