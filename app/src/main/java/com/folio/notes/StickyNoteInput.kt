@@ -16,9 +16,11 @@ import kotlin.math.hypot
  *
  * With the sticky tool: a tap on bare space drops a default note, a drag draws one to size, a drag
  * on a note moves it, the focused note's corner grip resizes it, a tap focuses a note (its menu
- * appears) and a tap on the focused note types in it. With the text tool a tap on a note types in
+ * appears) and a tap on the focused note types in it. The focused note's corner grip resizes it under any
+ * tool. With the text tool a tap on a note types in
  * it. With the hand — or a finger that is navigating rather than drawing — a clean tap on a note
- * focuses it, so its menu is always one tap away without changing tools.
+ * focuses it, so its menu is always one tap away without changing tools, and that same input then drags the
+ * focused note to move it.
  */
 internal class StickyNoteInput(
     private val host: View,
@@ -132,8 +134,9 @@ internal class StickyNoteInput(
             val editable = { l: Int -> PageLayers.editable(layers, l) }
             val hit = StickyNotes.at(page().texts, at.x, at.y, editable)
             val focusedBox = focused()
-            // The grip hangs off the corner, so it is tested before the note it belongs to.
-            val onGrip = tool == Tool.STICKY_NOTE && focusedBox != null && gripHit(focusedBox, event.x, event.y)
+            // The grip hangs off the corner, so it is tested before the note it belongs to. It is drawn
+            // whatever the tool, so it works with every tool; it is hidden (and dead) while typing.
+            val onGrip = focusedBox != null && !typing && gripHit(focusedBox, event.x, event.y)
             // Touching anything but the focused note puts it down.
             dismissed = focusedBox != null && !onGrip && hit?.id != focusedBox.id
             if (dismissed) focus(null)
@@ -142,6 +145,9 @@ internal class StickyNoteInput(
             mode = when {
                 onGrip -> Mode.RESIZE
                 tool == Tool.STICKY_NOTE && hit != null -> Mode.MOVE
+                // A note already picked up follows a hand or navigating finger, whatever the tool: that
+                // input cannot write on it, so dragging it can only mean moving it.
+                tapFocuses && hit != null && hit.id == focusedBox?.id && !typing -> Mode.MOVE
                 tool == Tool.STICKY_NOTE && canCreate && editable(layer) -> Mode.CREATE
                 tool == Tool.TEXT && hit != null -> Mode.TYPE_TAP
                 else -> null
@@ -168,7 +174,8 @@ internal class StickyNoteInput(
                 val box = original
                 if (moved) preview = when (current) {
                     Mode.CREATE -> StickyNotes.spanning(began.x, began.y, at.x, at.y, layer, nextPaper)
-                    Mode.RESIZE -> box?.let { StickyNotes.resized(it, at.x, at.y) }
+                    // The corner follows the finger's travel, so grabbing the grip off-centre never makes it jump.
+                    Mode.RESIZE -> box?.let { StickyNotes.resized(it, it.x + it.width + at.x - began.x, it.y + it.stickyHeight + at.y - began.y) }
                     Mode.MOVE -> box?.moved(at.x - began.x, at.y - began.y)
                     Mode.TYPE_TAP -> box
                 }

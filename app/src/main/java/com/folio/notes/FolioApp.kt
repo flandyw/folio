@@ -77,6 +77,16 @@ import kotlinx.coroutines.withContext
         onDispose { mistakes.setForeground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val context = LocalContext.current
+    val chatGpt = remember(context.applicationContext) { (context.applicationContext as FolioApplication).chatGpt }
+    DisposableEffect(lifecycleOwner, chatGpt) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) chatGpt.setForeground(true)
+            if (event == Lifecycle.Event.ON_STOP) chatGpt.setForeground(false)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        chatGpt.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose { chatGpt.setForeground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val prefs = remember { context.getSharedPreferences("preferences", 0) }
     var themeMode by rememberSaveable { mutableStateOf(ThemeMode.of(prefs.getString(ThemeMode.PREF_KEY, null))) }
     var themePalette by rememberSaveable {
@@ -134,6 +144,8 @@ import kotlinx.coroutines.withContext
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
+    var chatGptOpen by rememberSaveable { mutableStateOf(false) }
+    var chatGptStartAccount by rememberSaveable { mutableStateOf(false) }
     val updates = remember(context) { (context.applicationContext as FolioApplication).updates }
     val updateState by updates.state.collectAsStateWithLifecycle()
     val experimentalUpdates by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
@@ -453,6 +465,7 @@ import kotlinx.coroutines.withContext
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { exportMenu = true },
                             onShareLongPress = shareLongPress,
+                            onChatGpt = { chatGptStartAccount = false; chatGptOpen = true },
                             onBrowseLibrary = { purpose, mode ->
                                 workspaceLibraryMode = mode
                                 workspaceLibraryPurpose = purpose
@@ -545,6 +558,7 @@ import kotlinx.coroutines.withContext
                     updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
+                    onChatGpt = { chatGptStartAccount = true; chatGptOpen = true },
                     folders = state.folders,
                     startWithWritingFollow = settingsStartWithFollow,
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
@@ -572,6 +586,10 @@ import kotlinx.coroutines.withContext
             onStudy = if (showStudy && !settings) null else {
                 { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showMusic = false; showStudy = true }
             },
+        )
+        if (chatGptOpen) com.folio.notes.chatgpt.ChatGptPanel(
+            manager = chatGpt,
+            model = model, onDismiss = { chatGptOpen = false }, startWithAccount = chatGptStartAccount,
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

@@ -14,10 +14,12 @@ import android.os.SystemClock
 import android.view.animation.AnimationUtils
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewConfiguration
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import com.folio.notes.math.TextMathBitmaps
 import kotlin.math.*
 
 /** Native input surface keeps pointer events and in-progress ink outside Compose recomposition. */
@@ -206,6 +208,8 @@ class InkView(context: Context) : View(context) {
     private fun commitTexts(texts: List<TextBox>) {
         page = page.copy(texts = texts)
         onTextsChanged(texts)
+        // A note moved past the paper changes how much the one-page view fits and pans over.
+        if (pageCamera) reportCanvasViewport()
         invalidate()
     }
     /** The note a stroke is being written into (its id), or null for page ink. */
@@ -950,22 +954,60 @@ class InkView(context: Context) : View(context) {
     private fun reportPageEdges() {
         if (!pageCamera || zoomWritingPane || page.infinite || width <= 0 || page.width <= 0f) return
         val zoom = camera.zoom.coerceIn(1f, 4f)
+        val ws = workspace()
         val fitted = pageScale
-        val pageW = page.width * fitted * zoom
-        val left = (width - page.width * fitted) / 2 * zoom + camera.x
+        val spanW = (ws[2] - ws[0]) * fitted * zoom
+        val left = (width - (ws[2] - ws[0]) * fitted) / 2 * zoom + camera.x
         val slack = 2f
-        onPageEdges(left >= -slack, left + pageW <= width + slack)
+        onPageEdges(left >= -slack, left + spanW <= width + slack)
+    }
+    /**
+     * The paper plus any sticky notes hanging past it, in page units (left, top, right, bottom).
+     * A one-page sheet fits and pans over all of it, so a note beside the paper stays reachable. The
+     * read-only neighbour sliding in during a swipe uses the same fit, so it never refits when it lands.
+     * Reference and peek views see just the paper.
+     */
+    private fun workspace(): FloatArray {
+        val flags = (if (pageCamera) 1 else 0) + (if (zoomWritingPane) 4 else 0)
+        if (workspaceSource === page && workspaceFlags == flags) return workspaceValue
+        var l = 0f; var t = 0f; var r = page.width; var b = page.height
+        if (pageCamera && !zoomWritingPane && !page.infinite) page.texts.forEach { box ->
+            if (!box.isSticky) return@forEach
+            l = min(l, box.x); t = min(t, box.y); r = max(r, box.x + box.width); b = max(b, box.y + box.stickyHeight)
+        }
+        workspaceValue = floatArrayOf(l, t, r, b); workspaceSource = page; workspaceFlags = flags
+        return workspaceValue
+    }
+    private var workspaceSource: NotePage? = null
+    private var workspaceFlags = -1
+    private var workspaceValue = floatArrayOf(0f, 0f, 0f, 0f)
+    /**
+     * True when a touch at this window position lands on the focused note's resize grip or, if
+     * [bodies] is set, on any sticky note: a finger there is moving, resizing or typing, never turning a page.
+     */
+    fun touchesNote(windowX: Float, windowY: Float, bodies: Boolean = true): Boolean {
+        if (page.infinite || width <= 0) return false
+        val at = IntArray(2).also(::getLocationInWindow)
+        val x = windowX - at[0]; val y = windowY - at[1]
+        val px = (x - originX) / scale; val py = (y - originY) / scale
+        if (bodies && visibleNotes().any { StickyNotes.contains(it, px, py) }) return true
+        val focus = stickyNotes.focused() ?: return false
+        // A picked-up note is dragged by a finger whatever the tool.
+        if (StickyNotes.contains(focus, px, py)) return true
+        if (stickyNotes.typing) return false
+        return hypot(x - (originX + (focus.x + focus.width) * scale), y - (originY + (focus.y + focus.stickyHeight) * scale)) <= 28f * resources.displayMetrics.density
     }
     /** Keeps a zoomed score on its sheet: never smaller than the fit, never panned past an edge. */
     private fun clampPageCamera() {
         if (zoomWritingPane) return
         if (!pageCamera || page.infinite || width <= 0 || height <= 0 || page.width <= 0f || page.height <= 0f) return
+        val ws = workspace()
         val zoom = camera.zoom.coerceIn(1f, 4f)
         val fitted = pageScale
-        val pageW = page.width * fitted * zoom
-        val pageH = page.height * fitted * zoom
-        val baseX = (width - page.width * fitted) / 2 * zoom
-        val baseY = (height - page.height * fitted) / 2 * zoom
+        val pageW = (ws[2] - ws[0]) * fitted * zoom
+        val pageH = (ws[3] - ws[1]) * fitted * zoom
+        val baseX = (width - (ws[2] - ws[0]) * fitted) / 2 * zoom
+        val baseY = (height - (ws[3] - ws[1]) * fitted) / 2 * zoom
         fun bounded(offset: Float, base: Float, size: Float, view: Float): Float {
             val left = base + offset
             val clamped = if (size <= view) left.coerceIn(0f, view - size) else left.coerceIn(view - size, 0f)
@@ -1079,9 +1121,9 @@ class InkView(context: Context) : View(context) {
     private val pageScale get() = if (zoomWritingPane) (width / page.width).coerceAtLeast(.01f)
         else if (!readOnly && !page.infinite && documentPaperWidth > 0f)
         (documentPaperWidth / page.width).coerceAtLeast(.01f)
-        else min(width / page.width, height / page.height).coerceAtLeast(.01f)
-    private val originX get() = if (page.infinite) camera.x else if (cameraPage) (width - page.width * pageScale) / 2 * camera.zoom + camera.x else (width - page.width * scale) / 2
-    private val originY get() = if (page.infinite) camera.y else if (cameraPage) (height - page.height * pageScale) / 2 * camera.zoom + camera.y else if (documentPaperWidth > 0f) -documentTop * scale else (height - page.height * scale) / 2
+        else workspace().let { ws -> min(width / (ws[2] - ws[0]), height / (ws[3] - ws[1])).coerceAtLeast(.01f) }
+    private val originX get() = if (page.infinite) camera.x else if (cameraPage) { val ws = workspace(); (width - (ws[2] - ws[0]) * pageScale) / 2 * camera.zoom + camera.x - ws[0] * scale } else (width - page.width * scale) / 2
+    private val originY get() = if (page.infinite) camera.y else if (cameraPage) { val ws = workspace(); (height - (ws[3] - ws[1]) * pageScale) / 2 * camera.zoom + camera.y - ws[1] * scale } else if (documentPaperWidth > 0f) -documentTop * scale else (height - page.height * scale) / 2
     init {
         isFocusable = true; contentDescription = "Notebook page. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
     }
@@ -1346,13 +1388,19 @@ class InkView(context: Context) : View(context) {
             rasterViewport = navigationBounds, fastPreview = true)
     }
 
+    /** A formula in a text box or note finished rendering: repaint so it replaces its typed source. */
+    private val mathReady: () -> Unit = { postInvalidate() }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        (rootView as? ViewGroup)?.let(TextMathBitmaps::attach)
+        TextMathBitmaps.addListener(mathReady)
         inputRouter.stylus.attachNavigationSurface()
         inputRouter.stylus.addArrivalListener(penArrival)
     }
 
     override fun onDetachedFromWindow() {
+        TextMathBitmaps.removeListener(mathReady)
         inputRouter.stylus.detachNavigationSurface()
         inputRouter.stylus.removeArrivalListener(penArrival)
         recentFingerInk.clear()

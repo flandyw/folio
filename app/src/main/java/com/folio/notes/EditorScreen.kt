@@ -132,7 +132,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     Paper.MI_GRID -> "Mi grid (米字格)"
 }
 
-@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null, onOpenDocument: (() -> Unit)? = null) {
+@Composable internal fun EditorScreen(state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null, onChatGpt: (() -> Unit)? = null, onOpenDocument: (() -> Unit)? = null) {
     val inputStylusActivity = LocalStylusActivity.current
     val note = state.active ?: return
     val page = state.page ?: return
@@ -1051,6 +1051,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                         textDraft = textEditor?.takeIf { it.pageId == item.id }?.box,
                         onTextDraft = ::changeTextDraft, onTextDone = { finishTextEditing() }, textTopInset = editorChromeHeightPx,
                         onLoad = { model.loadPage(item.id) }, fullscreen = true, pageCamera = true, onPageKey = music?.onKey,
+                        onStickyDraw = { selectTool(Tool.PEN) },
                         canvasReset = canvasReset, onCanvasZoom = { if (!preview) documentZoom = it },
                         onPageEdges = { left, right -> if (!preview && item.id == page.id) { pageEdgeLeft = left; pageEdgeRight = right } }, activeLayer = model.activeLayerOf(item),
                         selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
@@ -1081,6 +1082,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                     top = floatingToolbarTop + FolioSpacing.dp4,
                     swipeTurns = (tool == Tool.HAND || !finger) && textEditor == null && !cropActive && selected.isEmpty() && selectedImage == null && !peekOpen,
                     zoomed = documentZoom > 1.02f, atLeftEdge = pageEdgeLeft, atRightEdge = pageEdgeRight, haptics = haptics,
+                    onNote = { x, y -> mainInkView?.touchesNote(x, y, bodies = tool == Tool.STICKY_NOTE || tool == Tool.TEXT) == true },
                     onSelect = { origin, destination ->
                         val live = model.state.value
                         val target = live.active?.pages?.indexOfFirst { it.id == destination } ?: -1
@@ -1708,6 +1710,7 @@ private fun paperLabel(p: Paper): String = when (p) {
                             onDuplicatePage = { model.duplicatePage()?.let { revealNewPage(it) } },
                             onExport = { finishTextEditing(); onExport() },
                             onShareLongPress = onShareLongPress?.let { shortcut -> { finishTextEditing(); shortcut() } },
+                            onChatGpt = onChatGpt?.takeUnless { note.hiddenFromLibrary }?.let { open -> { finishTextEditing(); open() } },
                             onSettings = { finishTextEditing(); onSettings() },
                             onKeyboardShortcuts = { keyboardShortcuts = true },
                             pageActions = { dismiss ->
@@ -2317,34 +2320,34 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
-            Surface(
-                onClick = hold.click(onClick),
-                shape = FolioShapes.extraLarge,
-                color = if (done) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (done) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                tonalElevation = 1.dp,
-                shadowElevation = 1.dp,
-                modifier = Modifier.height(36.dp)
-                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)
-            ) {
-                Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                    Icon(
-                        if (done) Icons.Rounded.Flag
-                        else if (timer.paused) Icons.Rounded.Pause
-                        else Icons.Rounded.Timer,
-                        null, Modifier.size(15.dp)
-                    )
-                    if (done && !timer.paused) Text("Pens down",
-                        style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
-                    else ToolbarClockText(timer.clockText(),
-                        prefix = when {
-                            timer.paused -> "${if (timer.autoParked) "Stopped" else "Paused"} · "
-                            timer.phase == ExamTimerPhase.READING -> "R · "
-                            else -> ""
-                        },
-                        fontFamily = FontFamily.Monospace)
-                }
+            val reading = timer.phase == ExamTimerPhase.READING
+            val caption = when {
+                timer.paused -> if (timer.autoParked) "Stopped" else "Paused"
+                done -> "Time"
+                reading -> "Reading"
+                else -> "Writing"
             }
+            val phaseSeconds = if (reading) timer.preset.readingSeconds else timer.preset.writingSeconds
+            val clock = if (done) "Pens down" else timer.clockText()
+            ToolbarSessionPill(
+                icon = when {
+                    done -> Icons.Rounded.Flag
+                    timer.paused -> Icons.Rounded.Pause
+                    reading -> Icons.Rounded.Visibility
+                    else -> Icons.Rounded.Timer
+                },
+                value = clock,
+                tone = when {
+                    done -> SessionTone.ALERT
+                    timer.paused -> SessionTone.PAUSED
+                    else -> SessionTone.RUNNING
+                },
+                reserve = if (done) null else if (phaseSeconds >= 3600) "0:00:00" else "00:00",
+                description = "Exam timer, $caption, ${if (done) clock else "$clock left"}. Open timer" +
+                    if (onLongClick != null && !done) ". Hold to ${if (timer.paused) "resume" else "pause"}" else "",
+                onClick = hold.click(onClick),
+                modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier
+            )
         }
     }
 }

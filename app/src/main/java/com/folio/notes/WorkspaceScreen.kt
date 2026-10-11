@@ -28,6 +28,7 @@ import kotlin.math.roundToInt
     onSettings: () -> Unit, onExport: () -> Unit,
     onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
     onShareLongPress: (() -> Unit)? = null,
+    onChatGpt: (() -> Unit)? = null,
 ) {
     var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
@@ -46,6 +47,7 @@ import kotlin.math.roundToInt
                 key(state.activeId) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         onShareLongPress = onShareLongPress,
+                        onChatGpt = onChatGpt,
                         onOpenDocument = { picker = PickerPurpose.OPEN },
                         notebookActions = { dismiss ->
                             PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); picker = PickerPurpose.COMPANION }

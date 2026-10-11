@@ -34,7 +34,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -48,7 +51,7 @@ import kotlin.math.abs
 
 /** Lazy, keyed sheets share one continuous track; the model changes only on a completed turn. */
 @Composable internal fun SinglePageSheet(
-    pages: List<NotePage>, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, atLeftEdge: Boolean, atRightEdge: Boolean, haptics: Boolean,
+    pages: List<NotePage>, index: Int, top: Dp, swipeTurns: Boolean, zoomed: Boolean, atLeftEdge: Boolean, atRightEdge: Boolean, onNote: (Float, Float) -> Boolean, haptics: Boolean,
     onSelect: (origin: String, destination: String) -> Unit,
     sheet: @Composable (NotePage, Int, preview: Boolean) -> Unit,
 ) {
@@ -58,6 +61,8 @@ import kotlin.math.abs
     val density = LocalDensity.current.density
     val feedback = LocalHapticFeedback.current
     val select by rememberUpdatedState(onSelect)
+    val noteAt by rememberUpdatedState(onNote)
+    var origin by remember { mutableStateOf(Offset.Zero) }
     val edgeLeft by rememberUpdatedState(atLeftEdge)
     val edgeRight by rememberUpdatedState(atRightEdge)
     val ids = pages.map { it.id }
@@ -104,11 +109,14 @@ import kotlin.math.abs
 
     Box(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = top, bottom = 8.dp)
         .clipToBounds().onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+        .onGloballyPositioned { origin = it.positionInWindow() }
         .pointerInput(stylusActivity, swipeTurns, zoomed, index, ids) {
             if (!swipeTurns) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 if (down.type != PointerType.Touch || down.isConsumed || programmatic) return@awaitEachGesture
+                // A finger that lands on a sticky note (or its resize grip) is moving or typing in it, not turning the page.
+                if (noteAt(origin.x + down.position.x, origin.y + down.position.y)) return@awaitEachGesture
                 val serial = stylusActivity.cancellationSerial
                 val origin = ids[index]
                 // Zoomed, the drag must begin flush with an edge; panning there and carrying on is not a turn.

@@ -186,6 +186,30 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
     ): Bitmap = renderRequest(JSONObject().put("blocks", blocks).put("width", width)
         .put("fontSize", fontSize).put("lineHeight", lineHeight).put("color", color), density)
 
+    /** A formula picture plus where its text baseline sits, in the caller's units from the top of the picture. */
+    class Snippet(val bitmap: Bitmap, val baseline: Float)
+
+    /**
+     * One formula for painting into running text: [fontSize] is in whatever unit the caller lays out
+     * in and [pixelsPerUnit] the bitmap pixels per such unit. The WebView always paints at the screen's
+     * pixel ratio, so the request is scaled to land at exactly [pixelsPerUnit]; capturing at any other
+     * density would leave the formula small in one corner of a larger, mostly blank picture.
+     */
+    suspend fun renderSnippet(latex: String, display: Boolean, fontSize: Float, color: String, pixelsPerUnit: Float): Snippet {
+        loaded.await()
+        val ratio = evaluate("window.devicePixelRatio").toFloatOrNull()?.takeIf { it > 0f }
+            ?: resources.displayMetrics.density
+        measureBaseline = !display
+        baseline = 0f
+        try {
+            val bitmap = render(latex, display, fontSize * pixelsPerUnit / ratio, color, ratio)
+            return Snippet(bitmap, baseline * ratio / pixelsPerUnit)
+        } finally { measureBaseline = false }
+    }
+
+    private var measureBaseline = false
+    private var baseline = 0f
+
     private suspend fun renderRequest(request: JSONObject, density: Float): Bitmap {
         val color = request.getString("color")
         val expectsInk = inkExpected(color)
@@ -223,6 +247,14 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
             result = evaluate("window.folioResult")
         }
         val bounds = JSONObject(result)
+        if (measureBaseline) {
+            // A zero-size inline box sits on the text baseline; its top is that baseline's distance from the picture's top.
+            val probe = "(function(){var t=document.getElementById('formula');var p=document.createElement('span');" +
+                "p.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';" +
+                "t.insertBefore(p,t.firstChild);var b=p.getBoundingClientRect().top-t.getBoundingClientRect().top;" +
+                "t.removeChild(p);return b;})()"
+            baseline = evaluate(probe).toFloatOrNull() ?: 0f
+        }
         val width = ceil(bounds.getDouble("width") * density).toInt().coerceAtLeast(1)
         val height = ceil(bounds.getDouble("height") * density).toInt().coerceAtLeast(1)
         // Bound allocations for pathological source. The caller keeps readable native source on failure.

@@ -24,12 +24,21 @@ the old animation, and swipe completion checks its original page before selectin
 Adjacent and moving sheets are blocked from editing and hidden from accessibility. Each
 newly selected page starts fitted, including pages kept alive by pager prefetch.
 
+Sticky notes work in the one-page view like the scrolling column: the sticky tool, typing, the note menu
+(its Draw action switches to the pen) and ink written on a note. The fitted view covers the paper plus any
+note hanging past it (`InkView.workspace()`, shared by the neighbour sliding in during a swipe so it never refits on landing), so a note placed beside the
+paper stays visible and reachable, and zoomed panning stops at the notes' edge. A finger that lands on a focused note's resize grip (any tool), or on a note with the sticky or text tool,
+is resizing, moving or typing in it and never turns the page.
+
 Run `node tools/page-navigation-smoke.cjs` for request races, stale layouts already showing
 the destination, short pages, document ends, reorder/delete and gesture threshold checks.
 Run `./build.sh -p` for the signed experimental build.
 
 ## Device check
 
+- Sticky tool in one-page view: tap and drag to make notes, drag one by finger and by pen without the page
+  turning, resize from the grip, type, change paper, Draw from the menu. Drag a note past the paper edge: the page
+  refits so it stays in view; delete it and the fit returns. Swipes on bare space still turn the page.
 - In continuous view, rapidly alternate arrows, tap Next repeatedly, and turn during a fling.
   Each tap advances one page from the latest selection. Repeat with mixed short/tall PDF pages.
 - Hold each arrow, then release; it stays at the end. The next tap responds immediately.

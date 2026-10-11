@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class FolioApplication : Application() {
+    internal val chatGpt by lazy { com.folio.notes.chatgpt.ChatGptManager(this) }
     val updates by lazy { FolioUpdates(this) }
     val repository by lazy { NoteRepository(this) }
     val thumbnails by lazy { PageThumbnailCache(this, repository) }
@@ -1672,6 +1673,34 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val page = _state.value.page ?: return
         texts(page.id, texts)
     }
+    /** Lets each comment's formulas render first, so the notes [applyChatGptFeedback] sizes are tall enough for them. */
+    internal suspend fun awaitChatGptMath(comments: List<String>) = comments.forEach {
+        InkRenderer.awaitMath(TextBox(x = 0f, y = 0f, width = CHATGPT_NOTE_WIDTH - StickyNotes.PADDING * 2, size = StickyNotes.TEXT_SIZE, text = it))
+    }
+    /** One normal journal/undo step; an async review cannot write into a changed or different page. */
+    internal fun applyChatGptFeedback(feedback: com.folio.notes.chatgpt.ChatGptFeedback): Boolean {
+        val note = _state.value.active ?: return false
+        val page = _state.value.page ?: return false
+        if (feedback.applied || note.id != feedback.notebook || page != feedback.page || !page.loaded) return false
+        if (feedback.comments.size !in 1..4 || feedback.comments.any { it.isBlank() || it.length > 800 }) return false
+        val layer = activeLayerOf(page)
+        if (!PageLayers.editable(page.layers, layer)) { reportError("Choose an unlocked, visible layer for the feedback."); return false }
+        val bounds = InkGeometry.contentBounds(page.strokes, page.texts, page.images, InkRenderer::textHeight, page.width, page.height)
+        val width = CHATGPT_NOTE_WIDTH
+        var x = maxOf(if (page.infinite) feedback.bounds.right else page.width, bounds.right) + 24f
+        val top = if (page.infinite) feedback.bounds.top else 24f
+        var y = top
+        val bottom = if (page.infinite) Float.MAX_VALUE else page.height - 24f
+        val notes = feedback.comments.map { text ->
+            val box = TextBox(x = x, y = y, width = width, size = StickyNotes.TEXT_SIZE, text = text, layer = layer)
+            val height = (InkRenderer.textLayout(box.copy(width = width - StickyNotes.PADDING * 2)).height + StickyNotes.PADDING * 2).coerceAtLeast(StickyNotes.MIN_HEIGHT)
+            if (height > bottom - top) { reportError("This page is too short for these notes."); return false }
+            if (y + height > bottom) { x += width + 24f; y = top }
+            box.copy(id = "chatgpt-${feedback.request}-${y}-${x}", x = x, y = y, stickyHeight = height).also { y += height + 16f }
+        }
+        texts(page.id, page.texts + notes)
+        return true
+    }
     fun texts(pageId: String, texts: List<TextBox>) {
         val page = findPageContent(pageId) ?: return
         if (!page.loaded || page.texts === texts || page.texts == texts) return
@@ -2742,6 +2771,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         /** How many per-page undo states are kept before the oldest is dropped. */
         const val MAX_UNDO = PageJournal.HISTORY_LIMIT
         const val MAX_STRUCTURE_UNDO = 30
+        const val CHATGPT_NOTE_WIDTH = 320f
         /**
          * How long the writer keeps collecting while page writes are still arriving. Long enough to
          * gather a run of the pen, short enough that a single stroke on an idle page is not delayed.

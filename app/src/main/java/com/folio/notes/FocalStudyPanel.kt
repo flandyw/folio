@@ -91,33 +91,25 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
         focus != null -> focus.resumedAt == null
         else -> sharedActive?.paused == true
     }
-    val pauseWord = if (focus?.parkReason == FocalFocus.PARK_AWAY || focus?.parkReason == FocalFocus.PARK_CLOSED) "Stopped" else "Paused"
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(if (recording) label else "Focal · Study sessions") } },
         state = rememberTooltipState()
     ) {
-        if (recording) {
-            Surface(
+        val holdHint = if (onLongClick != null && !examActive) ". Hold to ${if (isPaused) "resume" else "pause"}" else ""
+        val description = "$label. $syncStatus. Open study sessions$holdHint"
+        // An exam sitting has one pill, the exam timer's; Focal's entry point stays a plain icon beside it.
+        if (recording && !examActive) {
+            ToolbarSessionPill(
+                icon = if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School,
+                value = formatChipElapsed(activeElapsed),
+                tone = if (isPaused) SessionTone.PAUSED else SessionTone.RUNNING,
+                description = description,
                 onClick = hold.click(onClick),
-                modifier = Modifier.padding(horizontal = FolioSpacing.dp4).height(36.dp)
-                    .then(if (onLongClick != null && !examActive) Modifier.longPressAction(hold, onLongClick) else Modifier)
-                    .semantics {
-                        contentDescription = "$label. $syncStatus. Open study sessions" +
-                            if (onLongClick != null && !examActive) ". Hold to ${if (isPaused) "resume" else "pause"}" else ""
-                    },
-                shape = FolioShapes.extraLarge,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Row(Modifier.padding(horizontal = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                    Icon(if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School, null, Modifier.size(16.dp))
-                    if (examActive) Text(label.removePrefix("Focal · "),
-                        style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
-                    else ToolbarClockText(formatChipElapsed(activeElapsed), prefix = if (isPaused) "$pauseWord · " else "")
-                }
-            }
+                modifier = Modifier.padding(horizontal = FolioSpacing.dp4)
+                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier),
+                reserve = if (activeElapsed >= 3_600_000L) "0:00:00" else "00:00"
+            )
         } else {
             IconButton(onClick, modifier = Modifier.size(40.dp).semantics {
                 contentDescription = "$label. $syncStatus. Open study sessions"

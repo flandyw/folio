@@ -49,7 +49,7 @@ internal class BackupSettings(
     val progress: String? = null,
 )
 
-internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit)
+internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit, val onChatGpt: () -> Unit)
 
 private fun <E : Enum<E>> readEnum(raw: String?, fallback: E, values: Array<E>): E = values.firstOrNull { it.name == raw } ?: fallback
 
@@ -590,6 +590,9 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     }
     SettingsGroup("Focal", footer = "One account for study sessions and mistake sync.") {
         SettingsLinkRow("Manage Focal account", onClick = a.onFocal)
+    }
+    SettingsGroup("ChatGPT", footer = "Review your working and keep useful feedback as editable sticky notes.") {
+        SettingsLinkRow("Page review & account", onClick = a.onChatGpt)
     }
     SettingsGroup("Updates", footer = "Your notebooks stay on this device. Use Backup & restore to save or restore the whole library.") {
         SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Check the selected source for a newer signed build.")

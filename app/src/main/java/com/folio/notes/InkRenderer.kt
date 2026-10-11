@@ -2,8 +2,12 @@ package com.folio.notes
 
 import android.graphics.*
 import android.text.Layout
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.folio.notes.math.TextMath
+import com.folio.notes.math.TextMathBitmaps
 import kotlin.math.*
 
 object InkRenderer {
@@ -54,9 +58,21 @@ object InkRenderer {
     // measures text — far too heavy to redo for every box on every frame. Boxes are immutable,
     // so the layout itself can be memoized; drawing the cached layout is just a blit.
     private const val MAX_CACHED_TEXT_LAYOUTS = 64
-    private val textLayoutCache = object : LinkedHashMap<TextBox, StaticLayout>(MAX_CACHED_TEXT_LAYOUTS, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TextBox, StaticLayout>?): Boolean =
+    /** [math] says which of the box's formulas have a picture yet, so a layout is rebuilt as they arrive. */
+    private data class TextLayoutKey(val box: TextBox, val math: Int)
+    private val textLayoutCache = object : LinkedHashMap<TextLayoutKey, StaticLayout>(MAX_CACHED_TEXT_LAYOUTS, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TextLayoutKey, StaticLayout>?): Boolean =
             size > MAX_CACHED_TEXT_LAYOUTS
+    }
+    private val mathSplitCache = object : LinkedHashMap<String, List<TextMath.Part>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TextMath.Part>>?): Boolean = size > 64
+    }
+    private fun mathParts(text: String): List<TextMath.Part>? {
+        if (!TextMath.mayHaveMath(text)) return null
+        val parts = synchronized(mathSplitCache) { mathSplitCache[text] } ?: TextMath.split(text).also {
+            synchronized(mathSplitCache) { mathSplitCache[text] = it }
+        }
+        return parts.takeIf { list -> list.any { it is TextMath.Part.Formula } }
     }
 
     /** Uniform-width live ink shares the same bounded-tail spline path. */
@@ -648,6 +664,7 @@ object InkRenderer {
     /** Clears memoized text layouts under memory pressure; layouts are rebuilt on demand. */
     fun trimMemory() {
         synchronized(textLayoutCache) { textLayoutCache.clear() }
+        TextMathBitmaps.trimMemory()
     }
 
     private fun rectVisible(l: Float, t: Float, r: Float, b: Float, clip: Rect): Boolean =
@@ -755,6 +772,24 @@ object InkRenderer {
             images = page.images.map { it.moved(-left, -top) })
     }
 
+    private fun mathKeys(box: TextBox): List<TextMathBitmaps.Key> {
+        val size = TextMathBitmaps.quantize(box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE))
+        return mathParts(box.text).orEmpty().filterIsInstance<TextMath.Part.Formula>()
+            .map { TextMathBitmaps.Key(it.latex, it.display, size, box.color) }
+    }
+
+    /**
+     * Waits (at most [timeoutMs]) until every formula in [box] has a picture or has failed, so a height
+     * measured from [textLayout] afterwards is the one it will be drawn at. Needs an editor on screen.
+     */
+    suspend fun awaitMath(box: TextBox, timeoutMs: Long = 8_000L) {
+        val keys = mathKeys(box).ifEmpty { return }
+        keys.forEach(TextMathBitmaps::want)
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            while (!keys.all(TextMathBitmaps::settled)) kotlinx.coroutines.delay(50)
+        }
+    }
+
     /**
      * The measured layout for a text box. Drawing and hit-testing share it, so a box is tapped and
      * dragged exactly where it is drawn, and its height is never stored out of date.
@@ -762,13 +797,49 @@ object InkRenderer {
      * pages visibly heavy; boxes are immutable so the cache key is the box itself.
      */
     fun textLayout(box: TextBox): StaticLayout {
-        synchronized(textLayoutCache) { textLayoutCache[box]?.let { return it } }
-        val value = box.text.ifEmpty { " " }
+        val parts = mathParts(box.text)
+        val size = box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
+        // Which formulas already have a picture: the layout is only valid for that state.
+        val pictures = parts?.filterIsInstance<TextMath.Part.Formula>()?.map { f ->
+            val key = TextMathBitmaps.Key(f.latex, f.display, TextMathBitmaps.quantize(size), box.color)
+            TextMathBitmaps.peek(key).also { if (it == null) TextMathBitmaps.want(key) }
+        }
+        val signature = pictures?.fold(1) { acc, p -> acc * 2 + if (p != null) 1 else 0 } ?: 0
+        val cacheKey = TextLayoutKey(box, signature)
+        synchronized(textLayoutCache) { textLayoutCache[cacheKey]?.let { return it } }
+        val opacity = (Color.alpha(box.color) * box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
+            .toInt().coerceIn(0, 255)
+        val value: CharSequence = if (parts == null) box.text.ifEmpty { " " } else {
+            val built = SpannableStringBuilder()
+            val next = pictures!!.iterator()
+            var ownLine = false
+            parts.forEachIndexed { i, part ->
+                when (part) {
+                    is TextMath.Part.Text -> {
+                        // A display formula already ended its own line, so drop the spaces and line break after it.
+                        val text = if (ownLine) part.text.trimStart(' ', '\t').removePrefix("\n") else part.text
+                        built.append(text)
+                        ownLine = false
+                    }
+                    is TextMath.Part.Formula -> {
+                        val picture = next.next()
+                        if (picture == null) built.append(part.source)
+                        else {
+                            if (part.display && built.isNotEmpty() && built.last() != '\n') built.append('\n')
+                            val at = built.length
+                            built.append('\uFFFC')
+                            built.setSpan(FormulaSpan(picture, part.display, box.width, opacity), at, at + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            if (part.display && i < parts.lastIndex) { built.append('\n'); ownLine = true }
+                        }
+                    }
+                }
+            }
+            built
+        }
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = box.color
-            alpha = (Color.alpha(box.color) * box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
-                .toInt().coerceIn(0, 255)
-            textSize = box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
+            alpha = opacity
+            textSize = size
             typeface = if (box.bold) serifBold else serifNormal
             isFakeBoldText = box.bold
             textSkewX = if (box.italic) -0.25f else 0f
@@ -781,7 +852,7 @@ object InkRenderer {
         }
         val layout = StaticLayout.Builder.obtain(value, 0, value.length, paint, box.width.toInt().coerceAtLeast(1))
             .setAlignment(alignment).setIncludePad(false).setLineSpacing(0f, 1.1f).build()
-        synchronized(textLayoutCache) { textLayoutCache[box] = layout }
+        synchronized(textLayoutCache) { textLayoutCache[cacheKey] = layout }
         return layout
     }
 

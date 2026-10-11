@@ -43,6 +43,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
 import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 private data class MathRenderKey(
@@ -201,6 +202,36 @@ fun KaTeXMath(
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         RenderedContent(state, Modifier.horizontalScroll(rememberScrollState()))
     }
+}
+
+/** Prose with the same math delimiters as notebook text boxes; editing keeps the original source. */
+@Composable
+internal fun KaTeXText(
+    source: String,
+    modifier: Modifier = Modifier,
+    textStyle: TextStyle = LocalTextStyle.current,
+) {
+    val parts = remember(source) { TextMath.split(source) }
+    if (parts.none { it is TextMath.Part.Formula }) {
+        Text(source, modifier, style = textStyle)
+        return
+    }
+    val document = remember(parts) {
+        val inlines = JSONArray().apply {
+            parts.forEach { part ->
+                put(JSONObject().apply {
+                    when (part) {
+                        is TextMath.Part.Text -> { put("type", "text"); put("text", part.text) }
+                        is TextMath.Part.Formula -> {
+                            put("type", "math"); put("latex", part.latex); put("display", part.display)
+                        }
+                    }
+                })
+            }
+        }
+        JSONArray().put(JSONObject().put("type", "paragraph").put("inlines", inlines)).toString()
+    }
+    KaTeXDocument(document, source, modifier, textStyle)
 }
 
 /**
