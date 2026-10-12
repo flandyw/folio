@@ -252,6 +252,13 @@ object AppPrefs {
         if (value == null || !value.isFinite()) DEFAULT_TEXT_SIZE
         else value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
 
+    /** Type size new sticky notes start with; existing notes keep the size they were given. */
+    const val STICKY_TEXT_SIZE = "sticky.textSize"
+    const val DEFAULT_STICKY_TEXT_SIZE = StickyNotes.TEXT_SIZE
+    fun stickyTextSize(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_STICKY_TEXT_SIZE
+        else StickyNotes.textSize(value)
+
     fun uiTextScale(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_UI_TEXT_SCALE
         else value.coerceIn(UI_TEXT_SCALE_MIN, UI_TEXT_SCALE_MAX)

@@ -75,22 +75,19 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                     }
                     val span = (size.height - trackTopPx - trackBottomPx).coerceAtLeast(0f)
                     val geometry = fastScrollGeometry(pages, pageCount, span, minimumThumbPx)
-                    // The whole strip is the grab zone: the thumb is picked up where it is, and a touch
-                    // elsewhere on the track brings the thumb to the finger and carries on scrubbing.
-                    val onTrack = geometry != null &&
+                    // Only the visible thumb accepts a grab; the rest of the edge remains available
+                    // for ordinary page gestures instead of jumping to a distant page on contact.
+                    val onThumb = geometry != null &&
                         down.position.x in (size.width - stripInsetPx - stripWidthPx)..(size.width - stripInsetPx) &&
-                        down.position.y in trackTopPx..(trackTopPx + span)
-                    if (onTrack) {
-                        activeInkView?.suspendWritingFollow()
+                        down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
+                    if (onThumb) {
                         motion.reset()
                         down.consume()
                         val travelSpan = (span - geometry.height).coerceAtLeast(1f)
                         val firstPageIndex = pages.firstVisibleItemIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
                         val firstPageSize = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.index < pageCount }?.size
                             ?: pages.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0
-                        val onThumb = down.position.y in (trackTopPx + geometry.top)..(trackTopPx + geometry.top + geometry.height)
-                        val startProgress = if (!onThumb) ((down.position.y - trackTopPx - geometry.height / 2) / travelSpan).coerceIn(0f, 1f)
-                            else if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex,
+                        val startProgress = if (!pages.canScrollForward) 1f else DocumentViewport.scrollProgress(firstPageIndex,
                             pages.firstVisibleItemScrollOffset, firstPageSize,
                             pageCount)
                         var lastPage = -1
@@ -102,11 +99,9 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                             }
                             pages.requestScrollToItem(target)
                         }
-                        scrubbing = true
-                        // Picking the thumb up must not move the page: requesting its item would snap to the
-                        // page top and lose the offset inside it. Only a jump to the track scrolls at once.
-                        if (onThumb) lastPage = DocumentViewport.pageAt(startProgress, pageCount)
-                        else scrubTo(startProgress)
+                        // Contact alone leaves the page and writing follow untouched. Wait for a
+                        // deliberate vertical drag before requesting a page or showing the grab state.
+                        lastPage = DocumentViewport.pageAt(startProgress, pageCount)
                         try {
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -117,6 +112,11 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                                 change.consume()
                                 if (!change.pressed) break
                                 val delta = change.position - down.position
+                                if (!scrubbing) {
+                                    if (kotlin.math.abs(delta.y) <= viewConfiguration.touchSlop) continue
+                                    activeInkView?.suspendWritingFollow()
+                                    scrubbing = true
+                                }
                                 scrubTo(startProgress + delta.y / travelSpan)
                             }
                         } finally {

@@ -190,5 +190,86 @@ fun main() {
     val finishedState = live.copy(focus = null, entries = listOf(completedFocus))
     check(focalStudyCheckpoint(finishedState, start + 500_000L) == finishedState)
 
-    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay and remote reconciliation passed.")
+    // Website plans retain identity/details, but scheduled blocks never become worked time.
+    val planPayload = org.json.JSONObject().put("completed", false).put("kind", "focus")
+        .put("title", "Revise integration").put("subject_id", "mm").put("revision", 7)
+        .put("metadata", org.json.JSONObject().put("description", "Practice substitution")
+            .put("topics", org.json.JSONArray().put("Integration")))
+        .put("segments", org.json.JSONArray()
+            .put(org.json.JSONObject().put("started_at", java.time.Instant.ofEpochMilli(start + 600_000L))
+                .put("ended_at", java.time.Instant.ofEpochMilli(start + 1_800_000L)))
+            .put(org.json.JSONObject().put("started_at", java.time.Instant.ofEpochMilli(start + 2_000_000L))
+                .put("ended_at", java.time.Instant.ofEpochMilli(start + 2_600_000L))))
+    val plan = requireNotNull(focalEntryFromCanonical("website-plan", planPayload, "remote", "user"))
+    check(plan.planned && plan.intervals.isEmpty())
+    check(focalPlannedSlots(plan).sumOf { requireNotNull(it.endAt) - it.startAt } == 1_800_000L)
+    check(focalStudyMillisBetween(listOf(plan), start, start + 3_000_000L) == 0L)
+    val plannedFocus = requireNotNull(focalPlannedFocus(plan, note, start, attended = true))
+    check(plannedFocus.sessionId == plan.id && plannedFocus.title == plan.title && plannedFocus.subjectId == "mm")
+    check(plannedFocus.attended && plannedFocus.notebookId == note.id && plannedFocus.elapsed(start) == 0L)
+    check(plannedFocus.intervals == listOf(FocalStudyInterval(start, null)))
+    check(focalPlannedFocus(plan.copy(completed = true), note, start) == null)
+    check(focalPlannedFocus(plan.copy(deleted = true), note, start) == null)
+    check(focalPlannedFocus(plan.copy(kind = "exam"), note, start) == null)
+    check(focalPlannedFocus(plan.copy(planned = false), note, start) == null)
+    val begun = plan.copy(planned = false, synced = false, startedAt = start, endedAt = start + 1_000L,
+        intervals = plannedFocus.intervals)
+    val startCommand = commands(begun).single()
+    check(startCommand.getString("action") == "start" && startCommand.getString("session_id") == plan.id)
+    check(startCommand.getLong("expected_revision") == 7L && startCommand.getString("title") == plan.title)
+    check(startCommand.getJSONObject("metadata").getString("description") == "Practice substitution")
+    check(startCommand.getJSONObject("metadata").getJSONArray("topics").getString(0) == "Integration")
+    val offlinePlan = begun.copy(completed = true, paused = true, endedAt = start + 125_000L,
+        activeMillis = 80_000L, intervals = pausedFocus.intervals)
+    val plannedReplay = commands(offlinePlan)
+    check(plannedReplay.map { it.getString("action") } == listOf("start", "pause", "resume", "complete"))
+    check(plannedReplay.map { it.getLong("expected_revision") } == listOf(7L, 8L, 9L, 10L))
+    check(focalMergeSession(begun, plan).planned == false) // Stale planned echoes cannot stop a pending start.
+    check(focalPlannedSlots(plan.copy(remotePayload = "invalid")).isEmpty())
+
+    // Plans made/edited offline keep their desired metadata separate from the server receipt.
+    val newPlan = FocalStudyEntry(id = "folio-plan", notebookId = null, title = "", subjectId = null,
+        kind = "study", startedAt = start, endedAt = start, activeMillis = 0L, planned = true, completed = false)
+    val slots = listOf(FocalStudyInterval(start + 600_000L, start + 1_800_000L),
+        FocalStudyInterval(start + 2_000_000L, start + 2_600_000L))
+    val draft = focalPlanEdit(newPlan, "  Practice integrals  ", "mm", "  Try substitution  ", listOf("Integration", "Integration"), slots)
+    check(draft.title == "Practice integrals" && draft.remotePayload == null && draft.planDraft != null)
+    check(focalPlanDetails(draft) == ("Try substitution" to listOf("Integration")))
+    check(focalPlannedSlots(draft) == slots)
+    val createPlan = commands(draft).single()
+    check(createPlan.getString("action") == "create" && createPlan.getJSONArray("blocks").length() == 2)
+    check(!createPlan.has("elapsed_since_previous_ms") && !createPlan.has("occurred_at"))
+    check(focalStudyMillisBetween(listOf(draft), start, start + 3_000_000L) == 0L)
+    val editedPlan = focalPlanEdit(plan, "Rescheduled", "phys", "New notes", listOf("Motion"), slots.map {
+        FocalStudyInterval(it.startAt + 86_400_000L, requireNotNull(it.endAt) + 86_400_000L)
+    })
+    check(editedPlan.remotePayload == plan.remotePayload && editedPlan.planDraft != null)
+    val editPlan = commands(editedPlan).single()
+    check(editPlan.getString("action") == "save_progress" && editPlan.getLong("expected_revision") == plan.revision)
+    check(editPlan.getJSONArray("blocks").getJSONObject(0).getString("start") == java.time.Instant.ofEpochMilli(slots[0].startAt + 86_400_000L).toString())
+    check(!editPlan.has("elapsed_since_previous_ms"))
+    val uncreatedStart = draft.copy(planned = false, intervals = listOf(FocalStudyInterval(start, null)))
+    val startUncreated = commands(uncreatedStart).single()
+    check(startUncreated.getString("action") == "start" && !startUncreated.has("blocks"))
+    check(startUncreated.getJSONObject("metadata").getJSONObject("schedule").getJSONArray("blocks").length() == 2)
+    check(focalPlannedSlots(uncreatedStart) == slots) // A running timer still knows its original target.
+    check(runCatching { focalPlanEdit(plan, "", null, "", emptyList(), slots) }.isFailure)
+    check(runCatching { focalPlanEdit(plan, "Study", null, "", emptyList(), listOf(FocalStudyInterval(start, start))) }.isFailure)
+    check(runCatching { focalPlanEdit(plan, "Study", null, "", emptyList(), listOf(FocalStudyInterval(start, start + 10), FocalStudyInterval(start + 5, start + 20))) }.isFailure)
+    check(runCatching { focalPlanEdit(plan.copy(planned = false), "Study", null, "", emptyList(), slots) }.isFailure)
+
+    val capturedPlan = begun.copy(planDraft = focalPlanStartPayload(plan))
+    check(focalPlannedSlots(capturedPlan) == focalPlannedSlots(plan))
+    check(commands(capturedPlan).single().getJSONObject("metadata").getJSONObject("schedule").getJSONArray("blocks").length() == 2)
+    check(focalPlanStartPayload(draft.copy(remotePayload = draft.planDraft)) == null)
+
+    val conflictedPlan = editedPlan.copy(synced = true)
+    check(focalPlannedFocus(conflictedPlan, note, start) == null)
+    val remoteReschedule = plan.copy(revision = plan.revision + 1)
+    val retainedDraft = focalMergeSession(conflictedPlan, remoteReschedule)
+    check(retainedDraft.planDraft == editedPlan.planDraft && retainedDraft.synced && retainedDraft.revision == remoteReschedule.revision)
+    check(focalPlanEdit(retainedDraft, retainedDraft.title, retainedDraft.subjectId,
+        focalPlanDetails(retainedDraft).first, focalPlanDetails(retainedDraft).second, focalPlannedSlots(retainedDraft)).synced == false)
+
+    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation and website planned sessions passed.")
 }

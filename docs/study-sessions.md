@@ -34,6 +34,50 @@ notebook switches.
 
 These changes keep the existing session JSON fields and notebook storage formats.
 
+## Planned study
+
+Study and the study sessions panel manage unfinished focus sessions shared with
+Focal: create, edit, duplicate, delete and reschedule plans with a subject, notes,
+topics and up to 100 non-overlapping blocks (each up to 24 hours). The editor timer
+dialog starts the same plans and links to the full sessions panel. Plans are
+searchable by title/subject/topics and filterable by subject and all/today/overdue/
+upcoming, sorted by scheduled start. Connect the same Focal account and refresh to
+receive website changes. Exam/SAC plans are excluded from regular study.
+
+Starting a plan reuses its ID and revision, title, subject and metadata, optionally
+attaching the selected/open notebook. Scheduled blocks are never worked intervals:
+the stopwatch starts at zero with a fresh interval. The original schedule remains
+in metadata as the duration goal, shown alongside elapsed study; reaching it never
+automatically finishes the session. The durable command queue publishes `start`
+against the planned row, followed by any offline pause/resume/complete boundaries.
+Study and sessions-panel starts count in the background; editor timer starts pause
+when leaving the pages. A current focus, another running session or local exam
+blocks starting a plan. Focal's calendar now starts this same row too.
+
+Local plan edits live in optional `planDraft` in `focal-study.json`, separate from
+the last canonical `remotePayload`. Create/save-progress send the canonical blocks
+and metadata, with no timer boundary fields. Accepted receipts clear the draft;
+refused edits retain it for review rather than silently retrying over another
+device's reschedule. A conflicted draft is synced-but-retained and cannot start
+until reviewed and explicitly saved. Atomic local plan mutations check the current
+account, lifecycle and revision. No notebook/journal/backup format changes.
+
+Device checks:
+
+- Create a multi-block plan in each client; verify its subject, notes, topics and
+  break gaps on the other. Edit, duplicate, move to today/now, and delete it.
+- Start a website plan from each Folio entry point and Focal's calendar/timer;
+  verify the same row completes with only measured active time and its original
+  title/subject/details/schedule. Pause and confirm the duration goal stays fixed.
+- Repeat offline, with several pauses and a process restart before reconnecting;
+  verify no duplicate row, billed break or automatic resume. Focal must retain
+  cached account plans after an offline browser reload.
+- Reschedule a plan elsewhere while editing it, and verify the stale save is
+  refused. In Folio reopen the retained draft, review and explicitly save it.
+  Starting/completing/deleting a plan elsewhere must stop local plan editing.
+- Reject zero-length/overlapping blocks; preserve drafts and block dates through
+  rotation. Check portrait, landscape and phone layouts, midnight and time zones.
+
 ## Short session merging
 
 Focal migration `0022_merge_short_study_sessions.sql` combines completed focus

@@ -71,6 +71,9 @@ import kotlinx.coroutines.CancellationException
     val penSmoothing by rememberPref(shapePrefs, AppPrefs.PEN_SMOOTHING) {
         AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING))
     }
+    val stickyTextSize by rememberPref(shapePrefs, AppPrefs.STICKY_TEXT_SIZE) {
+        AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE))
+    }
     // The printed allocation being offered a tick/cross, with its rectangle in this page's view pixels.
     var offeredZone by remember(page.id) { mutableStateOf<Pair<MarkZone, android.graphics.RectF>?>(null) }
     var offerStamp by remember(page.id) { mutableLongStateOf(0L) }
@@ -150,7 +153,7 @@ import kotlinx.coroutines.CancellationException
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            else if (ready) InkViewHost(noteId, page, model, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs,
+            else if (ready) InkViewHost(noteId, page, model, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs, stickyTextSize,
                 onBound = { boundInkView = it }, onReleased = { if (boundInkView === it) boundInkView = null }) { view ->
                 view.onDocumentGesturePresence = { carrying = it }
                 view.documentPaperWidth = paperWidthPx
@@ -247,6 +250,7 @@ import kotlinx.coroutines.CancellationException
             SelectionContextPopup(focusedSticky.frame, pageWindowFrame, selectionMenuViewport, tightGap = true) {
                 val id = focusedSticky.box.id
                 StickyNoteContextMenu(focusedSticky.typing, paper = focusedSticky.box.stickyColor,
+                    textSize = focusedSticky.box.size, onTextSize = { boundInkView?.setStickyTextSize(id, it) },
                     onType = { boundInkView?.typeInSticky() }, onDone = { boundInkView?.finishStickyTyping() },
                     onDraw = onStickyDraw.takeIf { tool !in DrawingTools },
                     onDelete = { stickyDraft = null; boundInkView?.deleteSticky(id) },

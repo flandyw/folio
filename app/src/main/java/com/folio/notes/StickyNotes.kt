@@ -23,7 +23,12 @@ object StickyNotes {
     const val MIN_WIDTH = 90f
     const val MIN_HEIGHT = 60f
     const val MAX_HEIGHT = 10000f
-    const val TEXT_SIZE = 22f
+    /** The type size a new note starts with, unless the Settings default says otherwise. */
+    const val TEXT_SIZE = 16f
+    /** The range the Settings default and each note's own text size slider allow, in page units. */
+    const val TEXT_SIZE_MIN = 8f
+    const val TEXT_SIZE_MAX = 48f
+    fun textSize(value: Float): Float = value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
     const val COLOR = 0xFFFFE994.toInt()
     const val EDGE = 0xFFE0C867.toInt()
 
@@ -65,18 +70,18 @@ object StickyNotes {
     fun toPage(box: TextBox, stroke: Stroke): Stroke = InkGeometry.translate(stroke, box.x, box.y)
 
     /** A new note at least the minimum size, spanning the drag from ([ax], [ay]) to ([bx], [by]). */
-    fun spanning(ax: Float, ay: Float, bx: Float, by: Float, layer: Int, paper: Int): TextBox {
+    fun spanning(ax: Float, ay: Float, bx: Float, by: Float, layer: Int, paper: Int, textSize: Float): TextBox {
         val w = max(abs(bx - ax), MIN_WIDTH); val h = max(abs(by - ay), MIN_HEIGHT)
         // Grown from the corner that was pressed, so a short drag never jumps away from the finger.
         val x = if (bx >= ax) ax else ax - w
         val y = if (by >= ay) ay else ay - h
-        return TextBox(x = x, y = y, width = w, stickyHeight = h, size = TEXT_SIZE, layer = layer, stickyColor = paper)
+        return TextBox(x = x, y = y, width = w, stickyHeight = h, size = textSize, layer = layer, stickyColor = paper)
     }
 
     /** A new default-sized note centred on ([x], [y]). */
-    fun centred(x: Float, y: Float, layer: Int, paper: Int): TextBox =
+    fun centred(x: Float, y: Float, layer: Int, paper: Int, textSize: Float): TextBox =
         TextBox(x = x - DEFAULT_WIDTH / 2f, y = y - DEFAULT_HEIGHT / 2f, width = DEFAULT_WIDTH,
-            stickyHeight = DEFAULT_HEIGHT, size = TEXT_SIZE, layer = layer, stickyColor = paper)
+            stickyHeight = DEFAULT_HEIGHT, size = textSize, layer = layer, stickyColor = paper)
 
     /** [box] with its bottom-right corner dragged to ([x], [y]), never smaller than the minimum. */
     fun resized(box: TextBox, x: Float, y: Float): TextBox = box.copy(

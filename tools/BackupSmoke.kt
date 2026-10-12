@@ -92,10 +92,13 @@ private fun checkStickyNotes() {
     val local = StickyNotes.toNote(top, pageStroke)
     check(local.points.first().x == 5f && local.points.first().y == 5f && StickyNotes.toPage(top, local).points == pageStroke.points)
     // Dragging up and left from the press grows the note from that corner; tiny drags keep the minimum size.
-    val dragged = StickyNotes.spanning(200f, 200f, 100f, 150f, 0, 0)
+    val dragged = StickyNotes.spanning(200f, 200f, 100f, 150f, 0, 0, StickyNotes.TEXT_SIZE)
     check(dragged.x == 100f && dragged.y == 140f && dragged.width == 100f && dragged.stickyHeight == StickyNotes.MIN_HEIGHT)
-    val tapped = StickyNotes.centred(300f, 300f, 2, StickyNotes.papers[2])
+    val tapped = StickyNotes.centred(300f, 300f, 2, StickyNotes.papers[2], StickyNotes.TEXT_SIZE)
     check(tapped.isSticky && tapped.layer == 2 && tapped.x + tapped.width / 2f == 300f && tapped.stickyColor == StickyNotes.papers[2])
+    // New notes start at the Settings size; a note's own size is clamped to the slider's range.
+    check(tapped.size == StickyNotes.TEXT_SIZE && StickyNotes.TEXT_SIZE == 16f)
+    check(StickyNotes.textSize(1f) == StickyNotes.TEXT_SIZE_MIN && StickyNotes.textSize(500f) == StickyNotes.TEXT_SIZE_MAX)
     check(StickyNotes.resized(tapped, tapped.x + 1f, tapped.y + 1f).width == StickyNotes.MIN_WIDTH)
     check(StickyNotes.papers.first() == 0 && StickyNotes.papers.size == StickyNotes.paperCount)
     println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history, portable round trips, hit-testing and sizing passed")

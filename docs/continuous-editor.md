@@ -2,6 +2,8 @@
 
 Finite notebooks now use a single paper column with 6 dp seams, one document camera and shared page navigation. The counter opens the page browser. The active page's edge handle and the toolbar's page menu expose page actions; TalkBack also gets a page-options action and a numbered native surface label. The boundary button hides seams on ordinary pages. PDFs retain their page edges and original aspect ratios. **Focus view** in the page menu hides tab chips, caption-free page handles and ordinary-paper seams; drawing, navigation, saves and page actions remain available.
 
+The fast-scroll thumb sits 2 dp from the workspace's right edge. Its grab zone is 24 dp wide and only spans the visible thumb; tapping elsewhere on the track no longer jumps pages. Scrubbing starts only after a vertical drag exceeds Android's touch slop. On device, verify that a tap or slight movement on the thumb preserves the current page offset, dragging it still reaches both ends, and edge scrolling and pinching away from the thumb work normally. Adding another finger or a pen must cancel a scrub.
+
 ## Ownership
 
 - `EditorScreen` is the notebook-keyed route. It creates `EditorSession` and provides its surface registry to the layouts. `EditorWorkspaceContent` composes the existing tool, follow and feature controls.

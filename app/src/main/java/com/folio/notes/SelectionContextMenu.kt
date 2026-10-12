@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import kotlin.math.roundToInt
 
 /** One touch target in the icon bars; every bar below sizes its overflow thresholds from this. */
 private val BarButton = 36.dp
@@ -307,9 +308,11 @@ internal class PageMenuActions(
  */
 @Composable internal fun StickyNoteContextMenu(
     typing: Boolean, paper: Int, onType: () -> Unit, onDone: () -> Unit, onDraw: (() -> Unit)?, onDelete: () -> Unit,
-    onPaper: (Int) -> Unit, onDuplicate: () -> Unit, onFront: () -> Unit, onClearInk: (() -> Unit)?
+    onPaper: (Int) -> Unit, onDuplicate: () -> Unit, onFront: () -> Unit, onClearInk: (() -> Unit)?,
+    textSize: Float, onTextSize: (Float) -> Unit
 ) {
     var colours by remember { mutableStateOf(false) }
+    var sizing by remember { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -319,7 +322,8 @@ internal class PageMenuActions(
                 if (typing) SelectionAction(Icons.Rounded.Check, "Finish typing", onClick = onDone)
                 else SelectionAction(Icons.Rounded.TextFields, "Type in sticky note", onClick = onType)
                 if (onDraw != null) SelectionAction(Icons.Rounded.Edit, "Draw in sticky note", onClick = onDraw)
-                SelectionAction(Icons.Rounded.Palette, if (colours) "Hide colours" else "Sticky note colour") { colours = !colours }
+                SelectionAction(Icons.Rounded.Palette, if (colours) "Hide colours" else "Sticky note colour") { colours = !colours; sizing = false }
+                SelectionAction(Icons.Rounded.FormatSize, if (sizing) "Hide text size" else "Text size") { sizing = !sizing; colours = false }
                 SelectionAction(Icons.Rounded.ContentCopy, "Duplicate sticky note", onClick = onDuplicate)
                 SelectionAction(Icons.Rounded.FlipToFront, "Bring to front", onClick = onFront)
                 if (onClearInk != null) SelectionAction(Icons.Rounded.LayersClear, "Clear sticky note drawing", onClick = onClearInk)
@@ -340,6 +344,21 @@ internal class PageMenuActions(
                     }
                 }
             }
+            if (sizing) StickyTextSizeRow(textSize, onTextSize)
         }
+    }
+}
+
+/**
+ * The note's own type size. The thumb previews while it is dragged and the size is written once on
+ * release, so one drag is one undo step rather than one per position.
+ */
+@Composable private fun StickyTextSizeRow(size: Float, onSize: (Float) -> Unit) {
+    var shown by remember(size) { mutableStateOf(size) }
+    Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8).width(260.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Slider(shown, { shown = it }, valueRange = StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
+            onValueChangeFinished = { onSize(shown) }, modifier = Modifier.weight(1f).semanticsLabel("Sticky note text size"))
+        Text("${shown.roundToInt()} pt", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

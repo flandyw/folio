@@ -227,6 +227,11 @@ class InkView(context: Context) : View(context) {
     fun setStickyText(id: String, text: String) = stickyNotes.setText(id, text)
     fun deleteSticky(id: String) = stickyNotes.delete(id)
     fun setStickyPaper(id: String, paper: Int) = stickyNotes.setPaper(id, paper)
+    fun setStickyTextSize(id: String, size: Float) = stickyNotes.setTextSize(id, size)
+    /** The type size new sticky notes start with; the editor passes the Settings default. */
+    var stickyTextSize: Float
+        get() = stickyNotes.newTextSize
+        set(value) { stickyNotes.newTextSize = StickyNotes.textSize(value) }
     fun clearStickyInk(id: String) = stickyNotes.clearInk(id)
     fun duplicateSticky(id: String) = stickyNotes.duplicate(id)
     fun bringStickyToFront(id: String) = stickyNotes.bringToFront(id)

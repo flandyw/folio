@@ -154,6 +154,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val p = rememberPrefs()
     val defaultTool by rememberPref(p, AppPrefs.DEFAULT_TOOL) { AppPrefs.defaultTool(it.getString(AppPrefs.DEFAULT_TOOL, null)) }
     val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
+    val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
     val shapeHoldMs by rememberPref(p, AppPrefs.SHAPE_HOLD_MS) { AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS)) }
     val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
@@ -196,6 +197,13 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         )
         SettingsDivider()
         SettingsSegmentedRow("Alignment", TextAlignMode.entries.map { it to title(it.name) }, textAlign, { p.write { putString("text.align", it.name) } })
+    }
+    SettingsGroup("Sticky notes", footer = "New sticky notes start at this size. Existing notes keep their own; change one from its menu.") {
+        SettingsSliderRow(
+            "Text size", "${stickyTextSize.roundToInt()} pt", stickyTextSize, StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
+            { p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.stickyTextSize(it)) } },
+            onReset = if (stickyTextSize != AppPrefs.DEFAULT_STICKY_TEXT_SIZE) ({ p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE) } }) else null,
+        )
     }
 }
 

@@ -58,6 +58,8 @@ internal class StickyNoteInput(
     private val gripEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = FOCUS_COLOR }
     /** The paper the next new note wears: whichever colour was picked last. */
     private var nextPaper = 0
+    /** The type size the next new note gets; the Settings default, set by the editor. */
+    var newTextSize = StickyNotes.TEXT_SIZE
 
     /**
      * While a note is being moved, reports it in window pixels (null once let go) so the editor can
@@ -120,6 +122,11 @@ internal class StickyNoteInput(
     fun setPaper(id: String, paper: Int) {
         nextPaper = paper
         page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(stickyColor = paper)) }
+    }
+
+    /** Gives the note its own type size; the note's words reflow inside it, its paper stays as it is. */
+    fun setTextSize(id: String, size: Float) {
+        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(size = StickyNotes.textSize(size))) }
     }
 
     fun clearInk(id: String) {
@@ -199,7 +206,7 @@ internal class StickyNoteInput(
                 moved = moved || hypot(event.x - fromX, event.y - fromY) > slop
                 val box = original
                 if (moved) preview = when (current) {
-                    Mode.CREATE -> StickyNotes.spanning(began.x, began.y, at.x, at.y, layer, nextPaper)
+                    Mode.CREATE -> StickyNotes.spanning(began.x, began.y, at.x, at.y, layer, nextPaper, newTextSize)
                     // The corner follows the finger's travel, so grabbing the grip off-centre never makes it jump.
                     Mode.RESIZE -> box?.let { StickyNotes.resized(it, it.x + it.width + at.x - began.x, it.y + it.stickyHeight + at.y - began.y) }
                     Mode.MOVE -> box?.moved(at.x - began.x, at.y - began.y)
@@ -234,7 +241,7 @@ internal class StickyNoteInput(
         val box = original
         when (mode) {
             Mode.CREATE -> {
-                val made = if (moved) preview else if (dismissed) null else StickyNotes.centred(began.x, began.y, layer, nextPaper)
+                val made = if (moved) preview else if (dismissed) null else StickyNotes.centred(began.x, began.y, layer, nextPaper, newTextSize)
                 if (made != null) { commit(page().texts + made); focus(made) }
             }
             Mode.MOVE, Mode.RESIZE -> when {

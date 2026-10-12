@@ -133,7 +133,9 @@ data class FocalStudyEntry(
     val notebookTitle: String? = null,
     /** Only unacknowledged exam lifecycle boundaries. Focus uses its durable intervals. */
     val examBoundaries: List<FocalExamBoundary> = emptyList(),
-    val examLastBoundaryAt: Long? = null
+    val examLastBoundaryAt: Long? = null,
+    /** Pending plan details kept separate from the last acknowledged server row. */
+    val planDraft: String? = null
 ) {
     val active: Boolean get() = !completed && !planned && !deleted
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
@@ -197,6 +199,8 @@ internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
 /** Pending local boundaries beat an older echo; remote termination beats an active checkpoint. */
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
     if (local == null) return remote
+    if (local.planDraft != null && local.synced && remote.planned) return local.copy(
+        revision = maxOf(local.revision, remote.revision), remotePayload = remote.remotePayload)
     if (remote.revision < local.revision) return local
     // A pending exam boundary is a durable intent. A feed echo (even a terminal one)
     // cannot acknowledge it: only retrying the same mutation receipt can do that.
@@ -409,6 +413,79 @@ data class FocalFocus(
         /** The user installed an app update, which restarts Folio. */
         const val PARK_UPDATE = "update"
     }
+}
+
+internal fun focalPlannedFocus(entry: FocalStudyEntry, note: Notebook?, now: Long, attended: Boolean = false): FocalFocus? {
+    if (!entry.planned || entry.completed || entry.deleted || entry.kind != "study" ||
+        (entry.planDraft != null && entry.synced)) return null
+    return FocalFocus(notebookId = note?.id ?: entry.notebookId, title = entry.title.ifBlank { "Study session" },
+        subjectId = entry.subjectId, startedAt = now, resumedAt = now, sessionId = entry.id,
+        intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title ?: entry.notebookTitle, attended = attended)
+}
+
+/** Planned slots are display context, never evidence of time worked. */
+internal fun focalPlannedSlots(entry: FocalStudyEntry): List<FocalStudyInterval> = runCatching {
+    val payload = JSONObject(entry.planDraft ?: entry.remotePayload ?: return emptyList())
+    val segments = payload.optJSONArray("segments") ?: JSONArray()
+    val metadata = payload.optJSONObject("metadata")
+    val blocks = metadata?.optJSONObject("schedule")?.optJSONArray("blocks")
+        ?: metadata?.optJSONObject("legacy_metadata")?.optJSONObject("schedule")?.optJSONArray("blocks")
+    val rows = if (entry.planned && segments.length() > 0) segments else blocks ?: JSONArray()
+    (0 until rows.length()).mapNotNull { index -> runCatching {
+        val row = rows.getJSONObject(index)
+        val start = Instant.parse(row.optString("started_at", row.optString("start"))).toEpochMilli()
+        val end = Instant.parse(row.optString("ended_at", row.optString("end"))).toEpochMilli()
+        FocalStudyInterval(start, end).takeIf { end > start && end - start <= MAX_REPORTED_SESSION_MILLIS }
+    }.getOrNull() }.sortedBy { it.startAt }
+}.getOrDefault(emptyList())
+
+internal fun focalPlanDetails(entry: FocalStudyEntry): Pair<String, List<String>> = runCatching {
+    val metadata = JSONObject(entry.planDraft ?: entry.remotePayload ?: return "" to emptyList()).optJSONObject("metadata")
+    val legacy = metadata?.optJSONObject("legacy_metadata")
+    val description = (metadata?.optString("description")?.takeIf { it.isNotBlank() && it != "null" }
+        ?: legacy?.optString("description")).orEmpty().takeUnless { it == "null" }.orEmpty()
+    val topics = metadata?.optJSONArray("topics") ?: legacy?.optJSONArray("topics") ?: JSONArray()
+    description to (0 until topics.length()).mapNotNull { topics.optString(it).trim().takeIf { it.isNotBlank() && it != "null" } }.distinct()
+}.getOrDefault("" to emptyList())
+
+/** Older website plans may have scheduled segments without a metadata schedule. */
+internal fun focalPlanStartPayload(entry: FocalStudyEntry): String? = runCatching {
+    val raw = JSONObject(entry.remotePayload ?: "{}")
+    val metadata = raw.optJSONObject("metadata") ?: JSONObject().also { raw.put("metadata", it) }
+    if (metadata.optJSONObject("schedule")?.optJSONArray("blocks") != null ||
+        metadata.optJSONObject("legacy_metadata")?.optJSONObject("schedule")?.optJSONArray("blocks") != null) return null
+    val slots = focalPlannedSlots(entry)
+    if (slots.isEmpty()) return null
+    metadata.put("schedule", JSONObject().put("blocks", JSONArray().also { blocks -> slots.forEach { slot ->
+        blocks.put(JSONObject().put("start", Instant.ofEpochMilli(slot.startAt).toString())
+            .put("end", Instant.ofEpochMilli(requireNotNull(slot.endAt)).toString()))
+    } }))
+    raw.toString()
+}.getOrNull()
+
+internal fun focalPlanEdit(original: FocalStudyEntry, title: String, subjectId: String?,
+                           description: String, topics: List<String>, slots: List<FocalStudyInterval>): FocalStudyEntry {
+    require(original.planned && !original.completed && !original.deleted && original.kind == "study") { "Only unstarted study plans can be edited." }
+    require(title.trim().length in 1..512) { "Enter a title of 1–512 characters." }
+    require(slots.size in 1..100) { "Enter 1–100 time blocks." }
+    val sorted = slots.sortedBy { it.startAt }
+    require(sorted.all { it.endAt != null && it.endAt > it.startAt && it.endAt - it.startAt <= MAX_REPORTED_SESSION_MILLIS } &&
+        sorted.zipWithNext().all { (a, b) -> requireNotNull(a.endAt) <= b.startAt }) { "Time blocks must end after they start, last up to 24 hours and never overlap." }
+    val raw = JSONObject(original.planDraft ?: original.remotePayload ?: "{}")
+    val metadata = raw.optJSONObject("metadata") ?: JSONObject().also { raw.put("metadata", it) }
+    val blocks = JSONArray().also { array -> sorted.forEach { slot -> array.put(JSONObject()
+        .put("start", Instant.ofEpochMilli(slot.startAt).toString()).put("end", Instant.ofEpochMilli(requireNotNull(slot.endAt)).toString())) } }
+    metadata.put("description", description.trim()).put("topics", JSONArray(topics.map(String::trim).filter(String::isNotBlank).distinct()))
+        .put("subjectIds", JSONArray(listOfNotNull(subjectId))).put("schedule", JSONObject().put("blocks", blocks))
+    // Keep legacy consumers on the same plan; canonical metadata remains the authoritative copy.
+    metadata.optJSONObject("legacy_metadata")?.let { legacy ->
+        listOf("description", "topics", "subjectIds", "schedule").forEach { legacy.put(it, metadata.get(it)) }
+    }
+    raw.put("title", title.trim()).put("subject_id", subjectId ?: JSONObject.NULL)
+    raw.remove("segments")
+    require(metadata.toString().toByteArray(Charsets.UTF_8).size <= 60_000) { "Plan details are too long. Shorten the notes or topics." }
+    return original.copy(title = title.trim(), subjectId = subjectId, synced = false,
+        changeId = UUID.randomUUID().toString(), planDraft = raw.toString())
 }
 
 /** Old saves may contain an open interval without a heartbeat. Its start is all we can prove. */
@@ -723,7 +800,7 @@ internal fun focalCommandsFor(
             desired == "running" && currentState == "paused" -> append("resume")
             desired == "paused" && currentState == "planned" -> { append("start"); append("pause") }
             desired == "paused" && currentState == "running" -> append("pause")
-            currentState == desired && currentPhase != focalEntryPhase(entry) -> append("phase_change")
+            currentState == desired && currentState in setOf("running", "paused") && currentPhase != focalEntryPhase(entry) -> append("phase_change")
             currentState == desired && focalProgressChanged(entry, null, canonical, expected - 1, deviceId) -> append("save_progress")
             currentState == desired -> Unit
         }
@@ -904,6 +981,7 @@ class FocalStudyManager(context: Context) {
                 paused = row.optBoolean("paused"), examPhase = row.optString("examPhase").lowercase().ifBlank { null },
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
                 remotePayload = row.optString("remotePayload").ifBlank { null },
+                planDraft = row.optString("planDraft").ifBlank { null },
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 examLastBoundaryAt = row.optLong("examLastBoundaryAt").takeIf { it > 0L },
                 examBoundaries = (row.optJSONArray("examBoundaries") ?: JSONArray()).let { saved ->
@@ -970,7 +1048,7 @@ class FocalStudyManager(context: Context) {
             .put("completed", entry.completed).put("planned", entry.planned).put("deleted", entry.deleted)
             .put("paused", entry.paused).put("examPhase", entry.examPhase)
             .put("examPhaseBeforePause", entry.examPhaseBeforePause)
-            .put("remotePayload", entry.remotePayload).put("notebookTitle", entry.notebookTitle)
+            .put("remotePayload", entry.remotePayload).put("planDraft", entry.planDraft).put("notebookTitle", entry.notebookTitle)
             .put("examLastBoundaryAt", entry.examLastBoundaryAt)
             .put("examBoundaries", JSONArray().also { array -> entry.examBoundaries.forEach { event ->
                 array.put(JSONObject().put("id", event.id).put("action", event.action)
@@ -1015,6 +1093,46 @@ class FocalStudyManager(context: Context) {
             attended = attended)
         saveFocusEntry(focus, now)
     }
+    fun savePlan(original: FocalStudyEntry, title: String, subjectId: String?, description: String,
+                 topics: List<String>, slots: List<FocalStudyInterval>): Boolean {
+        var saved: FocalStudyEntry? = null
+        _state.update { state ->
+            val current = state.entries.firstOrNull { it.id == original.id }
+            require(current != null || original.revision == 0L) { "This plan is no longer available." }
+            require(current?.userId == null || current.userId == state.userId) { "Connect the account that owns this plan." }
+            require(current == null || current.revision == original.revision) { "This plan changed. Close and reopen it to edit the latest version." }
+            val edited = focalPlanEdit(current ?: original, title, subjectId, description, topics, slots)
+                .copy(userId = current?.userId ?: state.userId)
+            saved = edited
+            state.copy(entries = listOf(edited) + state.entries.filterNot { it.id == edited.id }, error = null)
+        }
+        val entry = saved ?: return false
+        val durable = persist()
+        if (durable) scope.launch { publishEntry(entry) }
+        return durable
+    }
+
+    fun deletePlan(id: String) {
+        var saved: FocalStudyEntry? = null
+        _state.update { state ->
+            saved = null
+            val current = state.visibleEntries.firstOrNull { it.id == id && it.planned } ?: return@update state
+            val deleted = current.copy(deleted = true, planned = false, synced = false, changeId = UUID.randomUUID().toString())
+            saved = deleted
+            state.copy(entries = state.entries.map { if (it.id == id) deleted else it }, error = null)
+        }
+        val entry = saved ?: return
+        if (persist()) scope.launch { publishEntry(entry) }
+    }
+
+    fun startPlannedFocus(id: String, note: Notebook?, now: Long = this.now(), attended: Boolean = false) {
+        val state = _state.value
+        if (!state.canStartFocus || state.visibleEntries.any { it.active && !it.paused }) return
+        val entry = state.visibleEntries.firstOrNull { it.id == id } ?: return
+        val focus = focalPlannedFocus(entry, note, now, attended) ?: return
+        saveFocusEntry(focus, now, forceUpload = true, startingPlanned = true)
+    }
+
     fun toggleFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         if (focus.resumedAt == null && _state.value.visibleEntries.any {
@@ -1048,19 +1166,24 @@ class FocalStudyManager(context: Context) {
     }
 
     private fun saveFocusEntry(focus: FocalFocus, now: Long, completed: Boolean = false, deleted: Boolean = false,
-                               notes: String = "", confidence: Int? = null, forceUpload: Boolean = false,
-                               detach: Boolean = false) {
+                               notes: String? = null, confidence: Int? = null, forceUpload: Boolean = false,
+                               detach: Boolean = false, startingPlanned: Boolean = false) {
         val changeId = UUID.randomUUID().toString()
         var saved: FocalStudyEntry? = null
         _state.update { state ->
             saved = null
             val previous = state.entries.firstOrNull { it.id == focus.sessionId }
             if (previous?.deleted == true || previous?.completed == true) return@update state
+            if (startingPlanned && (previous?.planned != true || previous.kind != "study" ||
+                    (previous.userId != null && previous.userId != state.userId) ||
+                    !state.canStartFocus || state.visibleEntries.any { it.active && !it.paused })) return@update state
             val entry = FocalStudyEntry(id = focus.sessionId, notebookId = focus.notebookId, title = focus.title,
                 revision = previous?.revision ?: 0L, remotePayload = previous?.remotePayload,
+                planDraft = previous?.planDraft ?: previous?.takeIf { startingPlanned }?.let(::focalPlanStartPayload),
                 subjectId = focus.subjectId, kind = "study", startedAt = focus.startedAt,
                 endedAt = now.coerceAtLeast(focus.startedAt + 1_000L), activeMillis = focus.elapsed(now),
-                notes = notes.take(500), confidence = confidence?.takeIf { it in 1..5 },
+                notes = (notes ?: previous?.notes.orEmpty()).take(500),
+                confidence = (if (completed) confidence else previous?.confidence)?.takeIf { it in 1..5 },
                 userId = previous?.userId ?: state.userId,
                 completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
                 intervals = focus.intervals, changeId = changeId, notebookTitle = focus.notebookTitle,
@@ -1075,13 +1198,15 @@ class FocalStudyManager(context: Context) {
         if (persist()) scope.launch { publishEntry(entry) }
     }
 
-    private fun saveEntry(entry: FocalStudyEntry) {
+    private fun saveEntry(entry: FocalStudyEntry): Boolean {
         _state.update { state ->
             state.copy(entries = listOf(entry) + state.entries.filterNot { it.id == entry.id }, error = null)
         }
         // Local first, then straight at the server. An offline write stays unsynced;
         // the durable intervals reconstruct every missing boundary on the next sync pass.
-        if (persist()) scope.launch { publishEntry(entry) }
+        val saved = persist()
+        if (saved) scope.launch { publishEntry(entry) }
+        return saved
     }
 
     private fun commandsFor(entry: FocalStudyEntry): List<JSONObject> {
@@ -1446,6 +1571,7 @@ class FocalStudyManager(context: Context) {
                 if (commands.isEmpty()) return@withLock
                 val ack = sendCommands(user, commands)
                 if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
+                else if (latest.planned && latest.planDraft != null) retainRefusedPlan(latest, ack)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending this session to Focal", e) }
         }
@@ -1467,9 +1593,25 @@ class FocalStudyManager(context: Context) {
                 if (commands.isEmpty()) { markSynced(latest.id); continue }
                 val ack = sendCommands(user, commands)
                 if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
+                else if (latest.planned && latest.planDraft != null) retainRefusedPlan(latest, ack)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { throw e }
         }
+    }
+
+    private fun retainRefusedPlan(entry: FocalStudyEntry, ack: FocalPublishAck) {
+        val canonical = ack.canonical ?: return
+        val user = entry.userId ?: _state.value.userId ?: return
+        val remote = focalEntryFromCanonical(entry.id, canonical, ack.mutationIds.lastOrNull() ?: entry.changeId, user) ?: return
+        _state.update { state -> state.copy(entries = state.entries.map { current ->
+            if (current.id != entry.id || current.changeId != entry.changeId) current
+            else if (remote.planned) current.copy(synced = true, revision = remote.revision, remotePayload = remote.remotePayload)
+            else remote.copy(planDraft = current.planDraft, notebookId = current.notebookId, notebookTitle = current.notebookTitle)
+        }, error = "This plan changed on Focal. Your draft is retained; reopen the plan to review it before saving again.") }
+        if (!persist()) error("Could not save the refused plan draft")
+        // The server definitively refused this edit. An explicit Save creates the next command.
+        if (!timingPreferences.edit().remove("commands:$user:${entry.id}").commit())
+            error("Could not clear the refused plan command")
     }
 
     private fun markSynced(sessionId: String) {
@@ -1511,7 +1653,7 @@ class FocalStudyManager(context: Context) {
                         entry.userId ?: state.userId ?: return@let null)
                 }?.copy(notebookId = entry.notebookId, notebookTitle = entry.notebookTitle)
                     ?: entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
-                        revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload)
+                        revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload, planDraft = null)
             }
         }) }
         if (!persist()) error("Could not save the session receipt")
@@ -1701,7 +1843,7 @@ internal fun focalStudyCommand(
     mutationId: String = entry.changeId,
     timing: FocalSessionCommandTiming? = null
 ): JSONObject {
-    val raw = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+    val raw = (entry.planDraft ?: entry.remotePayload)?.let { runCatching { JSONObject(it) }.getOrNull() }
     val canonicalMetadata = raw?.optJSONObject("metadata")
     val metadata = if (canonicalMetadata != null) JSONObject(canonicalMetadata.toString())
         else JSONObject().put("legacy_metadata", focalLegacyMetadata(raw))
@@ -1723,8 +1865,18 @@ internal fun focalStudyCommand(
         .put("app", "folio").put("kind", if (entry.kind == "exam") "exam" else "focus")
         .put("phase", phase).put("title", entry.title)
         .put("subject_id", entry.subjectId ?: JSONObject.NULL).put("metadata", metadata)
-        .put("occurred_at", timing?.occurredAt ?: JSONObject.NULL)
-        .put("elapsed_since_previous_ms", timing?.elapsedMs ?: 0L)
+        .also { command ->
+            if (action in setOf("create", "save_progress") && entry.planned) {
+                command.put("blocks", JSONArray().also { blocks -> focalPlannedSlots(entry).forEach { slot ->
+                    blocks.put(JSONObject().put("start", Instant.ofEpochMilli(slot.startAt).toString())
+                        .put("end", Instant.ofEpochMilli(requireNotNull(slot.endAt)).toString()))
+                } })
+            }
+            if (action in setOf("start", "pause", "resume", "phase_change", "complete", "cancel")) {
+                command.put("occurred_at", timing?.occurredAt ?: JSONObject.NULL)
+                    .put("elapsed_since_previous_ms", timing?.elapsedMs ?: 0L)
+            }
+        }
 }
 
 private fun JSONObject.focalStamp(key: String): String? = optString(key).takeIf { it.isNotBlank() && it != "null" }

@@ -33,8 +33,8 @@ internal fun visibleCurrentPage(pages: LazyListState, pageCount: Int): Int? {
 }
 
 internal const val FastScrollChipHoldMs = 900L
-/** Touch zone along the right edge, and the shortest the thumb gets, so the handle is easy to land on. */
-internal val FastScrollStripWidth = 48.dp
+/** Narrow edge grab zone, active only alongside the visible thumb. */
+internal val FastScrollStripWidth = 24.dp
 internal val FastScrollMinThumb = 44.dp
 
 internal data class FastScrollGeometry(val top: Float, val height: Float)
@@ -77,7 +77,7 @@ internal fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Fl
     BoxWithConstraints(modifier) {
         val geometry = fastScrollGeometry(pages, pageCount, constraints.maxHeight.toFloat(), with(density) { FastScrollMinThumb.toPx() })
             ?: return@BoxWithConstraints
-        Box(Modifier.align(Alignment.CenterEnd).width(FastScrollStripWidth).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.align(Alignment.CenterEnd).width(FastScrollStripWidth).fillMaxHeight(), contentAlignment = Alignment.TopEnd) {
             Box(Modifier.fillMaxHeight().width(3.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .22f)))
             Box(Modifier.offset { IntOffset(0, geometry.top.roundToInt()) }.width(thumbWidth).height(with(density) { geometry.height.toDp() }).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)))
         }
