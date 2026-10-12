@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.*
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -38,6 +39,9 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The system splash is only a background (it cannot know the in-app theme); it hands over to
+        // FolioSplash at once instead of playing Android's own exit animation.
+        installSplashScreen().setOnExitAnimationListener { it.remove() }
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("preferences", 0)
         stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS))

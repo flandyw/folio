@@ -98,6 +98,7 @@ import kotlinx.coroutines.withContext
         )
     }
     var amoled by rememberSaveable { mutableStateOf(prefs.getBoolean(AppTheme.AMOLED_PREF_KEY, false)) }
+    var splashDone by rememberSaveable { mutableStateOf(false) }
     // The accent and text scale live in preferences too, so they survive a restart and follow
     // edits made in Settings without the theme re-reading storage itself.
     val accentState = rememberAccentState()
@@ -638,7 +639,8 @@ import kotlinx.coroutines.withContext
                 onPdfModeChange = ::rememberPdfMode
             )
         }
-
+        // Once per launch of the app (it is saved, so rotation and recreation never replay it).
+        if (!splashDone) FolioSplash(onFinished = { splashDone = true })
     }
 }
 

@@ -212,6 +212,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     // Delivers baseline profiles to devices so the library/editor path is AOT-compiled on install.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // PDF text extraction for in-app search (Apache 2.0). Rendering stays on the framework PdfRenderer.

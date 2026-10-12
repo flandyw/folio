@@ -6,4 +6,10 @@
         <item name="android:colorAccent">#AD4B2D</item>
         <item name="android:windowBackground">#FBF8F3</item>
     </style>
+    <!-- Launch window: just the paper colour (no icon); FolioSplash animates in the user's theme. -->
+    <style name="Theme.Folio.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#FBF8F3</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
+        <item name="postSplashScreenTheme">@style/Theme.Folio</item>
+    </style>
 </resources>

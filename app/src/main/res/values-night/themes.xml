@@ -1,0 +1,15 @@
+<resources>
+    <!-- The window behind the first frames follows the device's dark setting so it never flashes cream. -->
+    <style name="Theme.Folio" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#AD4B2D</item>
+        <item name="android:windowBackground">#1C1D19</item>
+    </style>
+    <style name="Theme.Folio.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#1C1D19</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
+        <item name="postSplashScreenTheme">@style/Theme.Folio</item>
+    </style>
+</resources>
