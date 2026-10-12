@@ -28,8 +28,10 @@ import androidx.compose.ui.unit.dp
 internal val EditorFloatingGroupHeight = 40.dp
 internal val DockButtonWidth = 40.dp
 internal val DockButtonHeight = 36.dp
-private val NotebookActionsWidth = 46.dp
-private val NotebookActionsGap = 2.dp
+/** The gap between neighbouring buttons in the left and right groups, the same in both styles. */
+internal val DockGap = FolioSpacing.dp4
+/** Width of [buttons] dock buttons, each followed by a [DockGap] (so a row errs a gap wide, never narrow). */
+internal fun dockWidth(buttons: Int): Dp = (DockButtonWidth + DockGap) * buttons
 /** The "3/12" page readout between the previous and next buttons. */
 private val PageChipWidth = 48.dp
 
@@ -132,15 +134,15 @@ private val PageChipWidth = 48.dp
         val toolsNeed = 400.dp
         val groupGaps = FolioSpacing.dp6 * 2
         val shareButtons = 1 + if (onChatGpt != null) 1 else 0
-        val documentWidth = DockButtonWidth * shareButtons + NotebookActionsGap + NotebookActionsWidth + FolioSpacing.dp8
-        val expandedNavWidth = DockButtonWidth * ((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
+        val documentWidth = dockWidth(shareButtons + 1) + FolioSpacing.dp8
+        val expandedNavWidth = dockWidth((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
         // Keep navigation compact on most tablets so drawing tools get the width. Wide
         // windows can expose the individual actions without adding another toolbar row.
         val foldNav = maxWidth < toolsNeed + maxOf(expandedNavWidth, documentWidth) * 2 + groupGaps
         val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
-        val leftNatural = DockButtonWidth * navButtons + FolioSpacing.dp8
+        val leftNatural = dockWidth(navButtons) + FolioSpacing.dp8
         val rightWithTimer = documentWidth + timerNeed + FolioSpacing.dp6
         // Settings can keep the timer in the notebook menu even where it would fit.
         val compact = !toolbarOptions.timer || maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
@@ -148,8 +150,8 @@ private val PageChipWidth = 48.dp
         // Where the pane has room beyond the tools, page stepping and the common page actions join
         // the bar instead of waiting in the notebook menu: previous, page n/N, next and bookmark on
         // the left; insert picture and fit to screen on the right.
-        val navExtraWidth = DockButtonWidth * 3 + PageChipWidth
-        val docExtraWidth = DockButtonWidth * 2
+        val navExtraWidth = dockWidth(3) + PageChipWidth + DockGap
+        val docExtraWidth = dockWidth(2)
         val dense = maxWidth >= toolsNeed + maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) * 2 + groupGaps
         val sideWidth = if (dense) maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) else maxOf(leftNatural, rightNatural)
         // Reflow before either side squeezes the tool tray below a useful width. This also
@@ -212,7 +214,8 @@ private val PageChipWidth = 48.dp
         }
         @Composable fun NavigationControls() {
             Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
-                Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(DockGap)) {
                     if (showBack) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     if (foldNav) Box {
                         DockButton(Icons.Rounded.MoreHoriz, "Pages, search and layers", { navMenu = true })
@@ -254,16 +257,16 @@ private val PageChipWidth = 48.dp
                         verticalAlignment = Alignment.CenterVertically) { timer() }
                 }
                 EditorGlassSurface {
-                    Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(DockGap)) {
                         if (dense) PageExtras()
                         onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                         DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
-                        Box(Modifier.padding(start = NotebookActionsGap)) {
+                        Box {
                             DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                                 { overflow = true },
-                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current,
-                                width = NotebookActionsWidth)
+                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
                             if (overflow) NotebookMenu(timerInMenu = compact)
                         }
                     }
@@ -282,11 +285,11 @@ private val PageChipWidth = 48.dp
             val homeOnBar = showBack && !showTabs
             val homeCount = if (homeOnBar) 1 else 0
             // The floating page navigator already turns pages, so the bar keeps only the bookmark from it.
-            val leftFull = DockButtonWidth * (homeCount + 4)
-            val leftFolded = DockButtonWidth * (homeCount + 3)
-            val leftDense = DockButtonWidth * (homeCount + 5)
-            val rightBase = DockButtonWidth * (shareButtons + 1)
-            val rightWithTimer = rightBase + timerWidth.value + FolioSpacing.dp8
+            val leftFull = dockWidth(homeCount + 4)
+            val leftFolded = dockWidth(homeCount + 3)
+            val leftDense = dockWidth(homeCount + 5)
+            val rightBase = dockWidth(shareButtons + 1)
+            val rightWithTimer = rightBase + timerWidth.value + DockGap
             val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
             val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
             val stacked = rowWidth < toolsNeed + maxOf(leftFolded, rightBase) * 2 + barGap * 2
@@ -295,7 +298,7 @@ private val PageChipWidth = 48.dp
             val side = if (goodnotesDense) maxOf(leftDense, rightNow + docExtraWidth)
                 else maxOf(if (fold) leftFolded else leftFull, rightNow)
             @Composable fun LeftControls() {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
                     if (homeOnBar) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     if (fold) Box {
@@ -327,8 +330,8 @@ private val PageChipWidth = 48.dp
                 }
             }
             @Composable fun RightControls() {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (timerInline) Row(Modifier.padding(end = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) { timer() }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
+                    if (timerInline) Row(verticalAlignment = Alignment.CenterVertically) { timer() }
                     if (goodnotesDense) PageExtras()
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
