@@ -19,12 +19,11 @@ internal data class EditorPreferences(
     val multiTouchUndo: Boolean,
     val graphStyle: GraphStyle,
     val singlePage: Boolean,
-    val focusMode: Boolean,
-    val showPageBoundaries: Boolean
+    val focusMode: Boolean
 )
 
 @Composable internal fun rememberEditorPreferences(prefs: SharedPreferences, shapeRecognitionSetting: Boolean): State<EditorPreferences> =
-    rememberPref(prefs, AppPrefs.PALM_MS, AppPrefs.FAST_PAN, AppPrefs.FAST_PAN_MULTIPLIER, "writingFollow", "mathSnap", "shapeRecognition", GraphStyle.PREF_KEY, AppPrefs.SINGLE_PAGE_VIEW, AppPrefs.SHOW_PAGE_BOUNDARIES, AppPrefs.EDITOR_FOCUS_MODE, EditorQuickPrefs.ERASER_SINGLE_STROKE, EditorQuickPrefs.ERASER_PRESSURE, EditorQuickPrefs.SCRIBBLE_TO_ERASE, EditorQuickPrefs.SCRIBBLE_SENSITIVITY, EditorQuickPrefs.ERASER_WHOLE_STROKE, EditorQuickPrefs.SHAPE_MEASUREMENTS, EditorQuickPrefs.MULTI_TOUCH_UNDO) { p ->
+    rememberPref(prefs, AppPrefs.PALM_MS, AppPrefs.FAST_PAN, AppPrefs.FAST_PAN_MULTIPLIER, "writingFollow", "mathSnap", "shapeRecognition", GraphStyle.PREF_KEY, AppPrefs.SINGLE_PAGE_VIEW, AppPrefs.EDITOR_FOCUS_MODE, EditorQuickPrefs.ERASER_SINGLE_STROKE, EditorQuickPrefs.ERASER_PRESSURE, EditorQuickPrefs.SCRIBBLE_TO_ERASE, EditorQuickPrefs.SCRIBBLE_SENSITIVITY, EditorQuickPrefs.ERASER_WHOLE_STROKE, EditorQuickPrefs.SHAPE_MEASUREMENTS, EditorQuickPrefs.MULTI_TOUCH_UNDO) { p ->
         EditorPreferences(
             palmRejectMs = AppPrefs.palmMs(p.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { p.contains(AppPrefs.PALM_MS) }),
             panMultiplier = AppPrefs.panFactor(p.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN), p.getFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER)),
@@ -40,7 +39,6 @@ internal data class EditorPreferences(
             multiTouchUndo = p.getBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, true),
             graphStyle = GraphStyle.load(p),
             singlePage = p.getBoolean(AppPrefs.SINGLE_PAGE_VIEW, false),
-            focusMode = p.getBoolean(AppPrefs.EDITOR_FOCUS_MODE, false),
-            showPageBoundaries = p.getBoolean(AppPrefs.SHOW_PAGE_BOUNDARIES, true)
+            focusMode = p.getBoolean(AppPrefs.EDITOR_FOCUS_MODE, false)
         )
     }

@@ -76,6 +76,12 @@ internal class StickyNoteInput(
 
     fun focused(): TextBox? = focusedId?.let { id -> page().texts.find { it.id == id && it.isSticky } }
 
+    /** The focused note where the user sees it: mid-drag it is the live preview, so its menu travels with it. */
+    fun shown(): TextBox? {
+        val live = preview?.takeIf { moved && mode != Mode.CREATE && it.id == focusedId }
+        return live ?: focused()
+    }
+
     fun focus(box: TextBox?, type: Boolean = false) {
         focusedId = box?.id; typing = box != null && type
         onFocus(box, typing)
@@ -103,7 +109,7 @@ internal class StickyNoteInput(
     fun refresh() {
         if (focusedId == null) return
         val box = focused()?.takeIf { PageLayers.editable(page().layers, it.layer) }
-        if (box == null) focus(null) else onFocus(box, typing)
+        if (box == null) focus(null) else onFocus(shown() ?: box, typing)
     }
 
     fun setText(id: String, text: String) {
@@ -200,6 +206,8 @@ internal class StickyNoteInput(
                     Mode.TYPE_TAP -> box
                 }
                 if (moved && current == Mode.MOVE) liftNote(event, began, at, box)
+                // The note's menu rides along with the note instead of waiting where it was picked up.
+                if (moved && current != Mode.CREATE && box?.id == focusedId) preview?.let { onFocus(it, typing) }
                 if (event.actionMasked == MotionEvent.ACTION_UP) finish(current, began, layer)
             }
         }

@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun PageNavigator(
     index: Int, count: Int, singlePage: Boolean, onTurn: (forward: Boolean) -> Unit, onJumpToEnd: (last: Boolean) -> Unit,
-    onToggleView: () -> Unit, showBoundaries: Boolean, onToggleBoundaries: () -> Unit, onBrowse: () -> Unit, modifier: Modifier = Modifier,
+    onToggleView: () -> Unit, onBrowse: () -> Unit, modifier: Modifier = Modifier,
 ) {
     // The writing-follow bar, repurposed: the same floating toolbar container, 44dp height and 40dp circular controls.
     // A second tap inside the settle window is a bounce or a resting palm, not a deliberate turn.
@@ -50,7 +50,6 @@ import androidx.compose.ui.unit.dp
             Text("$count / $count", style = counter, color = Color.Transparent)
             Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (!singlePage) WritingFollowControl(Icons.Rounded.ViewStream, "Show page boundaries", active = showBoundaries, onClick = onToggleBoundaries)
         PageNavigationArrow(true, index < count - 1, { if (settled()) onTurn(true) }, { if (settled()) onJumpToEnd(true) })
     }
 }

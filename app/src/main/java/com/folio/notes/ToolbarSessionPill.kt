@@ -45,7 +45,7 @@ internal enum class SessionTone { RUNNING, PAUSED, ALERT }
     }
     Surface(
         onClick = onClick,
-        modifier = modifier.height(32.dp).semantics { contentDescription = description },
+        modifier = modifier.height(DockButtonHeight).semantics { contentDescription = description },
         shape = CircleShape,
         color = colors.surfaceContainerHighest,
         contentColor = if (tone == SessionTone.RUNNING) colors.onSurface else colors.onSurfaceVariant

@@ -2,7 +2,10 @@
 package com.folio.notes
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
@@ -19,10 +22,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+
+/** One touch target in the icon bars; every bar below sizes its overflow thresholds from this. */
+private val BarButton = 36.dp
+private fun barWidth(buttons: Int): Dp = BarButton * buttons + 8.dp
 
 private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
@@ -76,13 +84,13 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     onConvertText: (() -> Unit)? = null
 ) {
     var overflow by remember { mutableStateOf(false) }
-    val showCopy = availableWidth >= 104.dp
-    val showDelete = availableWidth >= 152.dp
-    val showStyle = canRestyle && availableWidth >= 200.dp
-    val showDuplicate = availableWidth >= 248.dp
+    val showCopy = availableWidth >= barWidth(2)
+    val showDelete = availableWidth >= barWidth(3)
+    val showStyle = canRestyle && availableWidth >= barWidth(4)
+    val showDuplicate = availableWidth >= barWidth(5)
     fun run(action: () -> Unit) { overflow = false; action() }
     Surface(shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Selection options")) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -94,7 +102,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
         }
         // Inline, not a DropdownMenu: a dropdown inside this non-focusable popup is placed against the wrong window.
-        if (overflow) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp)).padding(bottom = FolioSpacing.dp4)) {
+        if (overflow) Column(Modifier.width(minOf(184.dp, availableWidth - 8.dp)).padding(bottom = FolioSpacing.dp4)) {
             if (!showCopy) PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
             PageMenuRow(Icons.Rounded.ContentCut, "Cut", true) { run(onCut) }
             PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
@@ -114,9 +122,9 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 @Composable private fun SelectionAction(icon: ImageVector, label: String, destructive: Boolean = false, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes(),
+        IconButton(onClick, modifier = Modifier.size(BarButton), shapes = IconButtonDefaults.shapes(),
             colors = IconButtonDefaults.iconButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)) {
-            Icon(icon, label, Modifier.size(20.dp))
+            Icon(icon, label, Modifier.size(18.dp))
         }
     }
 }
@@ -128,12 +136,12 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 ) {
     // Extra actions expand inline: a dropdown inside this non-focusable popup is placed against the wrong window.
     var more by remember { mutableStateOf(false) }
-    val showLeft = availableWidth >= 152.dp
-    val showRight = availableWidth >= 200.dp
-    val showCrop = availableWidth >= 104.dp
-    val showDelete = availableWidth >= 248.dp
+    val showLeft = availableWidth >= barWidth(3)
+    val showRight = availableWidth >= barWidth(4)
+    val showCrop = availableWidth >= barWidth(2)
+    val showDelete = availableWidth >= barWidth(5)
     Surface(shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Picture options")) {
         Column(Modifier.padding(horizontal = FolioSpacing.dp4), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -144,7 +152,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
                 if (showDelete) SelectionAction(Icons.Rounded.DeleteOutline, "Remove picture", destructive = true, onClick = onDelete)
                 SelectionAction(Icons.Rounded.MoreHoriz, "More picture options") { more = !more }
             }
-            if (more) Column(Modifier.width(minOf(200.dp, availableWidth - 8.dp))) {
+            if (more) Column(Modifier.width(minOf(184.dp, availableWidth - 8.dp))) {
                 fun run(action: () -> Unit) { more = false; action() }
                 if (!showLeft) PageMenuRow(Icons.AutoMirrored.Rounded.RotateLeft, "Rotate left", true) { run(onRotateLeft) }
                 if (!showRight) PageMenuRow(Icons.AutoMirrored.Rounded.RotateRight, "Rotate right", true) { run(onRotateRight) }
@@ -161,7 +169,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 /** Shown while a picture is being cropped on the page: the frame is dragged in place, this ends it. */
 @Composable internal fun CropContextMenu(onApply: () -> Unit, onCancel: () -> Unit) {
     Surface(shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Crop options")) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
@@ -187,26 +195,58 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-/** Finger long-press menu on the page itself; opens above the press, or below when there is no room. */
+/** The page commands that used to live behind the page's three-dot button, plus the position-based ones. */
+internal class PageMenuActions(
+    val page: NotePage, val canMoveUp: Boolean, val canMoveDown: Boolean, val canDelete: Boolean,
+    val onName: () -> Unit, val onBookmark: () -> Unit, val onRedoFlag: () -> Unit, val onMoveTo: () -> Unit,
+    val onMoveUp: () -> Unit, val onMoveDown: () -> Unit, val onInsert: () -> Unit, val onDuplicate: () -> Unit,
+    val onDelete: () -> Unit
+)
+
+/**
+ * Finger long-press popover on the page itself: what can be placed or edited at the press, then everything
+ * that can be done to the page. Opens above the press, or below when there is no room.
+ */
 @Composable internal fun PageContextMenu(
     windowX: Float, windowY: Float, onPaste: () -> Unit, onSelectAll: () -> Unit, onText: () -> Unit, onImage: () -> Unit,
     canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, onDismiss: () -> Unit,
-    canPaste: Boolean = true
+    pageActions: PageMenuActions, canPaste: Boolean = true
 ) {
     val provider = rememberPressMenuPosition(windowX, windowY)
     fun run(action: () -> Unit) { onDismiss(); action() }
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val progress by animateFloatAsState(if (shown) 1f else 0f, folioSpring(), label = "pagePopover")
+    val maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.7f).dp
+    val page = pageActions.page
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.width(200.dp).semanticsLabel("Page options")) {
-            Column(Modifier.padding(vertical = FolioSpacing.dp4)) {
-                PageMenuRow(Icons.Rounded.ContentPaste, "Paste", canPaste) { run(onPaste) }
-                PageMenuRow(Icons.Rounded.TextFields, "Add text here", true) { run(onText) }
-                PageMenuRow(Icons.Rounded.Image, "Insert image", true) { run(onImage) }
-                PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
-                HorizontalDivider()
-                PageMenuRow(Icons.AutoMirrored.Rounded.Undo, "Undo", canUndo) { run(onUndo) }
-                PageMenuRow(Icons.AutoMirrored.Rounded.Redo, "Redo", canRedo) { run(onRedo) }
+        FolioPopoverSurface(Modifier.width(264.dp).heightIn(max = maxHeight).semanticsLabel("Page options"), progress) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                    PageTile(Icons.Rounded.ContentPaste, "Paste", Modifier.weight(1f), enabled = canPaste) { run(onPaste) }
+                    PageTile(Icons.Rounded.TextFields, "Text", Modifier.weight(1f), description = "Add text here") { run(onText) }
+                    PageTile(Icons.Rounded.Image, "Picture", Modifier.weight(1f), description = "Insert image") { run(onImage) }
+                    PageTile(Icons.Rounded.SelectAll, "Select", Modifier.weight(1f), description = "Select all") { run(onSelectAll) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                    PageTile(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.weight(1f), enabled = canUndo) { run(onUndo) }
+                    PageTile(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.weight(1f), enabled = canRedo) { run(onRedo) }
+                    PageTile(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, "Bookmark", Modifier.weight(1f),
+                        active = page.bookmarked, description = if (page.bookmarked) "Remove bookmark" else "Bookmark page") { run(pageActions.onBookmark) }
+                    PageTile(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag, "Flag", Modifier.weight(1f),
+                        active = page.redoFlag, description = if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") { run(pageActions.onRedoFlag) }
+                }
+                HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp2))
+                PageMenuRow(Icons.Rounded.Edit, "Rename page", true) { run(pageActions.onName) }
+                PageMenuRow(Icons.Rounded.LowPriority, "Move to position…", true) { run(pageActions.onMoveTo) }
+                Row {
+                    PageMenuRow(Icons.Rounded.KeyboardArrowUp, "Move up", pageActions.canMoveUp, modifier = Modifier.weight(1f)) { run(pageActions.onMoveUp) }
+                    PageMenuRow(Icons.Rounded.KeyboardArrowDown, "Move down", pageActions.canMoveDown, modifier = Modifier.weight(1f)) { run(pageActions.onMoveDown) }
+                }
+                PageMenuRow(Icons.Rounded.Add, "Insert blank page after", true) { run(pageActions.onInsert) }
+                PageMenuRow(Icons.Rounded.ContentCopy, "Duplicate page", true) { run(pageActions.onDuplicate) }
+                HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp2))
+                PageMenuRow(Icons.Rounded.DeleteOutline, "Delete page", pageActions.canDelete, destructive = true) { run(pageActions.onDelete) }
             }
         }
     }
@@ -222,7 +262,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 6.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.width(200.dp).semanticsLabel("Text options")) {
+            modifier = Modifier.width(172.dp).semanticsLabel("Text options")) {
             Column(Modifier.padding(vertical = FolioSpacing.dp4)) {
                 PageMenuRow(Icons.Rounded.Edit, "Edit text", true) { run(onEdit) }
                 PageMenuRow(Icons.Rounded.ContentCopy, "Copy", true) { run(onCopy) }
@@ -235,12 +275,28 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, destructive: Boolean = false, onClick: () -> Unit) {
+@Composable private fun PageMenuRow(icon: ImageVector, label: String, enabled: Boolean, destructive: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxWidth(), onClick: () -> Unit) {
     val tint = if (enabled) (if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Icon(icon, null, Modifier.size(20.dp), tint = tint)
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = tint)
+    Row(modifier.clickable(enabled = enabled, onClick = onClick).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Icon(icon, null, Modifier.size(18.dp), tint = tint)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = tint, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** A small icon-over-label button for the handful of everyday page actions at the top of the page popover. */
+@Composable private fun PageTile(icon: ImageVector, label: String, modifier: Modifier = Modifier,
+    enabled: Boolean = true, active: Boolean = false, description: String = label, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(onClick, modifier.semanticsLabel(description), enabled = enabled, shape = FolioShapes.medium,
+        color = if (active) scheme.primaryContainer else scheme.surfaceContainerHighest,
+        contentColor = (if (active) scheme.onPrimaryContainer else scheme.onSurface).let { if (enabled) it else it.copy(alpha = 0.38f) }) {
+        Column(Modifier.padding(vertical = FolioSpacing.dp6, horizontal = FolioSpacing.dp2).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            Icon(icon, null, Modifier.size(18.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -255,7 +311,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 ) {
     var colours by remember { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.guardUiTouches().semanticsLabel("Sticky note options")) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

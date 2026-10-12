@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 internal val EditorFloatingGroupHeight = 40.dp
-private val DockButtonWidth = 40.dp
-private val DockButtonHeight = 36.dp
+internal val DockButtonWidth = 40.dp
+internal val DockButtonHeight = 36.dp
 private val NotebookActionsWidth = 46.dp
 private val NotebookActionsGap = 2.dp
 /** The "3/12" page readout between the previous and next buttons. */
@@ -271,8 +271,8 @@ private val PageChipWidth = 48.dp
             }
         }
         if (style == ToolbarStyle.GOODNOTES) {
-            // One flat bar: pages, find and layers on the left; the tools in the middle; the timer, add
-            // page, share and notebook menu on the right. Narrow panes fold the left side into a menu and
+            // One flat bar: pages, find, layers and add page on the left; the tools in the middle; the timer,
+            // share and notebook menu on the right. Narrow panes fold the left side into a menu and
             // finally stack the tools onto their own row, so nothing the Folio style offers goes missing.
             // The row's side insets come out of the width first, so the fold points match what is drawn.
             val rowWidth = maxWidth - GoodnotesBarInset * 2
@@ -280,21 +280,24 @@ private val PageChipWidth = 48.dp
             // With the tab strip turned off, the way home moves onto the bar.
             val showTabs = showBack && toolbarOptions.tabs
             val homeOnBar = showBack && !showTabs
-            val leftFull = DockButtonWidth * (if (homeOnBar) 4 else 3)
-            val leftFolded = DockButtonWidth * (if (homeOnBar) 3 else 2)
-            val rightBase = DockButtonWidth * (1 + shareButtons) + NotebookActionsGap + NotebookActionsWidth
+            val homeCount = if (homeOnBar) 1 else 0
+            // Browse pages is the grid button beside the page chip; where the chip shows, it is dropped.
+            val leftFull = DockButtonWidth * (homeCount + 4)
+            val leftFolded = DockButtonWidth * (homeCount + 3)
+            val leftDense = DockButtonWidth * (homeCount + 3) + navExtraWidth
+            val rightBase = DockButtonWidth * (shareButtons + 1)
             val rightWithTimer = rightBase + timerWidth.value + FolioSpacing.dp8
             val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
             val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
             val stacked = rowWidth < toolsNeed + maxOf(leftFolded, rightBase) * 2 + barGap * 2
             val rightNow = if (timerInline) rightWithTimer else rightBase
-            val goodnotesDense = rowWidth >= toolsNeed + maxOf(leftFull + navExtraWidth, rightNow + docExtraWidth) * 2 + barGap * 2
-            val side = if (goodnotesDense) maxOf(leftFull + navExtraWidth, rightNow + docExtraWidth)
+            val goodnotesDense = rowWidth >= toolsNeed + maxOf(leftDense, rightNow + docExtraWidth) * 2 + barGap * 2
+            val side = if (goodnotesDense) maxOf(leftDense, rightNow + docExtraWidth)
                 else maxOf(if (fold) leftFolded else leftFull, rightNow)
             @Composable fun LeftControls() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (homeOnBar) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
-                    DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
+                    if (!goodnotesDense) DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     if (fold) Box {
                         DockButton(Icons.Rounded.MoreHoriz, "Find and layers", { navMenu = true })
                         FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
@@ -310,12 +313,6 @@ private val PageChipWidth = 48.dp
                             layersPopover()
                         }
                     }
-                    if (goodnotesDense) PageNavigation()
-                }
-            }
-            @Composable fun RightControls() {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (timerInline) Row(Modifier.padding(end = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) { timer() }
                     Box {
                         DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
                         FolioMenuPopover(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add a page") {
@@ -324,15 +321,20 @@ private val PageChipWidth = 48.dp
                             FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                         }
                     }
+                    if (goodnotesDense) PageNavigation()
+                }
+            }
+            @Composable fun RightControls() {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (timerInline) Row(Modifier.padding(end = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) { timer() }
                     if (goodnotesDense) PageExtras()
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
-                    Box(Modifier.padding(start = NotebookActionsGap)) {
+                    Box {
                         DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                             if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                             { overflow = true },
-                            tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current,
-                            width = NotebookActionsWidth)
+                            tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
                         if (overflow) NotebookMenu(timerInMenu = !timerInline)
                     }
                 }

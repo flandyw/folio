@@ -101,8 +101,6 @@ object AppPrefs {
     const val TOOLBAR_TABS = "toolbar.tabs"
     /** Editor shows one fitted page at a time instead of the scrolling column. */
     const val SINGLE_PAGE_VIEW = "singlePageView"
-    /** Visual page seams only; PDF edges always remain visible. */
-    const val SHOW_PAGE_BOUNDARIES = "editor.showPageBoundaries"
     const val EDITOR_FOCUS_MODE = "editor.focusMode"
     const val SPLIT_FRACTION = "workspace.splitFraction"
     /** Which side the editor sits on when a companion pane is open; remembered between sessions. */

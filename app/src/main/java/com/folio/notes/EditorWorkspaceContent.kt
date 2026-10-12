@@ -125,7 +125,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val graphStyle = preferences.graphStyle
     val singlePage = preferences.singlePage
     val focusMode = preferences.focusMode && music == null
-    val showPageBoundaries = preferences.showPageBoundaries && !focusMode
+    val showPageBoundaries = !focusMode
     fun undoEditor() { editor.documentInput.cancelNativeContacts(); model.undo() }
     fun redoEditor() { editor.documentInput.cancelNativeContacts(); model.redo() }
     val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
@@ -458,7 +458,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     var pageBrowser by editor.overlays.pageBrowser
     var namedPage by editor.overlays.namedPage
     var pageTitle by editor.overlays.pageTitle
-    var pageMenuFor by editor.overlays.pageMenuFor
     var movingPage by editor.overlays.movingPage
     var destinationPage by editor.overlays.destinationPage
     var deletingPage by editor.overlays.deletingPage
@@ -1039,7 +1038,12 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
 
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
                         Box(Modifier.fillMaxWidth().semantics {
-                            customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("Page ${index + 1} options") { pageMenuFor = item.id; true })
+                            // The long-press popover, for people who cannot long-press: opened at the middle of the pane.
+                            if (item.id == page.id) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("Page ${index + 1} options") {
+                                val bounds = canvasWindowBounds
+                                pageMenu = Triple(bounds?.center?.x ?: 0f, bounds?.center?.y ?: 0f, InkPoint(page.width / 2f, page.height / 2f))
+                                true
+                            })
                         }) {
                             EditorPage(note.id, item, model,
                                 surface = sharedSurface.copy(tool = if (zoomPaneOpen) Tool.HAND else tool,
@@ -1099,22 +1103,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     (documentPan - oldPan) to movedY
                                 },
                                     onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect }))
-                            // Shared chrome replaces caption rows; the active page keeps an accessible edge handle.
-                            Box(Modifier.align(Alignment.TopEnd)) {
-                                if (item.id == page.id && !focusMode) IconButton({ pageMenuFor = item.id }) {
-                                    Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options")
-                                }
-                                PageRowMenu(item, pageMenuFor == item.id, { pageMenuFor = null },
-                                    canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
-                                    onName = { namedPage = item; pageTitle = item.title },
-                                    onBookmark = { model.togglePageBookmark(item.id) },
-                                    onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
-                                    onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
-                                    onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
-                                    onInsert = { revealNewPage(model.insertPage(index + 1)) },
-                                    onDuplicate = { model.duplicatePage(index)?.let { revealNewPage(it) } },
-                                    onDelete = { deletingPage = item.id })
-                            }
                         }
                     }
                     item {
@@ -1392,7 +1380,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             if (music == null && note.pages.isNotEmpty() && (!page.infinite || note.pages.size > 1)) PageNavigator(
                 index = state.pageIndex.coerceIn(0, note.pages.lastIndex), count = note.pages.size, singlePage = singlePage,
                 onTurn = ::turnPage, onJumpToEnd = ::jumpToEnd, onToggleView = { setSinglePage(!singlePage) },
-                showBoundaries = showPageBoundaries, onToggleBoundaries = { appPrefs.edit().putBoolean(AppPrefs.SHOW_PAGE_BOUNDARIES, !showPageBoundaries).putBoolean(AppPrefs.EDITOR_FOCUS_MODE, false).apply() },
                 onBrowse = { pageBrowser = true },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
                     .padding(followInset).guardUiTouches().zIndex(11f))
@@ -1677,7 +1664,18 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 onDismiss = { pageMenu = null })
             return@let
         }
+        val pageIndex = state.pageIndex.coerceIn(0, note.pages.lastIndex)
         PageContextMenu(wx, wy,
+            pageActions = PageMenuActions(page,
+                canMoveUp = pageIndex > 0, canMoveDown = pageIndex < note.pages.lastIndex, canDelete = note.pages.size > 1,
+                onName = { namedPage = page; pageTitle = page.title },
+                onBookmark = { model.togglePageBookmark(page.id) },
+                onRedoFlag = { model.setPageRedoFlag(note.id, page.id, !page.redoFlag) },
+                onMoveTo = { movingPage = page.id; destinationPage = (pageIndex + 1).toString() },
+                onMoveUp = { model.movePage(pageIndex, pageIndex - 1) }, onMoveDown = { model.movePage(pageIndex, pageIndex + 1) },
+                onInsert = { revealNewPage(model.insertPage(pageIndex + 1)) },
+                onDuplicate = { model.duplicatePage(pageIndex)?.let { revealNewPage(it) } },
+                onDelete = { deletingPage = page.id }),
             onPaste = { model.pasteClipboard(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
             onText = { selectTool(Tool.TEXT); placeTextBox(page, at) },
@@ -1701,7 +1699,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch") }
+                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE

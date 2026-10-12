@@ -269,7 +269,7 @@ class InkView(context: Context) : View(context) {
     private fun visibleNotes(): List<TextBox> = layerView().texts.filter { it.isSticky }
     /** Keeps the menu and typing field on the note while an infinite canvas pans or the view resizes. */
     private fun followStickyFrame() {
-        val box = stickyNotes.focused() ?: return
+        val box = stickyNotes.shown() ?: return
         val frame = stickyFraction(box)
         if (frame != stickyFrameReported) post { stickyNotes.refresh() }
     }

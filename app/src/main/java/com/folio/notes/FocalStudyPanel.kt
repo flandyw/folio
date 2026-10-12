@@ -111,10 +111,10 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
                 reserve = if (activeElapsed >= 3_600_000L) "0:00:00" else "00:00"
             )
         } else {
-            IconButton(onClick, modifier = Modifier.size(40.dp).semantics {
+            IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight).semantics {
                 contentDescription = "$label. $syncStatus. Open study sessions"
             }, shapes = IconButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.School, null)
+                Icon(Icons.Rounded.School, null, Modifier.size(20.dp))
             }
         }
     }

@@ -94,7 +94,7 @@ private val TabHeight = 28.dp
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
-            TabAction(Icons.Rounded.Home, "Back to notebooks", onHome)
+            Box(Modifier.padding(horizontal = FolioSpacing.dp8)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
             LazyRow(
                 Modifier.weight(1f, fill = false).fillMaxHeight(),
                 state = listState,

@@ -75,7 +75,6 @@ internal class EditorOverlayState {
     val markDialog = mutableStateOf(false)
     val focalReview = mutableStateOf<Pair<Notebook, ExamAttempt>?>(null)
     val pageBrowser = mutableStateOf(false)
-    val pageMenuFor = mutableStateOf<String?>(null)
     val namedPage = mutableStateOf<NotePage?>(null)
     val pageTitle = mutableStateOf("")
     val movingPage = mutableStateOf<String?>(null)
