@@ -17,7 +17,10 @@ data class WorkspaceViewport(
     val scrollOffset: Int = 0,
     val canvasX: Float = 0f,
     val canvasY: Float = 0f,
-    val canvasZoom: Float = 1f
+    val canvasZoom: Float = 1f,
+    /** Finite-column anchor; navigation session only, never stored in notebook content. */
+    val documentPageId: String? = null,
+    val documentPageY: Float? = null
 )
 
 enum class CompanionMode { SPLIT, REFERENCE }
@@ -85,6 +88,8 @@ object WorkspaceSessionCodec {
             put("id", tab.id); put("notebook", tab.notebookId); put("page", tab.currentPageId)
             put("title", tab.title); put("tool", tab.tool.name); put("query", tab.search.query)
             put("zoom", tab.viewport.zoom); put("pan", tab.viewport.pan); put("scroll", tab.viewport.scrollOffset)
+            tab.viewport.documentPageId?.let { put("documentPage", it) }
+            tab.viewport.documentPageY?.takeIf { it.isFinite() }?.let { put("documentY", it) }
             put("x", tab.viewport.canvasX); put("y", tab.viewport.canvasY); put("scale", tab.viewport.canvasZoom)
         }) }
     }.toString()
@@ -96,7 +101,9 @@ object WorkspaceSessionCodec {
             fun finite(key: String, default: Float) = item.optDouble(key, default.toDouble()).toFloat().takeIf { it.isFinite() } ?: default
             EditorTab(item.getString("id"), item.getString("notebook"), item.getString("page"), item.optString("title"),
                 WorkspaceViewport(finite("zoom", 1f).coerceIn(.1f, 8f), finite("pan", 0f), item.optInt("scroll"),
-                    finite("x", 0f), finite("y", 0f), finite("scale", 1f).coerceIn(.1f, 8f)),
+                    finite("x", 0f), finite("y", 0f), finite("scale", 1f).coerceIn(.1f, 8f),
+                    item.optString("documentPage").takeIf { it.isNotBlank() },
+                    if (item.has("documentY")) item.optDouble("documentY").toFloat().takeIf(Float::isFinite) else null),
                 restoredTool(item.optString("tool")),
                 PdfSearchState(query = item.optString("query")))
         }.getOrNull() }.distinctBy { it.id }

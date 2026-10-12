@@ -1,4 +1,4 @@
-// Run after ./gradlew :app:assembleDebug :app:prepareBackupSmoke has populated the JVM cache.
+// Run after the canonical build with :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke.
 // No device, Android runtime, extra downloads, or test framework is needed.
 const fs = require('node:fs');
 const os = require('node:os');
@@ -40,8 +40,12 @@ function run(args) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Backup check failed (exit ${result.status}).`);
 }
-const appClasses = path.join(root, 'app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar');
-if (!fs.existsSync(appClasses)) throw new Error('Run ./gradlew :app:assembleDebug before the backup smoke check.');
+const appClasses = [
+  'release/bundleReleaseClassesToCompileJar', 'debug/bundleDebugClassesToCompileJar',
+].map(variant => path.join(root, 'app/build/intermediates/compile_app_classes_jar', variant, 'classes.jar'))
+  .filter(file => fs.existsSync(file))
+  .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+if (!appClasses) throw new Error('Run ./build.sh -p -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke before the backup smoke check.');
 const json = cached('org.json', 'json', '20240303', '.jar', true);
 const coroutines = cached('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.11.0', '.jar', true);
 const runtime = [appClasses, stdlib, json, coroutines];

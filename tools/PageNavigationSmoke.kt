@@ -3,6 +3,7 @@ package com.folio.notes
 import kotlin.math.abs
 
 fun main() {
+    documentGeometrySmoke()
     val ids = (0..9).map { "page-$it" }
     val nav = PageNavigation()
     val oldLayout = Any()
@@ -11,10 +12,12 @@ fun main() {
         nav.observe(ids, PageNavigation.Viewport(PageNavigation.Position(first, offset), visible, forward, current, layout))
 
     nav.request(ids[4], oldLayout)
+    check(nav.awaitingLanding)
     check(observe(4, 55, current = 5, forward = false, visible = setOf(4, 5), layout = oldLayout) == null) {
         "A stale layout already containing the destination was acknowledged before the jump"
     }
     check(observe(4, current = 5, visible = setOf(4, 5)) == 4)
+    check(!nav.awaitingLanding)
     nav.request(ids[3], oldLayout)
     check(observe(1) == null) { "Old layout undid a button turn" }
     nav.request(ids[4], oldLayout)

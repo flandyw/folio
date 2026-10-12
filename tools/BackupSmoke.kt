@@ -312,7 +312,23 @@ private fun checkExplorerOrganization() {
     println("Explorer: nested folders, cycle guards, remapped restore, legacy defaults, tags and search passed.")
 }
 
+private fun checkEditorPositions() {
+    val viewport = WorkspaceViewport(zoom = 2.25f, pan = -123f, scrollOffset = -80,
+        canvasX = 12f, canvasY = -50f, canvasZoom = 1.5f, documentPageId = "first-visible", documentPageY = 245.5f)
+    val position = NotebookPosition("most-visible", viewport, Tool.HIGHLIGHTER, "answer")
+    check(NotebookPositionCodec.decode(NotebookPositionCodec.encode(position)) == position)
+    val tab = position.toTab("notebook", "Title")
+    check(WorkspaceSessionCodec.decode(WorkspaceSessionCodec.encode(listOf(tab))) == listOf(tab))
+    val legacy = JSONObject(NotebookPositionCodec.encode(position)).apply { remove("documentPage"); remove("documentY") }
+    val restored = NotebookPositionCodec.decode(legacy.toString())!!
+    check(restored.viewport.documentPageId == null && restored.viewport.documentPageY == null)
+    check(restored.pageId == position.pageId && restored.viewport.zoom == viewport.zoom)
+    val bad = JSONObject(NotebookPositionCodec.encode(position)).put("documentY", "not-a-number")
+    check(NotebookPositionCodec.decode(bad.toString())!!.viewport.documentPageY == null)
+}
+
 fun main() = runBlocking {
+    checkEditorPositions()
     checkNotebookDrops()
     checkLibraryBrowse()
     checkSharedStorageFiles()

@@ -40,8 +40,12 @@ function run(args) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Graph check failed (exit ${result.status}).`);
 }
-const appClasses = path.join(root, 'app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar');
-if (!fs.existsSync(appClasses)) throw new Error('Run ./gradlew :app:prepareBackupSmoke before the graph smoke check.');
+const appClasses = [
+  'release/bundleReleaseClassesToCompileJar', 'debug/bundleDebugClassesToCompileJar',
+].map(variant => path.join(root, 'app/build/intermediates/compile_app_classes_jar', variant, 'classes.jar'))
+  .filter(file => fs.existsSync(file))
+  .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+if (!appClasses) throw new Error('Run ./gradlew :app:prepareBackupSmoke before the graph smoke check.');
 const json = cached('org.json', 'json', '20240303', '.jar', true);
 const coroutines = cached('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.11.0', '.jar', true);
 const runtime = [appClasses, stdlib, json, coroutines];

@@ -46,8 +46,8 @@ try {
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['PageNavigation.kt'].map(file => path.join(source, file)),
-    path.join(__dirname, 'PageNavigationSmoke.kt')]);
+    ...['PageNavigation.kt', 'DocumentViewport.kt', 'DocumentPageGeometry.kt'].map(file => path.join(source, file)),
+    path.join(__dirname, 'PageNavigationSmoke.kt'), path.join(__dirname, 'DocumentGeometrySmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), 'com.folio.notes.PageNavigationSmokeKt']);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

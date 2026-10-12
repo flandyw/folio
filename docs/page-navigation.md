@@ -70,3 +70,5 @@ Run `./build.sh -p` for the signed experimental build.
   Check pen writing, palms, finger writing, selections, text and image editing produce no turns.
 - With TalkBack, adjacent sheets are absent from focus; arrows expose disabled states and the
   first/last-page long-click actions. Music scores and infinite canvases retain their own layouts.
+
+The continuous editor now retains a separate finite-column camera and a page-ID/local-offset anchor while visiting fitted pages. The shared counter opens the browser; page captions are replaced by the active page handle and accessible page actions. See [continuous editor architecture and device checks](continuous-editor.md).

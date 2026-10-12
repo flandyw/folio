@@ -12,6 +12,8 @@ internal class PageNavigation {
     private var landed: Position? = null
     private var previousLayout: Any? = null
 
+    val awaitingLanding: Boolean get() = destination != null && landed == null
+
     fun request(pageId: String, layout: Any) { destination = pageId; landed = null; previousLayout = layout }
 
     fun observe(ids: List<String>, viewport: Viewport): Int? {

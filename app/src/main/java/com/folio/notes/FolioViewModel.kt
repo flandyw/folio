@@ -957,7 +957,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         if (_state.value.activeId == id) {
             selectPage(index)
             captureTab()
-            _state.update { state -> state.copy(tabs = state.tabs.map { if (it.notebookId == id) it.copy(viewport = it.viewport.copy(scrollOffset = 0)) else it }) }
+            _state.update { state -> state.copy(tabs = state.tabs.map { if (it.notebookId == id) it.copy(viewport = it.viewport.copy(scrollOffset = 0, documentPageId = _state.value.page?.id, documentPageY = 0f)) else it }) }
             persistPosition(id)
             _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
         }

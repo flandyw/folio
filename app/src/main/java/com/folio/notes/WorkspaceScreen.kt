@@ -181,21 +181,36 @@ import kotlin.math.roundToInt
                         { vp: WorkspaceViewport -> viewport = viewport.copy(canvasX = vp.canvasX, canvasY = vp.canvasY, canvasZoom = vp.canvasZoom) }
                     }
                     val onLoad = remember(note.id, page.id) { { model.loadPage(page.id) } }
-                    EditorPage(note.id, page, model, Tool.HAND, handOptions, false,
-                        false, false, false, {}, { _, _ -> },
-                        {}, {}, {}, {}, onLoad, fullscreen = true, canvasReset = reset,
-                        readOnly = true, initialViewport = pane.viewport,
-                        onCameraChanged = onCamera, multiTouchUndo = false,
-                        onSelectAllView = { view -> paneView = view },
-                        pdfLinks = if (linksOn) links else emptyList(),
-                        onPdfLink = { link ->
+                    EditorPage(note.id, page, model,
+                        surface = InkSurfaceConfig(tool = Tool.HAND,
+                            options = handOptions,
+                            finger = false,
+                            snapEnabled = false,
+                            shapeRecognition = false,
+                            multiTouchUndo = false),
+                        presentation = PagePresentation(active = false,
+                            fullscreen = true,
+                            canvasReset = reset,
+                            readOnly = true,
+                            initialViewport = pane.viewport,
+                            pdfLinks = if (linksOn) links else emptyList()),
+                        actions = EditorPageActions(onActive = {},
+                            onPan = { _, _ -> },
+                            onPanEnd = {},
+                            onSelection = {},
+                            onTextEdit = {},
+                            onTextCreate = {},
+                            onLoad = onLoad,
+                            onCameraChanged = onCamera,
+                            onSelectAllView = { view -> paneView = view },
+                            onPdfLink = { link ->
                             when (val target = link.target) {
                                 is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
                                 is PdfLinkTarget.Url -> try {
                                     context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target.uri)))
                                 } catch (_: Exception) { model.reportError("Couldn't open this link") }
                             }
-                        })
+                        }))
                 }
             }
         }

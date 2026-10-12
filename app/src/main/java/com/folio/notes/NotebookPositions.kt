@@ -23,6 +23,8 @@ object NotebookPositionCodec {
         put("zoom", position.viewport.zoom.toDouble())
         put("pan", position.viewport.pan.toDouble())
         put("scroll", position.viewport.scrollOffset)
+        position.viewport.documentPageId?.let { put("documentPage", it) }
+        position.viewport.documentPageY?.takeIf(Float::isFinite)?.let { put("documentY", it.toDouble()) }
         put("x", position.viewport.canvasX.toDouble())
         put("y", position.viewport.canvasY.toDouble())
         put("scale", position.viewport.canvasZoom.toDouble())
@@ -43,7 +45,9 @@ object NotebookPositionCodec {
                 item.optInt("scroll"), // Negative when the current page starts below the viewport top.
                 finite("x", 0f),
                 finite("y", 0f),
-                finite("scale", 1f).coerceIn(.1f, 8f)
+                finite("scale", 1f).coerceIn(.1f, 8f),
+                item.optString("documentPage").takeIf { it.isNotBlank() },
+                if (item.has("documentY")) item.optDouble("documentY").toFloat().takeIf(Float::isFinite) else null
             ),
             tool = restoredTool(item.optString("tool")),
             query = item.optString("query")
