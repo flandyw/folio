@@ -281,10 +281,10 @@ private val PageChipWidth = 48.dp
             val showTabs = showBack && toolbarOptions.tabs
             val homeOnBar = showBack && !showTabs
             val homeCount = if (homeOnBar) 1 else 0
-            // Browse pages is the grid button beside the page chip; where the chip shows, it is dropped.
+            // The floating page navigator already turns pages, so the bar keeps only the bookmark from it.
             val leftFull = DockButtonWidth * (homeCount + 4)
             val leftFolded = DockButtonWidth * (homeCount + 3)
-            val leftDense = DockButtonWidth * (homeCount + 3) + navExtraWidth
+            val leftDense = DockButtonWidth * (homeCount + 5)
             val rightBase = DockButtonWidth * (shareButtons + 1)
             val rightWithTimer = rightBase + timerWidth.value + FolioSpacing.dp8
             val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
@@ -297,7 +297,7 @@ private val PageChipWidth = 48.dp
             @Composable fun LeftControls() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (homeOnBar) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
-                    if (!goodnotesDense) DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
+                    DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     if (fold) Box {
                         DockButton(Icons.Rounded.MoreHoriz, "Find and layers", { navMenu = true })
                         FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
@@ -321,7 +321,9 @@ private val PageChipWidth = 48.dp
                             FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                         }
                     }
-                    if (goodnotesDense) PageNavigation()
+                    if (goodnotesDense) DockButton(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                        if (bookmarked) "Remove bookmark" else "Bookmark this page", onBookmark,
+                        tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 }
             }
             @Composable fun RightControls() {

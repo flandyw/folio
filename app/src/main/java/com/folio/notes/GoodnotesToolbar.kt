@@ -43,7 +43,7 @@ internal class EditorTabChip(val id: String, val title: String)
 internal val GoodnotesRowHeight = 40.dp
 /** Side inset of both rows, matching where the Folio pills' first button sits from the edge. */
 internal val GoodnotesBarInset = FolioSpacing.dp4
-private val TabStripHeight = 32.dp
+private val TabStripHeight = 36.dp
 private val TabHeight = 28.dp
 
 /**
