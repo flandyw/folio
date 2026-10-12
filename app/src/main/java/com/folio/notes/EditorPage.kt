@@ -22,8 +22,11 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-@Composable internal fun EditorPage(noteId: String, page: NotePage, model: FolioViewModel, surface: InkSurfaceConfig, presentation: PagePresentation, actions: EditorPageActions)  {
+@Composable internal fun EditorPage(noteId: String, initialPage: NotePage, model: FolioViewModel, surface: InkSurfaceConfig, presentation: PagePresentation, actions: EditorPageActions)  {
+    val snapshot by remember(noteId, initialPage.id) { model.documents.observePage(noteId, initialPage.id) }.collectAsStateWithLifecycle()
+    val page = snapshot?.page ?: initialPage
     val tool = surface.tool
     val shapeMeasurements = surface.shapeMeasurements
     val followEnabled = surface.followEnabled
@@ -153,7 +156,7 @@ import kotlinx.coroutines.CancellationException
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            else if (ready) InkViewHost(noteId, page, model, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs, stickyTextSize,
+            else if (ready) InkViewHost(noteId, page, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs, stickyTextSize,
                 onBound = { boundInkView = it }, onReleased = { if (boundInkView === it) boundInkView = null }) { view ->
                 view.onDocumentGesturePresence = { carrying = it }
                 view.documentPaperWidth = paperWidthPx

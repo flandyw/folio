@@ -20,16 +20,19 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 
 /** One editor and an independently navigable companion share the same notebook store. */
-@Composable fun WorkspaceScreen(state: FolioState, model: FolioViewModel, finger: Boolean,
+@Composable fun WorkspaceScreen(initialState: FolioState, model: FolioViewModel, finger: Boolean,
     haptics: Boolean, shapeRecognition: Boolean,
     onSettings: () -> Unit, onExport: () -> Unit,
     onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
     onShareLongPress: (() -> Unit)? = null,
     onChatGpt: (() -> Unit)? = null,
 ) {
+    val feature: WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val state by feature.state.collectAsStateWithLifecycle()
     var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -194,7 +197,7 @@ import kotlin.math.roundToInt
                             readOnly = true,
                             initialViewport = pane.viewport,
                             pdfLinks = if (linksOn) links else emptyList()),
-                        actions = EditorPageActions(onActive = {},
+                        actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
                             onPan = { _, _ -> },
                             onPanEnd = {},
                             onSelection = {},

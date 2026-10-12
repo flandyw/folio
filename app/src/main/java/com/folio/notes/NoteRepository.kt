@@ -253,12 +253,8 @@ class NoteRepository(private val context: Context) {
 
     /** Fetches every page still on disk; exports and backups need the whole notebook at once. */
     suspend fun loadPages(note: Notebook): Notebook = withContext(Dispatchers.IO) {
-        // Parallel page reads; each page is an independent file.
-        val loaded = coroutineScope {
-            note.pages.map { page ->
-                async { if (page.loaded) page else loadPage(note.id, page) }
-            }.awaitAll()
-        }
+        // Recovery and page I/O share the repository lock. Avoid an unbounded coroutine queue.
+        val loaded = note.pages.map { page -> if (page.loaded) page else loadPage(note.id, page) }
         note.copy(pages = loaded)
     }
 

@@ -17,7 +17,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 /** The single Compose/native bridge. Samples, cancellation and raster teardown remain native. */
 @Composable internal fun InkViewHost(
-    noteId: String, page: NotePage, model: FolioViewModel, surface: InkSurfaceConfig,
+    noteId: String, page: NotePage, surface: InkSurfaceConfig,
     presentation: PagePresentation, actions: EditorPageActions, assets: PageAssets, inputStylusActivity: StylusActivity,
     penSmoothing: Float, shapeHoldMs: Long, stickyTextSize: Float, onBound: (InkView) -> Unit,
     onReleased: (InkView) -> Unit, configure: (InkView) -> Unit,
@@ -123,15 +123,15 @@ import androidx.compose.ui.viewinterop.AndroidView
                 view.shapeRecognition = shapeRecognition
                 view.shapeHoldMs = shapeHoldMs
                 view.stickyTextSize = stickyTextSize
-                view.onStrokesChanged = { if (!readOnly) model.strokes(page.id, it) }
+                view.onStrokesChanged = { if (!readOnly) actions.mutations.strokes(it) }
                 view.onStrokeAppended = { before, stroke, after ->
-                    if (!readOnly) model.appendStroke(page.id, before, stroke, after)
+                    if (!readOnly) actions.mutations.appendStroke(before, stroke, after)
                 }
-                view.onStrokeWithdrawn = { if (!readOnly) model.withdrawStroke(page.id, it) }
-                view.onPenInput = { beginsStroke -> if (!readOnly) model.onPenActivity(beginsStroke) }
-                view.onContentChanged = { strokes, texts, images -> if (!readOnly) model.updateContent(page.id, strokes, texts, images) }
-                view.onTextsChanged = { if (!readOnly) model.texts(page.id, it) }
-                view.onImagesChanged = { if (!readOnly) model.images(page.id, it) }
+                view.onStrokeWithdrawn = { if (!readOnly) actions.mutations.withdrawStroke(it) }
+                view.onPenInput = { beginsStroke -> if (!readOnly) actions.mutations.penActivity(beginsStroke) }
+                view.onContentChanged = { strokes, texts, images -> if (!readOnly) actions.mutations.content(strokes, texts, images) }
+                view.onTextsChanged = { if (!readOnly) actions.mutations.texts(it) }
+                view.onImagesChanged = { if (!readOnly) actions.mutations.images(it) }
                 view.importantForAccessibility = if (hideFromAccessibility) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                     else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                 view.isFocusable = !hideFromAccessibility

@@ -220,6 +220,8 @@ dependencies {
     // Bundled Latin OCR: available offline on first use, including scanned exam papers.
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
 
 // JVM smoke checks use real org.json rather than Android's throwing SDK stubs. This standalone

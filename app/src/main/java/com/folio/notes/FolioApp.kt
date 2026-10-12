@@ -48,7 +48,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable fun FolioApp(model: FolioViewModel, shortcutRequest: Int) {
-    val state by model.state.collectAsStateWithLifecycle()
+    val library: LibraryViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val state by library.state.collectAsStateWithLifecycle()
     val mistakes: com.folio.notes.mistakes.MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var showMistakes by rememberSaveable { mutableStateOf(false) }
     var showStudy by rememberSaveable { mutableStateOf(false) }

@@ -58,6 +58,7 @@ internal data class PagePresentation(
 )
 
 internal data class EditorPageActions(
+    val mutations: EditorPageMutations,
     val onActive: () -> Unit,
     val onPan: (Float, Float) -> Unit,
     val onPanEnd: (Float) -> Unit,
