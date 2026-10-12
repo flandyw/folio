@@ -6,7 +6,7 @@ internal object DocumentPageGeometry {
     data class Bounds(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val width get() = right - left
         val height get() = bottom - top
-        val valid get() = listOf(left, top, right, bottom).all(Float::isFinite) && width > 0f && height > 0f
+        val valid get() = left.isFinite() && top.isFinite() && right.isFinite() && bottom.isFinite() && width > 0f && height > 0f
         fun contains(x: Float, y: Float) = x >= left && x < right && y >= top && y < bottom
     }
     data class Frame(val pageId: String, val width: Float, val height: Float, val paper: Bounds, val workspace: Bounds) {

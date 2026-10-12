@@ -63,7 +63,9 @@ data class PageEdit(
     val texts: List<TextBox>? = null,
     val images: List<PageImage>? = null,
     /** The page's whole layer list; layer changes are small, so a changed list is stored whole. */
-    val layers: List<PageLayer>? = null
+    val layers: List<PageLayer>? = null,
+    val groupId: String? = null,
+    val actionSequence: Long = 0L
 ) {
     val isEmpty: Boolean get() = strokes == null && texts == null && images == null && layers == null
 }
@@ -159,7 +161,8 @@ object PageJournal {
         },
         texts = if (edit.texts != null) before.texts else null,
         images = if (edit.images != null) before.images else null,
-        layers = if (edit.layers != null) before.layers else null
+        layers = if (edit.layers != null) before.layers else null,
+        groupId = edit.groupId, actionSequence = edit.actionSequence
     )
 
     private fun diffStrokes(before: List<Stroke>, after: List<Stroke>): StrokesEdit? {
@@ -388,10 +391,12 @@ object PageJournal {
         val images = o.optJSONArray("im")?.let { InkCodec.decodeImages(it) }
         val layers = o.optJSONArray("ly")?.let { InkCodec.decodeLayers(it) }
         if (strokes == null && texts == null && images == null && layers == null) return null
-        return PageEdit(strokes, texts, images, layers)
+        return PageEdit(strokes, texts, images, layers, o.optString("group").takeIf { it.isNotBlank() }, o.optLong("action", 0))
     }
 
     private fun encodeInto(o: JSONObject, edit: PageEdit) {
+        edit.groupId?.let { o.put("group", it) }
+        if (edit.actionSequence > 0) o.put("action", edit.actionSequence)
         edit.strokes?.let { strokes -> o.put("st", JSONObject().apply {
             when (strokes) {
                 is StrokesEdit.Add -> put("add", InkCodec.encodeStrokes(strokes.strokes))

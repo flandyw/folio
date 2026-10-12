@@ -25,10 +25,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-internal val EditorFloatingGroupHeight = 46.dp
-private val DockButtonWidth = 48.dp
-private val NotebookActionsWidth = 56.dp
-private val NotebookActionsGap = 4.dp
+internal val EditorFloatingGroupHeight = 40.dp
+private val DockButtonWidth = 40.dp
+private val DockButtonHeight = 36.dp
+private val NotebookActionsWidth = 46.dp
+private val NotebookActionsGap = 2.dp
+/** The "3/12" page readout between the previous and next buttons. */
+private val PageChipWidth = 48.dp
 
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(
@@ -142,10 +145,28 @@ private val NotebookActionsGap = 4.dp
         // Settings can keep the timer in the notebook menu even where it would fit.
         val compact = !toolbarOptions.timer || maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
         val rightNatural = documentWidth + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
-        val sideWidth = maxOf(leftNatural, rightNatural)
+        // Where the pane has room beyond the tools, page stepping and the common page actions join
+        // the bar instead of waiting in the notebook menu: previous, page n/N, next and bookmark on
+        // the left; insert picture and fit to screen on the right.
+        val navExtraWidth = DockButtonWidth * 3 + PageChipWidth
+        val docExtraWidth = DockButtonWidth * 2
+        val dense = maxWidth >= toolsNeed + maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) * 2 + groupGaps
+        val sideWidth = if (dense) maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) else maxOf(leftNatural, rightNatural)
         // Reflow before either side squeezes the tool tray below a useful width. This also
         // accounts for a running timer's actual size instead of a fixed window breakpoint.
         val narrow = maxWidth < toolsNeed + sideWidth * 2 + groupGaps
+        @Composable fun PageNavigation() {
+            DockButton(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page", onPrevious, enabled = pageIndex > 0)
+            PageChip(pageIndex, pageCount, onPages)
+            DockButton(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page", onNext, enabled = pageIndex < pageCount - 1)
+            DockButton(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                if (bookmarked) "Remove bookmark" else "Bookmark this page", onBookmark,
+                tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+        }
+        @Composable fun PageExtras() {
+            DockButton(Icons.Rounded.Image, "Insert picture", onInsertImage)
+            DockButton(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%", onFit)
+        }
         @Composable fun NotebookMenu(timerInMenu: Boolean) {
             FolioPopover({ overflow = false }, width = 320.dp) {
                 val dismiss = { overflow = false }
@@ -221,18 +242,20 @@ private val NotebookActionsGap = 4.dp
                         layersPopover()
                     }
                     }
+                    if (dense) PageNavigation()
                 }
             } }
         }
         @Composable fun DocumentControls() {
             Row(Modifier, verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.End)) {
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.End)) {
                 if (!compact) EditorGlassSurface {
                     Row(Modifier.padding(horizontal = FolioSpacing.dp6),
                         verticalAlignment = Alignment.CenterVertically) { timer() }
                 }
                 EditorGlassSurface {
                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                        if (dense) PageExtras()
                         onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                         DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
                         Box(Modifier.padding(start = NotebookActionsGap)) {
@@ -264,7 +287,10 @@ private val NotebookActionsGap = 4.dp
             val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
             val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
             val stacked = rowWidth < toolsNeed + maxOf(leftFolded, rightBase) * 2 + barGap * 2
-            val side = maxOf(if (fold) leftFolded else leftFull, if (timerInline) rightWithTimer else rightBase)
+            val rightNow = if (timerInline) rightWithTimer else rightBase
+            val goodnotesDense = rowWidth >= toolsNeed + maxOf(leftFull + navExtraWidth, rightNow + docExtraWidth) * 2 + barGap * 2
+            val side = if (goodnotesDense) maxOf(leftFull + navExtraWidth, rightNow + docExtraWidth)
+                else maxOf(if (fold) leftFolded else leftFull, rightNow)
             @Composable fun LeftControls() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (homeOnBar) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
@@ -284,6 +310,7 @@ private val NotebookActionsGap = 4.dp
                             layersPopover()
                         }
                     }
+                    if (goodnotesDense) PageNavigation()
                 }
             }
             @Composable fun RightControls() {
@@ -297,6 +324,7 @@ private val NotebookActionsGap = 4.dp
                             FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                         }
                     }
+                    if (goodnotesDense) PageExtras()
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
                     Box(Modifier.padding(start = NotebookActionsGap)) {
@@ -368,15 +396,24 @@ private val NotebookActionsGap = 4.dp
 }
 
 /** Shared dock button; reserve the full Material touch width in the row budget. */
-@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null, width: Dp = DockButtonWidth) {
+@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null, width: Dp = DockButtonWidth, enabled: Boolean = true) {
     val hold = rememberLongPressGuard()
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(),
         // The tooltip's own long-press would swallow the hold, so a button with a hold action gives it up.
         enableUserInput = onLongClick == null) {
         // The hold and the tap share one guard so a long-press never also fires the tap on release.
-        IconButton(hold.click(onClick), modifier = Modifier.width(width).height(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
+        IconButton(hold.click(onClick), enabled = enabled, modifier = Modifier.width(width).height(DockButtonHeight).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
             Icon(icon, label, Modifier.size(20.dp), tint = tint)
         }
+    }
+}
+
+/** "3/12": where the reader is, and a tap browses the pages. */
+@Composable private fun PageChip(pageIndex: Int, pageCount: Int, onPages: () -> Unit) {
+    TextButton(onPages, Modifier.width(PageChipWidth).height(DockButtonHeight), contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current)) {
+        Text("${pageIndex + 1}/$pageCount", style = MaterialTheme.typography.labelMedium, maxLines = 1,
+            modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" })
     }
 }
 

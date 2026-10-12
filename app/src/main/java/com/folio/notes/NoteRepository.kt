@@ -160,6 +160,7 @@ class NoteRepository(private val context: Context) {
         cleanBackupStaging()
         val dirs = root.listFiles().orEmpty()
             .filter { idPattern.matches(it.name) && it.isDirectory && (File(it, "note.json").exists() || File(it, "note.json.bak").exists()) }
+        lock.withLock { dirs.forEach { recoverDocumentLocked(it.name) } }
         // Decode indexes concurrently; each notebook lives in its own directory.
         val notes = coroutineScope {
             dirs.map { async(Dispatchers.IO) { readIndex(it) } }.awaitAll()
@@ -182,7 +183,7 @@ class NoteRepository(private val context: Context) {
         val raw = AtomicFile(File(dir, "note.json")).openRead().bufferedReader().use { it.readText() }
         val version = NoteMetaCodec.versionOf(raw)
         when (version) {
-            NoteMetaCodec.VERSION -> return NoteMetaCodec.decode(raw)
+            6, NoteMetaCodec.VERSION -> return NoteMetaCodec.decode(raw)
             5 -> {
                 val note = NoteMetaCodec.decodeVersion5(raw)
                 atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
@@ -217,12 +218,18 @@ class NoteRepository(private val context: Context) {
      * The compacted snapshot is the base and the journal is replayed on top; a torn final record
      * from a process death is ignored, and the rest of the page is still exactly what was saved.
      */
-    suspend fun loadPage(noteId: String, summary: NotePage): NotePage = withContext(Dispatchers.IO) {
-        if (summary.loaded) return@withContext summary
-        convertLegacyPage(noteId, summary.id)
+    suspend fun loadPage(noteId: String, summary: NotePage): NotePage =
+        if (summary.loaded) summary else loadPageCheckpoint(noteId, summary).page
+
+    /** Content and history are read from the same committed sequence under one lock. */
+    suspend fun loadPageCheckpoint(noteId: String, summary: NotePage): PageCheckpoint = withContext(Dispatchers.IO) {
+        require(!summary.loaded)
+        lock.withLock {
+            recoverDocumentLocked(noteId)
+            if (hasLegacyFiles(noteId, summary.id)) convertLegacyLocked(noteId, summary.id)
         val file = storedPageFile(noteId, summary.id)
         val journal = storedJournalFile(noteId, summary.id)
-        if (!file.exists() && !journal.exists()) return@withContext summary.copy(loaded = true)
+        if (!file.exists() && !journal.exists()) return@withLock PageCheckpoint(summary.copy(loaded = true), PageJournal.History.EMPTY)
         val snapshot = file.takeIf { it.exists() }?.let { readSnapshot(it) }
         val base = snapshot?.let { PageContent(it.strokes, it.texts, it.images, it.layers) } ?: PageContent.EMPTY
         val baseSeq = snapshot?.journalSeq ?: 0
@@ -238,8 +245,10 @@ class NoteRepository(private val context: Context) {
         // A journal that outgrew its bound in an earlier session is folded once this page is idle.
         if (journal.length() > MAX_JOURNAL_BYTES) pendingCompaction += key
         val content = PageJournal.replay(base, baseSeq, records)
-        summary.copy(strokes = content.strokes, texts = content.texts, images = content.images,
-            layers = content.layers, revision = revision, loaded = true)
+        PageCheckpoint(summary.copy(strokes = content.strokes, texts = content.texts, images = content.images,
+            layers = content.layers, revision = revision, loaded = true),
+            PageJournal.foldHistory(snapshot?.history ?: PageJournal.History.EMPTY, records, baseSeq))
+        }
     }
 
     /** Fetches every page still on disk; exports and backups need the whole notebook at once. */
@@ -257,7 +266,7 @@ class NoteRepository(private val context: Context) {
 
     /** Writes the index: notebook fields and one summary per page, never any ink. */
     suspend fun saveMeta(note: Notebook) = withContext(Dispatchers.IO) {
-        lock.withLock { atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note)) }
+        lock.withLock { recoverDocumentLocked(note.id); atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note)) }
     }
 
     /** Publish an attempt only after all of its new page snapshots exist. Existing histories stay intact. */
@@ -296,6 +305,7 @@ class NoteRepository(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         if (transactions.isEmpty()) return@withContext
         lock.withLock {
+            recoverDocumentLocked(noteId)
             val key = pageKey(noteId, pageId)
             // A JSON-era page must become binary before anything binary is appended to it: the
             // reader prefers the binary files, so a journal beside an unconverted snapshot would hide it.
@@ -315,6 +325,83 @@ class NoteRepository(private val context: Context) {
         }
     }
 
+    /** Atomic logical commit: a durable intent precedes all member appends and the index checkpoint. */
+    suspend fun appendDocumentTransactions(noteId: String, id: String, history: DocumentHistory,
+        transactions: Map<String, PageTransaction>, pages: Map<String, NotePage>) = withContext(Dispatchers.IO) {
+        lock.withLock {
+            recoverDocumentLocked(noteId)
+            val savedHistory = DocumentHistoryCodec.decode(JSONObject(AtomicFile(noteFile(noteId)).openRead().bufferedReader().use { it.readText() }).optJSONObject("documentHistory"))
+            if (savedHistory.lastCommit == id) return@withLock
+            require(history.lastCommit == id)
+            val stamped = transactions.mapValues { (pageId, transaction) ->
+                checked(pageId)
+                if (hasLegacyFiles(noteId, pageId) && !storedPageFile(noteId, pageId).exists()) convertLegacyLocked(noteId, pageId)
+                transaction.copy(seq = (journalSeqs[pageKey(noteId, pageId)] ?: storedMaxSeq(noteId, pageId)) + 1)
+            }
+            val commit = DocumentCommit(id, history, stamped, pages.mapValues { NoteMetaCodec.pageSummary(it.value).toString() })
+            atomicWrite(File(directory(noteId), "document.pending"), DocumentCommitCodec.encode(commit))
+            syncDocumentDirectory(noteId)
+            recoverDocumentLocked(noteId)
+        }
+    }
+
+    private fun syncDocumentDirectory(noteId: String) = syncDirectory(storedDirectory(noteId))
+
+    private fun syncDirectory(directory: File) {
+        val fd = android.system.Os.open(directory.path,
+            android.system.OsConstants.O_RDONLY, 0)
+        try { android.system.Os.fsync(fd) } finally { android.system.Os.close(fd) }
+    }
+
+    /** Must run under the repository mutex before exposing a page or allowing another writer. */
+    private fun recoverDocumentLocked(noteId: String) {
+        val pending = File(storedDirectory(noteId), "document.pending")
+        if (!pending.exists() && !File(pending.path + ".bak").exists()) return
+        val commit = DocumentCommitCodec.decode(AtomicFile(pending).openRead().bufferedReader().use { it.readText() })
+        commit.records.keys.forEach(::checked)
+        DocumentCommitRecovery.replay(commit,
+            applied = { pageId, transaction ->
+                if (snapshotSeq(storedPageFile(noteId, pageId)) >= transaction.seq) true
+                else {
+                    val records = readJournal(storedJournalFile(noteId, pageId))
+                    val found = records.firstOrNull { it.seq == transaction.seq }
+                    if (found != null) {
+                        FileOutputStream(storedJournalFile(noteId, pageId), true).use { it.fd.sync() }
+                        check(JournalBinary.frame(found).contentEquals(JournalBinary.frame(transaction))) { "Conflicting document journal sequence" }
+                        true
+                    } else {
+                        check(PageJournal.lastSeq(records) < transaction.seq) { "Missing document journal member" }
+                        false
+                    }
+                }
+            }, append = { pageId, transaction ->
+                val key = pageKey(noteId, pageId)
+                appendJournal(key, pageJournalFile(noteId, pageId)) { it.write(JournalBinary.frame(transaction)) }
+                journalSeqs[key] = transaction.seq; journalRevs[key] = transaction.revision
+                if ((journalLengths[key] ?: 0L) > MAX_JOURNAL_BYTES) pendingCompaction += key
+            }, checkpoint = { history ->
+                // A newly created member journal needs its directory entry durable too.
+                syncDirectory(storedJournalFile(noteId, commit.records.keys.first()).parentFile!!)
+                val index = noteFile(noteId)
+                val metadata = JSONObject(AtomicFile(index).openRead().bufferedReader().use { it.readText() })
+                val summaries = metadata.getJSONArray("pages")
+                val ids = (0 until summaries.length()).associateBy { summaries.getJSONObject(it).getString("id") }
+                commit.pageSummaries.forEach { (id, raw) ->
+                    val slot = ids[id] ?: error("Document member is missing from its notebook index")
+                    val summary = JSONObject(raw); require(summary.getString("id") == id)
+                    summaries.put(slot, summary)
+                }
+                metadata.put("version", NoteMetaCodec.VERSION).put("documentHistory", DocumentHistoryCodec.encode(history))
+                atomicWrite(index, metadata.toString())
+                syncDocumentDirectory(noteId)
+            }, complete = { deleteAtomic(pending); check(!pending.exists() && !File(pending.path + ".bak").exists() && !File(pending.path + ".new").exists()) { "Could not finish document recovery" }; syncDocumentDirectory(noteId) })
+        commit.records.forEach { (page, transaction) ->
+            val key = pageKey(noteId, page)
+            journalSeqs[key] = maxOf(journalSeqs[key] ?: 0, transaction.seq)
+            journalRevs[key] = maxOf(journalRevs[key] ?: 0, transaction.revision)
+        }
+    }
+
     /**
      * One page's persisted undo/redo stacks, rebuilt rather than stored. The snapshot carries the
      * stacks as of the last journal record it folded in, and every record after it says what it did
@@ -324,10 +411,13 @@ class NoteRepository(private val context: Context) {
      * converted first, which folds its old history file and journal into the binary snapshot.
      */
     suspend fun loadHistory(noteId: String, pageId: String): PageJournal.History = withContext(Dispatchers.IO) {
-        convertLegacyPage(noteId, pageId)
+        lock.withLock {
+        recoverDocumentLocked(noteId)
+        if (hasLegacyFiles(noteId, pageId)) convertLegacyLocked(noteId, pageId)
         val snapshot = storedPageFile(noteId, pageId).takeIf { it.exists() }?.let { readSnapshot(it) }
         PageJournal.foldHistory(snapshot?.history ?: PageJournal.History.EMPTY,
             readJournal(storedJournalFile(noteId, pageId)), snapshot?.journalSeq ?: 0)
+        }
     }
 
     /**
@@ -376,6 +466,7 @@ class NoteRepository(private val context: Context) {
     suspend fun saveAll(note: Notebook, history: Map<String, PageJournal.History> = emptyMap()) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+            recoverDocumentLocked(note.id)
                 note.pages.filter { it.loaded }.forEach {
                     writeSnapshot(note.id, it, history = history[it.id] ?: PageJournal.History.EMPTY)
                 }
@@ -664,6 +755,10 @@ class NoteRepository(private val context: Context) {
                 included.withIndex().associate { (index, note) ->
                     job.ensureActive()
                     onProgress("Capturing notebook ${index + 1} of ${included.size}: ${note.title}")
+                    recoverDocumentLocked(note.id)
+                    val committed = readIndex(storedDirectory(note.id))
+                    val capturedNote = if (committed.documentHistory.enabled || note.documentHistory.enabled)
+                        committed.copy(folderId = note.folderId) else note
                     val captured = linkedMapOf<String, File>()
                     fun capture(path: String, source: File, appendable: Boolean = false) {
                         if (!source.exists() && !File(source.path + ".bak").exists()) return
@@ -675,15 +770,15 @@ class NoteRepository(private val context: Context) {
                         captured[path] = target
                     }
                     val meta = File(staging, "${checked(note.id)}/note.json").apply { parentFile?.mkdirs() }
-                    meta.writeText(NoteMetaCodec.encode(note), Charsets.UTF_8)
+                    meta.writeText(NoteMetaCodec.encode(capturedNote), Charsets.UTF_8)
                     captured["note.json"] = meta
-                    note.pages.forEach { page ->
+                    capturedNote.pages.forEach { page ->
                         job.ensureActive()
                         capture("pages/${checked(page.id)}.fps", storedPageFile(note.id, page.id))
                         capture("pages/${checked(page.id)}.fjl", storedJournalFile(note.id, page.id), appendable = true)
                     }
                     capture("source.pdf", File(storedDirectory(note.id), "source.pdf"))
-                    require(note.pages.none { it.pdfIndex != null } || "source.pdf" in captured) { "Source PDF is missing from ${note.title}" }
+                    require(capturedNote.pages.none { it.pdfIndex != null } || "source.pdf" in captured) { "Source PDF is missing from ${note.title}" }
                     // Keep images referenced by undo/redo too, without decoding every page's history.
                     val images = File(storedDirectory(note.id), "images")
                     images.listFiles().orEmpty().map { it.name.removeSuffix(".bak") }.distinct().forEach { name ->
@@ -1406,7 +1501,9 @@ class NoteRepository(private val context: Context) {
             val writer = stream.bufferedWriter(Charsets.UTF_8)
             writer.write(value)
             writer.flush()
+            stream.fd.sync()
             atomic.finishWrite(stream)
+            check(AtomicFile(file).openRead().use { it.readBytes() }.contentEquals(value.toByteArray(Charsets.UTF_8))) { "Could not finish atomic write" }
         }
         catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
@@ -1416,9 +1513,20 @@ class NoteRepository(private val context: Context) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
         try {
             val buffered = java.io.BufferedOutputStream(stream, 64 * 1024)
-            write(buffered)
-            buffered.flush()
+            val checksum = java.util.zip.CRC32()
+            val checked = java.util.zip.CheckedOutputStream(buffered, checksum)
+            write(checked)
+            checked.flush()
+            stream.fd.sync()
+            val expectedLength = stream.channel.position()
             atomic.finishWrite(stream)
+            val actual = java.util.zip.CRC32()
+            var length = 0L
+            AtomicFile(file).openRead().use { input ->
+                val block = ByteArray(64 * 1024)
+                while (true) { val n = input.read(block); if (n < 0) break; actual.update(block, 0, n); length += n }
+            }
+            check(length == expectedLength && actual.value == checksum.value) { "Could not finish atomic binary write" }
         }
         catch (e: Exception) { atomic.failWrite(stream); throw e }
     }

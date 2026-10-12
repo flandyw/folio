@@ -40,11 +40,11 @@ internal object BarTones {
 internal class EditorTabChip(val id: String, val title: String)
 
 /** Height of the tool row; the tab strip above it is [TabStripHeight]. */
-internal val GoodnotesRowHeight = 52.dp
+internal val GoodnotesRowHeight = 40.dp
 /** Side inset of both rows, matching where the Folio pills' first button sits from the edge. */
-internal val GoodnotesBarInset = FolioSpacing.dp8
-private val TabStripHeight = 40.dp
-private val TabHeight = 34.dp
+internal val GoodnotesBarInset = FolioSpacing.dp4
+private val TabStripHeight = 32.dp
+private val TabHeight = 28.dp
 
 /**
  * The flat editor bar: document tabs over one row for navigation, tools and document actions.
@@ -64,7 +64,7 @@ private val TabHeight = 34.dp
         modifier = Modifier.fillMaxWidth().guardUiTouches(),
         color = BarTones.container,
         contentColor = BarTones.content,
-        shadowElevation = 2.dp,
+        shadowElevation = 1.dp,
     ) {
         Column(Modifier.fillMaxWidth()) {
             if (tabs != null) TabStrip(tabs, activeId, onHome, onSelectTab, onCloseTab, onNewTab)
@@ -90,9 +90,9 @@ private val TabHeight = 34.dp
     }
     CompositionLocalProvider(LocalContentColor provides BarTones.stripContent) {
         Row(
-            Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = GoodnotesBarInset - FolioSpacing.dp2),
+            Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = GoodnotesBarInset),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
             TabAction(Icons.Rounded.Home, "Back to notebooks", onHome)
             LazyRow(
@@ -115,15 +115,15 @@ private val TabHeight = 34.dp
         shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius),
         color = if (active) BarTones.container else Color.Transparent,
         contentColor = if (active) BarTones.content else BarTones.stripContent,
-        modifier = Modifier.height(TabHeight).widthIn(min = 112.dp, max = 220.dp)
+        modifier = Modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp)
             .semantics { role = Role.Tab; selected = active },
     ) {
-        Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge,
+        Row(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.width(FolioSpacing.dp4))
-            IconButton({ onClose(tab.id) }, modifier = Modifier.size(28.dp), shapes = IconButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Close, "Close $title", Modifier.size(16.dp),
+            Spacer(Modifier.width(FolioSpacing.dp2))
+            IconButton({ onClose(tab.id) }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.Close, "Close $title", Modifier.size(14.dp),
                     tint = LocalContentColor.current.copy(alpha = if (active) 1f else .7f))
             }
         }
@@ -133,6 +133,6 @@ private val TabHeight = 34.dp
 @Composable private fun TabAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, modifier = Modifier.size(36.dp), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(20.dp)) }
+        IconButton(onClick, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(18.dp)) }
     }
 }

@@ -18,7 +18,7 @@ import androidx.compose.ui.platform.LocalContext
         val editor = rememberEditorSession(note.id, prefs,
             tab?.tool ?: AppPrefs.defaultTool(appPrefs.getString(AppPrefs.DEFAULT_TOOL, null)),
             tab?.viewport ?: WorkspaceViewport())
-        CompositionLocalProvider(LocalEditorSurfaces provides editor.surfaces) {
+        CompositionLocalProvider(LocalEditorSurfaces provides editor.surfaces, LocalDocumentInput provides editor.documentInput) {
             EditorWorkspaceContent(editor, state, model, finger, haptics, shapeRecognitionSetting,
                 onSettings, onExport, notebookActions, music, showBack, onShareLongPress, onChatGpt, onOpenDocument)
         }

@@ -328,6 +328,7 @@ private fun checkEditorPositions() {
 }
 
 fun main() = runBlocking {
+    documentEditingSmoke()
     checkEditorPositions()
     checkNotebookDrops()
     checkLibraryBrowse()

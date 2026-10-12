@@ -126,6 +126,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val singlePage = preferences.singlePage
     val focusMode = preferences.focusMode && music == null
     val showPageBoundaries = preferences.showPageBoundaries && !focusMode
+    fun undoEditor() { editor.documentInput.cancelNativeContacts(); model.undo() }
+    fun redoEditor() { editor.documentInput.cancelNativeContacts(); model.redo() }
     val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
     val toolbarOptions by rememberPref(appPrefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var tool by editor.tools.tool
@@ -286,7 +288,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         when (effect) {
             is StylusShortcutEffect.SwitchTool -> selectTool(effect.tool)
             StylusShortcutEffect.OpenPalette -> palette = true
-            StylusShortcutEffect.Undo -> model.undo()
+            StylusShortcutEffect.Undo -> undoEditor()
             StylusShortcutEffect.NextLine -> {
                 // A next-line shortcut must not silently put free canvas work into prose mode.
                 if (!writingFollowEnabled && !page.infinite) setWritingFollow(true)
@@ -304,17 +306,22 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     }
     var selection by editor.interaction.selection
     val transfers = editor.interaction.transfers
-    SideEffect { transfers.update(note.pages) }
+    SideEffect {
+        transfers.update(note.pages)
+        editor.documentInput.configure(note, model, with(editorDensity) { if (showPageBoundaries || note.pages.any { it.pdfIndex != null }) 6.dp.toPx() else 0f })
+    }
     // Each page's whole item (paper plus the workspace around it) and the sticky note being carried over all of them.
 
     var stickyLift by editor.interaction.stickyLift
     var objectLift by editor.interaction.objectLift
     var moveSelection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val canPaste = context.getSystemService(android.content.ClipboardManager::class.java)?.hasPrimaryClip() == true
-    val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
+    val documentSelection by editor.interaction.documentSelection
+    val selected = documentSelection[page.id] ?: selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
     /** Selection frame in view fractions for the context menu; cleared with the page. */
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
-    LaunchedEffect(tool, page.id) { selection = null }
+    LaunchedEffect(page.id) { selection = null }
+    LaunchedEffect(tool) { selection = null; editor.documentInput.clearSelection() }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
     LaunchedEffect(effectiveFollowPreferences, writingHand) { followView?.suspendWritingFollow(clearBack = false) }
     // Changing tool mid-line (erase a word, then write again) keeps the line; it only stops movement.
@@ -580,6 +587,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     // Every way of changing page (thumbnails, search, outline, delete, undo) starts the next page fitted.
     LaunchedEffect(page.id, paged) { if (paged) { canvasReset++; documentZoom = 1f; documentPan = 0f } }
     fun setSinglePage(on: Boolean) {
+        editor.documentInput.clearSelection()
         if (!paged) viewportCoordinator.capture()
         appPrefs.edit().putBoolean(AppPrefs.SINGLE_PAGE_VIEW, on).apply()
         activeInkView?.suspendWritingFollow()
@@ -625,6 +633,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     /** A pending scroll request lands after the new page is measured, in either layout. */
     fun revealNewPage(index: Int) { jumpTo(index) }
     fun selectAllInk() {
+        editor.documentInput.clearSelection()
         val view = activeInkView
         if (view != null) view.selectAll()
         else if (page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) {
@@ -769,8 +778,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             note.pages.getOrNull(state.pageIndex + offset)?.let { model.loadPage(it.id) }
         }
     }
-    BackHandler(enabled = selected.isNotEmpty() && restyleSelection == null) {
-        activeInkView?.clearSelection()
+    BackHandler(enabled = (selected.isNotEmpty() || documentSelection.isNotEmpty()) && restyleSelection == null) {
+        if (documentSelection.isNotEmpty()) editor.documentInput.clearSelection() else activeInkView?.clearSelection()
         selection = null
     }
     BackHandler(enabled = cropActive || selectedImage != null) {
@@ -802,8 +811,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             (event.key == Key.Escape || (event.key == Key.Enter && event.isCtrlPressed))) { finishTextEditing(); true }
         else if (textEditor == null && music != null && music.onKey(event.nativeKeyEvent)) true
         else if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
-            Key.Z -> { finishTextEditing(); if (event.isShiftPressed) model.redo() else model.undo(); true }
-            Key.Y -> { finishTextEditing(); model.redo(); true }
+            Key.Z -> { finishTextEditing(); if (event.isShiftPressed) redoEditor() else undoEditor(); true }
+            Key.Y -> { finishTextEditing(); redoEditor(); true }
             Key.F -> { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
             Key.G -> { finishTextEditing(); pageBrowser = true; editor.browser.jumpExpanded.value = true; true }
             Key.Zero -> { resetZoom(); true }
@@ -820,6 +829,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) when {
             cropActive -> { activeInkView?.endImageCrop(false); true }
             selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
+            documentSelection.isNotEmpty() -> { editor.documentInput.clearSelection(); true }
             selected.isNotEmpty() -> { activeInkView?.clearSelection(); selection = null; true }
             pageMenu != null -> { pageMenu = null; true }
             else -> false
@@ -963,8 +973,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
                             onPdfLink = ::openPdfLink,
                             onEraserFinished = ::finishSingleStrokeEraser,
-                            onUndo = model::undo,
-                            onRedo = model::redo,
+                            onUndo = ::undoEditor,
+                            onRedo = ::redoEditor,
                             onSelectAllView = { if (!preview && item.id == page.id) { configureOverview(it) } },
                             onRulerChanged = { line -> rulers = rulers + (item.id to line) },
                             onSelectionAnchor = { rect -> if (item.id == page.id) selectionAnchor = rect }))
@@ -1018,8 +1028,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         onLongPress = { x, y, at -> pageMenu = Triple(x, y, at) },
                         onPdfLink = ::openPdfLink,
                         onEraserFinished = ::finishSingleStrokeEraser,
-                        onUndo = model::undo,
-                        onRedo = model::redo,
+                        onUndo = ::undoEditor,
+                        onRedo = ::redoEditor,
                         onSelectAllView = { configureOverview(it) },
                         onSelectionAnchor = { selectionAnchor = it }))
             } else ContinuousDocumentHost(note.id, note.pages.size, note.pages.any { it.pdfIndex != null }, editor,
@@ -1052,7 +1062,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     markColor = markingColor,
                                     selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                                     selectionMenuViewport = selectionViewport,
-                                    selectionMenu = if (item.id != page.id || inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu),
+                                    selectionMenu = if (documentSelection.isNotEmpty() || item.id != page.id || inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu),
                                 actions = EditorPageActions(onActive = { model.selectPage(index) },
                                     onPan = ::panBy,
                                     onPanEnd = motion::release,
@@ -1079,8 +1089,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     onStickyDrop = { source, lift -> transfers.dropSticky(model, source, lift) },
                                     onSelectionDrop = { source, picked, x, y -> transfers.dropSelection(model, source, picked, x, y) },
                                     onEraserFinished = ::finishSingleStrokeEraser,
-                                    onUndo = model::undo,
-                                    onRedo = model::redo,
+                                    onUndo = ::undoEditor,
+                                    onRedo = ::redoEditor,
                                     onSelectAllView = { if (item.id == page.id) { configureOverview(it) } },
                                     onFollowPan = { dx, dy ->
                                     val oldPan = documentPan
@@ -1375,6 +1385,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             if (!page.infinite && music == null && !paged) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
+            if (!paged && !page.infinite && music == null) EditorDocumentSelection(note, model, editor.interaction, editor.documentInput, quick.colors(InkColors.INK_GROUP),
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp, start = 8.dp, end = 8.dp).guardUiTouches().zIndex(12f))
+            if (state.documentHistoryBusy) LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = floatingToolbarTop).semanticsLabel("Restoring document action"))
             if (music != null && musicInsets != null) music.chrome(this, musicInsets)
             if (music == null && note.pages.isNotEmpty() && (!page.infinite || note.pages.size > 1)) PageNavigator(
                 index = state.pageIndex.coerceIn(0, note.pages.lastIndex), count = note.pages.size, singlePage = singlePage,
@@ -1400,8 +1413,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     quick = quick,
                     canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true,
                     canRedo = state.canRedo,
-                    undo = { finishTextEditing(); model.undo() },
-                    redo = { finishTextEditing(); model.redo() },
+                    undo = { finishTextEditing(); undoEditor() },
+                    redo = { finishTextEditing(); redoEditor() },
                     palette = palette,
                     snapEnabled = snapEnabled,
                     onSnap = ::setSnap,
@@ -1485,7 +1498,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onBookmark = { model.togglePageBookmark(page.id) },
                             layersPopover = {
                                 if (layersPopover) LayersPopover(page, model.activeLayerOf(page), selected.size, model,
-                                    onMoveSelection = { layer -> model.moveSelectionToLayer(selected, layer) },
+                                    onMoveSelection = { layer -> if (documentSelection.isNotEmpty()) editor.documentInput.moveSelectionToLayer(layer) else model.moveSelectionToLayer(selected, layer) },
                                     onDismiss = { layersPopover = false })
                             },
                             onInsertPage = { revealNewPage(model.insertPage(state.pageIndex + 1)) },
@@ -1580,8 +1593,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         }
                     },
                         onEraserFinished = ::finishSingleStrokeEraser,
-                        onUndo = model::undo,
-                        onRedo = model::redo,
+                        onUndo = ::undoEditor,
+                        onRedo = ::redoEditor,
                         onRulerChanged = { rulers = rulers + (page.id to it) }))
             }
         }
@@ -1670,7 +1683,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             onText = { selectTool(Tool.TEXT); placeTextBox(page, at) },
             onImage = { imagePicker.launch(arrayOf("image/*")) },
             canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true, canRedo = state.canRedo,
-            onUndo = { finishTextEditing(); model.undo() }, onRedo = { finishTextEditing(); model.redo() },
+            onUndo = { finishTextEditing(); undoEditor() }, onRedo = { finishTextEditing(); redoEditor() },
             onDismiss = { pageMenu = null })
     }
     EditorSearchPanels(state, model, editor.overlays, searchQuery, pdfOutline, ::jumpTo)
@@ -1725,7 +1738,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
 }
 
 /** One visibility rule for active-page actions (including sharing) and the scroll label. */
-@Composable private fun RestyleSelectionPanel(
+@Composable internal fun RestyleSelectionPanel(
     originals: List<Stroke>, quickColors: List<Int>,
     onDismiss: () -> Unit, onApply: (Int?, Float?, Float?, StrokeStyle?) -> Unit
 ) {

@@ -13,18 +13,18 @@ Finite notebooks now use a single paper column with 6 dp seams, one document cam
 - `EditorPage` handles the paper workspace and focused overlays. `PageAssets` retains asynchronous, repository-cached PDF/image loading and background guide detection. `InkViewHost` is the Compose/native bridge, using `InkSurfaceConfig`, `PagePresentation` and `EditorPageActions`. The registry releases handles on native detach and Compose release and updates identity when a retained view changes page.
 - The browser, rename/move/delete dialogs, paper picker, text/PDF search, study/mark dialogs, mark popovers and toolbar container are separate components.
 
-`FolioViewModel` and the repository remain the only content/persistence owners. Native pressure samples, history, prediction, cancellation, raster caching and pen-up append commits keep their original path. `.fps`, `.fjl`, notebook indexes, backup formats and per-page undo semantics are unchanged. Reading-position JSON only gains optional presentation fields; old positions remain readable.
+`FolioViewModel` and the repository remain the only content/persistence owners. Native pressure samples, history, prediction, cancellation and raster caching keep their original path. Cross-page contacts are captured by `DocumentInputCoordinator` and committed through recoverable document transactions. Existing notebooks retain their storage versions until grouped history is used. Reading-position JSON only gains optional presentation fields; old positions remain readable.
 
-Cross-page strokes, document-spanning lasso and durable grouped undo are still the proposal's later phases. Existing carries and page-to-page selection moves retain their existing independent per-page undo effects. Removing the visual seam does not change the pen contact's page owner.
+Cross-page stylus handwriting and document-spanning lasso now use frozen paper geometry and shared native previews. Shared selection actions and grouped Undo/Redo commit every affected page together. Details, compatibility and recovery checks are in [document transactions](document-transactions.md). Existing sticky carries and single-page selection transfers retain their independent per-page undo effects.
 
 ## Automated checks
 
-The navigation smoke runner now compiles document geometry and viewport math from source. It covers mixed PDF sizes, margin notes, coordinate round trips at multiple scales, exact seam boundaries, invalid frames, reordered/deleted anchors, 10,000-page prefix geometry, most-visible-page selection and the existing explicit-navigation races. Backup smoke covers new and legacy reading-position/session round trips as well as the existing persistence checks.
+The navigation smoke runner now compiles document geometry and viewport math from source. It covers mixed PDF sizes, margin notes, coordinate round trips at multiple scales, exact seam boundaries, invalid frames, reordered/deleted anchors, 10,000-page prefix geometry, most-visible-page selection and the existing explicit-navigation races. Backup smoke also covers pressure interpolation at seams, mixed page scales, spanning lasso, fault-injected group recovery, history folding and portable backup restoration.
 
 Run:
 
 ```sh
-./build.sh -p -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke
+./build.sh -n -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke
 node tools/page-navigation-smoke.cjs
 node tools/writing-follow-smoke.cjs
 node tools/palm-rejection-smoke.cjs

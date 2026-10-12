@@ -11,6 +11,8 @@ internal class EditorSurfaceRegistry {
         val identity = role to pageId
         if (views[view] != identity) views[view] = identity
     }
+    fun editingSurfaces(): List<InkView> = views.entries.filter { it.value.first == EditorSurfaceRole.MAIN || it.value.first == EditorSurfaceRole.ZOOM }.map { it.key }
+    fun mainSurfaces(): List<InkView> = views.entries.filter { it.value.first == EditorSurfaceRole.MAIN }.map { it.key }
     fun release(view: InkView) { views.remove(view) }
     fun find(role: EditorSurfaceRole, pageId: String): InkView? =
         views.entries.lastOrNull { it.value == role to pageId }?.key

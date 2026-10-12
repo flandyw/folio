@@ -9,6 +9,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 internal class EditorSession(val tools: EditorToolState, val viewport: EditorViewportState, val browser: EditorBrowserState) {
     val surfaces = EditorSurfaceRegistry()
     val interaction = EditorInteractionState()
+    val documentInput = DocumentInputCoordinator(surfaces, interaction)
     val overlays = EditorOverlayState()
     val paper = EditorPaperState()
 }
@@ -57,6 +58,7 @@ internal class EditorViewportState(initial: WorkspaceViewport) {
 }
 internal class EditorInteractionState {
     val selection = mutableStateOf<Pair<String, CanvasSelection>?>(null)
+    val documentSelection = mutableStateOf<Map<String, CanvasSelection>>(emptyMap())
     val stickyLift = mutableStateOf<StickyLift?>(null)
     val objectLift = mutableStateOf<ObjectLift?>(null)
     val selectedImage = mutableStateOf<Pair<String, PageImage>?>(null)

@@ -13,10 +13,10 @@ import androidx.compose.ui.zIndex
     onHeight: (Int) -> Unit, tools: @Composable () -> Unit, text: @Composable () -> Unit) {
     Column(Modifier.align(Alignment.TopCenter).zIndex(11f).fillMaxWidth()
         .then(if (style == ToolbarStyle.GOODNOTES && !music) Modifier
-            else Modifier.padding(top = 6.dp, start = 6.dp, end = 6.dp))
+            else Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp))
         .onSizeChanged { onHeight(it.height) },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
         tools()
         text()
     }

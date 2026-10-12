@@ -23,6 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
     onReleased: (InkView) -> Unit, configure: (InkView) -> Unit,
 ) {
     val registry = LocalEditorSurfaces.current
+    val documentInput = LocalDocumentInput.current
     val role = when {
         presentation.hideFromAccessibility -> EditorSurfaceRole.PREVIEW
         surface.zoomWritingPane -> EditorSurfaceRole.ZOOM
@@ -48,6 +49,13 @@ import androidx.compose.ui.viewinterop.AndroidView
         update = { view ->
             identity.role = role; identity.pageId = page.id
             registry?.bind(view, role, page.id)
+            view.documentInputBusy = if (!presentation.readOnly && documentInput != null) documentInput::isHistoryBusy else null
+            val continuous = presentation.paperWidth != null && !presentation.readOnly && !surface.zoomWritingPane && !surface.inputBlocked
+            view.onDocumentGestureStart = if (continuous && documentInput != null) { stroke, lasso -> documentInput.begin(page.id, stroke, lasso) } else null
+            view.onDocumentGestureSamples = if (continuous && documentInput != null) { points -> documentInput.samples(page.id, points) } else null
+            view.onDocumentGestureFinish = if (documentInput != null) { { documentInput.finish(page.id) } } else null
+            view.onDocumentGestureCancel = if (documentInput != null) { { documentInput.cancel() } } else null
+            view.documentSelectionOwner = continuous && documentInput?.selectedOn(page.id) == true
             onBound(view)
             val tool = surface.tool
             val options = surface.options
@@ -148,6 +156,7 @@ import androidx.compose.ui.viewinterop.AndroidView
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
             configure(view)
+            if (continuous) documentInput?.selectionOn(page.id)?.let(view::bindDocumentSelection)
         },
     )
 }

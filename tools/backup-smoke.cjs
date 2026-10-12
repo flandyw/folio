@@ -55,7 +55,7 @@ try {
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
     '-classpath', runtime.join(path.delimiter), `-Xfriend-paths=${appClasses}`, '-d', classes,
-    path.join(__dirname, 'BackupSmoke.kt')]);
+    path.join(__dirname, 'BackupSmoke.kt'), path.join(__dirname, 'DocumentEditingSmoke.kt')]);
   run(['-cp', [classes, ...runtime].join(path.delimiter), 'com.folio.notes.BackupSmokeKt']);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

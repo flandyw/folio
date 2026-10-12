@@ -8,6 +8,9 @@ internal class EditorTransferCoordinator {
     private val regions = mutableMapOf<String, Rect>()
     private var index: DocumentPageGeometry.Index? = null
     private var sizes = emptyMap<String, Pair<Float, Float>>()
+    fun visiblePaperFrames(): Map<String, Rect> = papers.toMap()
+    fun workspaceFrame(id: String): Rect? = regions[id]
+    fun paperFrame(id: String): Rect? = papers[id]
     fun paper(id: String, frame: Rect?) { if (frame == null) papers.remove(id) else papers[id] = frame; index = null }
     fun region(id: String, frame: Rect?) { if (frame == null) regions.remove(id) else regions[id] = frame; index = null }
     fun update(pages: List<NotePage>) {

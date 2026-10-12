@@ -243,6 +243,7 @@ internal object InkBinary {
     private const val EDIT_TEXTS = 2
     private const val EDIT_IMAGES = 4
     private const val EDIT_LAYERS = 8
+    private const val EDIT_IDENTITY = 16
 
     fun writeEdit(w: BinWriter, edit: PageEdit) {
         var flags = 0
@@ -250,6 +251,7 @@ internal object InkBinary {
         if (edit.texts != null) flags = flags or EDIT_TEXTS
         if (edit.images != null) flags = flags or EDIT_IMAGES
         if (edit.layers != null) flags = flags or EDIT_LAYERS
+        if (edit.groupId != null || edit.actionSequence > 0) flags = flags or EDIT_IDENTITY
         w.u8(flags)
         when (val strokes = edit.strokes) {
             null -> Unit
@@ -263,6 +265,7 @@ internal object InkBinary {
         edit.texts?.let { writeTexts(w, it) }
         edit.images?.let { writeImages(w, it) }
         edit.layers?.let { writeLayers(w, it) }
+        if (flags and EDIT_IDENTITY != 0) w.string(org.json.JSONObject().put("group", edit.groupId ?: org.json.JSONObject.NULL).put("action", edit.actionSequence).toString())
     }
 
     fun readEdit(r: BinReader): PageEdit {
@@ -279,7 +282,8 @@ internal object InkBinary {
         val texts = if (flags and EDIT_TEXTS != 0) readTexts(r) else null
         val images = if (flags and EDIT_IMAGES != 0) readImages(r) else null
         val layers = if (flags and EDIT_LAYERS != 0) readLayers(r) else null
-        return PageEdit(strokes, texts, images, layers)
+        val identity = if (flags and EDIT_IDENTITY != 0) org.json.JSONObject(r.string()) else null
+        return PageEdit(strokes, texts, images, layers, identity?.optString("group")?.takeIf { it.isNotBlank() && it != "null" }, identity?.optLong("action", 0) ?: 0)
     }
 
     /** Flags + tool length byte + colour + width + count: the least a stroke can occupy. */
@@ -299,9 +303,11 @@ internal object InkBinary {
 internal object PageSnapshotBinary {
     /**
      * Version 1 is the original layout. Version 2 adds the page's layer list after the pictures and
-     * is only written for a page that has layers, so every other page stays a version-1 file.
+     * is only written for a page that has layers. Version 3 carries group/action identities in
+     * history edits and always includes a layer-list slot; untouched pages still write version 1.
      */
     const val VERSION = 2
+    const val GROUP_HISTORY_VERSION = 3
     private const val BASE_VERSION = 1
     private val MAGIC = byteArrayOf('F'.code.toByte(), 'O'.code.toByte(), 'L'.code.toByte(), 'P'.code.toByte())
     /** Enough of the head to read the magic, version, sequence and revision (two varints of 5 bytes). */
@@ -315,12 +321,13 @@ internal object PageSnapshotBinary {
 
     fun write(out: OutputStream, page: NotePage, journalSeq: Int, history: PageJournal.History) {
         val w = BinWriter(out)
-        w.bytes(MAGIC); w.u8(if (page.layers.isEmpty()) BASE_VERSION else VERSION)
+        val groupedHistory = (history.undo + history.redo).any { it.groupId != null || it.actionSequence > 0 }
+        w.bytes(MAGIC); w.u8(if (groupedHistory) GROUP_HISTORY_VERSION else if (page.layers.isEmpty()) BASE_VERSION else VERSION)
         w.varint(journalSeq); w.varint(page.revision.coerceAtLeast(0))
         InkBinary.writeStrokes(w, page.strokes)
         InkBinary.writeTexts(w, page.texts)
         InkBinary.writeImages(w, page.images)
-        if (page.layers.isNotEmpty()) InkBinary.writeLayers(w, page.layers)
+        if (page.layers.isNotEmpty() || groupedHistory) InkBinary.writeLayers(w, page.layers)
         w.varint(history.undo.size); history.undo.forEach { InkBinary.writeEdit(w, it) }
         w.varint(history.redo.size); history.redo.forEach { InkBinary.writeEdit(w, it) }
         // Not routed through the checksummed path: the checksum cannot cover itself.
@@ -340,7 +347,7 @@ internal object PageSnapshotBinary {
         if (crc.value.toInt() != stored) throw BinaryFormatException("checksum")
         val r = BinReader(bytes, MAGIC.size, body - MAGIC.size)
         val version = r.u8()
-        if (version != BASE_VERSION && version != VERSION) throw BinaryFormatException("unsupported page version")
+        if (version != BASE_VERSION && version != VERSION && version != GROUP_HISTORY_VERSION) throw BinaryFormatException("unsupported page version")
         val seq = r.varint(); val revision = r.varint()
         val strokes = InkBinary.readStrokes(r)
         val texts = InkBinary.readTexts(r)
@@ -356,7 +363,7 @@ internal object PageSnapshotBinary {
         if (!isSnapshot(head)) null else {
             val r = BinReader(head, MAGIC.size, length - MAGIC.size)
             val version = r.u8()
-            if (version != BASE_VERSION && version != VERSION) null else r.varint() to r.varint()
+            if (version != BASE_VERSION && version != VERSION && version != GROUP_HISTORY_VERSION) null else r.varint() to r.varint()
         }
     } catch (_: BinaryFormatException) { null }
 }
@@ -374,6 +381,7 @@ internal object PageSnapshotBinary {
  */
 internal object JournalBinary {
     const val VERSION = 1
+    const val GROUP_HISTORY_VERSION = 2
     private const val UNDO_POP = 1
     private const val REDO_POP = 2
     private const val CLEAR_REDO = 4
@@ -385,7 +393,7 @@ internal object JournalBinary {
     fun frame(transaction: PageTransaction): ByteArray {
         val payload = ByteArrayOutputStream()
         val w = BinWriter(payload)
-        w.u8(VERSION)
+        w.u8(if (listOfNotNull(transaction.forward, transaction.undoPush, transaction.redoPush).any { it.groupId != null || it.actionSequence > 0 }) GROUP_HISTORY_VERSION else VERSION)
         w.varint(transaction.seq.coerceAtLeast(0)); w.varint(transaction.revision.coerceAtLeast(0))
         var flags = 0
         if (transaction.undoPop) flags = flags or UNDO_POP
@@ -408,7 +416,7 @@ internal object JournalBinary {
 
     private fun decode(payload: ByteArray, offset: Int, length: Int): PageTransaction {
         val r = BinReader(payload, offset, length)
-        if (r.u8() != VERSION) throw BinaryFormatException("unsupported journal version")
+        if (r.u8() !in VERSION..GROUP_HISTORY_VERSION) throw BinaryFormatException("unsupported journal version")
         val seq = r.varint(); val revision = r.varint()
         val flags = r.u8()
         val forward = InkBinary.readEdit(r)

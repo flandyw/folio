@@ -148,12 +148,12 @@ object InkCodec {
  * An older file is migrated the first time it is opened.
  */
 object NoteMetaCodec {
-    const val VERSION = 6
+    const val VERSION = 7
 
     /** Single-parse version probe; prefer [versionOf] over the legacy per-version checks. */
     fun versionOf(value: String): Int = try { JSONObject(value).optInt("version", -1) } catch (_: Exception) { -1 }
 
-    fun isCurrent(value: String): Boolean = versionOf(value) == VERSION
+    fun isCurrent(value: String): Boolean = versionOf(value) in 6..VERSION
 
     /** True when [value] is the version-2 split index, which carries no ink but no exam tags either. */
     fun isSplitIndex(value: String): Boolean = versionOf(value) == 2
@@ -165,9 +165,10 @@ object NoteMetaCodec {
     fun isVersion4(value: String): Boolean = versionOf(value) == 4
 
     fun encode(note: Notebook): String = JSONObject().apply {
-        put("version", VERSION); put("id", note.id); put("title", note.title)
+        put("version", if (note.documentHistory.enabled) VERSION else 6); put("id", note.id); put("title", note.title)
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
+        if (note.documentHistory.enabled) put("documentHistory", DocumentHistoryCodec.encode(note.documentHistory))
         put("exam", ExamTagsCodec.encode(note.exam))
         if (note.tags.isNotEmpty()) put("tags", JSONArray(note.tags))
         put("attempts", ExamTagsCodec.encodeAttempts(note.attempts))
@@ -179,17 +180,19 @@ object NoteMetaCodec {
         note.musicScoreId?.let { put("musicScoreId", it) }
         put("mistakeReviews", JSONArray(note.mistakeReviews.map { it.encode() }))
         note.peekAnchor?.let { put(PeekAnchor.KEY, it.encode()) }
-        put("pages", JSONArray().apply { note.pages.forEach { p -> put(JSONObject().apply {
+        put("pages", JSONArray().apply { note.pages.forEach { put(pageSummary(it)) } })
+    }.toString()
+
+    fun pageSummary(p: NotePage): JSONObject = JSONObject().apply {
             put("id", p.id); put("width", p.width); put("height", p.height)
             put("paper", p.paper.name); put("pdf", p.pdfIndex ?: JSONObject.NULL); put("revision", p.revision)
             if (p.redoFlag) put("redo", true)
             if (p.infinite) put("infinite", true)
             put("title", p.title); put("bookmarked", p.bookmarked)
-        }) } })
-    }.toString()
+    }
 
     /** The notebook's shape: every page present in order, none of them carrying content. */
-    fun decode(value: String): Notebook = decodeIndex(value, VERSION)
+    fun decode(value: String): Notebook = versionOf(value).let { version -> require(version in 6..VERSION); decodeIndex(value, version) }
 
     /** Reads the version-2 split index during migration; exam fields simply default. */
     fun decodeSplit(value: String): Notebook = decodeIndex(value, 2)
@@ -223,7 +226,8 @@ object NoteMetaCodec {
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
             feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions")),
-            tags = NotebookTags.decode(o.optJSONArray("tags"))).let { note ->
+            tags = NotebookTags.decode(o.optJSONArray("tags")),
+            documentHistory = DocumentHistoryCodec.decode(o.optJSONObject("documentHistory"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))
             }
     }

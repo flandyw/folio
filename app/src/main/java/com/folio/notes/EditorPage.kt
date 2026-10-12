@@ -152,6 +152,7 @@ import kotlinx.coroutines.CancellationException
             }
             else if (ready) InkViewHost(noteId, page, model, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs,
                 onBound = { boundInkView = it }, onReleased = { if (boundInkView === it) boundInkView = null }) { view ->
+                view.onDocumentGesturePresence = { carrying = it }
                 view.documentPaperWidth = paperWidthPx
                 view.documentTop = workspaceTop
                 view.onTextEditorFrame = { textFrame = it }
@@ -187,7 +188,7 @@ import kotlinx.coroutines.CancellationException
                     offeredZone = if (zone != null && rect != null) zone to rect else null
                     offerStamp++
                 }
-                if (!active && !carrying) view.clearSelection()
+                if (!active && !carrying && !view.documentSelectionOwner) view.clearSelection()
 
             } else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().then(placeholderPaper)) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {

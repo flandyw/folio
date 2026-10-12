@@ -82,6 +82,7 @@ data class FolioState(
     /** When true, turning the editor's page also turns the companion (linked reference). */
     val companionLinked: Boolean = false,
     val activeId: String? = null, val pageIndex: Int = 0, val folderId: String? = null,
+    val documentHistoryBusy: Boolean = false,
     val loading: Boolean = true, val busy: Boolean = false, val exporting: Boolean = false,
     /**
      * How many edits the editor has made, and how many the device has finished writing. Saving is
@@ -162,14 +163,20 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * become a single append and a single fsync. [Once] is everything else — index writes, imports,
      * exports, a retry — and runs on its own, in the order it was queued.
      */
-    private sealed interface WriteOp {
+    private sealed class WriteOp {
+        var generation: Long = 0L
         class Page(
             val noteId: String, val pageId: String, val transaction: PageTransaction,
             val before: suspend () -> Unit = {}
-        ) : WriteOp
-        class Once(val block: suspend () -> Unit) : WriteOp
+        ) : WriteOp()
+        class Document(val noteId: String, val id: String, val history: DocumentHistory,
+            val transactions: Map<String, PageTransaction>, val pages: Map<String, NotePage>) : WriteOp()
+        class Once(val block: suspend () -> Unit, val recovery: Boolean = false, val barrier: Boolean = false) : WriteOp()
     }
     private val writes = Channel<WriteOp>(Channel.UNLIMITED)
+    /** Writer-owned: failed operations retain their order; later edits never leap over a group. */
+    private val failedWrites = ArrayList<WriteOp>()
+    private val failedBarriers = ArrayList<WriteOp.Once>()
     /** Writer-owned: retain dirty indexes across batches until the queue actually drains. */
     private val pendingIndexCheckpoints = LinkedHashSet<String>()
     @Volatile private var autoBackupDirty = false
@@ -196,7 +203,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private class StructureStep(val noteId: String, var seq: Long, val undo: () -> Unit, val redo: () -> Unit)
     private val structureUndo = ArrayList<StructureStep>()
     private val structureRedo = ArrayList<StructureStep>()
-    private var actionCounter = 0L
+    private var actionCounter = System.currentTimeMillis()
+    private var documentHistoryBusy = false
     private val inkSeq = HashMap<String, Long>()
     private val inkRedoSeq = HashMap<String, Long>()
     private fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit) {
@@ -378,6 +386,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         viewModelScope.launch {
             try {
                 val (notes, folders) = repository.load()
+                actionCounter = maxOf(actionCounter, notes.flatMap { it.documentHistory.undo + it.documentHistory.redo }.maxOfOrNull { it.sequence } ?: 0L)
                 migrateLegacyTimer(notes)
                 prunePositions(notes)
                 _state.update { state -> state.copy(notes = notes, folders = folders, loading = false,
@@ -405,8 +414,10 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      */
     private fun queue(op: WriteOp, scheduleAutoBackup: Boolean = true) {
         if (scheduleAutoBackup) autoBackupDirty = true
-        _state.update { it.copy(editGeneration = it.editGeneration + 1,
+        var generation = 0L
+        _state.update { generation = it.editGeneration + 1; it.copy(editGeneration = generation,
             lastSaveProgressAt = it.lastSaveProgressAt ?: System.currentTimeMillis()) }
+        op.generation = generation
         writes.trySend(op)
     }
 
@@ -438,27 +449,57 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * visibly unsaved. Afterwards the index is checkpointed and any journal that outgrew its bound
      * is folded, both of which only happen once nothing else is queued.
      */
+    private suspend fun executeWriteOps(batch: List<WriteOp>) {
+        var index = 0
+        try {
+            while (index < batch.size) {
+                val op = batch[index]
+                if (op is WriteOp.Document) {
+                    repository.appendDocumentTransactions(op.noteId, op.id, op.history, op.transactions, op.pages)
+                    pendingIndexCheckpoints += op.noteId
+                    index++; continue
+                }
+                if (op !is WriteOp.Page) { (op as WriteOp.Once).block(); index++; continue }
+                var end = index
+                while (end < batch.size) {
+                    val next = batch[end] as? WriteOp.Page ?: break
+                    if (next.noteId != op.noteId || next.pageId != op.pageId) break
+                    end++
+                }
+                val group = (index until end).map { batch[it] as WriteOp.Page }
+                // Any bytes a record names land first, so a crash cannot leave a placement without its file.
+                group.forEach { it.before() }
+                repository.appendPageTransactions(op.noteId, op.pageId, group.map { it.transaction })
+                pendingIndexCheckpoints += op.noteId
+                index = end
+            }
+        } catch (e: Exception) {
+            // Append failed and unattempted operations exactly once. Successfully synced groups
+            // are excluded; a failed group's durable intent makes its retry idempotent.
+            val remaining = batch.drop(index)
+            failedWrites.addAll(remaining.filterNot { it is WriteOp.Once && (it.recovery || it.barrier) })
+            failedBarriers.addAll(remaining.filterIsInstance<WriteOp.Once>().filter { it.barrier })
+            throw e
+        }
+    }
+
     private suspend fun runWrites(batch: List<WriteOp>) {
-        val target = _state.value.editGeneration
+        val recovery = batch.indexOfFirst { it is WriteOp.Once && it.recovery }
+        if (_state.value.saveFailed && recovery < 0) {
+            failedWrites.addAll(batch.filterNot { it is WriteOp.Once && it.barrier })
+            batch.filterIsInstance<WriteOp.Once>().filter { it.barrier }.forEach { it.block() }
+            return
+        }
+        val work = if (_state.value.saveFailed && recovery >= 0) {
+            val preceding = batch.take(recovery)
+            failedWrites.addAll(preceding.filterNot { it is WriteOp.Once && it.barrier })
+            preceding.filterIsInstance<WriteOp.Once>().filter { it.barrier }.forEach { it.block() }
+            batch.drop(recovery)
+        } else batch
+        val target = work.maxOfOrNull { it.generation } ?: 0L
         try {
             getApplication<FolioApplication>().storageGate.withLock {
-                var index = 0
-                while (index < batch.size) {
-                    val op = batch[index]
-                    if (op !is WriteOp.Page) { (op as WriteOp.Once).block(); index++; continue }
-                    var end = index
-                    while (end < batch.size) {
-                        val next = batch[end] as? WriteOp.Page ?: break
-                        if (next.noteId != op.noteId || next.pageId != op.pageId) break
-                        end++
-                    }
-                    val group = (index until end).map { batch[it] as WriteOp.Page }
-                    // Any bytes a record names land first, so a crash cannot leave a placement without its file.
-                    group.forEach { it.before() }
-                    repository.appendPageTransactions(op.noteId, op.pageId, group.map { it.transaction })
-                    pendingIndexCheckpoints += op.noteId
-                    index = end
-                }
+                executeWriteOps(work)
             }
         } catch (e: Exception) {
             val reason = when (e) {
@@ -468,7 +509,9 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             }
             _state.update { it.copy(saveFailed = true, saveFailureReason = reason,
                 error = "$reason Your latest changes are still open here. Use Retry save before closing Folio.") }
-            // Nothing from a failed batch counts as written, so the status keeps saying so.
+            val barriers = failedBarriers.toList(); failedBarriers.clear()
+            barriers.forEach { it.block() }
+            // Failed barriers wake after saveFailed is set; exports fail instead of hanging or claiming a save.
             return
         }
         _state.update { state ->
@@ -496,7 +539,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val note = _state.value.notes.find { it.id == noteId } ?: return
         // Not counted as an edit: the ink is already durable in the journal, so a checkpoint must not
         // flip the page back to "Saving…" (which locks mistake ratings) for housekeeping.
-        writes.trySend(WriteOp.Once { repository.saveMeta(note) })
+        writes.trySend(WriteOp.Once(block = { repository.saveMeta(note) }))
     }
 
     /**
@@ -1328,28 +1371,26 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val summary = note.pages.find { it.id == pageId } ?: return
         if (summary.loaded || !loadingPages.add(pageId)) return
         viewModelScope.launch {
+            var retry = false
             try {
-                val loaded = repository.loadPage(note.id, summary)
-                _state.update { state ->
-                    val current = state.notes.find { it.id == note.id }
-                    val target = current?.pages?.find { it.id == pageId }
-                    if (current == null || current.id != note.id || target == null || target.loaded) state
-                    else state.copy(notes = state.notes.map { if (it.id == current.id) current.withPage(target.withLoadedContent(loaded)) else it })
-                }
-                // Undo/redo come back with the page. An edit that slipped in while the file was being
-                // read bumped the revision, so its in-memory stacks are left alone.
-                val history = runCatching { repository.loadHistory(note.id, pageId) }.getOrDefault(PageJournal.History.EMPTY)
-                // Where a background fold would find this page's content and stacks.
-                repository.requestCompaction(note.id, pageId) { currentCheckpoint(note.id, pageId) }
-                val current = _state.value.notes.find { it.id == note.id }?.pages?.find { it.id == pageId }
-                if (current?.revision == loaded.revision) {
-                    undo[pageId] = history.undo.toMutableList()
-                    redo[pageId] = history.redo.toMutableList()
-                    historyState()
+                val checkpoint = repository.loadPageCheckpoint(note.id, summary)
+                val loaded = checkpoint.page; val history = checkpoint.history
+                val current = _state.value.notes.firstOrNull { it.id == note.id }?.pages?.firstOrNull { it.id == pageId }
+                if (current != null && !current.loaded) {
+                    if (current.revision > loaded.revision) retry = true
+                    else {
+                        // Install history before the UI can write to the newly loaded page.
+                        undo[pageId] = history.undo.toMutableList(); redo[pageId] = history.redo.toMutableList()
+                        publishedHistory[pageId] = history
+                        actionCounter = maxOf(actionCounter, (history.undo + history.redo).maxOfOrNull { it.actionSequence } ?: 0L)
+                        _state.update { state -> state.copy(notes = state.notes.map { if (it.id == note.id) it.withPage(current.withLoadedContent(loaded)) else it }) }
+                        repository.requestCompaction(note.id, pageId) { currentCheckpoint(note.id, pageId) }
+                        historyState()
+                    }
                 }
             } catch (e: Exception) {
                 reportError("Couldn't open this page: ${e.message.orEmpty()}")
-            } finally { loadingPages.remove(pageId) }
+            } finally { loadingPages.remove(pageId); if (retry) loadPage(pageId) }
         }
     }
     fun addPage(paper: Paper? = null) {
@@ -1591,7 +1632,8 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         val afterContent = after.content()
         val forward = knownEdits?.first ?: PageJournal.diff(beforeContent, afterContent)
         val revised = after.revised()
-        val updated = note.copy(pages = note.pages.map { if (it.id == after.id) revised else it }, updated = System.currentTimeMillis())
+        val updated = note.copy(pages = note.pages.map { if (it.id == after.id) revised else it }, updated = System.currentTimeMillis(),
+            documentHistory = if (forward == null) note.documentHistory else note.documentHistory.copy(redo = emptyList()))
         _state.update { state -> state.copy(notes = state.notes.map { if (it.id == updated.id) updated else it }) }
         if (forward == null) {
             enqueue { beforeSave(); repository.saveMeta(updated) }
@@ -1600,13 +1642,16 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
         inkSeq[after.id] = ++actionCounter
         structureRedo.removeAll { it.noteId == note.id }
-        val inverse = knownEdits?.second ?: PageJournal.invert(forward, beforeContent)
+        val inverse = (knownEdits?.second ?: PageJournal.invert(forward, beforeContent)).let {
+            if (note.documentHistory.enabled) it.copy(actionSequence = actionCounter) else it
+        }
         undo.getOrPut(after.id) { mutableListOf() }.apply { add(inverse); if (size > MAX_UNDO) removeAt(0) }
         redo.remove(after.id)
         historyState()
         repository.requestCompaction(note.id, after.id) { currentCheckpoint(note.id, after.id) }
         queue(WriteOp.Page(note.id, after.id,
             PageTransaction(0, revised.revision, forward, undoPush = inverse, clearRedo = true), beforeSave))
+        if (note.documentHistory.redo.isNotEmpty()) enqueue { repository.saveMeta(updated) }
     }
 
     /**
@@ -2255,6 +2300,176 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
         }
     }
 
+    /** All members become visible together and are handed to one recoverable durability operation. */
+    fun commitDocumentEdits(noteId: String, edits: Map<String, PageEdit>, expectedRevisions: Map<String, Int> = emptyMap()): Boolean {
+        val note = _state.value.active?.takeIf { it.id == noteId } ?: return false
+        if (documentHistoryBusy || edits.isEmpty() || edits.keys.any { id ->
+                val page = note.pages.firstOrNull { it.id == id }
+                page == null || !page.loaded || (expectedRevisions[id]?.let { it != page.revision } == true)
+            }) return false
+        val changed = edits.filterValues { !it.isEmpty }
+        if (changed.isEmpty()) return false
+        val id = java.util.UUID.randomUUID().toString()
+        val sequence = ++actionCounter
+        val records = LinkedHashMap<String, PageTransaction>()
+        val pages = note.pages.map { page ->
+            val raw = changed[page.id] ?: return@map page
+            val forward = raw.copy(groupId = id, actionSequence = sequence)
+            val inverse = PageJournal.invert(forward, page.content())
+            val after = PageJournal.apply(page.content(), forward)
+            val candidate = page.copy(strokes = after.strokes, texts = after.texts, images = after.images, layers = after.layers)
+            val bounds = InkGeometry.contentBounds(candidate.strokes, candidate.texts, candidate.images, InkRenderer::textHeight, candidate.width, candidate.height)
+            val revised = (if (!candidate.infinite && candidate.pdfIndex == null && bounds.bottom > candidate.height) candidate.copy(height = bounds.bottom + 24f) else candidate).revised()
+            undo.getOrPut(page.id) { mutableListOf() }.apply { add(inverse); while (size > MAX_UNDO) removeAt(0) }
+            redo[page.id]?.clear(); inkSeq[page.id] = sequence
+            publishedHistory[page.id] = PageJournal.History(undo[page.id]?.toList().orEmpty(), emptyList())
+            records[page.id] = PageTransaction(0, revised.revision, forward, undoPush = inverse, clearRedo = true)
+            repository.requestCompaction(note.id, page.id) { currentCheckpoint(note.id, page.id) }
+            revised
+        }
+        val history = note.documentHistory.push(DocumentHistoryStep(id, records.keys.toList(), sequence))
+        val updated = note.copy(pages = pages, documentHistory = history, updated = System.currentTimeMillis())
+        _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) updated else it }) }
+        structureRedo.removeAll { it.noteId == noteId }
+        touchTimerActivity(); historyState()
+        queue(WriteOp.Document(noteId, id, history, records, pages.filter { it.id in records }.associateBy { it.id }))
+        return true
+    }
+
+    fun appendDocumentStrokes(noteId: String, strokes: Map<String, List<Stroke>>, revisions: Map<String, Int>): Boolean =
+        commitDocumentEdits(noteId, strokes.filterValues { it.isNotEmpty() }.mapValues { PageEdit(StrokesEdit.Add(it.value)) }, revisions)
+
+    fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: () -> Unit) {
+        val note = _state.value.active?.takeIf { it.id == noteId } ?: return
+        val revisions = selection.keys.associateWith { id -> note.pages.first { it.id == id }.revision }
+        viewModelScope.launch {
+            try {
+                val edits = selection.mapValues { (id, value) ->
+                    val page = note.pages.first { it.id == id }
+                    val images = value.images.map { image ->
+                        val fresh = java.util.UUID.randomUUID().toString()
+                        val bytes = repository.loadImageBytes(noteId, image.id) ?: error("Missing picture")
+                        repository.saveImage(noteId, fresh, bytes)
+                        image.copy(id = fresh).moved(18f, 18f)
+                    }
+                    PageEdit(StrokesEdit.Add(value.strokes.map { InkGeometry.translate(it, 18f, 18f) }),
+                        (page.texts + value.texts.map { it.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f) }).takeIf { value.texts.isNotEmpty() },
+                        (page.images + images).takeIf { images.isNotEmpty() })
+                }
+                if (commitDocumentEdits(noteId, edits, revisions)) onDone() else reportError("The selection changed before it could be duplicated")
+            } catch (e: Exception) { reportError("Couldn't duplicate the document selection: ${e.message.orEmpty()}") }
+        }
+    }
+
+    fun moveDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, flattened: CanvasSelection,
+        targetId: String, onDone: () -> Unit) {
+        val note = _state.value.active?.takeIf { it.id == noteId } ?: return
+        val target = note.pages.firstOrNull { it.id == targetId && it.loaded } ?: return
+        if (!PageLayers.editable(target.layers, activeLayerOf(target))) return
+        if (selection.any { (id, value) -> val page = note.pages.firstOrNull { it.id == id }
+                page == null || !page.loaded || !page.strokes.containsAll(value.strokes) || !page.texts.containsAll(value.texts) || !page.images.containsAll(value.images) }) {
+            reportError("The selection changed. Select it again before moving"); return
+        }
+        val revisions = (selection.keys + targetId).associateWith { id -> note.pages.first { it.id == id }.revision }
+        viewModelScope.launch {
+            try {
+                val images = flattened.images.map { image ->
+                    val fresh = java.util.UUID.randomUUID().toString()
+                    repository.saveImage(noteId, fresh, repository.loadImageBytes(noteId, image.id) ?: error("Missing picture"))
+                    image.copy(id = fresh)
+                }
+                val bounds = InkGeometry.contentBounds(flattened.strokes, flattened.texts, images, InkRenderer::textHeight, target.width, target.height)
+                val factor = minOf(1f, (target.width - 64f).coerceAtLeast(1f) / (bounds.right - bounds.left).coerceAtLeast(1f),
+                    (target.height - 64f).coerceAtLeast(1f) / (bounds.bottom - bounds.top).coerceAtLeast(1f))
+                val scaled = CanvasSelection(InkGeometry.scale(flattened.strokes, InkPoint(0f, 0f), factor),
+                    InkGeometry.scaleTexts(flattened.texts, InkPoint(0f, 0f), factor), InkGeometry.scaleImages(images, InkPoint(0f, 0f), factor))
+                val placed = placeSelection(scaled, target, null)
+                val edits = LinkedHashMap<String, PageEdit>()
+                selection.forEach { (id, value) -> val page = note.pages.first { it.id == id }
+                    PageJournal.diff(page.content(), page.content().copy(strokes = page.strokes.filterNot { it in value.strokes },
+                        texts = page.texts.filterNot { it in value.texts }, images = page.images.filterNot { it in value.images }))?.let { edits[id] = it }
+                }
+                val before = target.content()
+                val stripped = edits[targetId]?.let { PageJournal.apply(before, it) } ?: before
+                PageJournal.diff(before, stripped.copy(strokes = stripped.strokes + placed.strokes, texts = stripped.texts + placed.texts,
+                    images = stripped.images + placed.images))?.let { edits[targetId] = it }
+                if (commitDocumentEdits(noteId, edits, revisions)) onDone() else reportError("The document changed before the selection could move")
+            } catch (e: Exception) { reportError("Couldn't move the document selection: ${e.message.orEmpty()}") }
+        }
+    }
+
+    private suspend fun loadDocumentHistoryPages(noteId: String, ids: List<String>) {
+        for (id in ids) {
+            val note = _state.value.notes.firstOrNull { it.id == noteId } ?: error("Notebook closed")
+            val summary = note.pages.firstOrNull { it.id == id } ?: error("Restore the deleted page before undoing this action")
+            if (!summary.loaded) {
+                val checkpoint = repository.loadPageCheckpoint(noteId, summary)
+                val loaded = checkpoint.page; val history = checkpoint.history
+                val current = _state.value.notes.firstOrNull { it.id == noteId }?.pages?.firstOrNull { it.id == id }
+                if (current != null && !current.loaded && current.revision == summary.revision) {
+                    _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) it.withPage(current.withLoadedContent(loaded)) else it }) }
+                    undo[id] = history.undo.toMutableList(); redo[id] = history.redo.toMutableList()
+                    publishedHistory[id] = history
+                    actionCounter = maxOf(actionCounter, (history.undo + history.redo).maxOfOrNull { it.actionSequence } ?: 0L)
+                }
+            }
+        }
+    }
+
+    private fun documentHistory(step: DocumentHistoryStep, wasUndo: Boolean) {
+        if (documentHistoryBusy) return
+        val noteId = _state.value.activeId ?: return
+        val generation = _state.value.editGeneration
+        documentHistoryBusy = true
+        _state.update { it.copy(documentHistoryBusy = true) }
+        viewModelScope.launch {
+            try {
+                loadDocumentHistoryPages(noteId, step.pages)
+                if (_state.value.editGeneration != generation || _state.value.activeId != noteId) return@launch
+                val note = _state.value.active ?: return@launch
+                val from = if (wasUndo) undo else redo; val to = if (wasUndo) redo else undo
+                val tops = step.pages.associateWith { from[it]?.lastOrNull() }
+                // A later local edit on any member must be undone first; never pop half a group.
+                val blocker = tops.entries.filter { it.value?.groupId != step.id }.maxByOrNull { it.value?.actionSequence ?: 0L }
+                if (blocker != null) {
+                    if (blocker.value == null || blocker.value?.groupId != null) {
+                        reportError("The complete grouped history is no longer available"); return@launch
+                    }
+                    val index = note.pages.indexOfFirst { it.id == blocker.key }
+                    selectPage(index)
+                    _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
+                    if (wasUndo) inkRedoSeq[blocker.key] = ++actionCounter else inkSeq[blocker.key] = ++actionCounter
+                    history(from, to)
+                    return@launch
+                }
+                val sequence = ++actionCounter
+                val records = LinkedHashMap<String, PageTransaction>()
+                val pages = note.pages.map { page ->
+                    val op = tops[page.id] ?: return@map page
+                    val inverse = PageJournal.invert(op, page.content()).copy(actionSequence = sequence)
+                    val content = PageJournal.apply(page.content(), op)
+                    val revised = page.copy(strokes = content.strokes, texts = content.texts, images = content.images, layers = content.layers).revised()
+                    from[page.id]!!.removeAt(from[page.id]!!.lastIndex)
+                    to.getOrPut(page.id) { mutableListOf() }.apply { add(inverse); while (size > MAX_UNDO) removeAt(0) }
+                    publishedHistory[page.id] = PageJournal.History(undo[page.id]?.toList().orEmpty(), redo[page.id]?.toList().orEmpty())
+                    records[page.id] = PageTransaction(0, revised.revision, op,
+                        undoPush = inverse.takeUnless { wasUndo }, undoPop = wasUndo,
+                        redoPush = inverse.takeIf { wasUndo }, redoPop = !wasUndo)
+                    if (wasUndo) inkRedoSeq[page.id] = sequence else inkSeq[page.id] = sequence
+                    repository.requestCompaction(noteId, page.id) { currentCheckpoint(noteId, page.id) }
+                    revised
+                }
+                val operationId = java.util.UUID.randomUUID().toString()
+                val history = note.documentHistory.moved(step, wasUndo, sequence).copy(lastCommit = operationId)
+                val updated = note.copy(pages = pages, documentHistory = history, updated = System.currentTimeMillis())
+                _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) updated else it }) }
+                queue(WriteOp.Document(noteId, operationId, history, records, pages.filter { it.id in records }.associateBy { it.id }))
+                touchTimerActivity(); historyState()
+            } catch (e: Exception) { reportError("Couldn't restore the grouped action: ${e.message.orEmpty()}") }
+            finally { documentHistoryBusy = false; _state.update { it.copy(documentHistoryBusy = false) } }
+        }
+    }
+
     /**
      * Every page of the open notebook with its text read in, for totalling marks. A page that cannot be
      * read stays unloaded so the caller can say the total is incomplete rather than quietly undercount.
@@ -2272,11 +2487,17 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
      * ink edit, otherwise that edit. Nothing here crosses notebooks.
      */
     fun undo() {
+        if (documentHistoryBusy) return
         val state = _state.value
         val noteId = state.activeId ?: return
         val pageId = state.page?.id
         val step = structureUndo.lastOrNull { it.noteId == noteId }
-        val inkTop = pageId?.takeUnless { undo[it].isNullOrEmpty() }?.let { inkSeq[it] ?: 0L }
+        val active = state.active
+        val group = active?.documentHistory?.undo?.lastOrNull { step -> step.pages.all { id -> active.pages.any { it.id == id } } }
+        val inkTop = pageId?.takeUnless { undo[it].isNullOrEmpty() }?.let { maxOf(inkSeq[it] ?: 0L, undo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+        if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
+            documentHistory(group, true); return
+        }
         if (step != null && (inkTop == null || step.seq > inkTop)) {
             structureUndo.remove(step)
             touchTimerActivity()
@@ -2286,15 +2507,26 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             historyState()
             return
         }
+        undo[pageId]?.lastOrNull()?.groupId?.let { id ->
+            val member = state.active?.documentHistory?.undo?.firstOrNull { it.id == id }
+            if (member != null) documentHistory(member, true) else reportError("This grouped action is no longer in the notebook history")
+            return
+        }
         if (pageId != null) inkRedoSeq[pageId] = ++actionCounter
         history(undo, redo)
     }
     fun redo() {
+        if (documentHistoryBusy) return
         val state = _state.value
         val noteId = state.activeId ?: return
         val pageId = state.page?.id
         val step = structureRedo.lastOrNull { it.noteId == noteId }
-        val inkTop = pageId?.takeUnless { redo[it].isNullOrEmpty() }?.let { inkRedoSeq[it] ?: 0L }
+        val active = state.active
+        val group = active?.documentHistory?.redo?.lastOrNull { step -> step.pages.all { id -> active.pages.any { it.id == id } } }
+        val inkTop = pageId?.takeUnless { redo[it].isNullOrEmpty() }?.let { maxOf(inkRedoSeq[it] ?: 0L, redo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+        if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
+            documentHistory(group, false); return
+        }
         if (step != null && (inkTop == null || step.seq > inkTop)) {
             structureRedo.remove(step)
             touchTimerActivity()
@@ -2302,6 +2534,11 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
             step.seq = ++actionCounter
             structureUndo.add(step)
             historyState()
+            return
+        }
+        redo[pageId]?.lastOrNull()?.groupId?.let { id ->
+            val member = state.active?.documentHistory?.redo?.firstOrNull { it.id == id }
+            if (member != null) documentHistory(member, false) else reportError("This grouped action is no longer in the notebook history")
             return
         }
         if (pageId != null) inkSeq[pageId] = ++actionCounter
@@ -2519,18 +2756,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun history(from: MutableMap<String, MutableList<PageEdit>>, to: MutableMap<String, MutableList<PageEdit>>) {
         val page = _state.value.page ?: return
         if (!page.loaded) return
+        if (from[page.id]?.lastOrNull()?.groupId != null) { reportError("Undo this action through document history"); return }
         val op = from[page.id]?.removeLastOrNull() ?: return
         touchTimerActivity()
         val note = _state.value.notes.find { note -> note.pages.any { it.id == page.id } } ?: return
         val before = page.content()
         val afterContent = PageJournal.apply(before, op)
-        val back = PageJournal.invert(op, before)
+        val back = PageJournal.invert(op, before).let { if (note.documentHistory.enabled) it.copy(actionSequence = actionCounter) else it }
         // Bounded like the undo stack, and the same bound the stored log applies, so what survives a
         // restart is exactly what was on screen.
         to.getOrPut(page.id) { mutableListOf() }.apply {
             add(back); while (size > MAX_UNDO) removeAt(0)
         }
-        val after = page.copy(strokes = afterContent.strokes, texts = afterContent.texts, images = afterContent.images)
+        val after = page.copy(strokes = afterContent.strokes, texts = afterContent.texts, images = afterContent.images, layers = afterContent.layers)
         val bounds = InkGeometry.contentBounds(after.strokes, after.texts, after.images, InkRenderer::textHeight, after.width, after.height)
         val revised = (if (!after.infinite && after.pdfIndex == null && bounds.bottom > after.height)
             after.copy(height = bounds.bottom + 24f) else after).revised()
@@ -2548,9 +2786,18 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private fun historyState() {
         _state.update { state ->
             val noteId = state.activeId
+            val note = state.active
+            val ids = note?.pages?.map { it.id }?.toSet().orEmpty()
+            fun available(steps: List<DocumentHistoryStep>) = steps.filter { it.pages.all(ids::contains) }
+            val groupsUndo = available(note?.documentHistory?.undo.orEmpty())
+            val groupsRedo = available(note?.documentHistory?.redo.orEmpty())
+            fun local(stack: List<PageEdit>?, groups: List<DocumentHistoryStep>): Boolean {
+                val top = stack?.lastOrNull() ?: return false
+                return top.groupId == null || groups.any { it.id == top.groupId }
+            }
             state.copy(
-                canUndo = !undo[state.page?.id].isNullOrEmpty() || structureUndo.any { it.noteId == noteId },
-                canRedo = !redo[state.page?.id].isNullOrEmpty() || structureRedo.any { it.noteId == noteId })
+                canUndo = groupsUndo.isNotEmpty() || local(undo[state.page?.id], groupsUndo) || structureUndo.any { it.noteId == noteId },
+                canRedo = groupsRedo.isNotEmpty() || local(redo[state.page?.id], groupsRedo) || structureRedo.any { it.noteId == noteId })
         }
         // Every change to a page's stacks republishes them, so the copy the storage thread reads is
         // never the one being appended to.
@@ -2560,18 +2807,19 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     fun retrySave() {
         if (!_state.value.saveFailed || _state.value.retryingSave) return
         _state.update { it.copy(retryingSave = true) }
-        enqueue {
+        queue(WriteOp.Once({
             try {
+                val pending = failedWrites.toList()
+                failedWrites.clear()
+                executeWriteOps(pending)
                 val snapshot = _state.value
-                val history = allPublishedHistory()
-                snapshot.notes.forEach { note -> repository.saveAll(note, history) }
                 repository.saveFolders(snapshot.folders)
                 _state.update { it.copy(saveFailed = false, retryingSave = false, saveFailureReason = null) }
             } catch (e: Exception) {
                 _state.update { it.copy(retryingSave = false) }
                 throw e
             }
-        }
+        }, recovery = true))
     }
     /** Searches the open notebook's imported PDF text; a blank query clears the results. */
     fun searchPdf(query: String) {
@@ -2719,7 +2967,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     private suspend fun awaitSaved() {
         ready.await()
         val barrier = CompletableDeferred<Unit>()
-        enqueue(scheduleAutoBackup = false) { barrier.complete(Unit) }
+        queue(WriteOp.Once(block = { barrier.complete(Unit) }, barrier = true), scheduleAutoBackup = false)
         barrier.await()
         check(!_state.value.saveFailed) { "Some changes have not been saved. Use Retry save first." }
     }
