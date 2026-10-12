@@ -54,6 +54,37 @@ object InkColors {
         "Slate" to ink(0xFF596573)
     )
 
+    /**
+     * Saturated, eye-catching inks for diagrams, headings and colour coding. Unlike the writing
+     * inks these are not held to 4.5:1 on paper, so keep fine handwriting for the writing inks.
+     */
+    val vividSwatches: List<Pair<String, Int>> = listOf(
+        "Vivid red" to ink(0xFFE5173F),
+        "Vivid orange" to ink(0xFFFF6A00),
+        "Vivid yellow" to ink(0xFFFFC400),
+        "Vivid lime" to ink(0xFF52D017),
+        "Vivid green" to ink(0xFF00B85C),
+        "Vivid cyan" to ink(0xFF00B8E6),
+        "Vivid blue" to ink(0xFF1F5BFF),
+        "Vivid violet" to ink(0xFF7A3CFF),
+        "Vivid magenta" to ink(0xFFE91E9C),
+        "Vivid pink" to ink(0xFFFF4F8B)
+    )
+
+    /** Soft, light inks for gentle annotation, shading and decorative work; low contrast by design. */
+    val pastelSwatches: List<Pair<String, Int>> = listOf(
+        "Pastel pink" to ink(0xFFF4A6C0),
+        "Pastel peach" to ink(0xFFFFB89A),
+        "Pastel yellow" to ink(0xFFF7DC7B),
+        "Pastel mint" to ink(0xFF9ADEB4),
+        "Pastel teal" to ink(0xFF8ED6D0),
+        "Pastel sky" to ink(0xFF9CCBF2),
+        "Pastel periwinkle" to ink(0xFFABB3F0),
+        "Pastel lavender" to ink(0xFFC8A8EE),
+        "Pastel lilac" to ink(0xFFE0A8E6),
+        "Pastel coral" to ink(0xFFF2A3A0)
+    )
+
     val swatches: List<Int> = namedSwatches.map { it.second }
     val defaultPalette = ColorPalette("Writing inks", swatches)
 
@@ -68,7 +99,9 @@ object InkColors {
         ColorPalette("Earth", listOf(ink(0xFF3E2F25), ink(0xFFA04B2D), ink(0xFF5E6B2A), ink(0xFF2F5D62), ink(0xFF7A5C3E))),
         ColorPalette("Ocean", listOf(ink(0xFF0B3C5D), ink(0xFF1D5C8C), ink(0xFF176B68), ink(0xFF514B91), ink(0xFF203858))),
         ColorPalette("Berry", listOf(ink(0xFF3B1F3F), ink(0xFF704080), ink(0xFFA83246), ink(0xFF8A2D5F), ink(0xFF514B91))),
-        ColorPalette("Greys", listOf(ink(0xFF111418), ink(0xFF2F363D), ink(0xFF454E58), ink(0xFF596573), ink(0xFF6B7480)))
+        ColorPalette("Greys", listOf(ink(0xFF111418), ink(0xFF2F363D), ink(0xFF454E58), ink(0xFF596573), ink(0xFF6B7480))),
+        ColorPalette("Vivid", listOf(ink(0xFFE5173F), ink(0xFFFF6A00), ink(0xFF00B85C), ink(0xFF1F5BFF), ink(0xFFE91E9C))),
+        ColorPalette("Pastel", listOf(ink(0xFFF4A6C0), ink(0xFFF7DC7B), ink(0xFF9ADEB4), ink(0xFF9CCBF2), ink(0xFFC8A8EE)))
     )
     val defaultQuick: List<Int> = quickRow(swatches)
 

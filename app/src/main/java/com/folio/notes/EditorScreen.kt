@@ -417,6 +417,7 @@ private fun paperLabel(p: Paper): String = when (p) {
     // Each page's whole item (paper plus the workspace around it) and the sticky note being carried over all of them.
     val pageRegions = remember { mutableMapOf<String, Rect>() }
     var stickyLift by remember { mutableStateOf<StickyLift?>(null) }
+    var objectLift by remember { mutableStateOf<ObjectLift?>(null) }
     var moveSelection by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     val canPaste = context.getSystemService(android.content.ClipboardManager::class.java)?.hasPrimaryClip() == true
     val selected = selection?.takeIf { it.first == page.id }?.second ?: CanvasSelection()
@@ -1271,6 +1272,22 @@ private fun paperLabel(p: Paper): String = when (p) {
                                                 onReplaceZone = { old, new -> saveManualZones(manualZones.filterNot { it == old } + listOfNotNull(new)) },
                                 onPageFrame = { id, frame -> if (frame == null) pageFrames.remove(id) else pageFrames[id] = frame },
                                 onPageRegion = { id, region -> if (region == null) pageRegions.remove(id) else pageRegions[id] = region },
+                                onObjectLift = { objectLift = it },
+                                onObjectDrop = { sourceId, lift ->
+                                    val middle = lift.top + lift.height * lift.unit / 2f
+                                    val targetId = (pageRegions.entries.firstOrNull { (_, r) -> middle >= r.top && middle <= r.bottom }
+                                        ?: pageRegions.entries.minByOrNull { (_, r) -> if (middle < r.top) r.top - middle else middle - r.bottom })?.key
+                                    val frame = targetId?.let { pageFrames[it] }
+                                    val target = targetId?.let { id -> note.pages.find { it.id == id } }
+                                    if (targetId == null || targetId == sourceId || frame == null || target == null || target.infinite ||
+                                        frame.width <= 0f || frame.height <= 0f) false
+                                    else {
+                                        model.moveSelectionToPage(sourceId, targetId, lift.selection,
+                                            InkPoint((lift.left - frame.left) / frame.width * target.width,
+                                                (lift.top - frame.top) / frame.height * target.height), centred = false)
+                                        true
+                                    }
+                                },
                                 onStickyLift = { stickyLift = it },
                                 onStickyDrop = { sourceId, lift ->
                                     // A note is placed on whichever page its middle is over (or nearest, in a gap), at the
@@ -1371,17 +1388,34 @@ private fun paperLabel(p: Paper): String = when (p) {
                         }
                     })
                 }
+                objectLift?.let { lift ->
+                    val origin = canvasWindowBounds?.topLeft ?: Offset.Zero
+                    Box(Modifier.fillMaxSize().drawBehind {
+                        drawIntoCanvas { c ->
+                            val canvas = c.nativeCanvas
+                            canvas.save()
+                            canvas.translate(lift.left - origin.x, lift.top - origin.y)
+                            canvas.scale(lift.unit, lift.unit)
+                            lift.draw(canvas)
+                            canvas.restore()
+                        }
+                    })
+                }
+                val carriedObject by rememberUpdatedState(objectLift)
                 val carried by rememberUpdatedState(stickyLift)
-                LaunchedEffect(stickyLift != null) {
-                    if (carried == null) return@LaunchedEffect
+                LaunchedEffect(stickyLift != null || objectLift != null) {
+                    if (carried == null && carriedObject == null) return@LaunchedEffect
                     val edge = with(density) { 72.dp.toPx() }
                     val topEdge = with(density) { floatingToolbarTop.toPx() } + edge
                     val maxStep = with(density) { 20.dp.toPx() }
                     while (true) {
                         withFrameNanos { }
-                        val lift = carried ?: break
+                        val noteLift = carried
+                        val selectionLift = carriedObject
+                        if (noteLift == null && selectionLift == null) break
                         val bounds = canvasWindowBounds ?: continue
-                        val x = lift.fingerX - bounds.left; val y = lift.fingerY - bounds.top
+                        val x = (noteLift?.fingerX ?: selectionLift!!.fingerX) - bounds.left
+                        val y = (noteLift?.fingerY ?: selectionLift!!.fingerY) - bounds.top
                         fun push(depth: Float) = (depth / edge).coerceIn(0f, 1f) * maxStep
                         val dy = when { y < topEdge -> -push(topEdge - y); y > bounds.height - edge -> push(y - (bounds.height - edge)); else -> 0f }
                         val dx = when { x < edge -> push(edge - x); x > bounds.width - edge -> -push(x - (bounds.width - edge)); else -> 0f }
@@ -1722,8 +1756,12 @@ private fun paperLabel(p: Paper): String = when (p) {
                             showBack = showBack,
                             style = toolbarStyle,
                             toolbarOptions = toolbarOptions,
-                            // A notebook's title can change while its tab keeps the name it opened with.
-                            tabs = state.tabs.map { tab -> EditorTabChip(tab.notebookId, state.notes.find { it.id == tab.notebookId }?.title ?: tab.title) },
+                            // Practice notebooks stay in Mistakes; a regular tab uses its current title.
+                            tabs = state.tabs.mapNotNull { tab ->
+                                val notebook = state.notes.find { it.id == tab.notebookId }
+                                if (notebook?.mistakePractice == true) null
+                                else EditorTabChip(tab.notebookId, notebook?.title ?: tab.title)
+                            },
                             activeTabId = note.id,
                             onSelectTab = { id -> if (id != note.id) { finishTextEditing(); model.open(id) } },
                             onCloseTab = { id -> finishTextEditing(); model.closeTab(id) },
@@ -1851,6 +1889,56 @@ private fun paperLabel(p: Paper): String = when (p) {
                     inkStyle = options.style,
                     rulerEnabled = rulerOn, ruler = rulers[page.id], onRulerChanged = { rulers = rulers + (page.id to it) })
             }
+        }
+    }
+    // Popups must belong to the browser window while it is open, or they appear behind it.
+    @Composable fun PageActionPopovers() {
+        namedPage?.let { target ->
+            val nameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+            val changed = pageTitle != target.title
+            fun savePageName() { if (changed) { model.renamePage(target.id, pageTitle); namedPage = null } }
+            FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
+                TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                Button(::savePageName, enabled = changed, shapes = ButtonDefaults.shapes()) { Text("Save") }
+            }) {
+                OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
+                    placeholder = { Text("e.g. Quadratics homework") },
+                    supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { savePageName() }),
+                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus))
+                LaunchedEffect(target.id) { nameFocus.requestFocus() }
+            }
+        }
+        movingPage?.let { pageId ->
+            val destination = destinationPage.toIntOrNull()
+            val moveFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+            fun commit() {
+                val from = note.pages.indexOfFirst { it.id == pageId }
+                if (from >= 0 && destination != null && destination in 1..note.pages.size) model.movePage(from, destination - 1)
+                movingPage = null
+            }
+            FolioPopover("Move page", Icons.Rounded.LowPriority, onDismiss = { movingPage = null }, actions = {
+                TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                Button(::commit, enabled = destination != null && destination in 1..note.pages.size, shapes = ButtonDefaults.shapes()) { Text("Move") }
+            }) {
+                OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
+                    label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { commit() }),
+                    shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(moveFocus))
+                LaunchedEffect(pageId) { moveFocus.requestFocus() }
+            }
+        }
+        deletingPage?.let { pageId ->
+            val index = note.pages.indexOfFirst { it.id == pageId }
+            FolioPopover("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?", Icons.Rounded.DeleteOutline,
+                onDismiss = { deletingPage = null }, actions = {
+                    TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                    Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                        shapes = ButtonDefaults.shapes()) { Text("Delete") }
+                }) { Text("This removes the page and its content. Use Undo to restore it during this session.", style = MaterialTheme.typography.bodyMedium) }
         }
     }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
@@ -1995,54 +2083,9 @@ private fun paperLabel(p: Paper): String = when (p) {
             }
             TextButton({ pageBrowser = false; openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) { Text("Choose paper") }
         }
+        PageActionPopovers()
     }
-    namedPage?.let { target ->
-        val nameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-        val changed = pageTitle != target.title
-        fun savePageName() { if (changed) { model.renamePage(target.id, pageTitle); namedPage = null } }
-        FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
-            TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-            Button(::savePageName, enabled = changed, shapes = ButtonDefaults.shapes()) { Text("Save") }
-        }) {
-            OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
-                placeholder = { Text("e.g. Quadratics homework") },
-                supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { savePageName() }),
-                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus))
-            LaunchedEffect(target.id) { nameFocus.requestFocus() }
-        }
-    }
-    movingPage?.let { pageId ->
-        val destination = destinationPage.toIntOrNull()
-        val moveFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-        fun commit() {
-            val from = note.pages.indexOfFirst { it.id == pageId }
-            if (from >= 0 && destination != null && destination in 1..note.pages.size) model.movePage(from, destination - 1)
-            movingPage = null
-        }
-        FolioPopover("Move page", Icons.Rounded.LowPriority, onDismiss = { movingPage = null }, actions = {
-            TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-            Button(::commit, enabled = destination != null && destination in 1..note.pages.size, shapes = ButtonDefaults.shapes()) { Text("Move") }
-        }) {
-            OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
-                label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { commit() }),
-                shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(moveFocus))
-            LaunchedEffect(pageId) { moveFocus.requestFocus() }
-        }
-    }
-    deletingPage?.let { pageId ->
-        val index = note.pages.indexOfFirst { it.id == pageId }
-        FolioPopover("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?", Icons.Rounded.DeleteOutline,
-            onDismiss = { deletingPage = null }, actions = {
-                TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                    shapes = ButtonDefaults.shapes()) { Text("Delete") }
-            }) { Text("This removes the page and its content. Use Undo to restore it during this session.", style = MaterialTheme.typography.bodyMedium) }
-    }
+    if (!pageBrowser) PageActionPopovers()
     if (rename) {
         val renameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
         val renameChanged = renameTitle.isNotBlank() && renameTitle != note.title
@@ -2512,12 +2555,14 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
     onReplaceZone: (old: MarkZone?, new: MarkZone?) -> Unit = { _, _ -> },
     onPageFrame: (String, Rect?) -> Unit = { _, _ -> },
     onPageRegion: (String, Rect?) -> Unit = { _, _ -> },
+    onObjectLift: ((ObjectLift?) -> Unit)? = null,
+    onObjectDrop: ((String, ObjectLift) -> Boolean)? = null,
     onStickyLift: ((StickyLift?) -> Unit)? = null,
     onStickyDrop: ((String, StickyLift) -> Boolean)? = null,
     onCropMode: (Boolean) -> Unit = {}, onNavigating: (Boolean) -> Unit = {}, onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },
     onSelectionDrop: (String, CanvasSelection, Float, Float) -> Boolean = { _, _, _, _ -> false }) {
     DisposableEffect(page.id) { onDispose { onPageFrame(page.id, null); onPageRegion(page.id, null) } }
-    // A note lifted from this page must keep the page alive while the list scrolls under it.
+    // A carried object keeps its source page alive while the list scrolls under it.
     val pinnable = LocalPinnableContainer.current
     var carrying by remember { mutableStateOf(false) }
     DisposableEffect(carrying) {
@@ -2739,6 +2784,8 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                 view.onPdfLink = onPdfLink
                 view.markZones = pageZones
                 view.onSelectionDrop = { picked, x, y -> !readOnly && onSelectionDrop(page.id, picked, x, y) }
+                view.onObjectLift = if (documentPage && !readOnly && onObjectLift != null) { lift -> carrying = lift != null; onObjectLift(lift) } else null
+                view.onObjectDrop = if (documentPage && !readOnly && onObjectDrop != null) { lift -> onObjectDrop(page.id, lift) } else null
                 view.onStickyLift = if (documentPage && onStickyLift != null) { lift -> carrying = lift != null; onStickyLift(lift) } else null
                 view.onStickyDrop = if (documentPage && onStickyDrop != null) { lift -> onStickyDrop(page.id, lift) } else null
                 view.onMarkRegion = { lane, rect ->
@@ -2749,7 +2796,7 @@ private fun fastScrollGeometry(pages: LazyListState, pageCount: Int, height: Flo
                     offeredZone = if (zone != null && rect != null) zone to rect else null
                     offerStamp++
                 }
-                if (!active) view.clearSelection()
+                if (!active && !carrying) view.clearSelection()
             }) else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().then(placeholderPaper)) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {
                     Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

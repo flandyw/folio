@@ -34,6 +34,7 @@ class InkView(context: Context) : View(context) {
             if (field == value) return
             clearShapeHold()
             stickyNotes.reset()
+            endObjectLift()
             field = value
             // The presenter trail belongs to the laser; it never lingers under another tool.
             if (value != Tool.LASER) { laserStrokes.clear(); laserDown = false; laserHover = null }
@@ -314,6 +315,69 @@ class InkView(context: Context) : View(context) {
      */
     var onSelectionDrop: (CanvasSelection, Float, Float) -> Boolean = { _, _, _ -> false }
     private var dragWindowX = 0f; private var dragWindowY = 0f; private var dragOffPage = false
+    internal var onObjectLift: ((ObjectLift?) -> Unit)? = null
+    internal var onObjectDrop: ((ObjectLift) -> Boolean)? = null
+    private var objectLift: ObjectLift? = null
+    private var liftSelection: CanvasSelection? = null
+    private var liftBounds: Rect? = null
+    private var carriedBaseSource: NotePage? = null
+    private var carriedBaseSelection: CanvasSelection? = null
+    private var carriedBasePage: NotePage? = null
+
+    private fun liftObjects(event: MotionEvent, index: Int, picked: CanvasSelection, dx: Float, dy: Float) {
+        val report = onObjectLift ?: return
+        if (picked.isEmpty() || page.infinite) return
+        if (liftSelection != picked) {
+            liftSelection = picked
+            liftBounds = InkGeometry.contentBounds(picked.strokes, picked.texts, picked.images,
+                InkRenderer::textHeight, page.width, page.height)
+        }
+        val bounds = liftBounds ?: return
+        val where = IntArray(2).also { getLocationInWindow(it) }
+        val bitmaps = imageBitmaps
+        val held = ObjectLift(picked, where[0] + originX + (bounds.left + dx) * scale,
+            where[1] + originY + (bounds.top + dy) * scale,
+            bounds.right - bounds.left, bounds.bottom - bounds.top, scale,
+            where[0] + event.getX(index), where[1] + event.getY(index)) { canvas ->
+            canvas.save(); canvas.translate(-bounds.left, -bounds.top)
+            picked.images.forEach { image -> bitmaps[image.id]?.let { InkRenderer.image(canvas, it, image) } }
+            picked.strokes.forEach { InkRenderer.drawRendered(canvas, it, renderedOf(it)) }
+            picked.texts.forEach { InkRenderer.text(canvas, it) }
+            canvas.restore()
+        }
+        objectLift = held
+        report(held)
+    }
+
+    /** Scrolling can move the source view even while the pointer is held still. */
+    private fun positionObjectsOnRelease(event: MotionEvent) {
+        val held = objectLift ?: return
+        val bounds = liftBounds ?: return
+        val index = event.findPointerIndex(pointerId).coerceAtLeast(0)
+        val where = IntArray(2).also { getLocationInWindow(it) }
+        val left = held.left + where[0] + event.getX(index) - held.fingerX
+        val top = held.top + where[1] + event.getY(index) - held.fingerY
+        val dx = (left - where[0] - originX) / scale - bounds.left
+        val dy = (top - where[1] - originY) / scale - bounds.top
+        if (movingImage != null) movingImage = held.selection.images.firstOrNull()?.moved(dx, dy)
+        else if (movingText != null) { textDx = dx; textDy = dy }
+        else if (movingSelection) { selectionDx = dx; selectionDy = dy }
+        liftObjects(event, index, held.selection, dx, dy)
+    }
+
+    private fun endObjectLift() {
+        val held = objectLift
+        objectLift = null; liftSelection = null; liftBounds = null
+        carriedBaseSource = null; carriedBaseSelection = null; carriedBasePage = null
+        if (held != null) onObjectLift?.invoke(null)
+    }
+
+    private fun dropObjects(): Boolean {
+        val held = objectLift
+        val accepted = held != null && onObjectDrop?.invoke(held) == true
+        endObjectLift()
+        return accepted
+    }
     private var lastMoveX = 0f; private var lastMoveY = 0f
     /** Direct frame handles: a resize drag, a rotate drag, or neither (a plain move). */
     private var resizingSelection = false
@@ -1415,6 +1479,7 @@ class InkView(context: Context) : View(context) {
         inputRouter.reset(::handleTouchEvent)
         onLiveInk(null, false)
         onFollowLanding(null)
+        endObjectLift()
         stickyNotes.dropLift()
         stickyNotes.reset()
         removeCallbacks(followFrame)
@@ -1450,7 +1515,15 @@ class InkView(context: Context) : View(context) {
         val laid = if (dragging == null) visible else visible.copy(texts = visible.texts.map { if (it.id == dragging.id) it.moved(textDx, textDy) else it })
         // A picture follows the finger the same way, so a move or resize reads live.
         val liveImage = movingImage
-        val placed = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
+        val previewPage = if (liveImage == null) laid else laid.copy(images = laid.images.map { if (it.id == liveImage.id) liveImage else it })
+        val carried = objectLift?.selection
+        val placed = if (carried == null) previewPage
+        else if (carriedBaseSource === visible && carriedBaseSelection == carried) carriedBasePage!!
+        else visible.copy(
+            texts = visible.texts.filterNot { box -> carried.texts.any { it.id == box.id } },
+            images = visible.images.filterNot { image -> carried.images.any { it.id == image.id } }).also {
+            carriedBaseSource = visible; carriedBaseSelection = carried; carriedBasePage = it
+        }
         // Selected content draws last, at its drag offset, so a move reads clearly.
         val hasSelection = selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()
         // Identity set avoids O(S_sel × S_page × pts) deep-equals per frame while dragging, and is
@@ -1501,7 +1574,7 @@ class InkView(context: Context) : View(context) {
             selectionPreviewMatrix.postTranslate(pivotX, pivotY)
             canvas.concat(selectionPreviewMatrix)
         }
-        if (selection.isNotEmpty()) {
+        if (objectLift == null && selection.isNotEmpty()) {
             // Draw the originals under a translate instead of allocating translated copies:
             // the geometry cache (and the text layout cache for boxes below) keeps hitting,
             // and no per-frame smoothing or measuring runs while the selection moves.
@@ -1513,7 +1586,7 @@ class InkView(context: Context) : View(context) {
             selection.forEach { InkRenderer.drawRendered(canvas, it, renderedOf(it)) }
             canvas.restore()
         }
-        if (selectedTexts.isNotEmpty()) {
+        if (objectLift == null && selectedTexts.isNotEmpty()) {
             canvas.save(); canvas.translate(selectionDx, selectionDy)
             selectedTexts.filterNot { it.isSticky }.forEach {
                 InkRenderer.text(canvas, it)
@@ -1521,7 +1594,7 @@ class InkView(context: Context) : View(context) {
             }
             canvas.restore()
         }
-        if (selectedImages.isNotEmpty()) {
+        if (objectLift == null && selectedImages.isNotEmpty()) {
             canvas.save(); canvas.translate(selectionDx, selectionDy)
             selectedImages.forEach {
                 imageBitmaps[it.id]?.let { bitmap -> InkRenderer.image(canvas, bitmap, it) }
@@ -1529,21 +1602,21 @@ class InkView(context: Context) : View(context) {
             }
             canvas.restore()
         }
-        if (hasSelection()) drawSelectionFrame(canvas)
+        if (objectLift == null && hasSelection()) drawSelectionFrame(canvas)
         if (previewing) canvas.restore()
         liveInkPreview?.takeIf { PageLayers.editable(page.layers, it.layer) }?.let { InkRenderer.stroke(canvas, it) }
         // Page ink in progress draws here, under the notes, exactly where it will land; ink being
         // written into a note draws with that note instead (see the notes below).
         if (noteTarget == null) drawDraft(canvas)
         lasso?.takeIf { it.size > 1 }?.let { drawLasso(canvas, it) }
-        dragging?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
+        dragging?.takeIf { objectLift == null }?.let { drawTextBox(canvas, it.moved(textDx, textDy)) }
         // The selected picture keeps its outline while another picture is dragged, unless it is
         // part of the lasso selection, which already draws its own outline at the drag offset.
         val outlined = selectedImageId?.let { id ->
             (liveImage?.takeIf { it.id == id } ?: placed.images.find { it.id == id })
                 ?.takeIf { hand -> selectedImages.none { it.id == hand.id } }
         }
-        outlined?.let { if (cropImageId == null) drawImageSelection(canvas, it) }
+        outlined?.takeIf { objectLift == null }?.let { if (cropImageId == null) drawImageSelection(canvas, it) }
         cropImageId?.let { id -> placed.images.find { it.id == id } }?.let { drawCropOverlay(canvas, it) }
         // Shown during See all working too, so the overview says where the response is.
         if (page.infinite) canvasWritingSession?.column?.let { column ->
@@ -1610,7 +1683,7 @@ class InkView(context: Context) : View(context) {
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
         val selectedStickies = selectedTexts.filter { it.isSticky }
         val target = noteTarget
-        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } },
+        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } && carried?.texts?.any { it.id == box.id } != true },
             selectionUiUnit(), noteErasing.orEmpty()) { box ->
             if (box.id == target) {
                 canvas.save()
@@ -1619,7 +1692,7 @@ class InkView(context: Context) : View(context) {
                 canvas.restore()
             }
         }
-        if (selectedStickies.isNotEmpty()) {
+        if (objectLift == null && selectedStickies.isNotEmpty()) {
             canvas.save()
             if (previewing) canvas.concat(selectionPreviewMatrix)
             canvas.translate(selectionDx, selectionDy)
@@ -1910,6 +1983,7 @@ class InkView(context: Context) : View(context) {
                 removeCallbacks(longPressRunnable); tapOff = false
                 if (!stylus && !ignored) {
                     clearShapeHold()
+                    endObjectLift()
                     suspendWritingFollow()
                     draft = null; erasing = null; lasso = null; cancelSelectionGesture(); movingText = null; pendingTextBox = null; movingImage = null; resizingImage = false; pendingLink = null; navigating = true
                     panGate.release()
@@ -1966,7 +2040,7 @@ class InkView(context: Context) : View(context) {
                     } else {
                         val dx = at.x - imageFromX; val dy = at.y - imageFromY
                         if (dx != 0f || dy != 0f) {
-                            movingImage = if (page.infinite) current.moved(dx, dy)
+                            movingImage = if (page.infinite || onObjectLift != null) current.moved(dx, dy)
                             else current.moved(dx, dy).let {
                                 it.copy(x = it.x.coerceIn(-it.width + 40f, page.width - 40f),
                                     y = it.y.coerceIn(-it.height + 40f, page.height - 40f))
@@ -1974,12 +2048,22 @@ class InkView(context: Context) : View(context) {
                             if (hypot(dx, dy) > 1f) imageMoved = true
                         }
                     }
+                    if (!resizingImage && imageMoved) {
+                        val original = page.images.find { it.id == current.id }
+                        val preview = movingImage
+                        if (original != null && preview != null) liftObjects(event, index, CanvasSelection(images = listOf(original)),
+                            preview.x - original.x, preview.y - original.y)
+                    }
                     imageFromX = at.x; imageFromY = at.y
                 } else if (tool == Tool.TEXT && movingText != null) {
-                    val moved = clampToPage(point(event, index))
+                    val raw = point(event, index)
+                    val moved = if (onObjectLift != null) raw else clampToPage(raw)
                     val dx = moved.x - textFromX; val dy = moved.y - textFromY
                     if (hypot(dx, dy) * scale > ViewConfiguration.get(context).scaledTouchSlop) textDragged = true
-                    if (textDragged) { textDx = dx; textDy = dy }
+                    if (textDragged) {
+                        textDx = dx; textDy = dy
+                        liftObjects(event, index, CanvasSelection(texts = listOf(movingText!!)), dx, dy)
+                    }
                 } else if (lassoActive()) {
                     if (resizingSelection || rotatingSelection) {
                         val at = clampToPage(point(event, index))
@@ -1996,9 +2080,10 @@ class InkView(context: Context) : View(context) {
                         dragOffPage = !page.infinite && (rawPoint.x < 0f || rawPoint.x > page.width || rawPoint.y < 0f || rawPoint.y > page.height)
                         val where = IntArray(2).also { getLocationInWindow(it) }
                         dragWindowX = where[0] + event.getX(index); dragWindowY = where[1] + event.getY(index)
-                        val moved = clampToPage(rawPoint)
+                        val moved = if (onObjectLift != null) rawPoint else clampToPage(rawPoint)
                         selectionDx += moved.x - lastMoveX; selectionDy += moved.y - lastMoveY
                         lastMoveX = moved.x; lastMoveY = moved.y
+                        liftObjects(event, index, CanvasSelection(selection, selectedTexts, selectedImages), selectionDx, selectionDy)
                     } else {
                         // Reuse the backing list: rebuilding the whole loop per MOVE is O(N²).
                         val backing = (lasso as? ArrayList<InkPoint>) ?: ArrayList(lasso ?: emptyList())
@@ -2160,6 +2245,7 @@ class InkView(context: Context) : View(context) {
                     invalidate()
                     return true
                 }
+                positionObjectsOnRelease(event)
                 val hadImage = movingImage != null
                 val hadLink = pendingLink != null
                 val tappedZone = pendingZone
@@ -2457,6 +2543,10 @@ class InkView(context: Context) : View(context) {
         val box = movingText
         movingText = null
         if (box != null) {
+            if (textDragged && dropObjects()) {
+                pendingTextBox = null; textDx = 0f; textDy = 0f
+                return
+            }
             if (textDragged) {
                 val texts = page.texts.map { if (it.id == box.id) it.moved(textDx, textDy) else it }
                 page = page.copy(texts = texts)
@@ -2706,7 +2796,12 @@ class InkView(context: Context) : View(context) {
         movingImage = null
         val wasResize = resizingImage
         resizingImage = false
-        if (preview == null) return
+        if (preview == null) { endObjectLift(); return }
+        if (!wasResize && imageMoved && dropObjects()) {
+            imageMoved = false; clearImageSelection()
+            return
+        }
+        endObjectLift()
         if (imageMoved) {
             val images = page.images.map { if (it.id == preview.id) preview else it }
             page = page.copy(images = images)
@@ -2776,10 +2871,11 @@ class InkView(context: Context) : View(context) {
         return result ?: cutting
     }
     private fun cancelSelectionGesture() {
+        endObjectLift()
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { endObjectLift(); penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -2840,6 +2936,11 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
     }
     private fun commitSelectionMove() {
+        if (dropObjects()) {
+            dragOffPage = false
+            setSelection(CanvasSelection())
+            return
+        }
         val dropped = dragOffPage
         dragOffPage = false
         if (dropped && hasSelection() &&

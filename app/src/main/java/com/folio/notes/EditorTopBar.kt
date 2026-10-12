@@ -22,9 +22,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 internal val EditorFloatingGroupHeight = 46.dp
+private val DockButtonWidth = 48.dp
+private val NotebookActionsWidth = 56.dp
+private val NotebookActionsGap = 4.dp
 
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(
@@ -124,15 +128,16 @@ internal val EditorFloatingGroupHeight = 46.dp
         val timerNeed = timerWidth.value + FolioSpacing.dp6 * 2 + FolioSpacing.dp8 // surface padding (dp6 each side) + slack
         val toolsNeed = 400.dp
         val groupGaps = FolioSpacing.dp6 * 2
-        val documentWidth = 40.dp * 2 + FolioSpacing.dp8
-        val expandedNavWidth = 40.dp * ((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
+        val shareButtons = 1 + if (onChatGpt != null) 1 else 0
+        val documentWidth = DockButtonWidth * shareButtons + NotebookActionsGap + NotebookActionsWidth + FolioSpacing.dp8
+        val expandedNavWidth = DockButtonWidth * ((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
         // Both side pills take the wider side's width so the tools and the ink bar below them
         // share the screen's centre line.
         // Keep navigation compact on most tablets so drawing tools get the width. Wide
         // windows can expose the individual actions without adding another toolbar row.
         val foldNav = maxWidth < toolsNeed + maxOf(expandedNavWidth, documentWidth) * 2 + groupGaps
         val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
-        val leftNatural = 40.dp * navButtons + FolioSpacing.dp8
+        val leftNatural = DockButtonWidth * navButtons + FolioSpacing.dp8
         val rightWithTimer = documentWidth + timerNeed + FolioSpacing.dp6
         // Settings can keep the timer in the notebook menu even where it would fit.
         val compact = !toolbarOptions.timer || maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
@@ -230,11 +235,12 @@ internal val EditorFloatingGroupHeight = 46.dp
                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                         onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                         DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
-                        Box {
+                        Box(Modifier.padding(start = NotebookActionsGap)) {
                             DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                                 if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                                 { overflow = true },
-                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
+                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                                width = NotebookActionsWidth)
                             if (overflow) NotebookMenu(timerInMenu = compact)
                         }
                     }
@@ -251,9 +257,9 @@ internal val EditorFloatingGroupHeight = 46.dp
             // With the tab strip turned off, the way home moves onto the bar.
             val showTabs = showBack && toolbarOptions.tabs
             val homeOnBar = showBack && !showTabs
-            val leftFull = 40.dp * (if (homeOnBar) 4 else 3)
-            val leftFolded = 40.dp * (if (homeOnBar) 3 else 2)
-            val rightBase = 40.dp * 3
+            val leftFull = DockButtonWidth * (if (homeOnBar) 4 else 3)
+            val leftFolded = DockButtonWidth * (if (homeOnBar) 3 else 2)
+            val rightBase = DockButtonWidth * (1 + shareButtons) + NotebookActionsGap + NotebookActionsWidth
             val rightWithTimer = rightBase + timerWidth.value + FolioSpacing.dp8
             val timerInline = toolbarOptions.timer && rowWidth >= toolsNeed + maxOf(leftFull, rightWithTimer) * 2 + barGap * 2
             val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
@@ -293,11 +299,12 @@ internal val EditorFloatingGroupHeight = 46.dp
                     }
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
-                    Box {
+                    Box(Modifier.padding(start = NotebookActionsGap)) {
                         DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
                             if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                             { overflow = true },
-                            tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
+                            tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                            width = NotebookActionsWidth)
                         if (overflow) NotebookMenu(timerInMenu = !timerInline)
                     }
                 }
@@ -308,7 +315,9 @@ internal val EditorFloatingGroupHeight = 46.dp
             ) {
                 val row = Modifier.fillMaxWidth().height(GoodnotesRowHeight).padding(horizontal = GoodnotesBarInset)
                 if (stacked) {
-                    Row(row, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    FlowRow(Modifier.fillMaxWidth().heightIn(min = GoodnotesRowHeight).padding(horizontal = GoodnotesBarInset),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        itemVerticalAlignment = Alignment.CenterVertically) {
                         LeftControls(); RightControls()
                     }
                     HorizontalDivider(Modifier.padding(horizontal = GoodnotesBarInset), color = BarTones.divider)
@@ -358,14 +367,14 @@ internal val EditorFloatingGroupHeight = 46.dp
     }
 }
 
-/** One compact 40dp icon button shared by the dock pills. */
-@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null) {
+/** Shared dock button; reserve the full Material touch width in the row budget. */
+@Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null, width: Dp = DockButtonWidth) {
     val hold = rememberLongPressGuard()
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(),
         // The tooltip's own long-press would swallow the hold, so a button with a hold action gives it up.
         enableUserInput = onLongClick == null) {
         // The hold and the tap share one guard so a long-press never also fires the tap on release.
-        IconButton(hold.click(onClick), modifier = Modifier.size(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
+        IconButton(hold.click(onClick), modifier = Modifier.width(width).height(40.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
             Icon(icon, label, Modifier.size(20.dp), tint = tint)
         }
     }

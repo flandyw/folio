@@ -30,12 +30,27 @@ note hanging past it (`InkView.workspace()`, shared by the neighbour sliding in 
 paper stays visible and reachable, and zoomed panning stops at the notes' edge. A finger that lands on a focused note's resize grip (any tool), or on a note with the sticky or text tool,
 is resizing, moving or typing in it and never turns the page.
 
+In the continuous page column, photos dragged with the hand tool, text boxes dragged with the text
+tool, and lasso selections are carried above all pages. Hold near an edge to scroll, then release
+on another page (or in the gap nearest it). The grab offset is retained; the destination uses its
+active layer and the existing selection transfer/save queue, writing the destination before clearing
+the source. Each page undoes its own half. Resize and rotate handles stay on their page; canceled
+drags leave the original objects untouched. Single-page, music and infinite-canvas layouts keep
+local dragging.
+
 Run `node tools/page-navigation-smoke.cjs` for request races, stale layouts already showing
 the destination, short pages, document ends, reorder/delete and gesture threshold checks.
 Run `./build.sh -p` for the signed experimental build.
 
 ## Device check
 
+- In continuous view, drag a photo with the hand tool, a text box with the text tool, and a mixed
+  lasso selection onto the next/previous page. Hold at the top/bottom edge to scroll through several
+  pages; the source stays alive and the preview follows the grab point across gaps. Repeat zoomed,
+  horizontally panned, and with different PDF page sizes. Release back on the source after scrolling.
+  Resize/rotate still work locally. Add a second finger or cancel a drag: originals remain unchanged.
+  Check hidden/locked source layers, destination layer placement, each page's undo/redo, and reopen
+  the notebook to confirm photos, typed text and ink survived the transfer.
 - Sticky tool in one-page view: tap and drag to make notes, drag one by finger and by pen without the page
   turning, resize from the grip, type, change paper, Draw from the menu. Drag a note past the paper edge: the page
   refits so it stays in view; delete it and the fit returns. Swipes on bare space still turn the page.

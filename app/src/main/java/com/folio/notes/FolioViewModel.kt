@@ -2049,7 +2049,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
     }
 
     /** Destination is loaded before removing anything; both page edits use the usual save queue. */
-    fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null) {
+    fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null, centred: Boolean = at != null) {
         val noteId = _state.value.active?.id ?: return
         if (sourceId == targetId || selection.isEmpty()) return
         viewModelScope.launch {
@@ -2070,7 +2070,7 @@ class FolioViewModel(application: Application, private val savedState: SavedStat
                 !source.images.containsAll(selection.images)) {
                 reportError("The selection changed. Select it again before moving."); return@launch
             }
-            val placed = placeSelection(selection.copy(images = movedImages), target, at, centred = at != null)
+            val placed = placeSelection(selection.copy(images = movedImages), target, at, centred = centred)
             updateContent(target.id, target.strokes + placed.strokes, target.texts + placed.texts, target.images + placed.images)
             updateContent(source.id, source.strokes.filterNot { it in selection.strokes },
                 source.texts.filterNot { it in selection.texts }, source.images.filterNot { it in selection.images })

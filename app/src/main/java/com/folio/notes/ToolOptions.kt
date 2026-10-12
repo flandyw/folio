@@ -423,6 +423,18 @@ object EditorQuickPrefs {
             }
         }
 
+        listOf(
+            (if (editing) "Vivid ink for slot ${slot + 1}" else "Vivid colours") to InkColors.vividSwatches,
+            (if (editing) "Pastel ink for slot ${slot + 1}" else "Pastel colours") to InkColors.pastelSwatches
+        ).forEach { (title, swatches) ->
+            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                swatches.forEach { (name, color) ->
+                    InkColorDot(color, options.color == color, { pick(color) }, touch = 38.dp, dot = 24.dp, label = "$name #${InkColors.hex(color)}")
+                }
+            }
+        }
+
         OutlinedTextField(hex, { value ->
             hex = value.removePrefix("#").take(6)
             if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" }) pick((0xFF000000L or hex.toLong(16)).toInt())
