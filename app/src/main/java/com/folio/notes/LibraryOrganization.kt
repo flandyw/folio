@@ -40,16 +40,28 @@ fun organizeNotebooks(
 /** Where the library is looking when no folder is open. A tag or an open folder overrides it. */
 enum class LibraryPlace(val label: String) { ALL("All notebooks"), FAVORITES("Favorites"), UNFILED("Unfiled") }
 
+enum class LibraryPinScope { ALL, FOLDER }
+
 /**
  * The one library view's scope rules, shared by the shelf, its sidebar and the smoke check.
  * An open folder is spatial (its own notebooks and subfolders) until a search widens it to the
  * whole subtree; a tag or Favorites looks across the library and shows no folders.
  */
 object LibraryBrowse {
-    /** Folder pins only apply in their own folder; global pins only apply in All notebooks. */
+    /** The pin action and ordering share the current view’s scope. */
+    fun pinScope(note: Notebook, place: LibraryPlace, folderId: String?, tag: String?): LibraryPinScope? = when {
+        tag != null -> null
+        folderId != null -> if (note.folderId == folderId) LibraryPinScope.FOLDER else null
+        place == LibraryPlace.ALL -> LibraryPinScope.ALL
+        else -> null
+    }
+
     fun isPinned(note: Notebook, place: LibraryPlace, folderId: String?, tag: String?): Boolean =
-        tag == null && if (folderId != null) note.folderId == folderId && note.pinnedInFolder
-        else place == LibraryPlace.ALL && note.pinned
+        when (pinScope(note, place, folderId, tag)) {
+            LibraryPinScope.ALL -> note.pinned
+            LibraryPinScope.FOLDER -> note.pinnedInFolder
+            null -> false
+        }
 
     fun notebooks(
         notes: List<Notebook>, folders: List<Folder>, place: LibraryPlace, folderId: String?, tag: String?,

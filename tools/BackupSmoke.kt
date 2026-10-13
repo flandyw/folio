@@ -264,6 +264,14 @@ private fun checkLibraryBrowse() {
     check(pinnedIds(tag = "revision") == listOf("algebra", "loose"))
     check(pinnedIds(LibraryPlace.FAVORITES) == listOf("loose"))
     check(!LibraryBrowse.isPinned(loose.copy(pinned = true), LibraryPlace.UNFILED, null, null))
+    // Menus expose only the pin action for the current view, including subtree search results.
+    check(LibraryBrowse.pinScope(algebra, LibraryPlace.ALL, null, null) == LibraryPinScope.ALL)
+    check(LibraryBrowse.pinScope(algebra, LibraryPlace.ALL, maths.id, null) == LibraryPinScope.FOLDER)
+    check(LibraryBrowse.pinScope(algebra, LibraryPlace.FAVORITES, maths.id, null) == LibraryPinScope.FOLDER)
+    check(LibraryBrowse.pinScope(limits, LibraryPlace.ALL, maths.id, null) == null)
+    check(LibraryBrowse.pinScope(algebra, LibraryPlace.ALL, null, "revision") == null)
+    check(LibraryBrowse.pinScope(algebra, LibraryPlace.FAVORITES, null, null) == null)
+    check(LibraryBrowse.pinScope(loose, LibraryPlace.UNFILED, null, null) == null)
     // Pin priority is independent of the selected secondary sort.
     for (order in LibrarySort.entries) {
         check(LibraryBrowse.notebooks(pinnedNotes, folders, LibraryPlace.ALL, maths.id, null, sort = order).first().id == "z")
