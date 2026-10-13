@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Rect
 
 /** Visible geometry only. The ViewModel still owns destination-first writes and per-page history. */
 internal class EditorTransferCoordinator {
+    var onGeometryChanged: (() -> Unit)? = null
     private val papers = mutableMapOf<String, Rect>()
     private val regions = mutableMapOf<String, Rect>()
     private var index: DocumentPageGeometry.Index? = null
@@ -11,11 +12,11 @@ internal class EditorTransferCoordinator {
     fun visiblePaperFrames(): Map<String, Rect> = papers.toMap()
     fun workspaceFrame(id: String): Rect? = regions[id]
     fun paperFrame(id: String): Rect? = papers[id]
-    fun paper(id: String, frame: Rect?) { if (frame == null) papers.remove(id) else papers[id] = frame; index = null }
-    fun region(id: String, frame: Rect?) { if (frame == null) regions.remove(id) else regions[id] = frame; index = null }
+    fun paper(id: String, frame: Rect?) { if (frame == null) papers.remove(id) else papers[id] = frame; index = null; onGeometryChanged?.invoke() }
+    fun region(id: String, frame: Rect?) { if (frame == null) regions.remove(id) else regions[id] = frame; index = null; onGeometryChanged?.invoke() }
     fun update(pages: List<NotePage>) {
         val next = pages.filterNot { it.infinite }.associate { it.id to (it.width to it.height) }
-        if (next != sizes) { sizes = next; index = null }
+        if (next != sizes) { sizes = next; index = null; onGeometryChanged?.invoke() }
     }
     private fun geometry(): DocumentPageGeometry.Index = index ?: DocumentPageGeometry.Index(papers.mapNotNull { (id, paper) ->
         val size = sizes[id] ?: return@mapNotNull null

@@ -533,6 +533,19 @@ class InkView(context: Context) : View(context) {
     private var draftHighlighter: InkRenderer.IncrementalHighlighterStroke? = null
     /** Where the eraser outline sits, in page units, or null when it should not be shown. */
     private var eraserMark: InkPoint? = null
+        set(value) { field = value; reportEraserBrush() }
+    /**
+     * When set, the editor draws the eraser ring itself, at the pen's window position, so it can leave
+     * this page; the view then only says how big the ring is and whether it is cutting.
+     */
+    internal var onEraserBrush: ((EraserBrush?) -> Unit)? = null
+    private var reportedBrush: EraserBrush? = null
+    private fun reportEraserBrush() {
+        val report = onEraserBrush ?: return
+        val at = eraserMark
+        val next = at?.let { EraserBrush(eraserRadiusAt(it) * scale, eraserWholeStroke, erasing != null) }
+        if (next != reportedBrush) { reportedBrush = next; report(next) }
+    }
     /**
      * The laser tool's presenter trail, in page units. Each stroke keeps its samples' times; the
      * tail of a long stroke fades while it is drawn and a whole stroke fades shortly after the pen
@@ -602,13 +615,7 @@ class InkView(context: Context) : View(context) {
         color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f
         pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
     }
-    // Eraser ring: a white halo under a dark neutral edge reads on paper, dark PDFs and ink alike;
-    // the fill deepens once the tip is cutting so hovering and erasing look different.
-    private val eraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val eraserEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD92B3440.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val eraserHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.STROKE }
-    private val eraserDotHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.FILL }
-    private val eraserDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD92B3440.toInt(); style = Paint.Style.FILL }
+    private val eraserRing = EraserRingPainter()
     private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xCCFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
@@ -1337,14 +1344,14 @@ class InkView(context: Context) : View(context) {
                 if (zone != null && now - lastZoneOfferAt > 150L) offerZone(zone)
             }
             if (leaving) {
-                if (eraserMark != null) { eraserMark = null; invalidate() }
+                if (eraserMark != null) { eraserMark = null; if (onEraserBrush == null) invalidate() }
                 if (laserHover != null) { laserHover = null; invalidate() }
             } else if (tool == Tool.LASER) {
                 laserHover = point(event, 0); invalidate()
             } else if (tool == Tool.ERASER) {
                 val next = clampToPage(point(event, 0))
                 val last = eraserMark
-                if (last == null || hypot(next.x - last.x, next.y - last.y) > .75f) { eraserMark = next; invalidate() }
+                if (last == null || hypot(next.x - last.x, next.y - last.y) > .75f) { eraserMark = next; if (onEraserBrush == null) invalidate() }
             }
         }
         return if ((0 until event.pointerCount).any { isStylus(event, it) }) true else super.onHoverEvent(event)
@@ -1608,6 +1615,7 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(reportTextFrame)
         removeCallbacks(longPressRunnable)
         clearShapeHold()
+        if (eraserMark != null) eraserMark = null
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
         resetDraftGeometry()
         super.onDetachedFromWindow()
@@ -1824,9 +1832,36 @@ class InkView(context: Context) : View(context) {
             canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
         }
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
+        if (!workspaceNotes) drawStickySurfaces(canvas)
+        // Tools and guides sit above everything on the page, notes included.
+        if (onEraserBrush == null) eraserMark?.let { drawEraser(canvas, it) }
+        placeRuler()
+        shownRuler?.let { drawRuler(canvas, it) }
+        if (laserStrokes.isNotEmpty() || laserHover != null) drawLaser(canvas)
+        followStickyFrame()
+        canvas.restore()
+    }
+
+    /** Finite-column notes are painted on the shared workspace, outside every paper/item clip. */
+    internal var workspaceNotes = false
+    internal var onWorkspaceNotesInvalidated: (() -> Unit)? = null
+    override fun invalidate() { super.invalidate(); onWorkspaceNotesInvalidated?.invoke() }
+    @Suppress("DEPRECATION")
+    override fun invalidate(left: Int, top: Int, right: Int, bottom: Int) {
+        super.invalidate(left, top, right, bottom); onWorkspaceNotesInvalidated?.invoke()
+    }
+    internal fun drawWorkspaceNotes(canvas: Canvas) {
+        if (!workspaceNotes) return
+        canvas.save()
+        canvas.translate(originX, originY); canvas.scale(scale, scale)
+        drawStickySurfaces(canvas)
+        canvas.restore()
+        followStickyFrame()
+    }
+    private fun drawStickySurfaces(canvas: Canvas) {
         val selectedStickies = selectedTexts.filter { it.isSticky }
         val target = noteTarget
-        stickyNotes.draw(canvas, layered.texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } && carried?.texts?.any { it.id == box.id } != true },
+        stickyNotes.draw(canvas, (documentContentPreview?.let { PageLayers.view(it) } ?: layerView()).texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } && objectLift?.selection?.texts?.any { it.id == box.id } != true },
             selectionUiUnit(), if (documentContentPreview == null) noteErasing.orEmpty() else emptyMap()) { box ->
             if (box.id == target && !documentSpanning) {
                 canvas.save()
@@ -1837,18 +1872,11 @@ class InkView(context: Context) : View(context) {
         }
         if (objectLift == null && selectedStickies.isNotEmpty()) {
             canvas.save()
-            if (previewing) canvas.concat(selectionPreviewMatrix)
+            if (hasSelection() && (selectionPreviewScale != 1f || selectionPreviewDeg != 0f)) canvas.concat(selectionPreviewMatrix)
             canvas.translate(selectionDx, selectionDy)
             selectedStickies.forEach { InkRenderer.text(canvas, it); drawTextBox(canvas, it) }
             canvas.restore()
         }
-        // Tools and guides sit above everything on the page, notes included.
-        eraserMark?.let { drawEraser(canvas, it) }
-        placeRuler()
-        shownRuler?.let { drawRuler(canvas, it) }
-        if (laserStrokes.isNotEmpty() || laserHover != null) drawLaser(canvas)
-        followStickyFrame()
-        canvas.restore()
     }
 
     /** The stroke in progress, or the shape a held pen has tidied it into. */
@@ -3348,22 +3376,8 @@ class InkView(context: Context) : View(context) {
      * Rubber is a solid ring with a centre dot; whole-stroke is dashed with no dot, since it
      * removes what the ring touches rather than the area inside it. Screen-sized chrome.
      */
-    private fun drawEraser(canvas: Canvas, at: InkPoint) {
-        val unit = selectionUiUnit()
-        val radius = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(at.pressure) else inkWidth / 2f
-        val cutting = erasing != null
-        eraserFillPaint.color = if (cutting) 0x3A2B3440 else 0x142B3440
-        canvas.drawCircle(at.x, at.y, radius, eraserFillPaint)
-        eraserHaloPaint.strokeWidth = 3.5f * unit
-        eraserEdgePaint.strokeWidth = (if (cutting) 1.75f else 1.25f) * unit
-        eraserEdgePaint.pathEffect = if (eraserWholeStroke) DashPathEffect(floatArrayOf(5f * unit, 4f * unit), 0f) else null
-        canvas.drawCircle(at.x, at.y, radius, eraserHaloPaint)
-        canvas.drawCircle(at.x, at.y, radius, eraserEdgePaint)
-        if (!eraserWholeStroke) {
-            canvas.drawCircle(at.x, at.y, 2.5f * unit, eraserDotHaloPaint)
-            canvas.drawCircle(at.x, at.y, 1.5f * unit, eraserDotPaint)
-        }
-    }
+    private fun drawEraser(canvas: Canvas, at: InkPoint) =
+        eraserRing.draw(canvas, at.x, at.y, eraserRadiusAt(at), selectionUiUnit(), erasing != null, eraserWholeStroke)
     /** Half the ruler's thickness in page units: the band is a fixed width on screen. */
     private fun rulerHalf() = RULER_THICKNESS_DP / 2f * selectionUiUnit()
     /** Half its length in page units: long enough to span the view from anywhere on it. */

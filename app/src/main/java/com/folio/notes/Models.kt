@@ -118,7 +118,7 @@ data class TextBox(
     val isSticky: Boolean get() = stickyHeight > 0f
     fun moved(dx: Float, dy: Float) = copy(x = x + dx, y = y + dy)
     /** Same wording with a new wrap width, clamped to the limits the editor and lasso share. */
-    fun withWidth(value: Float) = copy(width = value.coerceIn(MIN_WIDTH, MAX_WIDTH))
+    fun withWidth(value: Float) = copy(width = value.coerceIn(if (isSticky) StickyNotes.SMALLEST_DIMENSION else MIN_WIDTH, MAX_WIDTH))
     /** Same wording faded to [value], clamped so text never vanishes entirely. */
     fun withOpacity(value: Float) = copy(opacity = value.coerceIn(MIN_OPACITY, MAX_OPACITY))
     companion object {
@@ -741,7 +741,7 @@ object InkGeometry {
             box.copy(
                 x = center.x + (box.x - center.x) * factor,
                 y = center.y + (box.y - center.y) * factor,
-                width = (box.width * factor).coerceIn(TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
+                width = (box.width * factor).coerceIn(if (box.isSticky) StickyNotes.SMALLEST_DIMENSION else TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
                 size = (box.size * factor).coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
                 stickyHeight = box.stickyHeight * factor,
                 stickyInk = scale(box.stickyInk, InkPoint(0f, 0f), factor)

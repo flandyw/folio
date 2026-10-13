@@ -10,10 +10,10 @@ import kotlin.math.hypot
 
 /**
  * A note being carried by hand, in window pixels: where its top-left corner is now, how many pixels
- * one page unit is, and where the finger is. [box] is the note as it was picked up. The editor draws
+ * one page unit is, and where the finger is. [box] is the note as it was picked up, or the current creation/resize preview. The editor draws
  * it above every page and may re-home it on another page when it is let go.
  */
-internal class StickyLift(val box: TextBox, val left: Float, val top: Float, val unit: Float, val fingerX: Float, val fingerY: Float)
+internal class StickyLift(val box: TextBox, val left: Float, val top: Float, val unit: Float, val fingerX: Float, val fingerY: Float, val moving: Boolean = true, val drawControls: ((Canvas) -> Unit)? = null)
 
 /**
  * Sticky note handling on an [InkView]: making, picking up, moving, resizing and typing into notes.
@@ -91,7 +91,7 @@ internal class StickyNoteInput(
     }
 
     /** The view is going away mid-carry: place the note where it was last held instead of losing the drop. */
-    fun dropLift() { lift?.let { onDrop?.invoke(it) } }
+    fun dropLift() { lift?.takeIf { it.moving }?.let { onDrop?.invoke(it) } }
 
     /** Drops a gesture in progress and the focus, e.g. on a tool or page change. */
     fun reset() {
@@ -213,6 +213,7 @@ internal class StickyNoteInput(
                     Mode.TYPE_TAP -> box
                 }
                 if (moved && current == Mode.MOVE) liftNote(event, began, at, box)
+                else if (moved && (current == Mode.CREATE || current == Mode.RESIZE)) preview?.let { liftPreview(event, it) }
                 // The note's menu rides along with the note instead of waiting where it was picked up.
                 if (moved && current != Mode.CREATE && box?.id == focusedId) preview?.let { onFocus(it, typing) }
                 if (event.actionMasked == MotionEvent.ACTION_UP) finish(current, began, layer)
@@ -246,7 +247,7 @@ internal class StickyNoteInput(
             }
             Mode.MOVE, Mode.RESIZE -> when {
                 box == null -> Unit
-                moved && lift?.let { onDrop?.invoke(it) } == true -> focus(null)
+                moved && mode == Mode.MOVE && lift?.let { onDrop?.invoke(it) } == true -> focus(null)
                 moved -> preview?.let { next -> replace(next); page().texts.find { it.id == next.id }?.let { focus(it) } }
                 // A tap focuses the note; tapping the focused note again types in it.
                 focusedId == box.id && mode == Mode.MOVE -> focus(box, type = true)
@@ -266,10 +267,24 @@ internal class StickyNoteInput(
         val report = onLift ?: return
         if (box == null) return
         val r = frame(box)
-        val unit = r.width() / box.width
+        val unit = frame(box.copy(width = 100f)).width() / 100f
         val origin = IntArray(2).also(host::getLocationInWindow)
         val held = StickyLift(box, origin[0] + r.left + (at.x - began.x) * unit, origin[1] + r.top + (at.y - began.y) * unit,
             unit, origin[0] + event.x, origin[1] + event.y)
+        lift = held
+        report(held)
+    }
+
+    /** Creation and resize previews also cross item boundaries, but never re-home the note. */
+    private fun liftPreview(event: MotionEvent, box: TextBox) {
+        val report = onLift ?: return
+        val r = frame(box)
+        // Derive scale from a normal-sized frame; tiny notes may round to zero screen width.
+        val unit = frame(box.copy(width = 100f)).width() / 100f
+        val origin = IntArray(2).also(host::getLocationInWindow)
+        val held = StickyLift(box, origin[0] + r.left, origin[1] + r.top, unit,
+            origin[0] + event.x, origin[1] + event.y, moving = false,
+            drawControls = { canvas -> drawFocus(canvas, box, density / unit) })
         lift = held
         report(held)
     }
@@ -309,7 +324,7 @@ internal class StickyNoteInput(
             afterNote(box)
             if (box.id == focusedId) drawFocus(canvas, box, unit)
         }
-        if (mode == Mode.CREATE) preview?.let { InkRenderer.text(canvas, it); drawFocus(canvas, it, unit) }
+        if (mode == Mode.CREATE && lift == null) preview?.let { InkRenderer.text(canvas, it); drawFocus(canvas, it, unit) }
     }
 
     private fun drawFocus(canvas: Canvas, box: TextBox, unit: Float) {

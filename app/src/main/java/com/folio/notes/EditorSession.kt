@@ -60,6 +60,8 @@ internal class EditorInteractionState {
     val selection = mutableStateOf<Pair<String, CanvasSelection>?>(null)
     val documentSelection = mutableStateOf<Map<String, CanvasSelection>>(emptyMap())
     val stickyLift = mutableStateOf<StickyLift?>(null)
+    /** The eraser as the page under the pen reports it; null while the pen is over no page. */
+    val eraserBrush = mutableStateOf<EraserBrush?>(null)
     val objectLift = mutableStateOf<ObjectLift?>(null)
     val selectedImage = mutableStateOf<Pair<String, PageImage>?>(null)
     val cropActive = mutableStateOf(false)

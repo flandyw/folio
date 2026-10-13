@@ -89,6 +89,7 @@ internal data class EditorPageActions(
     val onObjectLift: ((ObjectLift?) -> Unit)? = null,
     val onObjectDrop: ((String, ObjectLift) -> Boolean)? = null,
     val onStickyLift: ((StickyLift?) -> Unit)? = null,
+    val onEraserBrush: ((EraserBrush?) -> Unit)? = null,
     val onStickyDrop: ((String, StickyLift) -> Boolean)? = null,
     val onCropMode: (Boolean) -> Unit = {},
     val onNavigating: (Boolean) -> Unit = {},

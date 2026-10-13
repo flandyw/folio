@@ -20,8 +20,8 @@ object StickyNotes {
     /** A tap with the sticky tool makes a note this size, centred on the tap. */
     const val DEFAULT_WIDTH = 220f
     const val DEFAULT_HEIGHT = 200f
-    const val MIN_WIDTH = 90f
-    const val MIN_HEIGHT = 60f
+    // Keep dimensions positive: zero height denotes an ordinary text box in storage.
+    const val SMALLEST_DIMENSION = 0.001f
     const val MAX_HEIGHT = 10000f
     /** The type size a new note starts with, unless the Settings default says otherwise. */
     const val TEXT_SIZE = 16f
@@ -69,10 +69,9 @@ object StickyNotes {
     /** The note's ink in page space, e.g. to hit-test it against a page-space eraser. */
     fun toPage(box: TextBox, stroke: Stroke): Stroke = InkGeometry.translate(stroke, box.x, box.y)
 
-    /** A new note at least the minimum size, spanning the drag from ([ax], [ay]) to ([bx], [by]). */
+    /** A new note spanning the drag from ([ax], [ay]) to ([bx], [by]). */
     fun spanning(ax: Float, ay: Float, bx: Float, by: Float, layer: Int, paper: Int, textSize: Float): TextBox {
-        val w = max(abs(bx - ax), MIN_WIDTH); val h = max(abs(by - ay), MIN_HEIGHT)
-        // Grown from the corner that was pressed, so a short drag never jumps away from the finger.
+        val w = max(abs(bx - ax), SMALLEST_DIMENSION); val h = max(abs(by - ay), SMALLEST_DIMENSION)
         val x = if (bx >= ax) ax else ax - w
         val y = if (by >= ay) ay else ay - h
         return TextBox(x = x, y = y, width = w, stickyHeight = h, size = textSize, layer = layer, stickyColor = paper)
@@ -83,10 +82,14 @@ object StickyNotes {
         TextBox(x = x - DEFAULT_WIDTH / 2f, y = y - DEFAULT_HEIGHT / 2f, width = DEFAULT_WIDTH,
             stickyHeight = DEFAULT_HEIGHT, size = textSize, layer = layer, stickyColor = paper)
 
-    /** [box] with its bottom-right corner dragged to ([x], [y]), never smaller than the minimum. */
+    /** [box] with its bottom-right corner dragged to ([x], [y]), keeping both dimensions positive. */
     fun resized(box: TextBox, x: Float, y: Float): TextBox = box.copy(
-        width = (x - box.x).coerceIn(MIN_WIDTH, TextBox.MAX_WIDTH),
-        stickyHeight = (y - box.y).coerceIn(MIN_HEIGHT, MAX_HEIGHT))
+        width = (x - box.x).coerceIn(SMALLEST_DIMENSION, TextBox.MAX_WIDTH),
+        stickyHeight = (y - box.y).coerceIn(SMALLEST_DIMENSION, MAX_HEIGHT))
+
+    /** Retain the owner's input surface when a note is visible beyond its row in the column. */
+    fun spansRows(box: TextBox, page: NotePage): Boolean = box.isSticky &&
+        (box.y < 0f || box.y + box.stickyHeight > page.height)
 
     /** A note touching the outside belongs to the workspace, including all its local ink. */
     fun exports(box: TextBox, page: NotePage) = !box.isSticky || page.infinite ||

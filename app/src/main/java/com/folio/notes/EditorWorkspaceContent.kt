@@ -1033,7 +1033,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         onSelectionAnchor = { selectionAnchor = it }))
             } else ContinuousDocumentHost(note.id, note.pages.size, note.pages.any { it.pdfIndex != null }, editor,
                 pages, motion, viewportCoordinator,
-                DocumentHostLayout(baseWidth, viewportWidth, documentScale, floatingToolbarTop, canvasWindowBounds),
+                DocumentHostLayout(baseWidth, viewportWidth, documentScale, floatingToolbarTop, canvasWindowBounds,
+                    if (tool == Tool.ERASER && !zoomPaneOpen) EraserPreview(options.width / 2f, page.width, eraserWholeStroke) else null),
                 activeInkView, haptics, pullAdding, showPageBoundaries, ::panBy) {
 
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
@@ -1090,6 +1091,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     onObjectLift = { objectLift = it },
                                     onObjectDrop = { source, lift -> transfers.dropObject(model, source, lift) },
                                     onStickyLift = { stickyLift = it },
+                                    onEraserBrush = { editor.interaction.eraserBrush.value = it },
                                     onStickyDrop = { source, lift -> transfers.dropSticky(model, source, lift) },
                                     onSelectionDrop = { source, picked, x, y -> transfers.dropSelection(model, source, picked, x, y) },
                                     onEraserFinished = ::finishSingleStrokeEraser,

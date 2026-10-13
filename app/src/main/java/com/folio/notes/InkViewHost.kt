@@ -51,6 +51,7 @@ import androidx.compose.ui.viewinterop.AndroidView
             registry?.bind(view, role, page.id)
             view.documentInputBusy = if (!presentation.readOnly && documentInput != null) documentInput::isHistoryBusy else null
             val continuous = presentation.paperWidth != null && !presentation.readOnly && !surface.zoomWritingPane && !surface.inputBlocked
+            view.workspaceNotes = continuous
             view.onDocumentGestureStart = if (continuous && documentInput != null) { stroke, lasso -> documentInput.begin(page.id, stroke, lasso) } else null
             view.onDocumentGestureSamples = if (continuous && documentInput != null) { points -> documentInput.samples(page.id, points) } else null
             view.onDocumentGestureFinish = if (documentInput != null) { { documentInput.finish(page.id) } } else null

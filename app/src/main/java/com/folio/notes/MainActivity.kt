@@ -16,6 +16,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     private val stylusActivity = StylusActivity()
+    private val penPointer = PenPointer()
     private val inputRouter by lazy {
         StylusInputRouter(stylusActivity, android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat(),
             notifyWindowCancellation = true)
@@ -55,12 +56,13 @@ class MainActivity : ComponentActivity() {
         requestHighRefreshRate()
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
-            CompositionLocalProvider(LocalStylusActivity provides stylusActivity) {
+            CompositionLocalProvider(LocalStylusActivity provides stylusActivity, LocalPenPointer provides penPointer) {
                 FolioApp(model, shortcutRequest)
             }
         }
     }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        penPointer.observe(event)
         if (!stylusSeen && event.actionMasked == MotionEvent.ACTION_DOWN && isStylusPointer(event, 0)) penFirstSeen()
         return inputRouter.touch(event) { super.dispatchTouchEvent(it) }
     }
@@ -79,6 +81,7 @@ class MainActivity : ComponentActivity() {
             android.widget.Toast.LENGTH_LONG).show()
     }
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        penPointer.observe(event)
         inputRouter.hover(event) { super.dispatchTouchEvent(it) }
         return super.dispatchGenericMotionEvent(event)
     }

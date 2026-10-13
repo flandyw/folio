@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     val onObjectLift = actions.onObjectLift
     val onObjectDrop = actions.onObjectDrop
     val onStickyLift = actions.onStickyLift
+    val onEraserBrush = actions.onEraserBrush
     val onStickyDrop = actions.onStickyDrop
     val onSelectionDrop = actions.onSelectionDrop
 
@@ -62,8 +63,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     // A carried object keeps its source page alive while the list scrolls under it.
     val pinnable = LocalPinnableContainer.current
     var carrying by remember { mutableStateOf(false) }
-    DisposableEffect(carrying) {
-        val pin = if (carrying) pinnable?.pin() else null
+    // A note can remain visible beyond its owning item's lifetime. Keep that native surface
+    // available for drawing and input while the note overlaps another row.
+    val spanningNotes = presentation.paperWidth != null && page.texts.any {
+        StickyNotes.spansRows(it, page)
+    }
+    DisposableEffect(carrying, spanningNotes) {
+        val pin = if (carrying || spanningNotes) pinnable?.pin() else null
         onDispose { pin?.release() }
     }
     val inputStylusActivity = LocalStylusActivity.current
@@ -107,14 +113,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         stickyDraft = null
         boundInkView?.setStickyText(draft.id, draft.value.text)
     }
-    // A document page spans the workspace beside its paper, and grows above or below the paper
-    // only as far as a note already hangs past it.
+    // Paper rows keep their own height. Sticky notes draw above the whole column and never
+    // push adjacent pages apart, even when they cross a seam.
     val pageDensity = LocalDensity.current
     val documentPage = paperWidth != null && !readOnly && !fullscreen && !page.infinite
-    val notes = if (documentPage) page.texts.filter { it.isSticky } else emptyList()
-    val workspaceTop = minOf(0f, notes.minOfOrNull { it.y } ?: 0f)
-    val workspaceBottom = maxOf(page.height, notes.maxOfOrNull { it.y + it.stickyHeight } ?: 0f)
     val paperWidthPx = if (documentPage) with(pageDensity) { paperWidth!!.toPx() } else 0f
+    val workspaceTop = 0f
+    val workspaceBottom = page.height
     val pageModifier = when {
         fullscreen -> Modifier.fillMaxSize()
         documentPage -> Modifier.fillMaxWidth().height(paperWidth!! * ((workspaceBottom - workspaceTop) / page.width))
@@ -184,6 +189,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                 view.onSelectionDrop = { picked, x, y -> !readOnly && onSelectionDrop(page.id, picked, x, y) }
                 view.onObjectLift = if (documentPage && !readOnly && onObjectLift != null) { lift -> carrying = lift != null; onObjectLift(lift) } else null
                 view.onObjectDrop = if (documentPage && !readOnly && onObjectDrop != null) { lift -> onObjectDrop(page.id, lift) } else null
+                // Pages in the scrolling column hand the eraser ring to the editor, which draws it over the
+                // whole workspace; any other surface draws its own.
+                view.onEraserBrush = if (paperWidth != null && !readOnly && !fullscreen) onEraserBrush else null
                 view.onStickyLift = if (documentPage && onStickyLift != null) { lift -> carrying = lift != null; onStickyLift(lift) } else null
                 view.onStickyDrop = if (documentPage && onStickyDrop != null) { lift -> onStickyDrop(page.id, lift) } else null
                 view.onMarkRegion = { lane, rect ->

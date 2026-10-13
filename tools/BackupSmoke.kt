@@ -91,15 +91,41 @@ private fun checkStickyNotes() {
     val pageStroke = Stroke(Tool.PEN, -16777216, 2f, listOf(InkPoint(65f, 45f), InkPoint(80f, 70f)))
     val local = StickyNotes.toNote(top, pageStroke)
     check(local.points.first().x == 5f && local.points.first().y == 5f && StickyNotes.toPage(top, local).points == pageStroke.points)
-    // Dragging up and left from the press grows the note from that corner; tiny drags keep the minimum size.
+    // Dragging up and left from the press grows the note from that corner; tiny drags keep their drawn dimensions.
     val dragged = StickyNotes.spanning(200f, 200f, 100f, 150f, 0, 0, StickyNotes.TEXT_SIZE)
-    check(dragged.x == 100f && dragged.y == 140f && dragged.width == 100f && dragged.stickyHeight == StickyNotes.MIN_HEIGHT)
+    check(dragged.x == 100f && dragged.y == 150f && dragged.width == 100f && dragged.stickyHeight == 50f)
     val tapped = StickyNotes.centred(300f, 300f, 2, StickyNotes.papers[2], StickyNotes.TEXT_SIZE)
     check(tapped.isSticky && tapped.layer == 2 && tapped.x + tapped.width / 2f == 300f && tapped.stickyColor == StickyNotes.papers[2])
     // New notes start at the Settings size; a note's own size is clamped to the slider's range.
     check(tapped.size == StickyNotes.TEXT_SIZE && StickyNotes.TEXT_SIZE == 16f)
     check(StickyNotes.textSize(1f) == StickyNotes.TEXT_SIZE_MIN && StickyNotes.textSize(500f) == StickyNotes.TEXT_SIZE_MAX)
-    check(StickyNotes.resized(tapped, tapped.x + 1f, tapped.y + 1f).width == StickyNotes.MIN_WIDTH)
+    val tiny = StickyNotes.resized(tapped, tapped.x + 1f, tapped.y + 1f)
+    check(tiny.width == 1f && tiny.stickyHeight == 1f && tiny.isSticky)
+    check(InkCodec.decodeTexts(InkCodec.encodeTexts(listOf(tiny))).single() == tiny)
+    check(InkGeometry.scaleTexts(listOf(tiny), InkPoint(0f, 0f), .5f).single().width == .5f)
+    check(tiny.withWidth(.5f).width == .5f)
+    val flat = StickyNotes.spanning(0f, 0f, 10f, 0f, 0, 0, StickyNotes.TEXT_SIZE)
+    check(flat.width == 10f && flat.isSticky)
+    check(StickyNotes.resized(tiny, tiny.x - 1f, tiny.y - 1f).isSticky)
+    val edgeNote = tiny.copy(y = -50f, stickyHeight = page.height + 100f)
+    check(StickyNotes.spansRows(edgeNote, page))
+    check(StickyNotes.spansRows(tiny.copy(y = page.height - .5f), page))
+    check(!StickyNotes.spansRows(tiny.copy(y = 0f), page))
+    check(!StickyNotes.spansRows(ordinary.copy(y = -50f), page))
+    // Crossing a seam leaves the paper layout unchanged; note-local ink still routes to its owner.
+    val sheets = listOf(DocumentPageGeometry.Sheet(page.id, page.width, page.height),
+        DocumentPageGeometry.Sheet("next", page.width, page.height))
+    val layout = DocumentPageGeometry.layout(sheets, page.width, 6f)
+    check(layout[1].paperTop == page.height + 6f)
+    val frame = DocumentPageGeometry.Frame(page.id, page.width, page.height,
+        DocumentPageGeometry.Bounds(0f, 0f, page.width, page.height),
+        DocumentPageGeometry.Bounds(-page.width, 0f, 2f * page.width, page.height))
+    val noteTop = page.height - 10f
+    val crossing = inside.copy(x = 20f, y = noteTop, stickyHeight = 60f)
+    val capture = DocumentInkCapture(page.id, ink, listOf(DocumentInkPage(frame, 0, true, listOf(crossing))))
+    capture.add(listOf(InkPoint(30f, noteTop + 5f), InkPoint(30f, noteTop + 55f)), false)
+    check(capture.strokes().isEmpty())
+    check(capture.noteStrokes().getValue(page.id).getValue(crossing.id).single().points.last().y == 55f)
     check(StickyNotes.papers.first() == 0 && StickyNotes.papers.size == StickyNotes.paperCount)
     println("Sticky notes: export placement, workspace width, local ink, legacy text, snapshot/history, portable round trips, hit-testing and sizing passed")
 }

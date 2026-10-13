@@ -2,10 +2,13 @@ package com.folio.notes
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.composed
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 
@@ -59,13 +62,21 @@ internal fun Modifier.holdPenFromScrolling(): Modifier = pointerInput(Unit) {
 /** Consume palm contacts before buttons, text fields and sliders see them; pen/mouse still work. */
 internal fun Modifier.guardUiTouches(): Modifier = composed {
     val stylus = LocalStylusActivity.current
-    pointerInput(stylus) {
+    val pen = LocalPenPointer.current
+    val owner = remember { Any() }
+    DisposableEffect(pen, owner) { onDispose { pen.leaveChrome(owner) } }
+    pointerInput(stylus, pen) {
         val gesture = UiTouchGesture(stylus)
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 event.changes.filter { it.type == PointerType.Stylus || it.type == PointerType.Eraser }
                     .forEach { stylus.record(it.uptimeMillis) }
+                // A pen over any guarded control is over chrome: the editor's eraser ring stays out of it.
+                event.changes.firstOrNull { isPen(it.type) }?.let { tip ->
+                    val inside = event.type != PointerEventType.Exit && tip.position.x in 0f..size.width.toFloat() && tip.position.y in 0f..size.height.toFloat()
+                    if (inside) pen.enterChrome(owner) else pen.leaveChrome(owner)
+                }
                 event.changes.forEach { change ->
                     // Compose reports palm and vendor tool types as Unknown; treat them as hands.
                     val hand = change.type == PointerType.Touch || change.type == PointerType.Unknown

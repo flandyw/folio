@@ -44,8 +44,8 @@ internal class EditorViewportCoordinator(
         val visible = layout.visibleItemsInfo.firstOrNull { it.index in note.pages.indices &&
             it.offset.toLong() + it.size > layout.viewportStartOffset && it.offset < layout.viewportEndOffset } ?: return
         val page = note.pages[visible.index]
-        val top = minOf(0f, page.texts.filter { it.isSticky }.minOfOrNull { it.y } ?: 0f)
-        val bottom = maxOf(page.height, page.texts.filter { it.isSticky }.maxOfOrNull { it.y + it.stickyHeight } ?: page.height)
+        val top = 0f
+        val bottom = page.height
         if (visible.size > 0) camera.anchor = DocumentPageGeometry.Anchor(page.id,
             top - visible.offset.toFloat() / visible.size * (bottom - top))
     }
@@ -56,7 +56,7 @@ internal class EditorViewportCoordinator(
         val index = note.pages.indexOfFirst { it.id == anchor.pageId }
         if (index < 0 || !paperWidthPx.isFinite() || paperWidthPx <= 0) return false
         val page = note.pages[index]
-        val top = minOf(0f, page.texts.filter { it.isSticky }.minOfOrNull { it.y } ?: 0f)
+        val top = 0f
         motion.reset()
         // This is a camera restoration, not a new explicit destination: the most-visible page
         // is derived normally after the anchor lands.

@@ -34,7 +34,7 @@ internal class EditorTextController(private val runtime: FolioRuntime) {
             val bottom = if (page.infinite) Float.MAX_VALUE else page.height - 24f
             val notes = feedback.comments.map { text ->
                 val box = TextBox(x = x, y = y, width = width, size = StickyNotes.TEXT_SIZE, text = text, layer = layer)
-                val height = (InkRenderer.textLayout(box.copy(width = width - StickyNotes.PADDING * 2)).height + StickyNotes.PADDING * 2).coerceAtLeast(StickyNotes.MIN_HEIGHT)
+                val height = (InkRenderer.textLayout(box.copy(width = width - StickyNotes.PADDING * 2)).height + StickyNotes.PADDING * 2)
                 if (height > bottom - top) { reportError("This page is too short for these notes."); return false }
                 if (y + height > bottom) { x += width + 24f; y = top }
                 box.copy(id = "chatgpt-${feedback.request}-${y}-${x}", x = x, y = y, stickyHeight = height).also { y += height + 16f }

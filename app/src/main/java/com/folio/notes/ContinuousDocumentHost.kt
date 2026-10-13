@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Float,
-    val documentScale: Float, val toolbarTop: Dp, val windowBounds: Rect?)
+    val documentScale: Float, val toolbarTop: Dp, val windowBounds: Rect?, val eraser: EraserPreview? = null)
 
 @Composable internal fun ContinuousDocumentHost(noteId: String, pageCount: Int, hasPdf: Boolean,
     editor: EditorSession, pages: LazyListState, motion: DocumentMotion, viewportCoordinator: EditorViewportCoordinator,
@@ -62,6 +62,10 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
     var inkNavigating by editor.interaction.navigating
     var scrubbing by editor.interaction.scrubbing
     val stickyLift by editor.interaction.stickyLift
+    val brushState = editor.interaction.eraserBrush
+    val ringLive by remember { derivedStateOf { brushState.value != null } }
+    val pen = LocalPenPointer.current
+    val eraserPainter = remember { EraserRingPainter() }
     val objectLift by editor.interaction.objectLift
     Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, haptics, pageCount) {
                 awaitEachGesture {
@@ -203,6 +207,8 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                 ) {
                     content()
                 }
+                DocumentStickyWorkspace(editor.surfaces, editor.interaction.transfers,
+                    Modifier.fillMaxSize())
                 // A sticky note being carried is drawn over every page, so it can leave its own page; the
                 // list and the document follow it when it is held near an edge.
                 stickyLift?.let { lift ->
@@ -218,10 +224,27 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                             canvas.save()
                             canvas.translate(left, top); canvas.scale(lift.unit, lift.unit); canvas.translate(-box.x, -box.y)
                             InkRenderer.text(canvas, box)
+                            lift.drawControls?.invoke(canvas)
                             canvas.restore()
                         }
                     })
                 }
+                // The eraser ring follows the pen over the whole editor space (page gaps, margins and notes
+                // hanging off a page included), not only over paper. Toolbars and menus keep the pen to themselves.
+                // The pen and the page's report are read while drawing, so moving the pen redraws only this.
+                val eraserPreview = layout.eraser
+                if (eraserPreview != null || ringLive) Box(Modifier.fillMaxSize().drawBehind {
+                    val penAt = pen.at
+                    val bounds = canvasWindowBounds
+                    val brush = brushState.value
+                    if (penAt == null || bounds == null || pen.overChrome || !bounds.contains(Offset(penAt.x, penAt.y))) return@drawBehind
+                    if (eraserPreview == null && brush?.cutting != true) return@drawBehind
+                    val radius = brush?.radiusPx ?: eraserPreview?.let { it.radius * anchorWidth / it.pageWidth } ?: return@drawBehind
+                    drawIntoCanvas { c ->
+                        eraserPainter.draw(c.nativeCanvas, penAt.x - bounds.left, penAt.y - bounds.top, radius, this.density,
+                            brush?.cutting == true, brush?.whole ?: eraserPreview?.whole == true)
+                    }
+                })
                 objectLift?.let { lift ->
                     val origin = canvasWindowBounds?.topLeft ?: Offset.Zero
                     Box(Modifier.fillMaxSize().drawBehind {
@@ -244,7 +267,7 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                     val maxStep = with(density) { 20.dp.toPx() }
                     while (true) {
                         withFrameNanos { }
-                        val noteLift = carried
+                        val noteLift = carried?.takeIf { it.moving }
                         val selectionLift = carriedObject
                         if (noteLift == null && selectionLift == null) break
                         val bounds = canvasWindowBounds ?: continue
