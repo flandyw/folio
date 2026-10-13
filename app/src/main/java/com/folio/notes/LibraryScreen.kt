@@ -564,6 +564,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                     // Inside a folder its name is already on screen; elsewhere each notebook says where it lives.
                     val showFolder = searchActive || (state.folderId == null && place != LibraryPlace.UNFILED)
                     items(notes, key = { it.id }) { note ->
+                        val pinned = LibraryBrowse.isPinned(note, place, openFolder?.id, tag)
                         val open = { if (pickingNotebook || !selecting) onOpenNotebook(note.id) else toggleSelection(note.id) }
                         val longPress = { if (!pickingNotebook) enterSelecting(note.id) }
                         val dragModifier = Modifier.notebookDragSource(drag, ::finishDrag) {
@@ -593,6 +594,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                     Column(Modifier.weight(1f)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                            if (pinned) Icon(Icons.Rounded.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                                             if (note.starred) Icon(Icons.Rounded.Star, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                                             Text(note.title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                                         }
@@ -603,7 +605,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                     if (!selecting) {
 
                                         IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
-                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title)
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title, pinned = note.pinned, folderPinned = note.pinnedInFolder, pin = { model.pin(note, false) }, pinFolder = note.folderId?.let { { model.pin(note, true) } })
                                     }
                                 }
                             } } else NotebookCard(
@@ -614,6 +616,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                 pageCover = note.pageCover, onCoverToggle = { model.setPageCover(note, !note.pageCover) },
                                 onChangeCover = { coverFor = note.id },
                                 onTags = { notebookTags = setOf(note.id) },
+                                pinned = pinned, pin = { model.pin(note, false) },
+                                pinFolder = note.folderId?.let { { model.pin(note, true) } },
                                 duplicate = { model.duplicateNotebook(note) },
                                 backupExcluded = note.id in state.backupExcludedNotebookIds,
                                 onBackupToggle = { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) },
@@ -813,10 +817,15 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         alwaysShowLabel = true)
 }
 
-@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, modifier: Modifier = Modifier) {
+@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, pinFolder: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
+            if (pinned) Surface(
+                modifier = Modifier.align(Alignment.BottomStart).padding(FolioSpacing.dp8),
+                shape = FolioShapes.small,
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) { Icon(Icons.Rounded.PushPin, "Pinned", Modifier.padding(FolioSpacing.dp4).size(16.dp)) }
             if (selecting) {
                 val checked = selected
                 Surface(
@@ -846,7 +855,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", folder, libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = note.pinned, folderPinned = note.pinnedInFolder, pin = pin, pinFolder = pinFolder)
         }
         if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -854,7 +863,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options") {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, folderPinned: Boolean = false, pin: (() -> Unit)? = null, pinFolder: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
@@ -864,6 +873,12 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                 PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(rename) }
                 PopoverTile(Icons.Rounded.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
                 PopoverTile(Icons.Rounded.ContentCopy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
+            }
+            pin?.let { action ->
+                PopoverRow(Icons.Rounded.PushPin, if (pinned) "Unpin from All notebooks" else "Pin in All notebooks") { run(action) }
+            }
+            pinFolder?.let { action ->
+                PopoverRow(Icons.Rounded.PushPin, if (folderPinned) "Unpin from folder" else "Pin in folder") { run(action) }
             }
             PopoverRow(Icons.Rounded.Sell, "Tags") { run(onTags) }
             PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(examDetails) }

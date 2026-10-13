@@ -138,6 +138,14 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         }
     }
 
+    fun pin(note: Notebook, inFolder: Boolean): Unit = with(runtime) {
+        updateNotes(setOf(note.id)) {
+            if (inFolder) {
+                if (it.folderId == null) it else it.copy(pinnedInFolder = !it.pinnedInFolder)
+            } else it.copy(pinned = !it.pinned)
+        }
+    }
+
     fun star(note: Notebook): Unit = with(runtime) { updateNotes(setOf(note.id)) { it.copy(starred = !it.starred) } }
 
     fun move(note: Notebook, folderId: String?) {

@@ -83,6 +83,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun updateCompanionViewport(viewport: WorkspaceViewport): Unit = runtime.updateCompanionViewport(viewport)
     fun swapCompanion(): Unit = runtime.swapCompanion()
     fun rename(note: Notebook, title: String): Unit = runtime.rename(note, title)
+    fun pin(note: Notebook, inFolder: Boolean): Unit = runtime.pin(note, inFolder)
     fun star(note: Notebook): Unit = runtime.star(note)
     fun move(note: Notebook, folderId: String?): Unit = runtime.move(note, folderId)
     fun setCover(note: Notebook, cover: Int): Unit = runtime.setCover(note, cover)

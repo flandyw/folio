@@ -248,6 +248,27 @@ private fun checkLibraryBrowse() {
     check(ids(LibraryPlace.UNFILED, calculus.id, tag = "REVISION") == listOf("algebra", "loose"))
     // A folder that no longer exists falls back to the top level instead of an empty view.
     check(ids(LibraryPlace.ALL, "missing") == ids(LibraryPlace.ALL))
+    val pinnedNotes = listOf(
+        algebra.copy(pinned = true),
+        loose.copy(pinnedInFolder = true),
+        limits.copy(pinnedInFolder = true),
+        Notebook(id = "z", title = "Zeta", folderId = maths.id, pinnedInFolder = true),
+    )
+    fun pinnedIds(place: LibraryPlace = LibraryPlace.ALL, folder: String? = null, tag: String? = null, query: String = "") =
+        LibraryBrowse.notebooks(pinnedNotes, folders, place, folder, tag, query, sort = LibrarySort.NAME).map { it.id }
+    check(pinnedIds() == listOf("algebra", "limits", "loose", "z"))
+    check(pinnedIds(folder = maths.id) == listOf("z", "algebra"))
+    // Subfolder pins never jump ahead of the current folder’s pins during subtree search.
+    check(pinnedIds(folder = maths.id, query = "a") == listOf("z", "algebra"))
+    check(pinnedIds(folder = maths.id, query = "l") == listOf("algebra", "limits"))
+    check(pinnedIds(tag = "revision") == listOf("algebra", "loose"))
+    check(pinnedIds(LibraryPlace.FAVORITES) == listOf("loose"))
+    check(!LibraryBrowse.isPinned(loose.copy(pinned = true), LibraryPlace.UNFILED, null, null))
+    // Pin priority is independent of the selected secondary sort.
+    for (order in LibrarySort.entries) {
+        check(LibraryBrowse.notebooks(pinnedNotes, folders, LibraryPlace.ALL, maths.id, null, sort = order).first().id == "z")
+        check(LibraryBrowse.notebooks(pinnedNotes, folders, LibraryPlace.ALL, null, null, sort = order).first().id == "algebra")
+    }
     check(names(LibraryPlace.ALL) == listOf("art", "study"))
     check(names(LibraryPlace.UNFILED) == listOf("art", "study"))
     check(names(LibraryPlace.FAVORITES).isEmpty())
@@ -329,14 +350,21 @@ private fun checkExplorerOrganization() {
     check(NotebookTags.normalize((0..40).map { "tag $it" }, Int.MAX_VALUE).size == 41)
     check(AppPrefs.explorerLocations(setOf("bad", "content://provider/tree/folder")) == setOf("content://provider/tree/folder"))
     check(AppPrefs.explorerLocations((0..40).map { "content://provider/tree/$it" }.toSet()).size == 32)
-    val note = Notebook(title = "Week 1", folderId = leaf.id, tags = listOf("Maths", "Revision"))
+    val note = Notebook(title = "Week 1", folderId = leaf.id, tags = listOf("Maths", "Revision"), pinned = true, pinnedInFolder = true)
     check(NoteCodec.decode(NoteCodec.encode(note)) == note)
+    val meta = NoteMetaCodec.decode(NoteMetaCodec.encode(note))
+    check(meta.pinned && meta.pinnedInFolder)
+    val copy = note.duplicatedAsCopy("Copy")
+    check(!copy.pinned && !copy.pinnedInFolder)
     check(NoteMetaCodec.decode(NoteMetaCodec.encode(note)).tags == note.tags)
     check(NoteMetaCodec.decode(NoteMetaCodec.encode(note)).folderId == leaf.id)
     check(matchesQuery(note, "week revision"))
     check(matchesQuery(note, "MATHS"))
     check(!matchesQuery(note, "chemistry"))
-    val legacy = JSONObject(NoteMetaCodec.encode(note)).apply { remove("tags") }
+    val legacy = JSONObject(NoteMetaCodec.encode(note)).apply { remove("tags"); remove("pinned"); remove("pinnedInFolder") }
+    check(!NoteMetaCodec.decode(legacy.toString()).pinned && !NoteMetaCodec.decode(legacy.toString()).pinnedInFolder)
+    val portableLegacy = JSONObject(NoteCodec.encode(note)).apply { remove("pinned"); remove("pinnedInFolder") }
+    check(!NoteCodec.decode(portableLegacy.toString()).pinned && !NoteCodec.decode(portableLegacy.toString()).pinnedInFolder)
     check(NoteMetaCodec.decode(legacy.toString()).tags.isEmpty())
     println("Explorer: nested folders, cycle guards, remapped restore, legacy defaults, tags and search passed.")
 }
@@ -386,7 +414,7 @@ fun main() = runBlocking {
         rejects("empty source snapshot") { NativeBackup.inspect(File(root, "empty.fps").apply { writeBytes(byteArrayOf()) }, true) }
         val journalFile = File(root, "page.fjl").apply { writeBytes(JournalBinary.frame(transaction.copy(seq = 7)) + frame + frame.copyOf(5)) }
         val folder = Folder("folder-1", "Study")
-        val note = Notebook(id = "note-1", title = "Handwriting", folderId = folder.id, pages = listOf(page), updated = 100,
+        val note = Notebook(id = "note-1", title = "Handwriting", folderId = folder.id, pages = listOf(page), updated = 100, pinned = true, pinnedInFolder = true,
             longResponse = LongResponse("Discuss the evidence", "English", 20, 40,
                 listOf(ResponseAttempt(id = "response-1", title = "Draft", pageIds = listOf(page.id), plan = "Argument and evidence"))),
             feedbackActions = listOf(FeedbackAction(pageId = page.id, text = "Develop the argument")))
@@ -443,6 +471,7 @@ fun main() = runBlocking {
         check(restored.keys == sources.keys)
         val restoredNote = NoteMetaCodec.decode(restored.getValue(paths.getValue("note.json")).readText())
         check(restoredNote.longResponse == note.longResponse && restoredNote.feedbackActions == note.feedbackActions)
+        check(restoredNote.pinned && restoredNote.pinnedInFolder)
         restored.forEach { (hash, file) -> check(file.readBytes().contentEquals(sources.getValue(hash).file.readBytes())) }
         val snapshot = PageSnapshotBinary.read(restored.getValue(paths.getValue("pages/page-1.fps")).readBytes())
         val records = JournalBinary.readAll(restored.getValue(paths.getValue("pages/page-1.fjl")).readBytes())

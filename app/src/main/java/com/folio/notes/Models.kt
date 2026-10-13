@@ -366,7 +366,10 @@ data class Notebook(
     val feedbackActions: List<FeedbackAction> = emptyList(),
     /** User labels, independent of structured exam metadata. */
     val tags: List<String> = emptyList(),
-    val documentHistory: DocumentHistory = DocumentHistory()
+    val documentHistory: DocumentHistory = DocumentHistory(),
+    /** Independent shelf pins for All notebooks and the notebook’s containing folder. */
+    val pinned: Boolean = false,
+    val pinnedInFolder: Boolean = false
 ) {
     /** The share of the best attempt's score, 0..1, or null while nothing has been marked. */
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
@@ -417,6 +420,8 @@ fun Notebook.duplicatedAsCopy(newTitle: String, now: Long = System.currentTimeMi
         title = newTitle,
         updated = now,
         starred = false,
+        pinned = false,
+        pinnedInFolder = false,
         attempts = emptyList(),
         mistakeReviews = emptyList(),
         documentHistory = DocumentHistory(),
@@ -482,6 +487,8 @@ object NoteCodec {
         put("version", 1); put("id", note.id); put("title", note.title)
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
+        if (note.pinned) put("pinned", true)
+        if (note.pinnedInFolder) put("pinnedInFolder", true)
         if (note.documentHistory.enabled) put("documentHistory", DocumentHistoryCodec.encode(note.documentHistory))
         put("exam", ExamTagsCodec.encode(note.exam))
         if (note.tags.isNotEmpty()) put("tags", JSONArray(note.tags))
@@ -532,6 +539,8 @@ object NoteCodec {
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
             feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions")),
+            pinned = o.optBoolean("pinned", false),
+            pinnedInFolder = o.optBoolean("pinnedInFolder", false),
             tags = NotebookTags.decode(o.optJSONArray("tags")),
             documentHistory = DocumentHistoryCodec.decode(o.optJSONObject("documentHistory"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))

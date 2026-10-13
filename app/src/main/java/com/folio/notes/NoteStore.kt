@@ -168,6 +168,8 @@ object NoteMetaCodec {
         put("version", if (note.documentHistory.enabled) VERSION else 6); put("id", note.id); put("title", note.title)
         put("folder", note.folderId ?: JSONObject.NULL); put("cover", note.cover)
         put("starred", note.starred); put("updated", note.updated)
+        if (note.pinned) put("pinned", true)
+        if (note.pinnedInFolder) put("pinnedInFolder", true)
         if (note.documentHistory.enabled) put("documentHistory", DocumentHistoryCodec.encode(note.documentHistory))
         put("exam", ExamTagsCodec.encode(note.exam))
         if (note.tags.isNotEmpty()) put("tags", JSONArray(note.tags))
@@ -226,6 +228,8 @@ object NoteMetaCodec {
             defaultPaper = o.optString("defaultPaper", "").takeIf { it.isNotEmpty() }?.let(Paper::safeValueOf),
             longResponse = LongResponseCodec.decode(o.optJSONObject("longResponse")),
             feedbackActions = LongResponseCodec.decodeActions(o.optJSONArray("feedbackActions")),
+            pinned = o.optBoolean("pinned", false),
+            pinnedInFolder = o.optBoolean("pinnedInFolder", false),
             tags = NotebookTags.decode(o.optJSONArray("tags")),
             documentHistory = DocumentHistoryCodec.decode(o.optJSONObject("documentHistory"))).let { note ->
                 note.copy(peekAnchor = PeekAnchor.decodeNotebook(o, note.pages, pageObjects))

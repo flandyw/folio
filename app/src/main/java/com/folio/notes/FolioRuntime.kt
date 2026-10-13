@@ -226,6 +226,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun swapCompanion(): Unit = workspaceManager.swapCompanion()
     fun rename(note: Notebook, title: String): Unit = notebookCatalog.rename(note, title)
+    fun pin(note: Notebook, inFolder: Boolean): Unit = notebookCatalog.pin(note, inFolder)
     fun star(note: Notebook): Unit = notebookCatalog.star(note)
     fun move(note: Notebook, folderId: String?): Unit = notebookCatalog.move(note, folderId)
     fun setCover(note: Notebook, cover: Int): Unit = notebookCatalog.setCover(note, cover)

@@ -46,6 +46,11 @@ enum class LibraryPlace(val label: String) { ALL("All notebooks"), FAVORITES("Fa
  * whole subtree; a tag or Favorites looks across the library and shows no folders.
  */
 object LibraryBrowse {
+    /** Folder pins only apply in their own folder; global pins only apply in All notebooks. */
+    fun isPinned(note: Notebook, place: LibraryPlace, folderId: String?, tag: String?): Boolean =
+        tag == null && if (folderId != null) note.folderId == folderId && note.pinnedInFolder
+        else place == LibraryPlace.ALL && note.pinned
+
     fun notebooks(
         notes: List<Notebook>, folders: List<Folder>, place: LibraryPlace, folderId: String?, tag: String?,
         query: String = "", kind: LibraryKind = LibraryKind.ALL, sort: LibrarySort = LibrarySort.RECENT,
@@ -59,6 +64,7 @@ object LibraryBrowse {
                 if (tag != null) note.tags.any { it.equals(tag, true) }
                 else scope == null || note.folderId in scope
             }
+            .sortedByDescending { isPinned(it, place, open, tag) }
     }
 
     fun folders(folders: List<Folder>, place: LibraryPlace, folderId: String?, tag: String?, query: String = ""): List<Folder> {
