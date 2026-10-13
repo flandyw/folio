@@ -31,8 +31,8 @@ internal class DocumentStateStore(initial: FolioState) : DocumentReader {
         if (next === old) return@synchronized
         val notifications = ArrayList<() -> Unit>()
         if (next.notes !== old.notes) {
-            val changed = (next.notes as? IndexedItems<Notebook>)?.changedFrom(old.notes)
-            val candidates = if (changed != null) listOf(next.notes[changed]) else next.notes
+            val changed = (next.notes as? IndexedItems<Notebook>)?.changedItemsFrom(old.notes)
+            val candidates = changed ?: next.notes
             var notes = IndexedItems.of(next.notes) { it.id }
             var summaries = shell.value.notes
             val existing = if (changed == null) next.notes.mapTo(HashSet()) { it.id } else null
@@ -50,9 +50,9 @@ internal class DocumentStateStore(initial: FolioState) : DocumentReader {
                 if (incoming === before) return@forEach
                 val note = if (incoming.pages is IndexedItems<NotePage>) incoming else incoming.copy(pages = IndexedItems.of(incoming.pages) { it.id })
                 notes = notes.replace(note.id, note)
-                val pageChange = (note.pages as? IndexedItems<NotePage>)?.changedFrom(before?.pages.orEmpty())
-                val members = if (pageChange != null) listOf(note.pages[pageChange]) else note.pages
-                if (pageChange == null) {
+                val changedPages = (note.pages as? IndexedItems<NotePage>)?.changedItemsFrom(before?.pages.orEmpty())
+                val members = changedPages ?: note.pages
+                if (changedPages == null) {
                     val ids = note.pages.mapTo(HashSet()) { it.id }
                     before?.pages?.filter { it.id !in ids }?.forEach { page -> owners.remove(page.id); notifications += { publishPage(note.id, page.id) } }
                 }
@@ -60,7 +60,7 @@ internal class DocumentStateStore(initial: FolioState) : DocumentReader {
                     owners[page.id] = note.id
                     if (pages.containsKey(note.id to page.id)) notifications += { publishPage(note.id, page.id) }
                 }
-                val summary = summary(note, summariesById[note.id], pageChange)
+                val summary = summary(note, summariesById[note.id], changedPages)
                 summariesById[note.id] = summary
                 notifications += { publishNotebook(note.id) }
                 summaries = summaries.replaceNotebook(summary.metadata)
@@ -88,12 +88,14 @@ internal class DocumentStateStore(initial: FolioState) : DocumentReader {
         orders[noteId]?.value = summariesById[noteId]?.pageOrder.orEmpty()
     }
 
-    private fun summary(note: Notebook, previous: NotebookSummary? = null, changedPage: Int? = null): NotebookSummary {
+    private fun summary(note: Notebook, previous: NotebookSummary? = null, changedPages: List<NotePage>? = null): NotebookSummary {
         fun metadata(page: NotePage) = page.copy(strokes = emptyList(), texts = emptyList(), images = emptyList(), layers = emptyList(), loaded = false)
-        val pages = if (previous != null && changedPage != null)
-            previous.metadata.pages.replacePage(metadata(note.pages[changedPage]))
-        else IndexedItems.of(note.pages.map(::metadata)) { it.id }
-        val order = if (previous != null && changedPage != null) previous.pageOrder else note.pages.map { it.id }
+        val pages = if (previous != null && changedPages != null) {
+            var result = previous.metadata.pages
+            changedPages.forEach { result = result.replacePage(metadata(it)) }
+            result
+        } else IndexedItems.of(note.pages.map(::metadata)) { it.id }
+        val order = if (previous != null && changedPages != null) previous.pageOrder else note.pages.map { it.id }
         return NotebookSummary(note.copy(pages = pages), order)
     }
 

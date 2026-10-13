@@ -379,6 +379,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         appPrefs.edit().putString("marking.zones.${note.id}", MarkZones.encode(next)).apply()
     }
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
+    var restylePicked by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
     // The picture tapped with the hand tool, so the editor can offer delete and layering.
     var selectedImage by editor.interaction.selectedImage
@@ -646,19 +647,18 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
      * recogniser runs off the page, so drawing and navigation stay available while it works.
      */
     fun convertSelectionToText(pageId: String, lasso: CanvasSelection) {
-        if (inkConverting || lasso.strokes.isEmpty()) return
+        if (inkConverting || lasso.strokes.isEmpty() && lasso.texts.none { it.stickyInk.isNotEmpty() }) return
+        val sourcePage = note.pages.firstOrNull { it.id == pageId } ?: return
         inkConverting = true
         scope.launch {
             try {
-                val result = InkToText.recognise(lasso.strokes)
-                if (result == null) model.reportError("No readable text in this selection")
-                else {
-                    // Typed text takes the writer's ink colour when one colour was used throughout.
-                    val color = lasso.strokes.filter { it.tool != Tool.HIGHLIGHTER }.map { it.color }.distinct().singleOrNull()
-                    val box = TextBox(x = result.x, y = result.y, width = result.width, text = result.text,
-                        size = result.size, color = color ?: 0xFF303431.toInt())
-                    if (model.replaceInkWithText(pageId, lasso, box)) { activeInkView?.clearSelection(); selection = null }
-                }
+                val after = InkToText.convert(sourcePage, lasso)
+                val edit = PageJournal.diff(sourcePage.content(), after)
+                if (edit == null) model.reportError("No readable text in this selection")
+                else if (model.commitDocumentEdits(note.id, mapOf(pageId to edit), mapOf(pageId to sourcePage.revision))) {
+                    activeInkView?.clearSelection(); selection = null
+                } else model.reportError("The document changed while reading handwriting; select it again")
+            } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}")
             } finally {
@@ -889,7 +889,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             val selectionMenu: @Composable (Dp) -> Unit = { availableWidth ->
                 SelectionContextMenu(
                     availableWidth = availableWidth,
-                    canRestyle = selected.strokes.isNotEmpty(),
+                    canRestyle = selected.strokes.isNotEmpty() || selected.texts.any { it.stickyInk.isNotEmpty() },
                     onCopy = { model.copyToClipboard(selected) },
                     canMove = note.pages.size > 1,
                     onMove = { moveSelection = page.id to selected },
@@ -900,11 +900,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         activeInkView?.clearSelection()
                         selection = null
                     },
-                    onStyle = { restyleSelection = selected.strokes },
+                    onStyle = { restylePicked = page.id to selected; restyleSelection = selected.strokes + selected.texts.flatMap { it.stickyInk } },
                     onDelete = { model.deleteSelection(selected); dismissSelection() },
                     onDeselect = ::dismissSelection,
                     onSelectAll = ::selectAllInk,
-                    onConvertText = if (selected.strokes.isEmpty() || inkConverting) null
+                    onConvertText = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() } || inkConverting) null
                         else ({ convertSelectionToText(page.id, selected) })
                 )
             }
@@ -1604,8 +1604,14 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             originals = originals, quickColors = quick.colors(InkColors.INK_GROUP),
             onDismiss = { restyleSelection = null },
             onApply = { color, scale, opacity, style ->
-                model.restyleSelection(originals, color, scale, opacity, style)
-                restyleSelection = null; selection = null
+                val picked = restylePicked
+                val source = note.pages.firstOrNull { it.id == picked?.first }
+                if (source != null && picked != null && source.strokes.containsAll(picked.second.strokes) && source.texts.containsAll(picked.second.texts)) {
+                    val after = DocumentToolEdits.restyle(source, picked.second, color, scale, opacity, style)
+                    PageJournal.diff(source.content(), after)?.let { edit -> model.commitDocumentEdits(note.id, mapOf(source.id to edit), mapOf(source.id to source.revision)) }
+                }
+                activeInkView?.clearSelection()
+                restylePicked = null; restyleSelection = null; selection = null
             }
         )
     }

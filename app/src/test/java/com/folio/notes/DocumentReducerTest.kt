@@ -40,4 +40,48 @@ class DocumentReducerTest {
         val change = DocumentReducer.page(before, after, edit to inverse)
         assertSame(edit, change.forward); assertSame(inverse, change.inverse)
     }
+
+    @Test fun loadedPageReplacementPreservesOrderMetadataAndSharedPages() {
+        val before = note().copy(pages = IndexedItems.of(note().pages) { it.id })
+        val loaded = before.pages[1].copy(texts = edit.texts!!)
+        val after = before.withPage(loaded)
+        assertEquals(before.title, after.title)
+        assertEquals(listOf("a", "b"), after.pages.map { it.id })
+        assertSame(before.pages[0], after.pages[0])
+        assertSame(loaded, after.pages[1])
+        assertEquals(listOf(loaded), (after.pages as IndexedItems<NotePage>).changedItemsFrom(before.pages))
+        assertSame(before.pages, before.withPage(NotePage(id = "missing")).pages)
+    }
+
+    @Test fun groupedHistoryRejectsIncompleteStaleOrUnloadedMembers() {
+        val created = DocumentReducer.group(note(), mapOf("a" to edit, "b" to edit), emptyMap(), "g", 10, 0)!!
+        val step = created.notebook.documentHistory.undo.single()
+        val tops = created.transactions.mapValues { it.value.undoPush }
+        fun plan(note: Notebook = created.notebook, top: Map<String, PageEdit?> = tops, candidate: DocumentHistoryStep = step) =
+            DocumentReducer.history(note, candidate, top, true, 11, "undo", 1)
+        assertNull(plan(top = tops - "b"))
+        assertNull(plan(top = tops + ("b" to tops.getValue("b")!!.copy(groupId = null))))
+        assertNull(plan(top = tops + ("b" to tops.getValue("b")!!.copy(actionSequence = 9))))
+        assertNull(plan(note = created.notebook.copy(pages = created.notebook.pages.filterNot { it.id == "b" })))
+        assertNull(plan(note = created.notebook.withPage(created.pages.getValue("b").copy(loaded = false))))
+        assertNull(plan(candidate = step.copy(sequence = 9)))
+        assertEquals(listOf(step), created.notebook.documentHistory.undo)
+        assertTrue(created.notebook.pages.all { it.texts == edit.texts })
+    }
+
+    @Test fun groupedHistoryFollowsCurrentPageOrderAndPreservesUnchangedPages() {
+        val initial = note().copy(pages = note().pages + NotePage(id = "c", loaded = false))
+        val created = DocumentReducer.group(initial, linkedMapOf("b" to edit, "a" to edit), emptyMap(), "g", 10, 0)!!
+        val reordered = created.notebook.copy(pages = IndexedItems.of(created.notebook.pages.reversed()) { it.id })
+        val step = reordered.documentHistory.undo.single()
+        val undone = DocumentReducer.history(reordered, step, created.transactions.mapValues { it.value.undoPush }, true, 11, "undo", 1)!!
+        assertEquals(listOf("b", "a"), undone.transactions.keys.toList())
+        assertEquals(listOf("b", "a"), undone.pages.keys.toList())
+        assertSame(reordered.pages[0], undone.notebook.pages[0])
+        assertTrue(undone.notebook.pages.drop(1).all { it.texts.isEmpty() })
+        assertEquals(listOf("a", "b"), undone.notebook.documentHistory.redo.single().pages)
+        assertEquals("undo", undone.notebook.documentHistory.lastCommit)
+        assertEquals(11L, undone.notebook.documentHistory.redo.single().sequence)
+        assertTrue(undone.transactions.values.all { it.undoPop && it.redoPush != null && it.undoPush == null && !it.redoPop })
+    }
 }

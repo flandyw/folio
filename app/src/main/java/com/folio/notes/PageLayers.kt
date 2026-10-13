@@ -97,14 +97,11 @@ object PageLayers {
     fun view(page: NotePage): NotePage {
         val layers = page.layers
         if (plain(layers)) return page
-        val order = HashMap<Int, Int>().apply { layers.forEachIndexed { i, l -> put(l.id, i) } }
-        val shown = layers.filter { it.visible }.map { it.id }.toHashSet()
-        fun rank(id: Int) = order[resolve(layers, id)] ?: 0
-        fun shown(id: Int) = resolve(layers, id) in shown
+        val projection = Projection(layers)
         return page.copy(
-            strokes = page.strokes.filter { shown(it.layer) }.sortedBy { rank(it.layer) },
-            texts = page.texts.filter { shown(it.layer) }.sortedBy { rank(it.layer) },
-            images = page.images.filter { shown(it.layer) }.sortedBy { rank(it.layer) },
+            strokes = projection.order(page.strokes) { it.layer },
+            texts = projection.order(page.texts) { it.layer },
+            images = projection.order(page.images) { it.layer },
             // Applied once: a view is already filtered and ordered, and a second pass is a no-op.
             layers = emptyList()
         )
@@ -112,5 +109,34 @@ object PageLayers {
 
     /** [view] for a bare stroke list — what the live eraser draws while it is still cutting. */
     fun viewStrokes(strokes: List<Stroke>, layers: List<PageLayer>): List<Stroke> =
-        if (plain(layers)) strokes else view(NotePage(strokes = strokes, layers = layers)).strokes
+        if (plain(layers)) strokes else Projection(layers).order(strokes) { it.layer }
+
+    /** A bounded number of layers permits stable O(items + layers) bucketing instead of sorting. */
+    private class Projection(layers: List<PageLayer>) {
+        private val ranks = HashMap<Int, Int>().apply { layers.forEachIndexed { i, layer -> put(layer.id, i) } }
+        private val fallback = ranks.getValue(layers.first().id)
+        private val shown = layers.filter { it.visible }.mapTo(HashSet()) { it.id }
+        private val visible = BooleanArray(layers.size) { layers[it].id in shown }
+
+        fun <T> order(items: List<T>, layer: (T) -> Int): List<T> {
+            if (items.isEmpty()) return items
+            if (shown.isEmpty()) return emptyList()
+            val counts = IntArray(visible.size)
+            items.forEach { item ->
+                val rank = ranks[layer(item)] ?: fallback
+                if (visible[rank]) counts[rank]++
+            }
+            val offsets = IntArray(visible.size)
+            var count = 0
+            counts.forEachIndexed { rank, size -> offsets[rank] = count; count += size }
+            if (count == 0) return emptyList()
+            // Allocate the exact output once, then fill each layer's slice in source order.
+            val result = arrayOfNulls<Any>(count)
+            items.forEach { item ->
+                val rank = ranks[layer(item)] ?: fallback
+                if (visible[rank]) result[offsets[rank]++] = item
+            }
+            @Suppress("UNCHECKED_CAST") return (result as Array<T>).asList()
+        }
+    }
 }

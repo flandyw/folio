@@ -59,7 +59,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             val store = if (reference) companionPositionPrefs else positionPrefs
             val position = NotebookPositionCodec.decode(store.getString(note.id, null))
                 ?: return null
-            val pageId = position.pageId.takeIf { id -> note.pages.any { it.id == id } }
+            val pageId = position.pageId.takeIf { id -> note.pages.page(id) != null }
                 ?: note.pages.firstOrNull()?.id ?: return null
             return position.copy(pageId = pageId).toTab(note.id, note.title)
         }
@@ -99,7 +99,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                     it.companionMode == CompanionMode.REFERENCE && (it.companionHostId ?: it.activeId ?: id) != id
                 },
                 tabs = it.tabs.withTab(tab),
-                pageIndex = target.pages.indexOfFirst { p -> p.id == tab.currentPageId }.coerceAtLeast(0),
+                pageIndex = target.pages.pageIndex(tab.currentPageId).coerceAtLeast(0),
                 pdfSearch = tab.search) }
             historyState()
             _state.value.page?.let { loadPage(it.id) }

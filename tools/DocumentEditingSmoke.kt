@@ -44,6 +44,81 @@ fun documentEditingSmoke() {
     val inside = Stroke(Tool.PEN, 0, 2f, listOf(InkPoint(50f, 30f), InkPoint(60f, 35f)))
     check(InkGeometry.lassoSelects(loopB, InkGeometry.lassoBounds(loopB), inside))
 
+    // Opaque sticky paper receives its own local ink; neither underpainting nor clipped tails.
+    val sticky = TextBox(id = "sticky", x = 20f, y = 60f, width = 60f, stickyHeight = 30f)
+    val surfaces = listOf(frames[0].copy(notes = listOf(sticky)), frames[1])
+    val mixed = DocumentInkCapture("a", stroke, surfaces)
+    mixed.add(listOf(InkPoint(50f, 40f, .5f), InkPoint(50f, 150f, 1.5f)), false)
+    check(mixed.spanning && !mixed.blocked)
+    val pagePieces = mixed.strokes().getValue("a")
+    check(pagePieces.size == 2)
+    close(pagePieces[0].points.last().y, 60f)
+    close(pagePieces[1].points.first().y, 90f)
+    val stickyPiece = mixed.noteStrokes().getValue("a").getValue("sticky").single()
+    close(stickyPiece.points.first().x, 30f); close(stickyPiece.points.first().y, 0f)
+    close(stickyPiece.points.last().y, 30f)
+    close(stickyPiece.points.first().pressure, .5f + 20f / 110f)
+    check(mixed.strokes().containsKey("b"))
+    // A stroke can start on an off-paper note and leave it for another page.
+    val outside = sticky.copy(x = -40f, y = 70f, width = 60f)
+    val offPaper = DocumentInkCapture("a", stroke, listOf(frames[0].copy(notes = listOf(outside)), frames[1]))
+    offPaper.add(listOf(InkPoint(-20f, 80f), InkPoint(50f, 150f)), false)
+    check(offPaper.noteStrokes().getValue("a").containsKey("sticky") && offPaper.strokes().containsKey("b"))
+    // Shapes split their outline, never re-interpret each fragment as a shape's two corners.
+    val rectangle = Stroke(Tool.RECTANGLE, 42, 3f, listOf(InkPoint(10f, 40f), InkPoint(90f, 160f)), style = StrokeStyle.DASHED)
+    val shape = DocumentInkCapture("a", rectangle, surfaces).generated(listOf(rectangle))
+    check(shape.spanning && shape.strokes().keys == setOf("a", "b"))
+    check(shape.strokes().values.flatten().all { it.tool == Tool.LINE && it.style == StrokeStyle.DASHED })
+    check(shape.strokes().getValue("b").all { it.points.all { p -> p.y in 0f..200f } })
+    val graph = rectangle.copy(tool = Tool.GRAPH)
+    val graphLines = GraphAxes.strokes(graph, GraphStyle.DEFAULT.copy(grid = true))
+    val splitGraph = DocumentInkCapture("a", graph, surfaces).generated(graphLines)
+    check(splitGraph.strokes().values.flatten().map { it.width }.distinct().size > 1)
+    check(splitGraph.strokes().values.flatten().map { it.opacity }.distinct().size > 1)
+    // Hidden notes are excluded by the caller; locked notes remain opaque, and writing is rejected.
+    val locked = PageLayer(0, "Base", locked = true)
+    val lockedCapture = DocumentInkCapture("a", stroke, listOf(frames[0].copy(notes = listOf(sticky), layers = listOf(locked))))
+    lockedCapture.add(listOf(InkPoint(50f, 40f), InkPoint(50f, 80f)), false)
+    check(lockedCapture.blocked)
+    val eraser = DocumentInkCapture("a", stroke.copy(tool = Tool.ERASER), listOf(frames[0].copy(notes = listOf(sticky), layers = listOf(locked)), frames[1]))
+    eraser.add(listOf(InkPoint(50f, 40f), InkPoint(50f, 150f)), false)
+    check(eraser.spanning && !eraser.blocked && eraser.noteStrokes().isEmpty())
+    check(eraser.strokes().containsKey("b"))
+
+    val inkOnNote = Stroke(Tool.PEN, 0, 2f, listOf(InkPoint(30f, 15f)))
+    val hiddenInk = inkOnNote.copy(points = listOf(InkPoint(50f, 75f)))
+    val exposedInk = inkOnNote.copy(points = listOf(InkPoint(50f, 45f)))
+    val inkPage = NotePage(id = "a", width = 100f, height = 100f, strokes = listOf(hiddenInk, exposedInk), texts = listOf(sticky.copy(stickyInk = listOf(inkOnNote))))
+    val erasePath = DocumentInkCapture("a", stroke.copy(tool = Tool.ERASER), surfaces)
+    erasePath.add(listOf(InkPoint(50f, 40f), InkPoint(50f, 150f)), false)
+    val erased = DocumentToolEdits.content(inkPage, erasePath.strokes().getValue("a"), erasePath.noteStrokes().getValue("a"), DocumentToolEdits.Options(erasing = true))
+    check(erased.strokes == listOf(hiddenInk)) // Opaque note protects the page ink beneath it.
+    check(erased.texts.single().stickyInk.isEmpty())
+    val mixedEdit = PageJournal.diff(inkPage.content(), erased)!!
+    check(PageJournal.apply(erased, PageJournal.invert(mixedEdit, inkPage.content())) == inkPage.content())
+    val restyled = DocumentToolEdits.restyle(inkPage, CanvasSelection(strokes = listOf(exposedInk), texts = inkPage.texts), 123, 2f, .5f, null)
+    check(restyled.strokes.first() === hiddenInk)
+    check(restyled.strokes.last().color == 123 && restyled.texts.single().stickyInk.single().color == 123)
+    check(restyled.texts.single().stickyInk.single().width == 4f)
+    val styleEdit = PageJournal.diff(inkPage.content(), restyled)!!
+    check(PageJournal.apply(restyled, PageJournal.invert(styleEdit, inkPage.content())) == inkPage.content())
+    // Incremental erase previews and a batch commit produce exactly the same content.
+    val incrementalPath = DocumentInkCapture("a", stroke.copy(tool = Tool.ERASER), surfaces)
+    val session = DocumentToolEdits.EraserSession()
+    val options = DocumentToolEdits.Options(erasing = true)
+    incrementalPath.add(listOf(InkPoint(50f, 40f), InkPoint(50f, 65f)), false)
+    session.content(inkPage, incrementalPath.strokes()["a"].orEmpty(), incrementalPath.noteStrokes()["a"].orEmpty(), options)
+    incrementalPath.add(listOf(InkPoint(50f, 150f)), false)
+    val incremental = session.content(inkPage, incrementalPath.strokes()["a"].orEmpty(), incrementalPath.noteStrokes()["a"].orEmpty(), options)
+    check(incremental == erased)
+    check(session.content(inkPage, incrementalPath.strokes()["a"].orEmpty(), incrementalPath.noteStrokes()["a"].orEmpty(), options) == erased)
+    // Local canvas capture preserves negative coordinates rather than clipping them to a finite page.
+    val canvas = DocumentInkCapture("a", stroke, listOf(frames[0].copy(infinite = true, notes = listOf(sticky))))
+    canvas.add(listOf(InkPoint(-30f, -50f), InkPoint(50f, 75f), InkPoint(50f, 180f)), false)
+    close(canvas.strokes().getValue("a").first().points.first().x, -30f)
+    close(canvas.strokes().getValue("a").first().points.first().y, -50f)
+    check(canvas.noteStrokes().getValue("a").getValue("sticky").isNotEmpty())
+
     val group = DocumentHistoryStep("group", listOf("a", "b", "c"), 100)
     val ledger = DocumentHistory().push(group)
     val initial = frames.associate { it.frame.pageId to NotePage(id = it.frame.pageId) }
@@ -152,5 +227,5 @@ fun documentEditingSmoke() {
     var bounded = ledger
     repeat(100) { bounded = bounded.push(DocumentHistoryStep("g$it", listOf("a"), 102L + it)) }
     check(bounded.undo.size == PageJournal.HISTORY_LIMIT)
-    println("Document editing smoke passed: native split geometry/pressure/re-entry, lasso mapping, WAL fault recovery, grouped undo/redo, snapshots and archive compatibility.")
+    println("Document editing smoke passed: page/note split geometry, shapes/graphs, swept and incremental erasing, lasso mapping, WAL fault recovery, grouped undo/redo, snapshots and archive compatibility.")
 }

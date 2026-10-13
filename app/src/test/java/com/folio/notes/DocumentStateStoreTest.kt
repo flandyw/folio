@@ -103,4 +103,41 @@ class DocumentStateStoreTest {
         assertSame(snapshot, store.observePage("n", "a").value)
         assertTrue(store.value.saving)
     }
+
+    @Test fun notebookMetadataReusesPageProjectionsAndOrder() {
+        val store = store()
+        val before = store.observeNotebook("n").value!!
+        val page = store.observePage("n", "a").value
+        store.update { state -> state.copy(notes = state.notes.replaceNotebook(state.notes.notebook("n")!!.copy(title = "Renamed"))) }
+        val after = store.observeNotebook("n").value!!
+        assertEquals("Renamed", after.metadata.title)
+        assertSame(before.metadata.pages, after.metadata.pages)
+        assertSame(before.pageOrder, after.pageOrder)
+        assertSame(page, store.observePage("n", "a").value)
+    }
+
+    @Test fun multiplePageAndNotebookReplacementsPreserveUnchangedProjections() {
+        val store = DocumentStateStore(FolioState(notes = List(3) { n ->
+            Notebook(id = "n$n", title = "Notebook $n", pages = List(17) { p -> NotePage(id = "n${n}p$p") })
+        }, loading = false))
+        val before = store.observeNotebook("n1").value!!
+        val unchanged = store.observePage("n1", "n1p8").value
+        val a = store.observePage("n1", "n1p2")
+        val b = store.observePage("n1", "n1p15")
+        store.update { state ->
+            val note = state.notes.notebook("n1")!!
+            val changed = note.copy(pages = note.pages
+                .replacePage(note.pages.page("n1p15")!!.copy(revision = 3, strokes = listOf(ink(3f))))
+                .replacePage(note.pages.page("n1p2")!!.copy(revision = 2, strokes = listOf(ink(2f)))))
+            state.copy(notes = state.notes.replaceNotebook(changed)
+                .replaceNotebook(state.notes.notebook("n2")!!.copy(title = "Renamed")))
+        }
+        val after = store.observeNotebook("n1").value!!
+        assertEquals(2, a.value!!.revision); assertEquals(3, b.value!!.revision)
+        assertSame(unchanged, store.observePage("n1", "n1p8").value)
+        assertSame(before.metadata.pages[8], after.metadata.pages[8])
+        assertSame(before.pageOrder, after.pageOrder)
+        assertTrue(after.metadata.pages.all { it.strokes.isEmpty() })
+        assertEquals("Renamed", store.shellState.value.notes.notebook("n2")!!.title)
+    }
 }

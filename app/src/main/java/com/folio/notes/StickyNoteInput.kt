@@ -19,7 +19,7 @@ internal class StickyLift(val box: TextBox, val left: Float, val top: Float, val
  * Sticky note handling on an [InkView]: making, picking up, moving, resizing and typing into notes.
  * Writing and erasing inside a note is *not* here — the pen, highlighter, shapes and eraser go
  * through the page's own ink pipeline (same smoothing, pressure, dots, ruler and shape tidy-up),
- * and [InkView] files a stroke under the note it started on.
+ * and [InkView] routes ink across the visible page and note surfaces.
  *
  * With the sticky tool: a tap on bare space drops a default note, a drag draws one to size, a drag
  * on a note moves it, the focused note's corner grip resizes it, a tap focuses a note (its menu

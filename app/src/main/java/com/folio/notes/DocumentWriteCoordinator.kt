@@ -18,31 +18,32 @@ internal class DocumentWriteCoordinator(
     private val writes = Channel<WriteOp>(Channel.UNLIMITED)
     /** Writer-owned: failed operations retain their order; later edits never leap over a group. */
     private val failedWrites = ArrayList<WriteOp>()
-    private val failedBarriers = ArrayList<WriteOp.Once>()
+    private val failedBarriers = ArrayList<WriteOp.Barrier>()
     /** Writer-owned: retain dirty indexes across batches until the queue actually drains. */
     private val pendingIndexCheckpoints = LinkedHashSet<String>()
     @Volatile private var autoBackupDirty = false
 
     internal fun enqueue(scheduleAutoBackup: Boolean = true, block: suspend () -> Unit): Unit = queue(WriteOp.Once(block), scheduleAutoBackup)
 
-    private val admission = Any()
-    internal fun queue(op: WriteOp, scheduleAutoBackup: Boolean = true) = synchronized(admission) {
-        if (scheduleAutoBackup) autoBackupDirty = true
-        var generation = 0L
-        _state.update { generation = it.editGeneration + 1; it.copy(editGeneration = generation,
-            lastSaveProgressAt = it.lastSaveProgressAt ?: System.currentTimeMillis()) }
-        op.generation = generation
-        check(writes.trySend(op).isSuccess) { "Document writer is closed" }
+    internal fun queue(op: WriteOp, scheduleAutoBackup: Boolean = true) {
+        _state.update { state ->
+            if (scheduleAutoBackup) autoBackupDirty = true
+            op.generation = state.editGeneration + if (op is WriteOp.Barrier) 0 else 1
+            // Enqueue before publication: an immediate observer may synchronously admit another edit.
+            check(writes.trySend(op).isSuccess) { "Document writer is closed" }
+            if (op is WriteOp.Barrier) state else state.copy(editGeneration = op.generation,
+                lastSaveProgressAt = state.lastSaveProgressAt ?: System.currentTimeMillis())
+        }
     }
 
     internal suspend fun collectWrites(batch: ArrayList<WriteOp>) {
-        val deadline = System.currentTimeMillis() + WRITE_BATCH_WINDOW_MS
+        val deadline = System.nanoTime() + WRITE_BATCH_WINDOW_MS * 1_000_000
         while (batch.size < MAX_WRITE_BATCH) {
             val queued = writes.tryReceive().getOrNull()
             val next = queued ?: if (batch.last() is WriteOp.Page) {
-                val wait = deadline - System.currentTimeMillis()
+                val wait = (deadline - System.nanoTime() + 999_999) / 1_000_000
                 if (wait <= 0) null
-                else runCatching { withTimeoutOrNull(wait) { writes.receive() } }.getOrNull()
+                else withTimeoutOrNull(wait) { writes.receiveCatching().getOrNull() }
             } else null
             if (next == null) return
             batch.add(next)
@@ -54,6 +55,11 @@ internal class DocumentWriteCoordinator(
         try {
             while (index < batch.size) {
                 val op = batch[index]
+                if (op is WriteOp.Barrier) {
+                    _state.update { it.copy(durableGeneration = maxOf(it.durableGeneration, op.generation)) }
+                    op.completion.complete(Unit)
+                    index++; continue
+                }
                 if (op is WriteOp.Document) {
                     storage.appendDocumentTransactions(op.noteId, op.id, op.history, op.transactions, op.pages)
                     pendingIndexCheckpoints += op.noteId
@@ -77,8 +83,8 @@ internal class DocumentWriteCoordinator(
             // Append failed and unattempted operations exactly once. Successfully synced groups
             // are excluded; a failed group's durable intent makes its retry idempotent.
             val remaining = batch.drop(index)
-            failedWrites.addAll(remaining.filterNot { it is WriteOp.Once && (it.recovery || it.barrier) })
-            failedBarriers.addAll(remaining.filterIsInstance<WriteOp.Once>().filter { it.barrier })
+            failedWrites.addAll(remaining.filterNot { it is WriteOp.Barrier || it is WriteOp.Once && it.recovery })
+            failedBarriers.addAll(remaining.filterIsInstance<WriteOp.Barrier>())
             throw e
         }
     }
@@ -86,14 +92,14 @@ internal class DocumentWriteCoordinator(
     internal suspend fun runWrites(batch: List<WriteOp>) {
         val recovery = batch.indexOfFirst { it is WriteOp.Once && it.recovery }
         if (_state.value.saveFailed && recovery < 0) {
-            failedWrites.addAll(batch.filterNot { it is WriteOp.Once && it.barrier })
-            batch.filterIsInstance<WriteOp.Once>().filter { it.barrier }.forEach { it.block() }
+            failedWrites.addAll(batch.filterNot { it is WriteOp.Barrier })
+            failBarriers(batch.filterIsInstance<WriteOp.Barrier>())
             return
         }
         val work = if (_state.value.saveFailed && recovery >= 0) {
             val preceding = batch.take(recovery)
-            failedWrites.addAll(preceding.filterNot { it is WriteOp.Once && it.barrier })
-            preceding.filterIsInstance<WriteOp.Once>().filter { it.barrier }.forEach { it.block() }
+            failedWrites.addAll(preceding.filterNot { it is WriteOp.Barrier })
+            failBarriers(preceding.filterIsInstance<WriteOp.Barrier>())
             batch.drop(recovery)
         } else batch
         val target = work.maxOfOrNull { it.generation } ?: 0L
@@ -101,6 +107,10 @@ internal class DocumentWriteCoordinator(
             storageGate.withLock {
                 executeWriteOps(work)
             }
+        } catch (cancelled: CancellationException) {
+            val barriers = failedBarriers.toList(); failedBarriers.clear()
+            barriers.forEach { it.completion.cancel(cancelled) }
+            throw cancelled
         } catch (e: Exception) {
             val reason = when (e) {
                 is java.io.IOException -> "Device storage could not finish the write. Check free space and storage access."
@@ -110,7 +120,7 @@ internal class DocumentWriteCoordinator(
             _state.update { it.copy(saveFailed = true, saveFailureReason = reason,
                 error = "$reason Your latest changes are still open here. Use Retry save before closing Folio.") }
             val barriers = failedBarriers.toList(); failedBarriers.clear()
-            barriers.forEach { it.block() }
+            failBarriers(barriers)
             // Failed barriers wake after saveFailed is set; exports fail instead of hanging or claiming a save.
             return
         }
@@ -124,21 +134,30 @@ internal class DocumentWriteCoordinator(
             dirty.forEach { queueIndexCheckpoint(it) }
             if (writes.isEmpty) compactPendingPages()
         }
-        if (writes.isEmpty && autoBackupDirty) {
-            autoBackupDirty = false
-            onIdleBackup()
+        var requestBackup = false
+        _state.update { state ->
+            // Use the admission lock for test-and-clear so a newly queued edit keeps its dirty flag.
+            if (writes.isEmpty && autoBackupDirty) {
+                autoBackupDirty = false
+                requestBackup = true
+            }
+            state
         }
+        if (requestBackup) onIdleBackup()
     }
 
     internal fun queueIndexCheckpoint(noteId: String) {
-        val note = _state.value.notes.notebook(noteId) ?: return
         // Not counted as an edit: the ink is already durable in the journal, so a checkpoint must not
         // flip the page back to "Saving…" (which locks mistake ratings) for housekeeping.
-        writes.trySend(WriteOp.Once(block = { storage.saveMeta(note) }))
+        writes.trySend(WriteOp.Once(block = {
+            _state.value.notes.notebook(noteId)?.let { storage.saveMeta(it) }
+        }))
     }
 
     internal suspend fun compactPendingPages() {
-        runCatching { storage.compactPending() }
+        try { storage.compactPending() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Best-effort compaction; durable journals remain authoritative. */ }
     }
 
     internal suspend fun awaitQueuedWrites() = awaitSaved()
@@ -163,24 +182,44 @@ internal class DocumentWriteCoordinator(
 
     internal suspend fun awaitSaved() {
         val barrier = CompletableDeferred<Unit>()
-        queue(WriteOp.Once(block = { barrier.complete(Unit) }, barrier = true), scheduleAutoBackup = false)
+        queue(WriteOp.Barrier(barrier), scheduleAutoBackup = false)
         barrier.await()
-        check(!_state.value.saveFailed) { "Some changes have not been saved. Use Retry save first." }
+        check(!_state.value.saveFailed) { SAVE_ERROR }
+    }
+    private fun failBarriers(barriers: List<WriteOp.Barrier>) {
+        barriers.forEach { it.completion.completeExceptionally(IllegalStateException(SAVE_ERROR)) }
     }
     private var worker: Job? = null
     internal fun start() {
         check(worker == null) { "The document writer is already running" }
         worker = scope.launch {
-            for (first in writes) {
-                val batch = ArrayList<WriteOp>()
-                batch.add(first)
-                collectWrites(batch)
-                runWrites(batch)
+            var activeBatch: List<WriteOp> = emptyList()
+            try {
+                for (first in writes) {
+                    val batch = ArrayList<WriteOp>()
+                    batch.add(first)
+                    activeBatch = batch
+                    collectWrites(batch)
+                    runWrites(batch)
+                    activeBatch = emptyList()
+                }
+            } finally {
+                // No caller should wait forever, or admit more ink, after this worker has stopped.
+                writes.close()
+                val cancelled = CancellationException("Document writer stopped")
+                activeBatch.filterIsInstance<WriteOp.Barrier>().forEach { it.completion.cancel(cancelled) }
+                failedBarriers.forEach { it.completion.cancel(cancelled) }
+                failedBarriers.clear()
+                while (true) {
+                    val pending = writes.tryReceive().getOrNull() ?: break
+                    if (pending is WriteOp.Barrier) pending.completion.cancel(cancelled)
+                }
             }
         }
     }
     private companion object {
         const val WRITE_BATCH_WINDOW_MS = 24L
         const val MAX_WRITE_BATCH = 64
+        const val SAVE_ERROR = "Some changes have not been saved. Use Retry save first."
     }
 }

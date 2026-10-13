@@ -28,7 +28,7 @@ import kotlinx.coroutines.delay
     zone: MarkZone, rect: android.graphics.RectF, page: NotePage, stamp: Long,
     onAward: (Int) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null
 ) {
-    val existing = remember(zone, page.texts) { MarkZones.awarded(zone, page)?.roundToInt() }
+    val existing = remember(zone, page.texts) { MarkZones.awarded(zone.canonical(), page)?.roundToInt() }
     var adjusting by remember(zone) { mutableStateOf(false) }
     var value by remember(zone) { mutableIntStateOf(existing ?: 0) }
     // Every hover or tap restarts the clock; a chip being adjusted is given longer.
@@ -83,7 +83,7 @@ import kotlinx.coroutines.delay
 }
 
 /** A boxed allocation awaiting its value: [existing] is the hand-drawn zone being edited, null for a new one. */
-internal data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float, val width: Float, val height: Float, val rect: android.graphics.RectF)
+internal data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Float, val width: Float, val height: Float, val rect: android.graphics.RectF, val parts: List<MarkZonePart> = emptyList())
 
 /**
  * Asks how many marks the label the marker just boxed is worth. It sits beside the rectangle, stays until
@@ -91,7 +91,7 @@ internal data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Floa
  * like an allocation the scan had found.
  */
 @Composable internal fun MarkAreaPopover(
-    rect: android.graphics.RectF, initial: Int?, guess: Int?, onConfirm: (Int) -> Unit, onRemove: (() -> Unit)?, onDismiss: () -> Unit
+    rect: android.graphics.RectF, initial: Int?, guess: Int?, pageCount: Int = 1, onConfirm: (Int) -> Unit, onRemove: (() -> Unit)?, onDismiss: () -> Unit
 ) {
     var value by remember { mutableIntStateOf(initial ?: 1) }
     var touched by remember { mutableStateOf(initial != null) }
@@ -111,7 +111,7 @@ internal data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Floa
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-                Text("Marks", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp2), style = MaterialTheme.typography.labelLarge,
+                Text(if (pageCount > 1) "Marks · $pageCount pages" else "Marks", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp2), style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton({ touched = true; value = (value - 1).coerceAtLeast(1) }, Modifier.size(44.dp), enabled = value > 1) { Icon(Icons.Rounded.Remove, "One fewer mark") }
                 Text("$value", Modifier.widthIn(min = 24.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)

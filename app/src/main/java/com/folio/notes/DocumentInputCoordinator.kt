@@ -8,6 +8,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     private var seam = 0f
     private var pageById = emptyMap<String, NotePage>()
     private var capture: DocumentInkCapture? = null
+    private var eraserSession = DocumentToolEdits.EraserSession()
     private var lasso = false
     private var revisions = emptyMap<String, Int>()
     private var selectionFrames = emptyMap<String, DocumentInkPage>()
@@ -34,33 +35,89 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             val layer = model?.activeLayerOf(page) ?: 0
             fun androidx.compose.ui.geometry.Rect.bounds() = DocumentPageGeometry.Bounds(left, top, right, bottom)
             DocumentInkPage(DocumentPageGeometry.Frame(id, page.width, page.height, paper.bounds(), workspace.bounds()),
-                layer, page.loaded && PageLayers.editable(page.layers, layer))
+                layer, page.loaded && PageLayers.editable(page.layers, layer), PageLayers.view(page).texts.filter { it.isSticky }, page.layers, page.loaded)
         }
     }
     fun begin(sourceId: String, stroke: Stroke, isLasso: Boolean): Boolean {
         if (capture != null) return false
-        val pages = frames(sourceId).map { if (it.frame.pageId == sourceId) it.copy(layer = stroke.layer) else it }
+        val pages = frames(sourceId).map { hosted ->
+            val frame = if (hosted.frame.pageId == sourceId) hosted.copy(layer = stroke.layer) else hosted
+            if (stroke.tool == Tool.MARK_AREA) frame.copy(notes = emptyList()) else frame
+        }
         if (pages.none { it.frame.pageId == sourceId }) return false
         clearSelection()
+        eraserSession = DocumentToolEdits.EraserSession()
         capture = DocumentInkCapture(sourceId, stroke, pages)
         lasso = isLasso
         revisions = note?.pages?.associate { it.id to it.revision }.orEmpty()
         capture?.add(stroke.points, isLasso)
         return true
     }
+    private fun routed(current: DocumentInkCapture): DocumentInkCapture {
+        val view = surfaces.find(EditorSurfaceRole.MAIN, current.sourceId)
+        view?.documentHeldShape?.let { return current.generated(it) }
+        if (current.template.tool !in ShapePickerTools) return current
+        var drag = current.dragStroke()
+        if (view?.snapEnabled == true && drag.points.size >= 2) {
+            var end = drag.points.last()
+            val page = pageById.getValue(current.sourceId)
+            if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)
+            if (drag.tool == Tool.LINE) end = InkGeometry.snapAngle(drag.points.first(), end, 15f)
+            drag = drag.copy(points = listOf(drag.points.first(), end))
+        }
+        return current.generated(if (drag.tool == Tool.GRAPH) GraphAxes.strokes(drag, view?.graphStyle ?: GraphStyle.DEFAULT) else listOf(drag))
+    }
+    private fun contentAfter(current: DocumentInkCapture, finishing: Boolean = false): Map<String, PageContent> {
+        val strokes = current.strokes(); val notes = current.noteStrokes()
+        val erasing = current.template.tool == Tool.ERASER
+        val view = surfaces.find(EditorSurfaceRole.MAIN, current.sourceId)
+        val options = DocumentToolEdits.Options(erasing, view?.eraserWholeStroke == true,
+            view?.eraserPressureEnabled == true && view.hasDocumentStylusContact,
+            finishing && view?.scribbleToErase == true && view.documentHeldShape == null && current.template.tool in setOf(Tool.PEN, Tool.HIGHLIGHTER),
+            view?.scribbleSensitivity ?: ScribbleSensitivity.DEFAULT)
+        return (strokes.keys + notes.keys).associateWith { id ->
+            if (erasing) eraserSession.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
+            else DocumentToolEdits.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
+        }
+    }
     fun samples(sourceId: String, points: List<InkPoint>): Boolean {
         val current = capture?.takeIf { it.sourceId == sourceId } ?: return false
+        if (current.template.tool == Tool.LASER) {
+            val windows = points.map(current::toWindow)
+            current.pages.filter { it.frame.pageId != sourceId }.forEach { page ->
+                val local = windows.filter { page.frame.workspace.contains(it.x, it.y) }.map { p ->
+                    val q = page.frame.toPage(p.x, p.y)!!; InkPoint(q.x, q.y, p.pressure)
+                }
+                surfaces.find(EditorSurfaceRole.MAIN, page.frame.pageId)?.let { view ->
+                    if (local.isNotEmpty()) view.addDocumentLaser(local) else view.finishDocumentLaser()
+                }
+            }
+            return true
+        }
         val actual = interaction.transfers.paperFrame(sourceId)
         val original = current.sourceFrame.paper
         if (actual == null || kotlin.math.abs(actual.left - original.left) > .5f || kotlin.math.abs(actual.top - original.top) > .5f ||
             kotlin.math.abs(actual.width - original.width) > .5f) current.invalidate()
         else current.add(points, lasso)
-        if (current.spanning) {
-            val strokes = if (!lasso && !current.blocked) current.strokes() else emptyMap()
+        if (current.template.tool == Tool.MARK_AREA) {
+            val parts = DocumentMarking.parts(current, pageById)
+            surfaces.mainSurfaces().forEach { view ->
+                view.documentMarkRegionPreview = parts?.firstOrNull { it.pageId == view.page.id }?.let { WritingLane(it.x, it.y, it.x + it.width, it.y + it.height) }
+            }
+            return parts == null || parts.size > 1
+        }
+        val routed = routed(current)
+        if (current.spanning || routed.spanning) {
+            val erasing = current.template.tool == Tool.ERASER
+            val strokes = if (!lasso && !routed.blocked && !erasing) routed.strokes() else emptyMap()
+            val contents = if (!lasso && !routed.blocked) contentAfter(routed) else emptyMap()
             val predict = surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.hasDocumentStylusContact == true
             surfaces.mainSurfaces().forEach { view ->
                 view.documentPreviewLiveStroke = if (predict && current.livePageId == view.page.id) strokes[view.page.id]?.lastOrNull() else null
                 view.documentInkPreview = strokes[view.page.id].orEmpty()
+                view.documentContentPreview = contents[view.page.id]?.let { content ->
+                    view.page.copy(strokes = if (erasing) content.strokes else view.page.strokes, texts = content.texts)
+                }
                 if (lasso) {
                     val frame = current.page(view.page.id)?.frame
                     val preview = (view.documentLassoPreview as? ArrayList<InkPoint>) ?: ArrayList()
@@ -71,11 +128,26 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
                 } else view.documentLassoPreview = emptyList()
             }
         }
-        return current.spanning
+        return current.spanning || routed.spanning
     }
     fun finish(sourceId: String): Boolean {
         val current = capture?.takeIf { it.sourceId == sourceId } ?: return false
-        val spanning = current.spanning
+        if (current.template.tool == Tool.LASER) { cancel(); return true }
+        if (current.template.tool == Tool.MARK_AREA) {
+            val parts = DocumentMarking.parts(current, pageById)
+            capture = null; clearPreviews()
+            if (parts == null) { model?.reportError("The marking area needs loaded PDF pages and a stable layout; drag it again"); return true }
+            if (parts.size < 2) return false
+            val source = parts.firstOrNull { it.pageId == sourceId } ?: return true
+            if (source.width >= 16f && parts.sumOf { it.height.toDouble() } >= 8f) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.showDocumentMarkRegion(parts)
+            return true
+        }
+        val stickySelection = lasso && current.pages.any { page ->
+            val loop = current.loopFor(page.frame)
+            val bounds = InkGeometry.lassoBounds(loop)
+            page.notes.any { InkGeometry.lassoSelectsText(loop, bounds, it, InkRenderer.textHeight(it)) }
+        }
+        val spanning = current.spanning || routed(current).spanning || stickySelection
         capture = null
         clearPreviews()
         if (!spanning) return false
@@ -85,9 +157,9 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         if (lasso) {
             val bounds = InkGeometry.lassoBounds(current.loop)
             val pageById = note.pages.associateBy { it.id }
-            val candidates = current.pages.filter { page -> bounds[0] < page.frame.paper.right && bounds[2] > page.frame.paper.left && bounds[1] < page.frame.paper.bottom && bounds[3] > page.frame.paper.top }.map { it.frame.pageId }.toHashSet()
+            val candidates = current.pages.filter { page -> bounds[0] < page.frame.workspace.right && bounds[2] > page.frame.workspace.left && bounds[1] < page.frame.workspace.bottom && bounds[3] > page.frame.workspace.top }.map { it.frame.pageId }.toHashSet()
             if (current.pages.any { page -> !pageById.getValue(page.frame.pageId).loaded &&
-                    bounds[0] < page.frame.paper.right && bounds[2] > page.frame.paper.left && bounds[1] < page.frame.paper.bottom && bounds[3] > page.frame.paper.top }) {
+                    bounds[0] < page.frame.workspace.right && bounds[2] > page.frame.workspace.left && bounds[1] < page.frame.workspace.bottom && bounds[3] > page.frame.workspace.top }) {
                 model.reportError("Wait for the pages inside the lasso to load"); return true
             }
             val frames = current.pages.associateBy { it.frame.pageId }
@@ -105,19 +177,27 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             interaction.documentSelection.value = selected
             surfaces.mainSurfaces().forEach { it.showDocumentSelection(selected[it.page.id] ?: CanvasSelection()) }
         } else {
-            val strokes = current.strokes().mapValues { (_, values) -> values.map { it.copy(points = it.points.toList()) } }
-            if (!model.appendDocumentStrokes(note.id, strokes, revisions)) model.reportError("The document changed during this stroke; draw it again")
+            val routed = routed(current)
+            if (routed.blocked) { model.reportError("A crossed surface is locked or unavailable; draw again"); return true }
+            val contents = contentAfter(routed, finishing = true)
+            val edits = contents.mapNotNull { (id, content) -> PageJournal.diff(pageById.getValue(id).content(), content)?.let { id to it } }.toMap()
+            if (edits.isEmpty()) {
+                if (current.template.tool == Tool.ERASER) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.let { if (it.tool == Tool.ERASER) it.onEraserFinished?.invoke() }
+                return true
+            }
+            if (!model.commitDocumentEdits(note.id, edits, edits.keys.associateWith { revisions.getValue(it) })) model.reportError("The document changed during this gesture; try again")
             else {
                 val committed = model.state.value.active?.takeIf { it.id == note.id }?.pages?.associateBy { it.id }.orEmpty()
-                surfaces.mainSurfaces().forEach { view -> if (view.page.id in strokes) committed[view.page.id]?.let { view.bind(it, view.background, view.imageBitmaps) } }
+                surfaces.mainSurfaces().forEach { view -> if (view.page.id in edits) committed[view.page.id]?.let { view.bind(it, view.background, view.imageBitmaps) } }
             }
         }
+        if (current.template.tool == Tool.ERASER) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.let { if (it.tool == Tool.ERASER) it.onEraserFinished?.invoke() }
         return true
     }
     fun isHistoryBusy(): Boolean = model?.state?.value?.documentHistoryBusy == true
     fun cancelNativeContacts() { surfaces.editingSurfaces().forEach { it.cancelExternalGesture() }; cancel() }
-    fun cancel() { capture = null; clearPreviews() }
-    private fun clearPreviews() { surfaces.mainSurfaces().forEach { it.documentInkPreview = emptyList(); it.documentPreviewLiveStroke = null; it.documentLassoPreview = emptyList() } }
+    fun cancel() { capture = null; surfaces.mainSurfaces().forEach { it.finishDocumentLaser() }; clearPreviews() }
+    private fun clearPreviews() { surfaces.mainSurfaces().forEach { it.documentMarkRegionPreview = null; it.documentContentPreview = null; it.documentInkPreview = emptyList(); it.documentPreviewLiveStroke = null; it.documentLassoPreview = emptyList() } }
     fun selectionOn(id: String): CanvasSelection? = interaction.documentSelection.value[id]
     fun selectedOn(id: String): Boolean = interaction.documentSelection.value[id]?.isNotEmpty() == true
     fun clearSelection() {
@@ -143,13 +223,25 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         val selected = interaction.documentSelection.value
         val edits = selected.mapNotNull { (id, value) ->
             val page = pageById[id] ?: return@mapNotNull null
-            val styled = InkGeometry.restyle(value.strokes, color, widthScale, opacity, style)
-            val replacements = java.util.IdentityHashMap<Stroke, Stroke>()
-            value.strokes.zip(styled).forEach { (before, after) -> if (before != after) replacements[before] = after }
-            val positions = page.strokes.mapIndexedNotNull { index, stroke -> replacements[stroke]?.let { IndexedStroke(index, it) } }
-            if (positions.isEmpty()) null else id to PageEdit(StrokesEdit.Replace(positions))
+            val after = DocumentToolEdits.restyle(page, value, color, widthScale, opacity, style)
+            PageJournal.diff(page.content(), after)?.let { id to it }
         }.toMap()
         if (model.commitDocumentEdits(note.id, edits, selected.keys.associateWith { pageById.getValue(it).revision })) clearSelection()
+    }
+    /** Recognition finishes before one revision-checked commit touches any selected page. */
+    suspend fun convertSelectionToText() {
+        val note = note ?: return; val model = model ?: return
+        val selected = interaction.documentSelection.value
+        val pages = selected.keys.associateWith { pageById.getValue(it) }
+        val edits = LinkedHashMap<String, PageEdit>()
+        for ((id, selection) in selected) {
+            val page = pages.getValue(id)
+            val after = InkToText.convert(page, selection)
+            PageJournal.diff(page.content(), after)?.let { edits[id] = it }
+        }
+        if (edits.isEmpty()) model.reportError("No readable text in this selection")
+        else if (model.commitDocumentEdits(note.id, edits, pages.mapValues { it.value.revision })) clearSelection()
+        else model.reportError("The document changed while reading handwriting; select it again")
     }
     fun moveSelectionToLayer(layer: Int) {
         val note = note ?: return; val model = model ?: return
@@ -167,6 +259,100 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             PageJournal.diff(page.content(), after)?.let { id to it }
         }.toMap()
         if (model.commitDocumentEdits(note.id, edits, selected.keys.associateWith { pageById.getValue(it).revision })) clearSelection()
+    }
+    fun dragSelection(sourceId: String, dx: Float, dy: Float, commit: Boolean): Boolean {
+        if (commit) {
+            val result = transformSelection(1f, 0f, dx, dy, sourceId)
+            surfaces.mainSurfaces().forEach { it.previewDocumentSelection(0f, 0f) }
+            return result
+        }
+        val source = interaction.transfers.paperFrame(sourceId) ?: return false
+        val page = pageById[sourceId] ?: return false
+        val unit = source.width / page.width
+        surfaces.mainSurfaces().forEach { view ->
+            val target = interaction.transfers.paperFrame(view.page.id) ?: return@forEach
+            val scale = unit * view.page.width / target.width
+            view.previewDocumentSelection(dx * scale, dy * scale)
+        }
+        return true
+    }
+    fun transformSelection(factor: Float, degrees: Float, dx: Float = 0f, dy: Float = 0f, sourceId: String? = null): Boolean {
+        val note = note ?: return false; val model = model ?: return false
+        val selected = interaction.documentSelection.value
+        val firstId = selected.keys.firstOrNull() ?: return false
+        val frames = frames(firstId)
+        if (selected.keys.any { id -> frames.none { it.frame.pageId == id } }) {
+            model.reportError("Bring the selected pages into view to resize or rotate them"); return false
+        }
+        selectionFrames = frames.associateBy { it.frame.pageId }
+        val flat = flattened()
+        val center = InkGeometry.selectionCenter(flat.strokes, flat.texts, flat.images, InkRenderer::textHeight) ?: return false
+        val first = frames.first { it.frame.pageId == firstId }.frame
+        val source = frames.firstOrNull { it.frame.pageId == sourceId }?.frame ?: first
+        val deltaScale = source.paper.width / source.width * first.width / first.paper.width
+        val moveX = dx * deltaScale; val moveY = dy * deltaScale
+        val strokes = InkGeometry.rotate(InkGeometry.scale(flat.strokes, center, factor), center, degrees).map { InkGeometry.translate(it, moveX, moveY) }
+        val texts = InkGeometry.rotateTexts(InkGeometry.scaleTexts(flat.texts, center, factor), center, degrees).map { it.moved(moveX, moveY) }
+        val images = InkGeometry.rotateImages(InkGeometry.scaleImages(flat.images, center, factor), center, degrees).map { it.moved(moveX, moveY) }
+        val contents = selected.mapValues { (id, value) ->
+            val page = pageById.getValue(id)
+            page.content().copy(strokes = page.strokes.filterNot { it in value.strokes },
+                texts = page.texts.filterNot { it in value.texts }, images = page.images.filterNot { it in value.images })
+        }.toMutableMap()
+        val targets = frames.map { frame -> frame.copy(notes = frame.notes.filterNot { box -> selected[frame.frame.pageId]?.texts?.any { it.id == box.id } == true }) }
+        fun page(id: String): NotePage = pageById.getValue(id).let { p -> contents[id]?.let { p.copy(strokes = it.strokes, texts = it.texts, images = it.images) } ?: p }
+        val left = frames.minOf { it.frame.paper.left }; val right = frames.maxOf { it.frame.paper.right }
+        val top = frames.minOf { it.frame.paper.top }; val bottom = frames.maxOf { it.frame.paper.bottom }
+        if (strokes.any { stroke -> InkGeometry.pathPoints(stroke).any { point ->
+                val window = first.toWindow(point.x, point.y)!!
+                window.x < left || window.x > right || window.y < top || window.y > bottom
+            } }) {
+            model.reportError("The transformed ink extends beyond the visible paper; show more pages or use a smaller size"); return false
+        }
+        for (stroke in strokes) {
+            val strokeTargets = targets.map { target ->
+                val layer = stroke.layer.takeIf { id -> PageLayers.effective(target.layers).any { it.id == id } && PageLayers.editable(target.layers, id) } ?: target.layer
+                target.copy(layer = layer, writable = target.loaded && PageLayers.editable(target.layers, layer))
+            }
+            val capture = DocumentInkCapture(firstId, stroke, strokeTargets)
+            val routed = if (stroke.tool in ShapePickerTools) capture.generated(listOf(stroke)) else capture.also { it.add(stroke.points, false) }
+            if (routed.blocked || routed.strokes().isEmpty() && routed.noteStrokes().isEmpty()) {
+                model.reportError("The transformed ink needs visible, editable paper"); return false
+            }
+            val ink = routed.strokes(); val notes = routed.noteStrokes()
+            for (id in ink.keys + notes.keys) contents[id] = DocumentToolEdits.content(page(id), ink[id].orEmpty(), notes[id].orEmpty(), DocumentToolEdits.Options())
+        }
+        val index = DocumentPageGeometry.Index(frames.map { it.frame })
+        fun destination(x: Float, y: Float): Pair<DocumentInkPage, DocumentPageGeometry.Point>? {
+            val window = first.toWindow(x, y) ?: return null
+            val frame = index.nearest(window.y) ?: return null
+            val target = frames.first { it.frame.pageId == frame.pageId }
+            if (!target.loaded || !target.writable) return null
+            return target to frame.toPage(window.x, window.y)!!
+        }
+        for (box in texts) {
+            val (target, at) = destination(box.x + box.width / 2f, box.y + (if (box.isSticky) box.stickyHeight else InkRenderer.textHeight(box)) / 2f)
+                ?: run { model.reportError("The destination needs visible, editable paper"); return false }
+            val scale = first.paper.width / first.width * target.frame.width / target.frame.paper.width
+            val height = if (box.isSticky) box.stickyHeight else InkRenderer.textHeight(box)
+            val moved = box.copy(x = at.x - box.width * scale / 2f, y = at.y - height * scale / 2f, width = box.width * scale,
+                size = box.size * scale, stickyHeight = box.stickyHeight * scale, stickyInk = InkGeometry.scale(box.stickyInk, InkPoint(0f, 0f), scale), layer = box.layer.takeIf { id -> PageLayers.effective(target.layers).any { it.id == id } && PageLayers.editable(target.layers, id) } ?: target.layer)
+            val p = page(target.frame.pageId)
+            contents[p.id] = p.content().copy(texts = p.texts + moved)
+        }
+        for (image in images) {
+            val (target, at) = destination(image.x + image.width / 2f, image.y + image.height / 2f)
+                ?: run { model.reportError("The destination needs visible, editable paper"); return false }
+            val scale = first.paper.width / first.width * target.frame.width / target.frame.paper.width
+            val moved = image.copy(x = at.x - image.width * scale / 2f, y = at.y - image.height * scale / 2f,
+                width = image.width * scale, height = image.height * scale, layer = image.layer.takeIf { id -> PageLayers.effective(target.layers).any { it.id == id } && PageLayers.editable(target.layers, id) } ?: target.layer)
+            val p = page(target.frame.pageId)
+            contents[p.id] = p.content().copy(images = p.images + moved)
+        }
+        val edits = contents.mapNotNull { (id, after) -> PageJournal.diff(pageById.getValue(id).content(), after)?.let { id to it } }.toMap()
+        val committed = edits.isEmpty() || model.commitDocumentEdits(note.id, edits, edits.keys.associateWith { pageById.getValue(it).revision })
+        if (committed) clearSelection()
+        return committed
     }
     fun copySelection() { model?.copyToClipboard(flattened()) }
     private fun flattened(): CanvasSelection {

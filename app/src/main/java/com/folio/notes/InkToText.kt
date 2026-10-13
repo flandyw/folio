@@ -67,6 +67,22 @@ internal object InkToText {
         }
     }
 
+    /** Includes the drawing carried by selected sticky notes, preserving their paper and words. */
+    suspend fun convert(page: NotePage, selection: CanvasSelection): PageContent {
+        var after = page.content()
+        recognise(selection.strokes)?.let { result ->
+            val color = selection.strokes.filter { it.tool != Tool.HIGHLIGHTER }.map { it.color }.distinct().singleOrNull() ?: 0xFF303431.toInt()
+            after = after.copy(strokes = after.strokes.filterNot { it in selection.strokes },
+                texts = after.texts + TextBox(x = result.x, y = result.y, width = result.width, text = result.text, size = result.size, color = color, layer = selection.strokes.first().layer))
+        }
+        for (box in selection.texts.filter { it.isSticky && it.stickyInk.isNotEmpty() }) {
+            recognise(box.stickyInk)?.let { result ->
+                after = after.copy(texts = after.texts.map { if (it.id == box.id) it.copy(text = listOf(it.text, result.text).filter { it.isNotBlank() }.joinToString("\n"), stickyInk = emptyList()) else it })
+            }
+        }
+        return after
+    }
+
     /** Recognition reads dark ink on white, whatever colour or opacity the writer used. */
     private fun Stroke.inkOnly() = copy(color = Color.BLACK, opacity = 1f)
 }

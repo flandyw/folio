@@ -9,9 +9,9 @@ import kotlin.math.max
  * words and its own ink. Geometry is in page units; the note's ink is stored relative to its
  * top-left corner, so moving the note carries the ink along, and it is drawn clipped to the note.
  *
- * Ink belongs to whatever the pen lands on: a stroke that starts on a note is the note's, a stroke
- * that starts on the page is the page's (and passes under any note it crosses). The eraser works
- * the same way per sample — over a note it erases the note's ink, elsewhere the page's.
+ * Drawing and erasing follow the visible surface along the contact: over a note they affect
+ * note-local ink, elsewhere the page. DocumentInkCapture splits at paper and note edges, including
+ * notes outside the paper, without drawing or erasing beneath an opaque note.
  */
 object StickyNotes {
     const val PADDING = 12f

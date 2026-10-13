@@ -4,6 +4,11 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+/** One page-local segment of a manual region, keyed by notebook page identity. */
+data class MarkZonePart(val pageId: String, val pageIndex: Int, val x: Float, val y: Float, val width: Float, val height: Float) {
+    fun zone(marks: Int) = MarkZone(pageIndex, x, y, width, height, marks, manual = true)
+}
+
 /**
  * A printed mark allocation such as "[4 marks]" on an imported PDF page, in Folio page coordinates.
  * Found from the PDF text layer or offline OCR of its rendered background.
@@ -13,8 +18,15 @@ data class MarkZone(
     val x: Float, val y: Float, val width: Float, val height: Float,
     val marks: Int,
     /** Drawn by the marker around an allocation the scan missed, rather than found by it. */
-    val manual: Boolean = false
+    val manual: Boolean = false,
+    /** First part owns the single award; the remaining parts are continuation hit targets. */
+    val parts: List<MarkZonePart> = emptyList()
 ) {
+    val anchorPageId: String? get() = parts.firstOrNull()?.pageId
+    fun canonical(): MarkZone = parts.firstOrNull()?.let { it.zone(marks).copy(parts = parts) } ?: this
+    fun onPage(page: NotePage): MarkZone? = if (parts.isEmpty()) takeIf { pageIndex == page.pdfIndex }
+        else parts.firstOrNull { it.pageId == page.id && it.pageIndex == page.pdfIndex }?.let { it.zone(marks).copy(parts = parts) }
+
     /** True with a finger-sized margin, so a small label is still easy to tap. */
     fun contains(px: Float, py: Float, slop: Float = SLOP): Boolean =
         px >= x - slop && px <= x + width + slop && py >= y - slop && py <= y + height + slop
@@ -109,17 +121,49 @@ object MarkZones {
         return page.texts.filterNot { it.id == existing?.id } to page.strokes.filterNot { isDecoration(zone, it) }
     }
 
-    /** Zones drawn by hand, as one preference string: `page,x,y,w,h,marks` joined by `;`. */
-    fun encode(zones: List<MarkZone>): String =
-        zones.joinToString(";") { "${it.pageIndex},${it.x},${it.y},${it.width},${it.height},${it.marks}" }
+    /** One linked award: only the anchor gets text, every segment gets its decoration. */
+    fun regionContent(zone: MarkZone, pages: Map<String, NotePage>, value: Int?, color: Int): Map<String, PageContent>? {
+        val root = zone.canonical()
+        if (root.parts.isEmpty() || root.parts.any { part -> pages[part.pageId]?.let { it.loaded && it.pdfIndex == part.pageIndex } != true }) return null
+        return root.parts.associate { part ->
+            val page = pages.getValue(part.pageId)
+            val local = part.zone(root.marks)
+            val (texts, strokes) = if (part.pageId == root.anchorPageId) {
+                if (value == null) withoutAward(local, page) else withAward(local, page, value, color)
+            } else page.texts to (page.strokes.filterNot { isDecoration(local, it) } +
+                if (value == null) emptyList() else listOf(if (value.coerceIn(0, root.marks) >= root.marks) box(local, color) else strike(local, color)))
+            part.pageId to page.content().copy(texts = texts, strokes = strokes)
+        }
+    }
 
+    /** Existing six-field rows stay unchanged; a linked region appends its page-local parts. */
+    fun encode(zones: List<MarkZone>): String = zones.joinToString(";") { projected ->
+        val zone = projected.canonical()
+        val base = "${zone.pageIndex},${zone.x},${zone.y},${zone.width},${zone.height},${zone.marks}"
+        if (zone.parts.isEmpty()) base else base + "," + zone.parts.joinToString("|") {
+            "${java.net.URLEncoder.encode(it.pageId, Charsets.UTF_8)}~${it.pageIndex}~${it.x}~${it.y}~${it.width}~${it.height}"
+        }
+    }
     fun decode(text: String?): List<MarkZone> = text.orEmpty().split(';').mapNotNull { row ->
         val f = row.split(',')
-        if (f.size != 6) return@mapNotNull null
-        val page = f[0].toIntOrNull() ?: return@mapNotNull null
-        val n = f.drop(1).take(4).map { it.toFloatOrNull() ?: return@mapNotNull null }
+        if (f.size !in 6..7) return@mapNotNull null
+        val page = f[0].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+        val n = f.drop(1).take(4).map { it.toFloatOrNull()?.takeIf { n -> n.isFinite() } ?: return@mapNotNull null }
         val marks = f[5].toIntOrNull()?.takeIf { it in 1..MAX_MARKS } ?: return@mapNotNull null
-        MarkZone(page, n[0], n[1], n[2], n[3], marks, manual = true)
+        val parts = if (f.size == 6) emptyList() else {
+            val values = f[6].split('|').map { encoded ->
+                val p = encoded.split('~')
+                if (p.size != 6 || p[0].isBlank()) return@mapNotNull null
+                val index = p[1].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+                val bounds = p.drop(2).map { it.toFloatOrNull()?.takeIf { n -> n.isFinite() } ?: return@mapNotNull null }
+                if (bounds[2] <= 0f || bounds[3] <= 0f) return@mapNotNull null
+                val id = runCatching { java.net.URLDecoder.decode(p[0], Charsets.UTF_8) }.getOrNull()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                MarkZonePart(id, index, bounds[0], bounds[1], bounds[2], bounds[3])
+            }
+            if (values.size < 2 || values.map { it.pageId }.distinct().size != values.size) return@mapNotNull null
+            values
+        }
+        MarkZone(page, n[0], n[1], n[2], n[3], marks, manual = true, parts = parts).canonical()
     }
 
     /** Total marks available across the zones — the paper's own total when it prints every allocation. */

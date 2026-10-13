@@ -453,7 +453,7 @@ fun Notebook.withInsertedPage(index: Int, page: NotePage = NotePage()): Notebook
 
 /** Swaps in a page whose content has just arrived from disk, keeping its place in the notebook. */
 fun Notebook.withPage(page: NotePage): Notebook =
-    copy(pages = pages.map { if (it.id == page.id) page else it })
+    copy(pages = pages.replacePage(page))
 
 /** This page as the on-disk index holds it: its identity, paper and revision, but none of its ink. */
 fun NotePage.asSummary(): NotePage = copy(strokes = emptyList(), texts = emptyList(), images = emptyList(), layers = emptyList(), loaded = false)

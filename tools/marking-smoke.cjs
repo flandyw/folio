@@ -1,4 +1,4 @@
-// Run after ./gradlew :app:assembleDebug :app:prepareBackupSmoke has populated the JVM cache.
+// Run after ./gradlew :app:prepareBackupSmoke has populated the JVM cache.
 // No device, Android runtime, extra downloads, or test framework is needed.
 const fs = require('node:fs');
 const os = require('node:os');
@@ -24,7 +24,7 @@ function cached(group, module, version, extension = '.jar', compatible = false) 
       if (fs.existsSync(file)) return file;
     }
   }
-  throw new Error(`Missing cached ${module} ${version}; run ./gradlew :app:assembleDebug first.`);
+  throw new Error(`Missing cached ${module} ${version}; run ./build.sh -p first.`);
 }
 const compiler = cached('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', version);
 const pom = fs.readFileSync(cached('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', version, '.pom'), 'utf8');
@@ -41,7 +41,7 @@ function run(args) {
   if (result.status !== 0) throw new Error(`Marking check failed (exit ${result.status}).`);
 }
 const appClasses = path.join(root, 'app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar');
-if (!fs.existsSync(appClasses)) throw new Error('Run ./gradlew :app:assembleDebug before the backup smoke check.');
+if (!fs.existsSync(appClasses)) throw new Error('Run ./gradlew :app:prepareBackupSmoke before the marking smoke check.');
 const json = cached('org.json', 'json', '20240303', '.jar', true);
 const coroutines = cached('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.11.0', '.jar', true);
 const runtime = [appClasses, stdlib, json, coroutines];

@@ -8,5 +8,7 @@ internal sealed class DocumentWriteOp {
     ) : DocumentWriteOp()
     class Document(val noteId: String, val id: String, val history: DocumentHistory,
         val transactions: Map<String, PageTransaction>, val pages: Map<String, NotePage>) : DocumentWriteOp()
-    class Once(val block: suspend () -> Unit, val recovery: Boolean = false, val barrier: Boolean = false) : DocumentWriteOp()
+    class Once(val block: suspend () -> Unit, val recovery: Boolean = false) : DocumentWriteOp()
+    /** Read-only queue fence. Its completion follows durability publication, including failures. */
+    class Barrier(val completion: kotlinx.coroutines.CompletableDeferred<Unit>) : DocumentWriteOp()
 }

@@ -32,4 +32,46 @@ class DocumentHistoryPropertyTest {
             assertEquals(listOf(inverse), PageJournal.foldHistory(PageJournal.History.EMPTY, decoded, 0).undo)
         }
     }
+
+    @Test fun groupedUndoRedoPlansReplayThroughRealBinaryJournals() {
+        val random = Random(84019)
+        repeat(100) { trial ->
+            val before = Notebook(id = "n", title = "Notebook", pages = IndexedItems.of(List(17) { index ->
+                NotePage(id = "p$index", strokes = List(random.nextInt(1, 8)) { stroke(random) })
+            }) { it.id })
+            val ids = before.pages.shuffled(random).take(3).map { it.id }
+            val edits = ids.associateWith { id ->
+                val page = before.pages.page(id)!!
+                val changed = page.content().copy(strokes = page.strokes.reversed() + stroke(random),
+                    texts = listOf(TextBox(x = 1f, y = 1f, text = "Answer $trial")))
+                PageJournal.diff(page.content(), changed)!!
+            }
+            val created = DocumentReducer.group(before, edits, emptyMap(), "g", 10, 0)!!
+            val undo = DocumentReducer.history(created.notebook, created.notebook.documentHistory.undo.single(),
+                created.transactions.mapValues { it.value.undoPush }, true, 11, "undo", 1)!!
+            val redo = DocumentReducer.history(undo.notebook, undo.notebook.documentHistory.redo.single(),
+                undo.transactions.mapValues { it.value.redoPush }, false, 12, "redo", 2)!!
+            ids.forEach { id ->
+                val original = before.pages.page(id)!!.content()
+                val changed = created.pages.getValue(id).content()
+                assertEquals(original, undo.pages.getValue(id).content())
+                assertEquals(changed, redo.pages.getValue(id).content())
+                val transactions = listOf(created, undo, redo).mapIndexed { index, change ->
+                    val tx = change.transactions.getValue(id).copy(seq = index + 1)
+                    JournalBinary.readAll(JournalBinary.frame(tx)).single()
+                }
+                assertEquals(original, PageJournal.replay(original, 0, transactions.take(2)))
+                assertEquals(changed, PageJournal.replay(original, 0, transactions))
+                val undoneHistory = PageJournal.foldHistory(PageJournal.History.EMPTY, transactions.take(2), 0)
+                assertTrue(undoneHistory.undo.isEmpty())
+                assertEquals(listOf(transactions[1].redoPush), undoneHistory.redo)
+                val redoneHistory = PageJournal.foldHistory(PageJournal.History.EMPTY, transactions, 0)
+                assertTrue(redoneHistory.redo.isEmpty())
+                assertEquals(listOf(transactions[2].undoPush), redoneHistory.undo)
+            }
+            before.pages.filterNot { it.id in ids }.forEach { page ->
+                assertSame(page, redo.notebook.pages.page(page.id))
+            }
+        }
+    }
 }

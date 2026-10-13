@@ -190,6 +190,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                     areaEntry = if (lane == null || rect == null) null
                     else AreaEntry(null, lane.left, lane.top, lane.right - lane.left, lane.bottom - lane.top, rect)
                 }
+                view.onDocumentMarkRegion = { parts, rect ->
+                    val source = parts.first { it.pageId == page.id }
+                    areaEntry = AreaEntry(null, source.x, source.y, source.width, source.height, rect, parts)
+                }
                 view.onMarkZone = { zone, rect ->
                     offeredZone = if (zone != null && rect != null) zone to rect else null
                     offerStamp++
@@ -210,12 +214,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         }
         if (page.loaded && ready && !readOnly && shapeMeasurements) ShapeMeasurementTooltip(shapeMeasurement)
         offeredZone?.takeIf { page.loaded && !readOnly }?.let { (zone, rect) ->
-            MarkChip(zone, rect, page, offerStamp,
+            val anchorId = zone.anchorPageId ?: page.id
+            val anchorSnapshot by remember(noteId, anchorId) { model.documents.observePage(noteId, anchorId) }.collectAsStateWithLifecycle()
+            val awardPage = if (anchorId == page.id) page else anchorSnapshot?.page
+            LaunchedEffect(anchorId) { if (anchorId != page.id) model.loadPage(anchorId) }
+            if (awardPage?.loaded == true) MarkChip(zone, rect, awardPage, offerStamp,
                 onAward = { value -> model.awardMark(page.id, zone, value, markColor); offeredZone = null },
                 onClear = { model.clearMark(page.id, zone); offeredZone = null },
                 onDismiss = { offeredZone = null },
                 onEdit = if (zone.manual) ({
-                    areaEntry = AreaEntry(zone, zone.x, zone.y, zone.width, zone.height, rect); offeredZone = null
+                    areaEntry = AreaEntry(zone.canonical(), zone.x, zone.y, zone.width, zone.height, rect, zone.parts); offeredZone = null
                 }) else null)
         }
         areaEntry?.takeIf { page.loaded && !readOnly }?.let { entry ->
@@ -223,17 +231,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
             var guess by remember(entry) { mutableStateOf<Int?>(null) }
             LaunchedEffect(entry) {
                 if (entry.existing == null) guess = try {
-                    model.repository.readMarkRegion(noteId, page, WritingLane(entry.x, entry.y, entry.x + entry.width, entry.y + entry.height))
+                    if (entry.parts.isEmpty()) model.repository.readMarkRegion(noteId, page, WritingLane(entry.x, entry.y, entry.x + entry.width, entry.y + entry.height))
+                    else entry.parts.mapNotNull { part ->
+                        val target = model.state.value.active?.takeIf { it.id == noteId }?.pages?.firstOrNull { it.id == part.pageId } ?: return@mapNotNull null
+                        model.repository.readMarkRegion(noteId, target, WritingLane(part.x, part.y, part.x + part.width, part.y + part.height))
+                    }.distinct().singleOrNull()
                 } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
             }
-            MarkAreaPopover(entry.rect, entry.existing?.marks, guess,
+            MarkAreaPopover(entry.rect, entry.existing?.marks, guess, pageCount = entry.parts.size.coerceAtLeast(1),
                 onConfirm = { marks ->
-                    val zone = MarkZone(page.pdfIndex ?: 0, entry.x, entry.y, entry.width, entry.height, marks, manual = true)
+                    val zone = entry.existing?.copy(marks = marks)?.canonical()
+                        ?: MarkZone(page.pdfIndex ?: 0, entry.x, entry.y, entry.width, entry.height, marks, manual = true, parts = entry.parts).canonical()
                     onReplaceZone(entry.existing, zone)
                     boundInkView?.clearMarkRegion()
                     areaEntry = null
                     // Straight on to awarding it, as if the scan had found it.
-                    offeredZone = zone to entry.rect; offerStamp++
+                    offeredZone = (zone.onPage(page) ?: zone) to entry.rect; offerStamp++
                 },
                 onRemove = entry.existing?.let { old -> { model.clearMark(page.id, old); onReplaceZone(old, null); areaEntry = null } },
                 onDismiss = { boundInkView?.clearMarkRegion(); areaEntry = null })

@@ -17,7 +17,7 @@ The fast-scroll thumb sits 2 dp from the workspace's right edge. Its grab zone i
 
 `FolioViewModel` and the repository remain the only content/persistence owners. Native pressure samples, history, prediction, cancellation and raster caching keep their original path. Cross-page contacts are captured by `DocumentInputCoordinator` and committed through recoverable document transactions. Existing notebooks retain their storage versions until grouped history is used. Reading-position JSON only gains optional presentation fields; old positions remain readable.
 
-Cross-page stylus handwriting and document-spanning lasso now use frozen paper geometry and shared native previews. Shared selection actions and grouped Undo/Redo commit every affected page together. Details, compatibility and recovery checks are in [document transactions](document-transactions.md). Existing sticky carries and single-page selection transfers retain their independent per-page undo effects.
+Cross-page drawing, shapes, graphs, ruler strokes, erasing and document-spanning lasso use frozen paper/sticky geometry and shared native previews. Single sheets and canvases share the sticky boundary rules; laser trails are forwarded without persistence. Shared selection actions and grouped Undo/Redo commit every affected page together. Details, compatibility and recovery checks are in [document transactions](document-transactions.md). Existing sticky carries and single-page selection transfers retain their independent per-page undo effects.
 
 ## Automated checks
 

@@ -1,4 +1,5 @@
 // Desktop CPU/allocation baseline. Run after a build with :app:prepareBackupSmoke.
+// Optionally pass a saved classes.jar as the first argument to compare builds.
 // No device, Android runtime, extra downloads, or test framework is needed.
 const fs = require('node:fs');
 const os = require('node:os');
@@ -40,12 +41,12 @@ function run(args) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Document engine benchmark failed (exit ${result.status}).`);
 }
-const appClasses = [
+const appClasses = process.argv[2] ? path.resolve(process.argv[2]) : [
   'release/bundleReleaseClassesToCompileJar', 'debug/bundleDebugClassesToCompileJar',
 ].map(variant => path.join(root, 'app/build/intermediates/compile_app_classes_jar', variant, 'classes.jar'))
   .filter(file => fs.existsSync(file))
   .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
-if (!appClasses) throw new Error('Run ./build.sh -p -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke before the backup smoke check.');
+if (!appClasses || !fs.existsSync(appClasses)) throw new Error('Provide an existing classes.jar or run ./build.sh -p -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke before the document engine benchmark.');
 const json = cached('org.json', 'json', '20240303', '.jar', true);
 const coroutines = cached('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.11.0', '.jar', true);
 const runtime = [appClasses, stdlib, json, coroutines];

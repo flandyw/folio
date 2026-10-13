@@ -24,6 +24,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     internal val inkRedoSeq = HashMap<String, Long>()
 
     internal val loadingPages = mutableSetOf<String>()
+    private val historyAvailability = DocumentHistoryAvailability()
 
     internal fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit) {
         with(runtime) {
@@ -37,6 +38,15 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     internal fun findPage(pageId: String): Notebook? = runtime._state.notebookForPage(pageId)
     internal fun findPageContent(pageId: String): NotePage? = runtime._state.page(pageId)
 
+    private fun installHistory(pageId: String, history: PageJournal.History) {
+        undo[pageId] = history.undo.toMutableList()
+        redo[pageId] = history.redo.toMutableList()
+        publishedHistory[pageId] = history
+        actionCounter = maxOf(actionCounter,
+            history.undo.maxOfOrNull { it.actionSequence } ?: 0L,
+            history.redo.maxOfOrNull { it.actionSequence } ?: 0L)
+    }
+
     fun loadPage(pageId: String) {
         with(runtime) {
             val note = findPage(pageId) ?: return
@@ -47,20 +57,22 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                 try {
                     val checkpoint = repository.loadPageCheckpoint(note.id, summary)
                     val loaded = checkpoint.page; val history = checkpoint.history
-                    val current = _state.value.notes.firstOrNull { it.id == note.id }?.pages?.page(pageId)
+                    val current = _state.value.notes.notebook(note.id)?.pages?.page(pageId)
                     if (current != null && !current.loaded) {
                         if (current.revision > loaded.revision) retry = true
                         else {
                             // Install history before the UI can write to the newly loaded page.
-                            undo[pageId] = history.undo.toMutableList(); redo[pageId] = history.redo.toMutableList()
-                            publishedHistory[pageId] = history
-                            actionCounter = maxOf(actionCounter, (history.undo + history.redo).maxOfOrNull { it.actionSequence } ?: 0L)
-                            _state.update { state -> state.copy(notes = state.notes.map { if (it.id == note.id) it.withPage(current.withLoadedContent(loaded)) else it }) }
+                            installHistory(pageId, history)
+                            _state.update { state ->
+                                val live = state.notes.notebook(note.id) ?: return@update state
+                                state.copy(notes = state.notes.replaceNotebook(live.withPage(current.withLoadedContent(loaded))))
+                            }
                             repository.requestCompaction(note.id, pageId) { currentCheckpoint(note.id, pageId) }
                             historyState()
                         }
                     }
-                } catch (e: Exception) {
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (e: Exception) {
                     reportError("Couldn't open this page: ${e.message.orEmpty()}")
                 } finally { loadingPages.remove(pageId); if (retry) loadPage(pageId) }
             }
@@ -89,10 +101,10 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                 try {
                     val loaded = repository.loadPage(note.id, source)
                     val current = _state.value.active ?: return@launch
-                    val at = current.pages.indexOfFirst { it.id == source.id }
+                    val at = current.pages.pageIndex(source.id)
                     if (current.id != note.id || at < 0) return@launch
                     val duplicated = current.withPage(if (current.pages[at].loaded) current.pages[at] else current.pages[at].withLoadedContent(loaded)).withDuplicatedPage(at).copy(updated = System.currentTimeMillis())
-                    _state.update { s -> s.copy(notes = s.notes.map { if (it.id == current.id) duplicated else it }, pageIndex = at + 1) }
+                    _state.update { s -> s.copy(notes = s.notes.replaceNotebook(duplicated), pageIndex = at + 1) }
                     captureTab()
                     enqueue { repository.savePage(duplicated, duplicated.pages[at + 1]) }
                     recordPageInserted(duplicated.id, duplicated.pages[at + 1].id)
@@ -106,7 +118,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         with(runtime) {
             val at = index + 1
             val duplicated = note.withDuplicatedPage(index).copy(updated = System.currentTimeMillis())
-            _state.update { state -> state.copy(notes = state.notes.map { if (it.id == duplicated.id) duplicated else it }, pageIndex = at) }
+            _state.update { state -> state.copy(notes = state.notes.replaceNotebook(duplicated), pageIndex = at) }
             captureTab()
             // The copy is a page of its own, so its content has to reach disk along with the index.
             enqueue { repository.savePage(duplicated, duplicated.pages[at]) }
@@ -147,7 +159,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     internal fun deleteLoadedPage(noteId: String, pageId: String) {
         with(runtime) {
             val note = _state.value.notes.notebook(noteId) ?: return
-            val index = note.pages.indexOfFirst { it.id == pageId }
+            val index = note.pages.pageIndex(pageId)
             val removed = note.pages.getOrNull(index)?.takeIf { it.loaded } ?: return
             val history = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
             val wasOnly = note.pages.size == 1
@@ -167,7 +179,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         with(runtime) {
             val state = _state.value
             val note = state.notes.notebook(noteId) ?: return null
-            val index = note.pages.indexOfFirst { it.id == pageId }
+            val index = note.pages.pageIndex(pageId)
             val removed = note.pages.getOrNull(index) ?: return null
             val history = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
             val updated = note.withDeletedPage(index)
@@ -194,7 +206,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                 publishedHistory[page.id] = it
             }
             _state.update { state ->
-                val moved = state.copy(notes = state.notes.map { if (it.id == noteId) updated else it })
+                val moved = state.copy(notes = state.notes.replaceNotebook(updated))
                 if (state.activeId != noteId) moved
                 else moved.copy(pageIndex = if (select) at else if (at <= state.pageIndex) state.pageIndex + 1 else state.pageIndex)
             }
@@ -322,7 +334,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val note = findPage(page.id) ?: return
             // A page still on disk is never rewritten from an empty in-memory copy.
             if (!page.loaded) return
-            val before = note.pages.first { it.id == page.id }
+            val before = note.pages.page(page.id) ?: return
             commitEdit(note, before, page)
         }
     }
@@ -337,7 +349,8 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val forward = change.forward
             val revised = change.page
             val updated = note.copy(pages = note.pages.replacePage(revised), updated = System.currentTimeMillis(),
-                documentHistory = if (forward == null) note.documentHistory else note.documentHistory.copy(redo = emptyList()))
+                documentHistory = if (forward == null || note.documentHistory.redo.isEmpty()) note.documentHistory
+                    else note.documentHistory.copy(redo = emptyList()))
             _state.update { state -> state.copy(notes = state.notes.replaceNotebook(updated)) }
             if (forward == null) {
                 enqueue { beforeSave(); repository.saveMeta(updated) }
@@ -460,11 +473,10 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
 
     internal suspend fun awaitLoaded(pageId: String): NotePage? {
         with(runtime) {
+            val noteId = findPage(pageId)?.id ?: return null
             loadPage(pageId)
             return withTimeoutOrNull(5_000) {
-                var found = findPageContent(pageId)?.takeIf { it.loaded }
-                while (found == null) { delay(40); found = findPageContent(pageId)?.takeIf { it.loaded } }
-                found
+                _state.observePage(noteId, pageId).first { it == null || it.page.loaded }?.page
             }
         }
     }
@@ -512,17 +524,18 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     internal suspend fun loadDocumentHistoryPages(noteId: String, ids: List<String>) {
         with(runtime) {
             for (id in ids) {
-                val note = _state.value.notes.firstOrNull { it.id == noteId } ?: error("Notebook closed")
+                val note = _state.value.notes.notebook(noteId) ?: error("Notebook closed")
                 val summary = note.pages.page(id) ?: error("Restore the deleted page before undoing this action")
                 if (!summary.loaded) {
                     val checkpoint = repository.loadPageCheckpoint(noteId, summary)
                     val loaded = checkpoint.page; val history = checkpoint.history
-                    val current = _state.value.notes.firstOrNull { it.id == noteId }?.pages?.page(id)
+                    val current = _state.value.notes.notebook(noteId)?.pages?.page(id)
                     if (current != null && !current.loaded && current.revision == summary.revision) {
-                        _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) it.withPage(current.withLoadedContent(loaded)) else it }) }
-                        undo[id] = history.undo.toMutableList(); redo[id] = history.redo.toMutableList()
-                        publishedHistory[id] = history
-                        actionCounter = maxOf(actionCounter, (history.undo + history.redo).maxOfOrNull { it.actionSequence } ?: 0L)
+                        installHistory(id, history)
+                        _state.update { state ->
+                            val live = state.notes.notebook(noteId) ?: return@update state
+                            state.copy(notes = state.notes.replaceNotebook(live.withPage(current.withLoadedContent(loaded))))
+                        }
                     }
                 }
             }
@@ -549,37 +562,33 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                         if (blocker.value == null || blocker.value?.groupId != null) {
                             reportError("The complete grouped history is no longer available"); return@launch
                         }
-                        val index = note.pages.indexOfFirst { it.id == blocker.key }
+                        val index = note.pages.pageIndex(blocker.key)
                         selectPage(index)
                         _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
                         if (wasUndo) inkRedoSeq[blocker.key] = ++actionCounter else inkSeq[blocker.key] = ++actionCounter
                         history(from, to)
                         return@launch
                     }
-                    val sequence = ++actionCounter
-                    val records = LinkedHashMap<String, PageTransaction>()
-                    val pages = note.pages.map { page ->
-                        val op = tops[page.id] ?: return@map page
-                        val inverse = PageJournal.invert(op, page.content()).copy(actionSequence = sequence)
-                        val content = PageJournal.apply(page.content(), op)
-                        val revised = page.copy(strokes = content.strokes, texts = content.texts, images = content.images, layers = content.layers).revised()
-                        from[page.id]!!.removeAt(from[page.id]!!.lastIndex)
-                        to.getOrPut(page.id) { mutableListOf() }.apply { add(inverse); while (size > MAX_UNDO) removeAt(0) }
-                        publishedHistory[page.id] = PageJournal.History(undo[page.id]?.toList().orEmpty(), redo[page.id]?.toList().orEmpty())
-                        records[page.id] = PageTransaction(0, revised.revision, op,
-                            undoPush = inverse.takeUnless { wasUndo }, undoPop = wasUndo,
-                            redoPush = inverse.takeIf { wasUndo }, redoPop = !wasUndo)
-                        if (wasUndo) inkRedoSeq[page.id] = sequence else inkSeq[page.id] = sequence
-                        repository.requestCompaction(noteId, page.id) { currentCheckpoint(noteId, page.id) }
-                        revised
+                    val sequence = actionCounter + 1
+                    val operationId = UUID.randomUUID().toString()
+                    val change = DocumentReducer.history(note, step, tops, wasUndo, sequence, operationId, System.currentTimeMillis())
+                    if (change == null) {
+                        reportError("The complete grouped history is no longer available"); return@launch
                     }
-                    val operationId = java.util.UUID.randomUUID().toString()
-                    val history = note.documentHistory.moved(step, wasUndo, sequence).copy(lastCommit = operationId)
-                    val updated = note.copy(pages = pages, documentHistory = history, updated = System.currentTimeMillis())
-                    _state.update { state -> state.copy(notes = state.notes.map { if (it.id == noteId) updated else it }) }
-                    queue(WriteOp.Document(noteId, operationId, history, records, pages.filter { it.id in records }.associateBy { it.id }))
+                    actionCounter = sequence
+                    change.transactions.forEach { (pageId, transaction) ->
+                        val inverse = requireNotNull(if (wasUndo) transaction.redoPush else transaction.undoPush)
+                        from.getValue(pageId).removeAt(from.getValue(pageId).lastIndex)
+                        to.getOrPut(pageId) { mutableListOf() }.apply { add(inverse); while (size > MAX_UNDO) removeAt(0) }
+                        publishedHistory[pageId] = PageJournal.History(undo[pageId]?.toList().orEmpty(), redo[pageId]?.toList().orEmpty())
+                        if (wasUndo) inkRedoSeq[pageId] = sequence else inkSeq[pageId] = sequence
+                        repository.requestCompaction(noteId, pageId) { currentCheckpoint(noteId, pageId) }
+                    }
+                    _state.update { state -> state.copy(notes = state.notes.replaceNotebook(change.notebook)) }
+                    queue(WriteOp.Document(noteId, operationId, change.notebook.documentHistory, change.transactions, change.pages))
                     touchTimerActivity(); historyState()
-                } catch (e: Exception) { reportError("Couldn't restore the grouped action: ${e.message.orEmpty()}") }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (e: Exception) { reportError("Couldn't restore the grouped action: ${e.message.orEmpty()}") }
                 finally { documentHistoryBusy = false; _state.update { it.copy(documentHistoryBusy = false) } }
             }
         }
@@ -593,7 +602,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val pageId = state.page?.id
             val step = structureUndo.lastOrNull { it.noteId == noteId }
             val active = state.active
-            val group = active?.documentHistory?.undo?.lastOrNull { step -> step.pages.all { id -> active.pages.any { it.id == id } } }
+            val group = historyAvailability.forNotebook(active).undo.lastOrNull()
             val inkTop = pageId?.takeUnless { undo[it].isNullOrEmpty() }?.let { maxOf(inkSeq[it] ?: 0L, undo[it]?.lastOrNull()?.actionSequence ?: 0L) }
             if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
                 documentHistory(group, true); return
@@ -625,7 +634,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val pageId = state.page?.id
             val step = structureRedo.lastOrNull { it.noteId == noteId }
             val active = state.active
-            val group = active?.documentHistory?.redo?.lastOrNull { step -> step.pages.all { id -> active.pages.any { it.id == id } } }
+            val group = historyAvailability.forNotebook(active).redo.lastOrNull()
             val inkTop = pageId?.takeUnless { redo[it].isNullOrEmpty() }?.let { maxOf(inkRedoSeq[it] ?: 0L, redo[it]?.lastOrNull()?.actionSequence ?: 0L) }
             if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
                 documentHistory(group, false); return
@@ -687,14 +696,9 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             _state.update { state ->
                 val noteId = state.activeId
                 val note = state.active
-                val ids = note?.pages?.let { pages -> object : AbstractSet<String>() {
-                    override val size get() = pages.size
-                    override fun iterator() = pages.map { it.id }.iterator()
-                    override fun contains(element: String) = pages.page(element) != null
-                } }.orEmpty()
-                fun available(steps: List<DocumentHistoryStep>) = steps.filter { it.pages.all(ids::contains) }
-                val groupsUndo = available(note?.documentHistory?.undo.orEmpty())
-                val groupsRedo = available(note?.documentHistory?.redo.orEmpty())
+                val available = historyAvailability.forNotebook(note)
+                val groupsUndo = available.undo
+                val groupsRedo = available.redo
                 fun local(stack: List<PageEdit>?, groups: List<DocumentHistoryStep>): Boolean {
                     val top = stack?.lastOrNull() ?: return false
                     return top.groupId == null || groups.any { it.id == top.groupId }

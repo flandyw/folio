@@ -34,8 +34,8 @@ import androidx.compose.ui.viewinterop.AndroidView
     val release by rememberUpdatedState(onReleased)
     val areaColor = MaterialTheme.colorScheme.primary.toArgb()
     val pageLinks = remember(presentation.pdfLinks, page.pdfIndex) { presentation.pdfLinks.filter { it.pageIndex == page.pdfIndex } }
-    val pageZones = remember(presentation.markZones, page.pdfIndex, presentation.markAssist) {
-        presentation.markZones.filter { it.pageIndex == page.pdfIndex && (presentation.markAssist || it.manual) }
+    val pageZones = remember(presentation.markZones, page.id, page.pdfIndex, presentation.markAssist) {
+        presentation.markZones.filter { presentation.markAssist || it.manual }.mapNotNull { it.onPage(page) }
     }
     AndroidView(
         factory = { context -> InkView(context).also { view ->
@@ -55,6 +55,7 @@ import androidx.compose.ui.viewinterop.AndroidView
             view.onDocumentGestureSamples = if (continuous && documentInput != null) { points -> documentInput.samples(page.id, points) } else null
             view.onDocumentGestureFinish = if (documentInput != null) { { documentInput.finish(page.id) } } else null
             view.onDocumentGestureCancel = if (documentInput != null) { { documentInput.cancel() } } else null
+            view.onDocumentSelectionDrag = if (continuous && documentInput != null) { dx, dy, commit -> documentInput.dragSelection(page.id, dx, dy, commit) } else null
             view.documentSelectionOwner = continuous && documentInput?.selectedOn(page.id) == true
             onBound(view)
             val tool = surface.tool
