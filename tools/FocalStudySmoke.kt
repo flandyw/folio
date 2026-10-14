@@ -271,5 +271,28 @@ fun main() {
     check(focalPlanEdit(retainedDraft, retainedDraft.title, retainedDraft.subjectId,
         focalPlanDetails(retainedDraft).first, focalPlanDetails(retainedDraft).second, focalPlannedSlots(retainedDraft)).synced == false)
 
-    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation and website planned sessions passed.")
+    // Manual merge: Focal's study_session_merge request. Shared time counts once, gaps stay breaks.
+    fun done(id: String, from: Long, to: Long, notes: String, topic: String) = FocalStudyEntry(id = id, notebookId = null, title = id,
+        subjectId = "maths", kind = "study", startedAt = from, endedAt = to, activeMillis = to - from, notes = notes,
+        synced = true, revision = 3L, intervals = listOf(FocalStudyInterval(from, to)),
+        remotePayload = org.json.JSONObject().put("metadata", org.json.JSONObject().put("topics", org.json.JSONArray().put(topic))).toString())
+    val a = done("a", start, start + 600_000L, "Chain rule", "Calculus")
+    val b = done("b", start + 300_000L, start + 900_000L, "Chain rule", "Calculus")
+    val c = done("c", start + 1_200_000L, start + 1_500_000L, "Product rule", "Algebra")
+    check(focalMergedBlocks(listOf(c, a, b)) == listOf(FocalStudyInterval(start, start + 900_000L), FocalStudyInterval(start + 1_200_000L, start + 1_500_000L)))
+    check(focalMergedBlocks(listOf(a, done("t", start + 600_000L, start + 700_000L, "", "x"))) == listOf(FocalStudyInterval(start, start + 700_000L)))
+    check(focalMergeRefusal(listOf(a, b, c)) == null)
+    check(focalMergeRefusal(listOf(a)) != null && focalMergeRefusal(listOf(a, a)) != null)
+    check(focalMergeRefusal(listOf(a, c.copy(subjectId = "chem"))) != null)
+    check(focalMergeRefusal(listOf(a, c.copy(completed = false, planned = true))) != null)
+    val (mergeCommand, mergeSources) = focalMergeRequest(listOf(a, b, c), "device", "m1")
+    check(mergeCommand.getString("action") == "save_progress" && mergeCommand.getString("session_id") == "a" &&
+        mergeCommand.getLong("expected_revision") == 3L && mergeCommand.getString("mutation_id") == "m1")
+    check(mergeCommand.getJSONArray("blocks").length() == 2 && !mergeCommand.has("completed"))
+    check(mergeSources.length() == 3 && mergeSources.getJSONObject(0).getString("id") == "a" && mergeSources.getJSONObject(2).getLong("revision") == 3L)
+    val mergedMetadata = mergeCommand.getJSONObject("metadata")
+    check(mergedMetadata.getJSONObject("reflection").getString("notes") == "Chain rule\n\nProduct rule")
+    check(mergedMetadata.getJSONArray("topics").length() == 2 && mergedMetadata.getJSONArray("merge_sources").length() == 3)
+
+    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation, website planned sessions and manual merges passed.")
 }

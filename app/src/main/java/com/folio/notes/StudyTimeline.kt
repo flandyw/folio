@@ -19,7 +19,9 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.Merge
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,6 +42,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -48,6 +51,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -123,11 +127,12 @@ private fun spansOf(entry: FocalStudyEntry, focus: FocalFocus?): List<FocalStudy
 /**
  * Drag on a block or the draft: its edges resize, its body moves. A vertical drag is left to the
  * scrolling list, and a press that never moves is a tap ([onTap] gets where, in pixels from the left edge).
- * [onDrag] gets the total travel in pixels. Edge grips are 18dp, or a third of the width on a narrow block.
+ * [onDrag] gets the total travel in pixels. Edge grips are 18dp, or a third of the width on a narrow block;
+ * a [fixed] grip (a resize handle) always drags that edge.
  */
 @Composable
 private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -> Unit,
-                                  onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit): Modifier {
+                                  onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit, fixed: Grip? = null): Modifier {
     val tap by rememberUpdatedState(onTap)
     val drag by rememberUpdatedState(onDrag)
     val end by rememberUpdatedState(onEnd)
@@ -138,7 +143,7 @@ private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -
             val down = awaitFirstDown()
             down.consume()
             val edge = minOf(maxEdge, size.width / 3f)
-            val grip = when {
+            val grip = fixed ?: when {
                 down.position.x <= edge -> Grip.START
                 down.position.x >= size.width - edge -> Grip.END
                 else -> Grip.MOVE
@@ -243,7 +248,14 @@ internal fun StudyTimeline(
     var razor by remember { mutableStateOf(false) }
     // The razor's pending cut: the block it is on and the (fractional) minute, until ticked or moved.
     var cut by remember { mutableStateOf<Pair<String, Float>?>(null) }
-    LaunchedEffect(epochDay) { view = null; draft = null; selected = null; message = null; cut = null }
+    val trackWidth = remember { mutableFloatStateOf(1f) }
+    fun trackWidthPx() = trackWidth.floatValue
+    // Select mode: taps pick whole sessions (by entry id) to merge.
+    var picking by remember { mutableStateOf(false) }
+    var picks by remember { mutableStateOf(emptySet<String>()) }
+    var merging by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(epochDay) { view = null; draft = null; selected = null; message = null; cut = null; picks = emptySet() }
 
     fun reveal(range: Span) {
         if (range.start >= window.start && range.end <= window.end) return
@@ -275,6 +287,40 @@ internal fun StudyTimeline(
         message = if (ok) "Moved to ${clock(range.start)}–${clock(range.end)}" else "That block can't go there."
     }
 
+    /** A block's range while one of its edges or its body is dragged [dx] pixels. */
+    fun dragged(live: Block, grip: Grip, dx: Float): Span {
+        val delta = dx / trackWidthPx() * span
+        val next = when (grip) {
+            Grip.START -> Span(minOf(snap(live.start + delta), live.end - SNAP), live.end)
+            Grip.END -> Span(live.start, maxOf(snap(live.end + delta), live.start + SNAP))
+            Grip.MOVE -> {
+                val length = live.end - live.start
+                val start = snap(live.start + delta).coerceIn(SNAP, DAY - SNAP - length)
+                Span(start, start + length)
+            }
+        }
+        return Span(next.start.coerceAtLeast(SNAP), next.end.coerceAtMost(DAY - SNAP))
+    }
+
+    fun pick(on: Boolean, first: String? = null) {
+        picking = on; picks = setOfNotNull(first); razor = false; cut = null; draft = null; selected = null; confirmRemove = false
+        message = if (on) "Select: tap the sessions to merge, then Merge." else null
+    }
+    /** A stopped study session, whatever its shape, can be merged with others. */
+    fun mergeable(block: Block) = block.entry.kind == "study" && block.tone != Tone.LIVE && !block.entry.active && block.entry.id != focus?.sessionId
+    /** Merge through Focal: the earliest picked session takes every block and the rest are removed in one step. */
+    fun merge(ids: Set<String>) {
+        val ordered = blocks.filter { it.entry.id in ids }.sortedBy { it.start }.map { it.entry.id }.distinct()
+        merging = true
+        scope.launch {
+            val refusal = manager.mergeSessions(ordered)
+            merging = false
+            if (refusal != null) { message = refusal; return@launch }
+            message = "Merged ${ordered.size} sessions"
+            picking = false; picks = emptySet()
+        }
+    }
+
     /** Where a tap without a pointer position cuts: now if it is inside the block, else the middle. */
     fun splitPoint(block: Block) = snap(if (isToday && nowMin - block.start >= SNAP && block.end - nowMin >= SNAP) nowMin else (block.start + block.end) / 2f)
     /** Razor: the session keeps the first part and a new one takes the rest. The new part is made first so a failure cannot lose study. */
@@ -297,7 +343,6 @@ internal fun StudyTimeline(
     }
 
     val geometry by rememberUpdatedState(window to (span to blocks))
-    val trackWidth = remember { mutableFloatStateOf(1f) }
     fun minuteAt(x: Float, magnetic: Boolean = true): Float {
         val (w, rest) = geometry
         val minute = snap(w.start + (x / trackWidth.floatValue).coerceIn(0f, 1f) * rest.first)
@@ -316,6 +361,8 @@ internal fun StudyTimeline(
     val trackRange by rememberUpdatedState { range: Span -> open(range) }
     val pickMinute by rememberUpdatedState { x: Float -> minuteAt(x) }
     val razorOn by rememberUpdatedState(razor)
+    // A tool that turns taps on blocks into commands, so the track neither drafts nor drags.
+    val toolOn by rememberUpdatedState(razor || picking)
 
     val rowHeight = if (compact) COMPACT_ROW else ROW
     val blockHeight = if (compact) COMPACT_BLOCK else BLOCK
@@ -347,8 +394,9 @@ internal fun StudyTimeline(
     }
     val zoom: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalIconToggleButton(picking, { pick(it) }) { Icon(Icons.Rounded.SelectAll, "Select blocks to merge") }
             FilledTonalIconToggleButton(razor, {
-                razor = it; draft = null; selected = null; cut = null
+                razor = it; draft = null; selected = null; cut = null; picking = false; picks = emptySet()
                 message = if (it) "Razor: tap a block to place the cut, drag the tag to fine-tune, tick to split." else null
             }) { Icon(Icons.Rounded.ContentCut, "Razor tool: split a study block") }
             OutlinedIconButton({ zoomBy(2f) }, enabled = span < DAY) { Icon(Icons.Rounded.Remove, "Zoom out") }
@@ -393,7 +441,23 @@ internal fun StudyTimeline(
             fun x(minute: Float) = (minute.coerceIn(window.start, window.end) - window.start) / span * trackWidth.floatValue
             fun widthPx(start: Float, end: Float) = maxOf(with(density) { 4.dp.toPx() }, x(end) - x(start))
             val selection = drag ?: draft
-            Box(Modifier.fillMaxWidth().height(rowHeight * rowCount + trackPad * 2 - (rowHeight - blockHeight)).clip(FolioShapes.large)
+            val draftDrag = { grip: Grip, dx: Float ->
+                (draftOrigin ?: draft?.also { draftOrigin = it })?.let { origin ->
+                    val delta = dx / trackWidth.floatValue * span
+                    draft = when (grip) {
+                        Grip.START -> Span(minOf(snap(origin.start + delta).coerceAtLeast(0f), origin.end - SNAP), origin.end)
+                        Grip.END -> Span(origin.start, maxOf(snap(origin.end + delta).coerceAtMost(DAY - 1f), origin.start + SNAP))
+                        Grip.MOVE -> {
+                            val length = origin.end - origin.start
+                            val start = snap(origin.start + delta).coerceIn(0f, DAY - length)
+                            Span(start, start + length)
+                        }
+                    }
+                }
+                Unit
+            }
+            val trackHeight = rowHeight * rowCount + trackPad * 2 - (rowHeight - blockHeight)
+            Box(Modifier.fillMaxWidth().height(trackHeight).clip(FolioShapes.large)
                 .background(scheme.surfaceContainerHighest.copy(alpha = .5f))
                 .border(1.dp, scheme.outlineVariant, FolioShapes.large)
                 .onSizeChangedWidth { trackWidth.floatValue = it }
@@ -429,14 +493,14 @@ internal fun StudyTimeline(
                                 if (abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) return@awaitEachGesture
                                 if (abs(dx) > viewConfiguration.touchSlop) moved = true
                             }
-                            if (moved && !razorOn) {
+                            if (moved && !toolOn) {
                                 current = pickMinute(change.position.x)
                                 drag = Span(minOf(anchor, current), maxOf(anchor, current))
                                 change.consume()
                             }
                         }
                         drag = null
-                        if (pinching || razorOn) return@awaitEachGesture
+                        if (pinching || toolOn) return@awaitEachGesture
                         if (moved && current != anchor) trackRange(Span(minOf(anchor, current), maxOf(anchor, current)))
                         else trackTap(anchor)
                     }
@@ -452,7 +516,8 @@ internal fun StudyTimeline(
                     val range = adjust?.takeIf { it.first == live.key }?.second
                     val block = range?.let { live.copy(start = it.start, end = it.end) } ?: live
                     val room = with(density) { widthPx(block.start, block.end).toDp() }
-                    val grab = movable(live)
+                    val grab = movable(live) && !razor && !picking
+                    val picked = live.entry.id in picks
                     val subject = subjects.firstOrNull { it.id == block.entry.subjectId }
                     val hue = FocalSubjects.color(block.entry.subjectId)?.let { Color(it) } ?: scheme.primary
                     val late = missed(block)
@@ -471,6 +536,7 @@ internal fun StudyTimeline(
                         .width(room).height(blockHeight)
                         .clip(FolioShapes.medium).background(fill)
                         .then(when {
+                            picked -> Modifier.border(2.dp, scheme.primary, FolioShapes.medium)
                             selected == live.key -> Modifier.border(2.dp, scheme.onSurface, FolioShapes.medium)
                             block.tone == Tone.TODO -> Modifier.drawBehind {
                                 drawRoundRect(edge, style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))),
@@ -479,31 +545,24 @@ internal fun StudyTimeline(
                             else -> Modifier.border(1.dp, edge, FolioShapes.medium)
                         })
                         .semantics { contentDescription = "$label: ${block.entry.title}${subject?.let { ", ${it.name}" } ?: ""}, ${clock(block.start)} to ${clock(block.end)}" }
-                        .timelineDrag(live.key, grab && !razorOn,
+                        .timelineDrag(live.key, grab,
                             onTap = { x ->
-                                if (razorOn) {
+                                if (picking) {
+                                    if (merging) Unit
+                                    else if (mergeable(live)) picks = live.entry.id.let { if (it in picks) picks - it else picks + it }
+                                    else message = "Only stopped study sessions can be merged."
+                                }
+                                else if (razorOn) {
                                     if (movable(live)) cut = live.key to (maxOf(live.start, window.start) + x / trackWidth.floatValue * span).coerceIn(live.start + CUT_EDGE, live.end - CUT_EDGE)
                                     else message = "That block can't be split."
                                 }
                                 else { selected = if (selected == live.key) null else live.key; confirmRemove = false; draft = null }
                             },
-                            onDrag = { grip, dx ->
-                                val delta = dx / trackWidth.floatValue * span
-                                val next = when (grip) {
-                                    Grip.START -> Span(minOf(snap(live.start + delta), live.end - SNAP), live.end)
-                                    Grip.END -> Span(live.start, maxOf(snap(live.end + delta), live.start + SNAP))
-                                    Grip.MOVE -> {
-                                        val length = live.end - live.start
-                                        val start = snap(live.start + delta).coerceIn(SNAP, DAY - SNAP - length)
-                                        Span(start, start + length)
-                                    }
-                                }
-                                adjust = live.key to Span(next.start.coerceAtLeast(SNAP), next.end.coerceAtMost(DAY - SNAP))
-                            },
+                            onDrag = { grip, dx -> adjust = live.key to dragged(live, grip, dx) },
                             onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null })
                         ,
                         contentAlignment = Alignment.CenterStart) {
-                        if (room >= 36.dp) Column(Modifier.padding(horizontal = if (grab && !razorOn) 14.dp else FolioSpacing.dp8)) {
+                        if (room >= 36.dp) Column(Modifier.padding(horizontal = if (grab) 14.dp else FolioSpacing.dp8)) {
                             Text(if (room >= 150.dp) block.entry.title else subject?.name?.let(::initials) ?: block.entry.title.take(3),
                                 style = MaterialTheme.typography.labelMedium, fontWeight = if (room >= 150.dp) FontWeight.Medium else null,
                                 color = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -511,32 +570,28 @@ internal fun StudyTimeline(
                                 style = MaterialTheme.typography.labelSmall, color = text.copy(alpha = .75f), maxLines = 1)
                         }
                         // Always-visible grips on a block you can resize.
-                        if (grab && !razorOn) listOf(Alignment.CenterStart, Alignment.CenterEnd).forEach { side ->
+                        if (grab && selected != live.key) listOf(Alignment.CenterStart, Alignment.CenterEnd).forEach { side ->
                             Box(Modifier.align(side).padding(horizontal = if (room >= 14.dp) 4.dp else 0.dp)
                                 .width(3.dp).height(18.dp).background(text.copy(alpha = .5f), CircleShape))
                         }
+                        if (picked && room >= 24.dp) Icon(Icons.Rounded.Check, null, Modifier.align(Alignment.TopEnd).padding(2.dp).size(14.dp)
+                            .background(scheme.primary, CircleShape).padding(1.dp), tint = scheme.onPrimary)
                     }
+                }
+                // Grab handles on the selected block: drag either one to resize it.
+                blocks.firstOrNull { it.key == selected && it.end > window.start && it.start < window.end }?.takeIf { movable(it) && !razor && !picking }?.let { live ->
+                    val range = adjust?.takeIf { it.first == live.key }?.second ?: Span(live.start, live.end)
+                    ResizeHandles(live.key, range, ::x, trackPad + rowHeight * (rows[live.key] ?: 0), blockHeight, scheme.onSurface,
+                        onDrag = { grip, dx -> adjust = live.key to dragged(live, grip, dx) },
+                        onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null })
                 }
                 selection?.let { range ->
                     val hue = FocalSubjects.color(subjectId)?.let { Color(it) } ?: scheme.primary
                     Box(Modifier.offset { IntOffset(x(range.start).roundToInt(), 4.dp.roundToPx()) }
                         .width(with(density) { widthPx(range.start, range.end).toDp() }).fillMaxHeight().padding(bottom = 8.dp)
                         .clip(FolioShapes.medium).background(hue.copy(alpha = .15f)).border(2.dp, hue, FolioShapes.medium)
-                        .then(if (drag == null) Modifier.timelineDrag("draft", true, onTap = {},
-                            onDrag = { grip, dx ->
-                                val origin = draftOrigin ?: draft?.also { draftOrigin = it } ?: return@timelineDrag
-                                val delta = dx / trackWidth.floatValue * span
-                                draft = when (grip) {
-                                    Grip.START -> Span(minOf(snap(origin.start + delta).coerceAtLeast(0f), origin.end - SNAP), origin.end)
-                                    Grip.END -> Span(origin.start, maxOf(snap(origin.end + delta).coerceAtMost(DAY - 1f), origin.start + SNAP))
-                                    Grip.MOVE -> {
-                                        val length = origin.end - origin.start
-                                        val start = snap(origin.start + delta).coerceIn(0f, DAY - length)
-                                        Span(start, start + length)
-                                    }
-                                }
-                            },
-                            onEnd = { draftOrigin = null }) else Modifier))
+                        .then(if (drag == null) Modifier.timelineDrag("draft", true, onTap = {}, onDrag = draftDrag, onEnd = { draftOrigin = null }) else Modifier))
+                    if (drag == null) ResizeHandles("draft", range, ::x, 4.dp, trackHeight - 8.dp, hue, onDrag = draftDrag, onEnd = { draftOrigin = null })
                 }
                 // The pending cut: a line through the block and a small tag with its time. Drag the tag to fine-tune, tick it to split.
                 cut?.let { (key, minute) ->
@@ -610,6 +665,30 @@ internal fun StudyTimeline(
             }
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
 
+            // ── Select mode: the picked blocks and Merge. ──
+            if (picking) {
+                val chosen = state.visibleEntries.filter { it.id in picks }
+                val refusal = if (chosen.size < picks.size) "A selected session changed. Select your sessions again."
+                    else if (chosen.size >= 2) focalMergeRefusal(chosen) else null
+                Surface(shape = FolioShapes.large, color = scheme.surfaceContainerHighest) {
+                    Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (picks.isEmpty()) "Tap sessions to select them" else "${picks.size} ${if (picks.size == 1) "session" else "sessions"} selected",
+                                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(refusal ?: "Keeps the earliest session's title and every break and note. Overlapping time counts once.",
+                                style = MaterialTheme.typography.bodySmall, color = if (refusal != null) scheme.error else scheme.onSurfaceVariant)
+                        }
+                        if (picks.isNotEmpty()) TextButton({ picks = emptySet() }, enabled = !merging) { Text("Clear") }
+                        Button({ merge(picks) }, enabled = !merging && picks.size >= 2 && refusal == null) {
+                            Icon(Icons.Rounded.Merge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                            Text(if (merging) "Merging…" else "Merge")
+                        }
+                        IconButton({ pick(false) }, enabled = !merging) { Icon(Icons.Rounded.Close, "Stop selecting") }
+                    }
+                }
+            }
+
             // ── The selected block. ──
             blocks.firstOrNull { it.key == selected }?.let { picked ->
                 val entry = picked.entry
@@ -635,6 +714,7 @@ internal fun StudyTimeline(
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), itemVerticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton({ zoomTo(picked) }) { Text("Zoom") }
                             if (movable(picked)) OutlinedButton({ split(picked, splitPoint(picked)) }) { Text("Split") }
+                            if (mergeable(picked)) OutlinedButton({ pick(true, entry.id) }) { Text("Select to merge") }
                             if (entry.planned) OutlinedButton({ onEditPlan(entry.id) }) { Text("Edit") }
                             if (!timing && entry.kind == "study") {
                                 val notFinished = !entry.completed && (date > today || (isToday && picked.end > nowMin))
@@ -712,6 +792,27 @@ internal fun StudyTimeline(
                         } }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Grab handles on the two edges of a block or the draft, centred on each edge with a 28dp finger
+ * target that reaches past the block, so even a narrow block can be resized.
+ */
+@Composable
+private fun ResizeHandles(key: Any, range: Span, x: (Float) -> Float, top: Dp, height: Dp, color: Color,
+                          onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    listOf(Grip.START to range.start, Grip.END to range.end).forEach { (grip, minute) ->
+        Box(Modifier.offset { IntOffset(x(minute).roundToInt() - 14.dp.roundToPx(), top.roundToPx()) }.width(28.dp).height(height)
+            .semantics { contentDescription = if (grip == Grip.START) "Drag to change the start" else "Drag to change the end" }
+            .timelineDrag(key to grip, true, onTap = {}, onDrag = onDrag, onEnd = onEnd, fixed = grip),
+            contentAlignment = Alignment.Center) {
+            Box(Modifier.width(10.dp).height(minOf(height - 8.dp, 30.dp)).background(scheme.surface, CircleShape).border(2.dp, color, CircleShape),
+                contentAlignment = Alignment.Center) {
+                Box(Modifier.width(2.dp).height(10.dp).background(color.copy(alpha = .6f), CircleShape))
             }
         }
     }

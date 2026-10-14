@@ -445,6 +445,67 @@ internal fun focalPlannedSlots(entry: FocalStudyEntry): List<FocalStudyInterval>
     }.getOrNull() }.sortedBy { it.startAt }
 }.getOrDefault(emptyList())
 
+/** The time a stopped session occupies: its plan, or the study it recorded. */
+internal fun focalSessionBlocks(entry: FocalStudyEntry): List<FocalStudyInterval> = when {
+    entry.planned -> focalPlannedSlots(entry)
+    else -> entry.pendingBlocks ?: entry.intervals.filter { it.endAt != null }.ifEmpty {
+        listOf(FocalStudyInterval(entry.endedAt - entry.activeMillis, entry.endedAt))
+    }
+}
+
+/** Every block of [sessions] in order, with overlapping or touching blocks joined so shared time counts once. */
+internal fun focalMergedBlocks(sessions: List<FocalStudyEntry>): List<FocalStudyInterval> {
+    val merged = mutableListOf<FocalStudyInterval>()
+    sessions.flatMap(::focalSessionBlocks).filter { it.endAt != null && it.endAt > it.startAt }.sortedBy { it.startAt }.forEach { block ->
+        val last = merged.lastOrNull()
+        if (last != null && block.startAt <= requireNotNull(last.endAt))
+            merged[merged.lastIndex] = last.copy(endAt = maxOf(requireNotNull(last.endAt), requireNotNull(block.endAt)))
+        else merged += block
+    }
+    return merged
+}
+
+/** Why [sessions] cannot merge, or null. Focal's `study_session_merge` checks the same rules again. */
+internal fun focalMergeRefusal(sessions: List<FocalStudyEntry>): String? {
+    val first = sessions.firstOrNull() ?: return "Select at least two sessions to merge."
+    return when {
+        sessions.size !in 2..100 || sessions.distinctBy { it.id }.size != sessions.size -> "Select 2–100 different sessions to merge."
+        sessions.any { it.kind != "study" || it.active || it.deleted || it.paused } -> "Only stopped study sessions can be merged."
+        sessions.any { it.subjectId != first.subjectId || it.completed != first.completed } ->
+            "Select sessions with the same subject and done/planned status."
+        else -> null
+    }
+}
+
+/**
+ * The `study_session_merge` request, as Focal builds it: the first session keeps its title and
+ * takes every block plus the others' descriptions, topics and notes; the others are listed with
+ * the revisions they were selected at, so a session that changed meanwhile refuses the merge.
+ */
+internal fun focalMergeRequest(sessions: List<FocalStudyEntry>, deviceId: String, mutationId: String): Pair<JSONObject, JSONArray> {
+    val first = sessions.first()
+    val blocks = focalMergedBlocks(sessions)
+    val details = sessions.map { entry ->
+        val metadata = (entry.planDraft ?: entry.remotePayload)?.let { runCatching { JSONObject(it).optJSONObject("metadata") }.getOrNull() } ?: JSONObject()
+        val legacy = metadata.optJSONObject("legacy_metadata") ?: JSONObject()
+        JSONObject(legacy.toString()).also { joined -> metadata.keys().forEach { joined.put(it, metadata.get(it)) } }
+    }
+    fun texts(pick: (JSONObject) -> String?) = details.mapNotNull { pick(it)?.trim()?.takeIf { it.isNotBlank() && it != "null" } }.distinct()
+    val command = focalStudyCommand(first.copy(notes = (listOf(first.notes) + sessions.drop(1).map { it.notes })
+        .map(String::trim).filter(String::isNotBlank).distinct().joinToString("\n\n")), "save_progress", first.revision, deviceId, mutationId)
+        .put("blocks", focalBlocksJson(blocks))
+    val metadata = command.getJSONObject("metadata")
+    metadata.put("description", texts { it.optString("description") }.joinToString("\n\n"))
+        .put("topics", JSONArray(details.flatMap { d -> d.optJSONArray("topics")?.let { t -> (0 until t.length()).mapNotNull { t.optString(it).takeIf(String::isNotBlank) } }.orEmpty() }.distinct()))
+        .put("merge_sources", JSONArray().also { array -> sessions.forEach { entry ->
+            array.put(JSONObject().put("id", entry.id).put("title", entry.title)
+                .put("metadata", entry.remotePayload?.let { runCatching { JSONObject(it).optJSONObject("metadata") }.getOrNull() } ?: JSONObject()))
+        } })
+    if (first.planned) metadata.put("schedule", JSONObject().put("blocks", focalBlocksJson(blocks)))
+    val sources = JSONArray().also { array -> sessions.forEach { array.put(JSONObject().put("id", it.id).put("revision", it.revision)) } }
+    return command to sources
+}
+
 internal fun focalPlanDetails(entry: FocalStudyEntry): Pair<String, List<String>> = runCatching {
     val metadata = JSONObject(entry.planDraft ?: entry.remotePayload ?: return "" to emptyList()).optJSONObject("metadata")
     val legacy = metadata?.optJSONObject("legacy_metadata")
@@ -1431,6 +1492,67 @@ class FocalStudyManager(context: Context) {
         if (current.planned) return deletePlan(id)
         if (current.active || current.id == state.focus?.sessionId) return
         saveEntry(current.copy(deleted = true, synced = false, pendingBlocks = null, changeId = UUID.randomUUID().toString()))
+    }
+
+    /**
+     * Merges whole sessions the way Focal does. Signed in, one `study_session_merge` transaction
+     * saves the first session with every block (shared time once, gaps kept as breaks) and cancels
+     * the rest, or changes nothing; it needs a connection and every session synced. On this device
+     * only, the first session takes the blocks and the others are removed. Returns why it failed, or null.
+     */
+    suspend fun mergeSessions(ids: List<String>): String? {
+        val user = _state.value.userId
+        val chosen = ids.map { id -> _state.value.visibleEntries.firstOrNull { it.id == id } ?: return "A selected session changed. Select your sessions again." }
+        focalMergeRefusal(chosen)?.let { return it }
+        if (chosen.any { it.id == _state.value.focus?.sessionId }) return "Stop the timer before merging its session."
+        val blocks = focalMergedBlocks(chosen)
+        if (blocks.isEmpty() || blocks.size > 100 || blocks.any { requireNotNull(it.endAt) - it.startAt > MAX_REPORTED_SESSION_MILLIS })
+            return "Those sessions have too many or too long blocks to merge."
+        if (user == null) {
+            if (chosen.any { it.remotePayload != null || it.intervals.isNotEmpty() }) return "Sign in to Focal to merge these sessions."
+            if (chosen.first().completed && blocks.size > 1) return "Sign in to Focal to merge study with breaks between it."
+            val first = chosen.first()
+            val notes = chosen.map { it.notes.trim() }.filter(String::isNotBlank).distinct().joinToString("\n\n")
+            val ok = editBlocks(first.id, blocks, first.completed)
+            if (!ok) return "Could not merge those sessions."
+            _state.update { state -> state.copy(entries = state.entries.map { if (it.id == first.id) it.copy(notes = notes) else it }) }
+            chosen.drop(1).forEach { deleteSession(it.id) }
+            persist()
+            return null
+        }
+        if (!_state.value.configured) return "Connect to Focal to merge sessions."
+        if (chosen.any { !it.synced || it.remotePayload == null || it.userId != user })
+            return "Wait for the selected sessions to sync to Focal before merging."
+        return withContext(Dispatchers.IO) { gate.withLock {
+            if (_state.value.userId != user) return@withLock "The Focal account changed. Select your sessions again."
+            // Re-read under the gate: a feed pull may have moved a revision since the selection.
+            val latest = chosen.map { picked -> _state.value.visibleEntries.firstOrNull { it.id == picked.id }
+                ?.takeIf { it.revision == picked.revision && it.synced } ?: return@withLock "A selected session changed. Select your sessions again." }
+            val mutationId = UUID.randomUUID().toString()
+            val (command, sources) = focalMergeRequest(latest, deviceId, mutationId)
+            if (command.getJSONObject("metadata").toString().toByteArray(Charsets.UTF_8).size > 60_000)
+                return@withLock "Those sessions have too many notes to merge."
+            val result = try { syncRemote.mergeStudySessions(user, command, sources) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    val refusal = generateSequence<Throwable>(e) { it.cause }.filterIsInstance<io.github.jan.supabase.exceptions.RestException>()
+                        .firstOrNull()?.takeIf { it.statusCode == 400 }?.error
+                    return@withLock refusal ?: focalSyncError(e)
+                }
+            observeServerNow(result.optString("server_now").takeIf { it.isNotBlank() })
+            rememberOwnChange(mutationId)
+            val rows = result.optJSONArray("sessions") ?: JSONArray()
+            val merged = (0 until rows.length()).mapNotNull { index -> rows.optJSONObject(index)?.let { row ->
+                val id = row.optString("id")
+                val local = latest.firstOrNull { it.id == id } ?: return@let null
+                focalEntryFromCanonical(id, row, if (id == latest.first().id) mutationId else local.changeId, user)
+                    ?.copy(notebookId = local.notebookId, notebookTitle = local.notebookTitle)
+            } }.associateBy { it.id }
+            if (merged.size != latest.size) return@withLock "Could not confirm the merge. Pull to refresh before trying again."
+            _state.update { state -> state.copy(entries = state.entries.map { merged[it.id] ?: it }) }
+            if (!persist()) return@withLock "Merged on Focal, but this device could not save it. It will catch up on the next sync."
+            null
+        } }
     }
 
     private fun add(entry: FocalStudyEntry) {

@@ -47,6 +47,8 @@ interface SyncRemote {
     suspend fun apply(accountId: String, changes: List<SyncProtocol.QueuedChange>, clientId: String): ApplyResult
     suspend fun read(accountId: String, cursor: Long, limit: Int = 500): ReadResult
     suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject
+    /** Focal's `study_session_merge`: saves [command] on the first source and cancels the rest in one transaction. */
+    suspend fun mergeStudySessions(accountId: String, command: JSONObject, sources: JSONArray): JSONObject
 }
 
 /**
@@ -108,6 +110,11 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
     override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
         awaitFocalSyncSession(client, accountId)
         return rpcObject(client.postgrest.rpc("study_session_mutate", mutateParams(accountId, command)))
+    }
+
+    override suspend fun mergeStudySessions(accountId: String, command: JSONObject, sources: JSONArray): JSONObject {
+        awaitFocalSyncSession(client, accountId)
+        return rpcObject(client.postgrest.rpc("study_session_merge", mergeParams(accountId, command, sources)))
     }
 }
 
@@ -173,6 +180,9 @@ internal fun mutateParams(accountId: String, command: JSONObject): Map<String, J
         JSONObject(command.toString()).put("expected_user_id", accountId).toString()
     )
 )
+
+internal fun mergeParams(accountId: String, command: JSONObject, sources: JSONArray): Map<String, JsonElement> =
+    mutateParams(accountId, command) + ("p_sources" to Json.parseToJsonElement(sources.toString()))
 
 /**
  * The RPC's answer as a document. Supabase reports a failure in the response body rather
