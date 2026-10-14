@@ -33,7 +33,6 @@ import kotlin.math.roundToInt
 ) {
     val feature: WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by feature.state.collectAsStateWithLifecycle()
-    var picker by remember { mutableStateOf<PickerPurpose?>(null) }
     var paneOptions by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
@@ -51,11 +50,11 @@ import kotlin.math.roundToInt
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         onShareLongPress = onShareLongPress,
                         onChatGpt = onChatGpt,
-                        onOpenDocument = { picker = PickerPurpose.OPEN },
+                        onOpenDocument = { onBrowseLibrary(PickerPurpose.OPEN, state.companionMode) },
                         notebookActions = { dismiss ->
-                            PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); picker = PickerPurpose.COMPANION }
-                            PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); picker = PickerPurpose.TABS }
-                            PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); picker = PickerPurpose.OPEN }
+                            PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); onBrowseLibrary(PickerPurpose.COMPANION, state.companionMode) }
+                            PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); onBrowseLibrary(PickerPurpose.TABS, state.companionMode) }
+                            PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN, state.companionMode) }
                             PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight), enabled = state.companion != null) { dismiss(); model.swapPaneSides() }
                             PopoverRow(Icons.Rounded.Close, "Close this tab") { dismiss(); state.activeId?.let(model::closeTab) }
                             PopoverRow(Icons.Rounded.ClearAll, "Close other tabs", enabled = state.tabs.size > 1) { dismiss(); state.activeId?.let(model::closeOtherTabs) }
@@ -104,9 +103,6 @@ import kotlin.math.roundToInt
             }
         }
     }
-    // Both workspace dialogs share one host: the picker and the divider's options, never together.
-    picker?.let { purpose -> WorkspacePickerPanel(purpose, state, model,
-        onDismiss = { picker = null }, onBrowseLibrary = onBrowseLibrary) }
     if (paneOptions) SplitOptionsPanel(state, model, onDismiss = { paneOptions = false })
 
 }

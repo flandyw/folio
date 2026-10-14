@@ -515,6 +515,13 @@ import kotlinx.coroutines.withContext
                             },
                             selectionCaption = workspaceLibraryPurpose?.let { WorkspacePicker.libraryCaption(it, workspaceLibraryMode) },
                             onCancelSelection = { workspaceLibraryPurpose = null },
+                            selectionControls = {
+                                workspaceLibraryPurpose?.let { purpose ->
+                                    WorkspaceLibraryControls(purpose, state, model, workspaceLibraryMode,
+                                        onModeChange = { workspaceLibraryMode = it },
+                                        onOpenNotebook = { id -> model.open(id); workspaceLibraryPurpose = null })
+                                }
+                            },
                             mistakesContent = { onReviewMode ->
                                 com.folio.notes.mistakes.MistakesScreen(
                                     mistakes, model, state, finger, haptics, shapeRecognition,

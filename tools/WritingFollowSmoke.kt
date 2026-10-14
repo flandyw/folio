@@ -942,5 +942,55 @@ fun main() {
         // The writing room above the labelled rule is not cut short by its own label.
         check(found.areas.first().top < advantage.y - 20f)
     }
+    scenario("Form rows and labelled blanks are answers; a chart's gridlines are not") {
+        val width = 1400
+        val height = 1980
+        val pixels = IntArray(width * height) { -1 }
+        fun fill(x0: Int, x1: Int, y0: Int, y1: Int) {
+            for (y in y0..y1) for (x in x0..x1) pixels[y * width + x] = 0xFF000000.toInt()
+        }
+        fun label(x0: Int, x1: Int, y: Int) { var x = x0; while (x + 5 <= x1) { fill(x, x + 4, y - 26, y + 1); x += 8 } }
+        // "Oxygen consumption ____" / "Oxygen demand ____" / "Oxygen deficit ____", each label resting on its rule.
+        for ((y, end) in listOf(600 to 210, 670 to 240, 740 to 200)) { label(92, end, y); fill(end + 8, 1216, y, y + 1) }
+        // A chart: an axis with numbers centred on its gridlines, closer together than handwriting.
+        fill(300, 301, 1000, 1400)
+        for (y in 1050..1370 step 40) { fill(300, 1100, y, y + 1); fill(256, 290, y - 8, y + 8) }
+        // "Answer ____": a short blank with its label beside it on the line.
+        label(700, 820, 1600); fill(830, 1100, 1600, 1601)
+        val found = WritingGuides.analyze(pixels, width, height, 840f, 1188f)
+        val rows = found.guides.filter { it.y in 350f..450f }
+        check(rows.size == 3 && rows.map { it.block }.distinct().size == 1) { "${found.guides}" }
+        check(found.guides.none { it.y in 600f..840f }) { "gridlines: ${found.guides}" }
+        val blank = found.guides.single { it.y in 950f..970f }
+        check(blank.left > 490f && blank.right < 670f)
+        // Each detected area is a region, including the one-line blank, with its writing room above the line.
+        val regions = WritingGuides.regions(found.guides)
+        check(regions.size == found.areas.size) { "$regions" }
+        check(regions.any { it.bottom == blank.y && it.top < blank.y - 10f })
+    }
+    scenario("An empty answer box is an area; a blank sketch grid and a filled table are not") {
+        val width = 1400
+        val height = 1980
+        val pixels = IntArray(width * height) { -1 }
+        fun fill(x0: Int, x1: Int, y0: Int, y1: Int) {
+            for (y in y0..y1) for (x in x0..x1) pixels[y * width + x] = 0xFF000000.toInt()
+        }
+        fun box(x0: Int, y0: Int, x1: Int, y1: Int) { fill(x0, x1, y0, y0 + 1); fill(x0, x1, y1, y1 + 1); fill(x0, x0 + 1, y0, y1); fill(x1, x1 + 1, y0, y1) }
+        // A box for the final value with its unit ("nm") printed against its right side.
+        box(200, 300, 600, 360); fill(560, 590, 335, 350)
+        // Grid squares for a sketch: identical, blank and with no headings.
+        for (x in 800..1100 step 100) fill(x, x + 1, 300, 450)
+        for (y in 300..450 step 50) fill(800, 1101, y, y + 1)
+        // A data table whose every cell holds a value.
+        for (x in 200..600 step 100) fill(x, x + 1, 800, 900)
+        for (y in 800..900 step 50) fill(200, 601, y, y + 1)
+        for (x in 230..530 step 100) for (y in listOf(815, 865)) fill(x, x + 40, y, y + 14)
+        val found = WritingGuides.analyze(pixels, width, height, 840f, 1188f)
+        check(found.areas.size == 1) { "${found.areas}" }
+        val room = found.areas.single()
+        check(room.left in 120f..125f && room.right < 336f && room.top in 180f..186f && abs(room.bottom - 216f) < .1f) { "$room" }
+        // The box's room is offered to the follow engine as one line at its foot.
+        check(WritingGuides.regions(found.guides).single().let { it.top == room.top && it.bottom == room.bottom })
+    }
     println("Writing follow: $checks scenarios passed.")
 }

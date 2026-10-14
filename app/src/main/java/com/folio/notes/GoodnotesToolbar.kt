@@ -88,7 +88,12 @@ private val TabHeight = 28.dp
         val index = tabs.indexOfFirst { it.id == activeId }
         if (index >= 0) listState.animateScrollToItem(index)
     }
-    CompositionLocalProvider(LocalContentColor provides BarTones.stripContent) {
+    // Material's 48 dp minimum otherwise wraps the 28 dp tab in extra layout space,
+    // lifting it off the bottom of the strip. Compose still expands touch hit targets.
+    CompositionLocalProvider(
+        LocalContentColor provides BarTones.stripContent,
+        LocalMinimumInteractiveComponentSize provides 0.dp,
+    ) {
         Row(
             Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = GoodnotesBarInset),
             verticalAlignment = Alignment.CenterVertically,
@@ -118,7 +123,7 @@ private val TabHeight = 28.dp
         modifier = Modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp)
             .semantics { role = Role.Tab; selected = active },
     ) {
-        Row(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(FolioSpacing.dp2))

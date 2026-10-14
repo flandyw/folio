@@ -1,229 +1,85 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ChromeReaderMode
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Balance
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragHandle
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
-import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/**
- * One panel for every "choose a document" moment in the workspace: open another notebook, open it
- * beside the editor, or manage what is already open. The mode toggle and the link-pages switch sit
- * above the list, so a companion is fully set up by the time the document is tapped.
- */
-@Composable internal fun WorkspacePickerPanel(
+/** Controls that accompany notebook selection in the Library, without a second browser. */
+@Composable internal fun WorkspaceLibraryControls(
     purpose: PickerPurpose,
     state: FolioState,
     model: FolioViewModel,
-    onDismiss: () -> Unit,
-    onBrowseLibrary: (PickerPurpose, CompanionMode) -> Unit,
+    mode: CompanionMode,
+    onModeChange: (CompanionMode) -> Unit,
+    onOpenNotebook: (String) -> Unit,
 ) {
-    var query by rememberSaveable(purpose) { mutableStateOf("") }
-    var mode by rememberSaveable(purpose) { mutableStateOf(state.companionMode) }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val openIds = remember(state.tabs) { state.tabs.map { it.notebookId }.toSet() }
-    val folders = remember(state.folders) { state.folders.associate { it.id to it.name } }
-    // A score's notebook belongs to the Music reader, so it is never offered as a document to open.
-    val pickable = remember(state.notes) { state.notes.filterNot { it.musicScoreId != null } }
-    val sections = remember(pickable, query, openIds, folders) {
-        WorkspacePicker.sections(pickable, query, openIds, folders)
-    }
-
-    fun pick(note: Notebook) {
-        keyboard?.hide()
-        when (purpose) {
-            PickerPurpose.COMPANION -> model.showCompanion(note.id, mode)
-            PickerPurpose.OPEN -> model.open(note.id)
-            // Tapping an open document in the tab list only brings it forward; the trailing
-            // button is what closes it, so a stray tap never loses a document.
-            PickerPurpose.TABS -> model.open(note.id)
-        }
-        onDismiss()
-    }
-
-    FolioPanel(title = WorkspacePicker.title(purpose), onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            if (purpose == PickerPurpose.COMPANION) {
-                Text("Mode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                CompanionModeChips(mode) { mode = it }
-                Text(WorkspacePicker.modeCaption(mode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ListItem(
-                    headlineContent = { Text("Link pages") },
-                    supportingContent = { Text("Turning a page in the editor also turns the companion.") },
-                    leadingContent = { Icon(if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff, null) },
-                    trailingContent = { Switch(state.companionLinked, null) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.fillMaxWidth().toggleable(state.companionLinked, role = Role.Switch, onValueChange = model::setCompanionLinked)
-                )
-            }
-            OutlinedTextField(
-                query, { query = it },
-                Modifier.fillMaxWidth(),
-                label = { Text("Search documents") },
-                placeholder = { Text("Title, subject or folder") },
-                singleLine = true,
-                shape = FolioShapes.large,
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) IconButton({ query = ""; keyboard?.hide() }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Close, "Clear search")
-                    }
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() })
-            )
-        }
-
-        if (sections.isEmpty()) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
+    when (purpose) {
+        PickerPurpose.COMPANION -> {
+            CompanionModeChips(mode, onModeChange)
+            Text(WorkspacePicker.modeCaption(mode), style = MaterialTheme.typography.bodySmall)
+            Row(
+                Modifier.fillMaxWidth().toggleable(state.companionLinked, role = Role.Switch, onValueChange = model::setCompanionLinked),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
             ) {
-                if (state.loading) ContainedLoadingIndicator(Modifier.size(48.dp).semanticsLabel("Loading documents"))
-                else Icon(
-                    if (query.isBlank()) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.SearchOff,
-                    null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    WorkspacePicker.emptyCaption(purpose, state.loading, query, pickable.size),
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!state.loading && query.isNotBlank()) {
-                    FilledTonalButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
+                Column(Modifier.weight(1f)) {
+                    Text("Link pages", style = MaterialTheme.typography.bodyLarge)
+                    Text("Turning a page in the editor also turns the companion.", style = MaterialTheme.typography.bodySmall)
                 }
-                if (!state.loading && pickable.isEmpty()) {
-                    FilledTonalButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(FolioSpacing.dp8))
-                        Text("Browse library")
-                    }
-                }
+                Switch(state.companionLinked, null)
             }
-        } else {
-            LazyColumn(
-                Modifier.fillMaxWidth().weight(1f, fill = false),
-                contentPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
+        }
+        PickerPurpose.TABS -> {
+            val openNotes = state.tabs.mapNotNull { tab -> state.notes.find { it.id == tab.notebookId && !it.hiddenFromLibrary } }
+            if (openNotes.isNotEmpty()) Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
             ) {
-                sections.forEach { section ->
-                    item(key = "label-${section.label}") {
-                        Text(
-                            section.label.uppercase(),
-                            Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4).semantics { heading() },
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    items(section.notes, key = { it.id }) { note ->
-                        val badge = WorkspacePicker.badge(note.id, state.activeId, state.companion?.notebookId, openIds)
-                        val pdf = note.pages.any { it.pdfIndex != null }
-                        ListItem(
-                            headlineContent = {
-                                Text(note.title.ifBlank { "Untitled notebook" }, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            },
-                            supportingContent = {
-                                Text(WorkspacePicker.subtitle(note), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            },
-                            leadingContent = {
-                                Surface(
-                                    shape = FolioShapes.small,
-                                    color = if (pdf) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    contentColor = if (pdf) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                ) {
-                                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            if (pdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook,
-                                            if (pdf) "PDF document" else "Notebook", Modifier.size(22.dp)
-                                        )
-                                    }
-                                }
-                            },
-                            trailingContent = {
-                                when {
-                                    purpose == PickerPurpose.TABS -> IconButton(
-                                        { model.closeTab(note.id) },
-                                        enabled = state.tabs.any { it.notebookId == note.id },
-                                        shapes = IconButtonDefaults.shapes()
-                                    ) { Icon(Icons.Rounded.Close, "Close ${note.title}") }
-                                    badge != null -> SuggestionChip(
-                                        onClick = { pick(note) },
-                                        label = { Text(badge) },
-                                        icon = {
-                                            Icon(
-                                                if (badge == "In this pane") Icons.Rounded.Link else Icons.Rounded.Edit,
-                                                null, Modifier.size(16.dp)
-                                            )
-                                        }
-                                    )
-                                    else -> Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            colors = ListItemDefaults.colors(
-                                containerColor = if (badge == "In this pane") MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-                            ),
-                            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${note.title}") { pick(note) }
-                        )
-                    }
+                openNotes.forEach { note ->
+                    InputChip(
+                        selected = note.id == state.activeId,
+                        onClick = { onOpenNotebook(note.id) },
+                        label = { Text(note.title.ifBlank { "Untitled" }, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = {
+                            IconButton({ model.closeTab(note.id) }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.Close, "Close ${note.title.ifBlank { "Untitled" }}")
+                            }
+                        },
+                    )
                 }
             }
         }
-
-        FlowRow(
-            Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, top = FolioSpacing.dp8, bottom = FolioSpacing.dp16),
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
-        ) {
-            OutlinedButton({ keyboard?.hide(); onDismiss(); onBrowseLibrary(purpose, mode) }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text("Browse library")
-            }
-            TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-        }
+        PickerPurpose.OPEN -> Unit
     }
 }
 

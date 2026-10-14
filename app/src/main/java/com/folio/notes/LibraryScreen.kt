@@ -68,6 +68,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     musicContent: @Composable (onReaderMode: (Boolean) -> Unit) -> Unit = {},
     onOpenNotebook: (String) -> Unit = model::open,
     selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
+    selectionControls: @Composable ColumnScope.() -> Unit = {},
     mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
     // Extra top space for panes with no top bar of their own (full screen has no status bar inset).
     onQuickNote: () -> Unit = onNew,
@@ -200,7 +201,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         model.setExamFilter(ExamFilter())
         focusManager.clearFocus()
     }
-    BackHandler(enabled = !otherPane && !pickingNotebook && section == LibrarySection.LIBRARY && (libraryDrag.active || selecting || searchActive || filtersExpanded || located)) {
+    BackHandler(enabled = !otherPane && section == LibrarySection.LIBRARY && (libraryDrag.active || selecting || searchActive || filtersExpanded || located)) {
         when {
             libraryDrag.active -> libraryDrag.cancel()
             selecting -> { selecting = false; selectedIds = emptyList() }
@@ -322,6 +323,18 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         }
                         if (!wide) IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
                     }
+                    if (selectionCaption != null) Surface(
+                        modifier = Modifier.padding(horizontal = FolioDestinationInset).padding(bottom = FolioSpacing.dp12),
+                        shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(selectionCaption, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                TextButton(onCancelSelection, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                            }
+                            selectionControls()
+                        }
+                    }
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         if (showSidebar) LibrarySidebar(state.folders, state.folderId, place, tag, allTags, expandedFolders.toSet(), counts, drag,
                             onPlace = { showPlace(it) }, onFolder = { browse(it) }, onExpand = { toggleExpanded(it) }, onTag = { showTag(it) },
@@ -355,14 +368,6 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                     contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) FolioSpacing.dp8 else FolioSpacing.dp16)) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            if (selectionCaption != null) Surface(
-                                shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
-                            ) {
-                                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                                    Text(selectionCaption, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                    TextButton(onCancelSelection, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                                }
-                            }
                             // Folded sidebars put places and tags in one touch-sized chip row,
                             // and folders appear as tiles in the shelf itself.
                             if (!showSidebar) LibraryPlacesRow(place, home, tag, allTags, counts, drag,
