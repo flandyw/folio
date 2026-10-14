@@ -904,6 +904,21 @@ class InkView(context: Context) : View(context) {
     var documentFollowZoom = 1f
     var onFollowPan: (Float, Float) -> Pair<Float, Float> = { _, _ -> 0f to 0f }
     private val followVisible = android.graphics.Rect()
+    private val previousFollowVisible = android.graphics.Rect()
+    private val nextFollowVisible = android.graphics.Rect()
+    private val followViewportListener = android.view.ViewTreeObserver.OnPreDrawListener {
+        // The document host pans finite pages by moving their AndroidView. Android can
+        // reuse that view's display list, including a strip painted at the old edge.
+        // Measure after parent placement and repaint only when its visible bounds change.
+        if (canFollow && followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT) {
+            if (!getLocalVisibleRect(nextFollowVisible)) nextFollowVisible.setEmpty()
+            if (nextFollowVisible != previousFollowVisible) {
+                previousFollowVisible.set(nextFollowVisible)
+                invalidate()
+            }
+        }
+        true
+    }
     private val followGlide = FollowGlide()
     private val automaticReturnTarget = FollowReturnTarget()
     private var captureFollowBack = false
@@ -1629,6 +1644,8 @@ class InkView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        previousFollowVisible.setEmpty()
+        viewTreeObserver.addOnPreDrawListener(followViewportListener)
         (rootView as? ViewGroup)?.let(TextMathBitmaps::attach)
         TextMathBitmaps.addListener(mathReady)
         inputRouter.stylus.attachNavigationSurface()
@@ -1636,6 +1653,7 @@ class InkView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        viewTreeObserver.removeOnPreDrawListener(followViewportListener)
         TextMathBitmaps.removeListener(mathReady)
         inputRouter.stylus.detachNavigationSurface()
         inputRouter.stylus.removeArrivalListener(penArrival)
