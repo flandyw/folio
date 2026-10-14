@@ -161,7 +161,7 @@ internal object ShapeCleanup {
             if (start in seen || (start to 0) !in partner || (start to 1) !in partner) continue
             val members = ArrayList<Int>(); val reversed = ArrayList<Boolean>()
             var part = start; var entry = 0
-            while (members.size <= 6) {
+            while (members.size < 6) {
                 members += part; reversed += entry == 1
                 val (next, nextEntry) = partner[part to 1 - entry] ?: break
                 if (next == start) {

@@ -321,7 +321,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     /** Selection frame in view fractions for the context menu; cleared with the page. */
     var selectionAnchor by remember(page.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(page.id) { selection = null }
-    LaunchedEffect(tool) { selection = null; editor.documentInput.clearSelection() }
+    // Select all from another tool switches to the lasso first; selecting before that switch reaches
+    // the canvas would be cleared by it, so the selection is made once the tool has changed.
+    var selectAllPending by remember { mutableStateOf(false) }
     // The bound canvas, so toolbar actions can drive it directly (select-all fallback, deselect).
     LaunchedEffect(effectiveFollowPreferences, writingHand) { followView?.suspendWritingFollow(clearBack = false) }
     // Changing tool mid-line (erase a word, then write again) keeps the line; it only stops movement.
@@ -633,15 +635,23 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     }
     /** A pending scroll request lands after the new page is measured, in either layout. */
     fun revealNewPage(index: Int) { jumpTo(index) }
-    fun selectAllInk() {
-        editor.documentInput.clearSelection()
+    fun selectAllNow() {
         val view = activeInkView
         if (view != null) view.selectAll()
         else if (page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) {
             // Fallback when view not yet bound (e.g. immediate toolbar tap after page switch)
-            tool = Tool.LASSO
-            selection = page.id to CanvasSelection(page.strokes.toList(), page.texts.toList(), page.images.toList())
+            fun editable(layer: Int) = PageLayers.editable(page.layers, layer)
+            selection = page.id to CanvasSelection(page.strokes.filter { editable(it.layer) },
+                page.texts.filter { editable(it.layer) }, page.images.filter { editable(it.layer) })
         }
+    }
+    fun selectAllInk() {
+        editor.documentInput.clearSelection()
+        if (tool == Tool.LASSO) selectAllNow() else { selectAllPending = true; if (!selectTool(Tool.LASSO)) selectAllPending = false }
+    }
+    LaunchedEffect(tool) {
+        selection = null; editor.documentInput.clearSelection()
+        if (selectAllPending) { selectAllPending = false; if (tool == Tool.LASSO) selectAllNow() }
     }
     /**
      * Reads the lasso's handwriting and swaps it for one typed box, as one undoable step. The
@@ -706,6 +716,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 model.addImage(image, bytes, target.id)
                 selectedImage = target.id to image
                 if (tool != Tool.HAND) selectTool(Tool.HAND)
+            } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 model.reportError("Couldn't add this picture: ${e.message.orEmpty()}")
             }
@@ -1618,8 +1629,10 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 val source = note.pages.firstOrNull { it.id == picked?.first }
                 if (source != null && picked != null && source.strokes.containsAll(picked.second.strokes) && source.texts.containsAll(picked.second.texts)) {
                     val after = DocumentToolEdits.restyle(source, picked.second, color, scale, opacity, style)
-                    PageJournal.diff(source.content(), after)?.let { edit -> model.commitDocumentEdits(note.id, mapOf(source.id to edit), mapOf(source.id to source.revision)) }
-                }
+                    val edit = PageJournal.diff(source.content(), after)
+                    if (edit != null && !model.commitDocumentEdits(note.id, mapOf(source.id to edit), mapOf(source.id to source.revision)))
+                        model.reportError("The page changed while restyling; select the ink again")
+                } else model.reportError("The selection changed before it could be restyled; select it again")
                 activeInkView?.clearSelection()
                 restylePicked = null; restyleSelection = null; selection = null
             }

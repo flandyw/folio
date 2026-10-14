@@ -91,23 +91,31 @@ internal class EditorOverlayState {
     val exam = mutableStateOf(false)
 }
 
+/** A tool name from saved instance state; null if this build no longer has it. */
+private fun savedTool(name: String?): Tool? = name?.takeIf(String::isNotEmpty)?.let { runCatching { Tool.valueOf(it) }.getOrNull() }
+
 @Composable internal fun rememberEditorSession(noteId: String, prefs: SharedPreferences,
     initialTool: Tool, initialViewport: WorkspaceViewport): EditorSession {
     val tools = rememberSaveable(noteId, saver = Saver<EditorToolState, List<String>>(
         save = { listOf(it.tool.value.name, it.previousTool.value.name, it.eraserReturn.value?.name.orEmpty()) },
-        restore = { values -> EditorToolState(prefs, Tool.valueOf(values[0]), Tool.valueOf(values[1])).also {
-            it.eraserReturn.value = values.getOrNull(2)?.takeIf(String::isNotEmpty)?.let(Tool::valueOf)
+        restore = { values -> EditorToolState(prefs, savedTool(values.getOrNull(0)) ?: initialTool, savedTool(values.getOrNull(1)) ?: Tool.PEN).also {
+            it.eraserReturn.value = savedTool(values.getOrNull(2))
         } },
     )) { EditorToolState(prefs, initialTool) }
     val viewport = rememberSaveable(noteId, saver = Saver<EditorViewportState, List<String>>(
         save = { listOf(it.zoom.floatValue.toString(), it.pan.floatValue.toString(), it.anchor?.pageId.orEmpty(), it.anchor?.localY?.toString().orEmpty()) },
-        restore = { values -> EditorViewportState(WorkspaceViewport(zoom = values[0].toFloat(), pan = values[1].toFloat())).also { v ->
-            if (values.getOrNull(2)?.isNotEmpty() == true) v.anchor = DocumentPageGeometry.Anchor(values[2], values[3].toFloat())
-        } },
+        restore = { values ->
+            val zoom = values.getOrNull(0)?.toFloatOrNull()?.takeIf { it.isFinite() && it > 0f }
+            val pan = values.getOrNull(1)?.toFloatOrNull()?.takeIf { it.isFinite() }
+            val localY = values.getOrNull(3)?.toFloatOrNull()?.takeIf { it.isFinite() }
+            EditorViewportState(if (zoom == null || pan == null) initialViewport else WorkspaceViewport(zoom = zoom, pan = pan)).also { v ->
+                if (values.getOrNull(2)?.isNotEmpty() == true && localY != null) v.anchor = DocumentPageGeometry.Anchor(values[2], localY)
+            }
+        },
     )) { EditorViewportState(initialViewport) }
     val browser = rememberSaveable(noteId, saver = Saver<EditorBrowserState, List<String>>(
         save = { listOf(it.query.value, it.filter.value.name, it.number.value, it.grid.value.toString(), it.jumpExpanded.value.toString()) },
-        restore = { EditorBrowserState().apply { query.value = it[0]; filter.value = PageFilter.valueOf(it[1]); number.value = it[2]; grid.value = it[3].toBoolean(); jumpExpanded.value = it[4].toBoolean() } },
+        restore = { EditorBrowserState().apply { query.value = it[0]; filter.value = runCatching { PageFilter.valueOf(it[1]) }.getOrDefault(PageFilter.ALL); number.value = it[2]; grid.value = it[3].toBoolean(); jumpExpanded.value = it[4].toBoolean() } },
     )) { EditorBrowserState() }
     return remember(noteId, tools, viewport, browser) { EditorSession(tools, viewport, browser) }
 }

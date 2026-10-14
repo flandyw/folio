@@ -315,8 +315,7 @@ internal fun StudyTimeline(
         val ordered = blocks.filter { it.entry.id in ids }.sortedBy { it.start }.map { it.entry.id }.distinct()
         merging = true
         scope.launch {
-            val refusal = manager.mergeSessions(ordered)
-            merging = false
+            val refusal = try { manager.mergeSessions(ordered) } finally { merging = false }
             if (refusal != null) { message = refusal; return@launch }
             message = "Merged ${ordered.size} sessions"
             picking = false; picks = emptySet()
@@ -339,7 +338,9 @@ internal fun StudyTimeline(
             subjectId = entry.subjectId, kind = "study", startedAt = now, endedAt = now, activeMillis = 0L, completed = false, planned = true),
             entry.title, entry.subjectId, "", emptyList(), listOf(FocalStudyInterval(restStart, restEnd))) }.getOrDefault(false)
         if (!made) { message = "Could not split that block."; return }
-        message = if (manager.editBlocks(entry.id, listOf(FocalStudyInterval(millisAt(block.start), millisAt(cut))), entry.completed)) "Split at ${clock(cut)}"
+        // Keep the block's own start to the millisecond rather than a round trip through float minutes.
+        val firstStart = focalSessionBlocks(entry).getOrNull(block.index)?.startAt ?: millisAt(block.start)
+        message = if (manager.editBlocks(entry.id, listOf(FocalStudyInterval(firstStart, restStart)), entry.completed)) "Split at ${clock(cut)}"
         else "The second part was added, but the first could not be shortened."
         selected = null
     }
@@ -725,7 +726,8 @@ internal fun StudyTimeline(
                                     message = if (!ok) "Wait for this session to sync before changing it." else if (entry.completed) "Marked not done" else "Marked done"
                                 }, enabled = !notFinished) { Text(if (entry.completed) "Not done" else "Mark done") }
                             }
-                            if (missed(picked) && movable(picked)) OutlinedButton({
+                            // "Now" only exists on today; on another day it would just push the block to that day's end.
+                            if (isToday && missed(picked) && movable(picked) && picked.end - picked.start <= DAY - SNAP - nowMin) OutlinedButton({
                                 val length = picked.end - picked.start
                                 val start = minOf(DAY - SNAP - length, kotlin.math.ceil(nowMin / SNAP) * SNAP)
                                 persist(picked, Span(start, start + length))

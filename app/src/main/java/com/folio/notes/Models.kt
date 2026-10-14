@@ -752,7 +752,7 @@ object InkGeometry {
                 y = center.y + (box.y - center.y) * factor,
                 width = (box.width * factor).coerceIn(if (box.isSticky) StickyNotes.SMALLEST_DIMENSION else TextBox.MIN_WIDTH, TextBox.MAX_WIDTH),
                 size = (box.size * factor).coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE),
-                stickyHeight = box.stickyHeight * factor,
+                stickyHeight = if (box.isSticky) (box.stickyHeight * factor).coerceIn(StickyNotes.SMALLEST_DIMENSION, StickyNotes.MAX_HEIGHT) else box.stickyHeight,
                 stickyInk = scale(box.stickyInk, InkPoint(0f, 0f), factor)
             )
         }
@@ -785,13 +785,18 @@ object InkGeometry {
 
     /**
      * Turns a whole stroke set about [center] by [degrees]. Polygons expand to explicit vertices
-     * so their orientation survives rotation; rectangles and ellipses retain their two corners.
+     * so their orientation survives rotation. Rectangles and ellipses are drawn between two
+     * corners, which only describes them at right angles, so any other turn keeps their outline
+     * as an explicit (line) path instead of re-deriving an axis-aligned shape from moved corners.
      */
     fun rotate(strokes: List<Stroke>, center: InkPoint, degrees: Float): List<Stroke> {
         val radians = Math.toRadians(degrees.toDouble())
         val cos = cos(radians).toFloat(); val sin = sin(radians).toFloat()
-        return strokes.map { stroke -> stroke.copy(points =
-            (if (stroke.tool in PolygonTools) pathPoints(stroke) else stroke.points).map { point ->
+        val rightAngle = abs(degrees / 90f - (degrees / 90f).roundToInt()) < 1e-4f
+        return strokes.map { stroke ->
+            val outline = !rightAngle && (stroke.tool == Tool.RECTANGLE || stroke.tool == Tool.ELLIPSE) && stroke.points.size >= 2
+            stroke.copy(tool = if (outline) Tool.LINE else stroke.tool, points =
+            (if (stroke.tool in PolygonTools || outline) pathPoints(stroke) else stroke.points).map { point ->
             val dx = point.x - center.x; val dy = point.y - center.y
             InkPoint(center.x + dx * cos - dy * sin, center.y + dx * sin + dy * cos, point.pressure)
         }) }

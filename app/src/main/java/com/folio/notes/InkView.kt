@@ -3259,12 +3259,19 @@ class InkView(context: Context) : View(context) {
     ) {
         // Identity only: `it in selection` walked every InkPoint per stroke (O(sel×page×pts))
         // and stalled move/rotate on dense pages. `doomed` already holds the same instances.
-        val doomed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(selection) }
-        val allStrokes = page.strokes.filterNot { it in doomed } + strokes
-        val doomedTextIds = HashSet<String>(selectedTexts.size * 2 + 1).apply { selectedTexts.forEach { add(it.id) } }
-        val allTexts = (if (doomedTextIds.isEmpty()) page.texts else page.texts.filterNot { it.id in doomedTextIds }) + texts
-        val doomedImageIds = HashSet<String>(selectedImages.size * 2 + 1).apply { selectedImages.forEach { add(it.id) } }
-        val allImages = (if (doomedImageIds.isEmpty()) page.images else page.images.filterNot { it.id in doomedImageIds }) + images
+        // Each member is swapped in place (the transforms keep the selection's order), so moving
+        // or turning ink never lifts it above what was drawn over it. Identity lookups: `it in
+        // selection` walked every InkPoint per stroke and stalled dense pages.
+        val strokeFor = java.util.IdentityHashMap<Stroke, Stroke>(selection.size * 2 + 1)
+        if (strokes.size == selection.size) selection.forEachIndexed { i, old -> strokeFor[old] = strokes[i] }
+        val allStrokes = if (strokeFor.size == selection.size && page.strokes.count { strokeFor.containsKey(it) } == selection.size) page.strokes.map { strokeFor[it] ?: it }
+            else page.strokes.filterNot { s -> selection.any { it === s } } + strokes
+        val textFor = if (texts.size == selectedTexts.size && selectedTexts.all { box -> page.texts.any { it.id == box.id } }) selectedTexts.indices.associate { selectedTexts[it].id to texts[it] } else null
+        val allTexts = if (textFor != null) page.texts.map { textFor[it.id] ?: it }
+            else page.texts.filterNot { box -> selectedTexts.any { it.id == box.id } } + texts
+        val imageFor = if (images.size == selectedImages.size && selectedImages.all { image -> page.images.any { it.id == image.id } }) selectedImages.indices.associate { selectedImages[it].id to images[it] } else null
+        val allImages = if (imageFor != null) page.images.map { imageFor[it.id] ?: it }
+            else page.images.filterNot { image -> selectedImages.any { it.id == image.id } } + images
         page = page.copy(strokes = allStrokes, texts = allTexts, images = allImages)
         setSelection(CanvasSelection(strokes, texts, images))
         onContentChanged(allStrokes, allTexts, allImages)
