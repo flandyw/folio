@@ -28,7 +28,9 @@ object StickyNotes {
     /** The range the Settings default and each note's own text size slider allow, in page units. */
     const val TEXT_SIZE_MIN = 8f
     const val TEXT_SIZE_MAX = 48f
-    fun textSize(value: Float): Float = value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
+    fun textSize(value: Float): Float = if (value.isFinite()) value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX) else TEXT_SIZE
+    /** Stored sizes can also come from a lasso/transfer scale; drawing must honor those sizes. */
+    fun renderedTextSize(value: Float): Float = if (value.isFinite()) value.coerceIn(.1f, TextBox.MAX_SIZE) else TEXT_SIZE
     const val COLOR = 0xFFFFE994.toInt()
     const val EDGE = 0xFFE0C867.toInt()
 
@@ -57,9 +59,9 @@ object StickyNotes {
     fun contains(box: TextBox, x: Float, y: Float) = box.isSticky &&
         x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.stickyHeight
 
-    /** The topmost note under ([x], [y]) whose layer [editable] allows touching, or null. */
+    /** [texts] is in visible layer order. An opaque locked note shields everything beneath it. */
     fun at(texts: List<TextBox>, x: Float, y: Float, editable: (Int) -> Boolean): TextBox? =
-        texts.lastOrNull { contains(it, x, y) && editable(it.layer) }
+        texts.lastOrNull { contains(it, x, y) }?.takeIf { editable(it.layer) }
 
     /** True when ([x], [y]) is hidden by any note, touchable or not: page ink there cannot be seen. */
     fun covers(texts: List<TextBox>, x: Float, y: Float): Boolean = texts.any { contains(it, x, y) }
@@ -71,16 +73,35 @@ object StickyNotes {
 
     /** A new note spanning the drag from ([ax], [ay]) to ([bx], [by]). */
     fun spanning(ax: Float, ay: Float, bx: Float, by: Float, layer: Int, paper: Int, textSize: Float): TextBox {
-        val w = max(abs(bx - ax), SMALLEST_DIMENSION); val h = max(abs(by - ay), SMALLEST_DIMENSION)
+        val w = abs(bx - ax).coerceIn(SMALLEST_DIMENSION, TextBox.MAX_WIDTH)
+        val h = abs(by - ay).coerceIn(SMALLEST_DIMENSION, MAX_HEIGHT)
         val x = if (bx >= ax) ax else ax - w
         val y = if (by >= ay) ay else ay - h
-        return TextBox(x = x, y = y, width = w, stickyHeight = h, size = textSize, layer = layer, stickyColor = paper)
+        return TextBox(x = x, y = y, width = w, stickyHeight = h, size = textSize(textSize), layer = layer, stickyColor = paper)
     }
 
     /** A new default-sized note centred on ([x], [y]). */
     fun centred(x: Float, y: Float, layer: Int, paper: Int, textSize: Float): TextBox =
         TextBox(x = x - DEFAULT_WIDTH / 2f, y = y - DEFAULT_HEIGHT / 2f, width = DEFAULT_WIDTH,
-            stickyHeight = DEFAULT_HEIGHT, size = textSize, layer = layer, stickyColor = paper)
+            stickyHeight = DEFAULT_HEIGHT, size = textSize(textSize), layer = layer, stickyColor = paper)
+
+    internal data class Transfer(val sourceTexts: List<TextBox>, val targetTexts: List<TextBox>)
+
+    /** Validate both surfaces against the picked-up note before either transfer half is written. */
+    internal fun transfer(source: NotePage, target: NotePage, box: TextBox, x: Float, y: Float,
+                          layer: Int, scale: Float = 1f): Transfer? {
+        if (source.id == target.id || !source.loaded || !target.loaded || !box.isSticky ||
+            !x.isFinite() || !y.isFinite() || !scale.isFinite() || scale <= 0f ||
+            source.texts.find { it.id == box.id } != box || target.texts.any { it.id == box.id } ||
+            !PageLayers.editable(source.layers, box.layer) || !PageLayers.editable(target.layers, layer)) return null
+        val placed = box.copy(x = x, y = y, layer = layer, width = box.width * scale,
+            stickyHeight = box.stickyHeight * scale, size = box.size * scale,
+            stickyInk = if (scale == 1f) box.stickyInk else InkGeometry.scale(box.stickyInk, InkPoint(0f, 0f), scale))
+        // These are the codec's limits too: a transfer must survive reopening at exactly this size.
+        if (!placed.width.isFinite() || !placed.stickyHeight.isFinite() || !placed.size.isFinite() ||
+            placed.stickyHeight > MAX_HEIGHT) return null
+        return Transfer(source.texts.filterNot { it.id == box.id }, target.texts + placed)
+    }
 
     /** [box] with its bottom-right corner dragged to ([x], [y]), keeping both dimensions positive. */
     fun resized(box: TextBox, x: Float, y: Float): TextBox = box.copy(

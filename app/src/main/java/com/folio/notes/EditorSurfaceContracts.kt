@@ -90,7 +90,7 @@ internal data class EditorPageActions(
     val onObjectDrop: ((String, ObjectLift) -> Boolean)? = null,
     val onStickyLift: ((StickyLift?) -> Unit)? = null,
     val onEraserBrush: ((EraserBrush?) -> Unit)? = null,
-    val onStickyDrop: ((String, StickyLift) -> Boolean)? = null,
+    val onStickyDrop: ((String, StickyLift) -> StickyDrop)? = null,
     val onCropMode: (Boolean) -> Unit = {},
     val onNavigating: (Boolean) -> Unit = {},
     val onLongPress: (Float, Float, InkPoint) -> Unit = { _, _, _ -> },

@@ -773,7 +773,7 @@ object InkRenderer {
     }
 
     private fun mathKeys(box: TextBox): List<TextMathBitmaps.Key> {
-        val size = TextMathBitmaps.quantize(box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE))
+        val size = TextMathBitmaps.quantize(if (box.isSticky) StickyNotes.renderedTextSize(box.size) else box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE))
         return mathParts(box.text).orEmpty().filterIsInstance<TextMath.Part.Formula>()
             .map { TextMathBitmaps.Key(it.latex, it.display, size, box.color) }
     }
@@ -798,7 +798,7 @@ object InkRenderer {
      */
     fun textLayout(box: TextBox): StaticLayout {
         val parts = mathParts(box.text)
-        val size = box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
+        val size = if (box.isSticky) StickyNotes.renderedTextSize(box.size) else box.size.coerceIn(TextBox.MIN_SIZE, TextBox.MAX_SIZE)
         // Which formulas already have a picture: the layout is only valid for that state.
         val pictures = parts?.filterIsInstance<TextMath.Part.Formula>()?.map { f ->
             val key = TextMathBitmaps.Key(f.latex, f.display, TextMathBitmaps.quantize(size), box.color)
@@ -856,9 +856,13 @@ object InkRenderer {
         return layout
     }
 
-    private val stickyFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.COLOR }
-    private val stickyEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = StickyNotes.EDGE; strokeWidth = 1f; style = Paint.Style.STROKE }
-    private val stickyShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1F000000 }
+    private class StickyPaints {
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f; style = Paint.Style.STROKE }
+        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1F000000 }
+    }
+    // Editor, thumbnails and exports can render different paper colours concurrently.
+    private val stickyPaints = ThreadLocal.withInitial { StickyPaints() }
 
     /** The box's rendered height, used for hit-testing and for the drag outline. */
     fun textHeight(box: TextBox): Float = if (box.isSticky) box.stickyHeight else textLayout(box).height.toFloat()
@@ -872,17 +876,18 @@ object InkRenderer {
         canvas.translate(box.x, box.y)
         if (box.isSticky) {
             val w = box.width; val h = box.stickyHeight; val r = StickyNotes.CORNER
-            canvas.drawRoundRect(0f, 2f, w, h + 2.5f, r, r, stickyShadow)
-            stickyFill.color = StickyNotes.fill(box.stickyColor)
-            stickyEdge.color = StickyNotes.edge(box.stickyColor)
-            canvas.drawRoundRect(0f, 0f, w, h, r, r, stickyFill)
-            canvas.drawRoundRect(0f, 0f, w, h, r, r, stickyEdge)
+            val paints = stickyPaints.get()!!
+            canvas.drawRoundRect(0f, 2f, w, h + 2.5f, r, r, paints.shadow)
+            paints.fill.color = StickyNotes.fill(box.stickyColor)
+            paints.edge.color = StickyNotes.edge(box.stickyColor)
+            canvas.drawRoundRect(0f, 0f, w, h, r, r, paints.fill)
+            canvas.drawRoundRect(0f, 0f, w, h, r, r, paints.edge)
             canvas.save()
             canvas.clipRect(0f, 0f, w, h)
             if (box.text.isNotBlank()) {
                 canvas.save()
                 canvas.translate(StickyNotes.PADDING, StickyNotes.PADDING)
-                textLayout(box.copy(width = (w - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyHeight = 0f, stickyInk = emptyList())).draw(canvas)
+                textLayout(box.copy(width = (w - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyInk = emptyList())).draw(canvas)
                 canvas.restore()
             }
             box.stickyInk.forEach { drawRendered(canvas, it, rendered(it)) }

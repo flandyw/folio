@@ -23,35 +23,65 @@ internal object ShapeRecognition {
         if (stroke.tool != Tool.PEN || stroke.points.size < 5 ||
             stroke.points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
         val raw = stroke.points
-        val span = hypot(raw.maxOf { it.x } - raw.minOf { it.x }, raw.maxOf { it.y } - raw.minOf { it.y })
+        val span = span(raw)
         if (!span.isFinite() || span < 26f) return null
-        var length = 0f
-        for (i in 1..raw.lastIndex) length += distance(raw[i - 1], raw[i])
+        val length = length(raw)
         if (!length.isFinite() || length < 40f) return null
         // Equal-distance sampling makes corners and ellipse fitting independent of pen speed,
         // and bounds the work even after a long pause with thousands of repeated tip samples.
         val points = resample(raw, length / 192f)
         if (distance(points.first(), points.last()) > span * .18f) {
-            if (points.all { gap(it, points.first(), points.last()) <= max(2.5f, span * .045f) } && length < span * 1.25f)
-                return listOf(edge(stroke, points.first(), points.last()))
-            return arrow(stroke, simplify(points, span * .035f), span)
+            open(stroke, points, span)?.let { return it }
+            // A start or end hook (the nib landing or flicking off) is not part of the shape.
+            dehook(points, span)?.let { trimmed -> open(stroke, trimmed, span(trimmed))?.let { return it } }
         }
+        // Overshooting the start, or stopping just short of it, still means one closed outline.
+        return closed(stroke, closure(points, span) ?: return null, options)
+    }
+
+    private fun open(stroke: Stroke, points: List<InkPoint>, span: Float): List<Stroke>? {
+        if (points.all { gap(it, points.first(), points.last()) <= max(2.5f, span * .045f) } && length(points) < span * 1.25f)
+            return listOf(edge(stroke, points.first(), points.last()))
+        return arrow(stroke, simplify(points, span * .035f), span)
+    }
+
+    private fun closed(stroke: Stroke, drawn: List<InkPoint>, options: ShapeAssistOptions): List<Stroke>? {
+        val span = span(drawn); val length = length(drawn)
         if (length < span * 1.6f || length > span * 4.5f) return null
+        // Start the ring in the middle of its longest side, so a corner the pen started on
+        // (especially a rounded one) is not split into two.
+        val first = simplify(drawn + drawn.first(), span * .035f)
+        val side = (0 until first.lastIndex).maxBy { distance(first[it], first[it + 1]) }
+        val middle = (drawn.indexOf(first[side]) + if (side + 1 == first.lastIndex) drawn.size else drawn.indexOf(first[side + 1])) / 2
+        val points = if (middle in 1 until drawn.size) drawn.subList(middle, drawn.size) + drawn.subList(0, middle) else drawn
         val loop = simplify(points + points.first(), span * .035f).dropLast(1)
         val corners = loop.indices.filter { abs(turn(loop, it)) > .35f }.map { loop[it] }
         if (corners.size !in 3..6 && corners.size != 10) return ellipse(stroke, points, options.perfect)?.let { listOf(it) }
         if (corners.indices.any { distance(corners[it], corners[(it + 1) % corners.size]) < span * .08f }) return null
         // A narrow oval can simplify to six corners. Its arcs still bow away from those
-        // chords; an actual hexagon has straight sides, even with an uneven pen speed.
+        // chords; an actual hexagon has straight sides, even with an uneven pen speed. A box
+        // may have rounded corners, which pull its sides in a little but never like an oval's arcs.
+        val square = corners.size == 4 && corners.indices.all { abs(abs(turn(corners, it)) - PI.toFloat() / 2) < .22f }
+        val bow = if (square) .06f else .025f
         val deviations = FloatArray(corners.size); val samples = IntArray(corners.size)
         for (p in points) {
             val edge = corners.indices.minBy { gap(p, corners[it], corners[(it + 1) % corners.size]) }
             deviations[edge] += gap(p, corners[edge], corners[(edge + 1) % corners.size]); samples[edge]++
         }
         if (corners.indices.any { deviations[it] / samples[it].coerceAtLeast(1) >
-                distance(corners[it], corners[(it + 1) % corners.size]) * .025f })
+                distance(corners[it], corners[(it + 1) % corners.size]) * bow })
             return ellipse(stroke, points, options.perfect)?.let { listOf(it) }
         if (points.any { p -> corners.indices.minOf { gap(p, corners[it], corners[(it + 1) % corners.size]) } > span * .045f }) return null
+        // Ten corners that are not a star are a wobbly round outline.
+        return polygon(stroke, corners, options) ?: if (corners.size == 10) ellipse(stroke, points, options.perfect)?.let { listOf(it) } else null
+    }
+
+    /**
+     * A closed outline through [corners] in drawing order, styled like [style]. Lasso cleanup
+     * uses it for boxes and polygons drawn as separate lines, with the one-stroke rules.
+     */
+    fun polygon(style: Stroke, corners: List<InkPoint>, options: ShapeAssistOptions): List<Stroke>? {
+        if (corners.size !in 3..6 && corners.size != 10) return null
         val turns = corners.indices.map { turn(corners, it) }
         if (corners.size == 10) {
             // A five-point outline has alternating inward/outward corners and winds once.
@@ -60,8 +90,64 @@ internal object ShapeRecognition {
         } else if (!(turns.all { it > 0f } || turns.all { it < 0f }) ||
             abs(abs(turns.sum()) - 2 * PI) > .4) return null
         if (corners.size == 4 && turns.all { abs(abs(it) - PI.toFloat() / 2) < .22f })
-            return rectangle(stroke, corners, options.perfect)
-        return edges(stroke, if (options.regular && corners.size != 4) regular(corners) else corners)
+            return rectangle(style, corners, options.perfect)
+        return edges(style, if (options.regular && corners.size != 4) regular(corners) else corners)
+    }
+
+    /** An arrow from a shaft and two wing ends, as in a head drawn as a separate stroke. */
+    fun arrow(style: Stroke, start: InkPoint, tip: InkPoint, wing: InkPoint, other: InkPoint): List<Stroke>? =
+        arrow(style, listOf(start, tip, wing, tip, other), distance(start, tip))
+
+    /** Wing, apex, wing of a stroke drawn as one sharp V (an arrowhead), or null. */
+    fun vee(stroke: Stroke): List<InkPoint>? {
+        if (stroke.tool != Tool.PEN || stroke.points.size < 3 || stroke.points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
+        val span = span(stroke.points); val length = length(stroke.points)
+        if (span < 6f || length <= 0f) return null
+        val points = resample(stroke.points, length / 96f)
+        val tolerance = max(1.5f, span * .08f)
+        val v = simplify(points, tolerance)
+        if (v.size != 3 || points.any { min(gap(it, v[0], v[1]), gap(it, v[1], v[2])) > tolerance }) return null
+        val angle = abs(turn(v, 1))
+        return v.takeIf { angle in .7f..2.8f && distance(v[0], v[1]) > span * .25f && distance(v[1], v[2]) > span * .25f }
+    }
+
+    /** The ends of a short straight stroke (an arrow's wing), below the size a held line needs. */
+    fun segment(stroke: Stroke): Pair<InkPoint, InkPoint>? {
+        if (stroke.tool != Tool.PEN || stroke.points.size < 2 || stroke.points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
+        val a = stroke.points.first(); val b = stroke.points.last()
+        val length = distance(a, b)
+        if (length < 6f || length(stroke.points) > length * 1.25f) return null
+        return (a to b).takeIf { stroke.points.all { gap(it, a, b) <= max(1.5f, length * .08f) } }
+    }
+
+    /** The single loop of a nearly closed path: an overshoot past the start is cut off at the crossing. */
+    private fun closure(points: List<InkPoint>, span: Float): List<InkPoint>? {
+        val n = points.size
+        val reach = span * .18f
+        val ends = n * 7 / 20
+        var best = distance(points.first(), points.last()); var from = 0; var to = n - 1
+        for (i in 0 until ends) for (j in n - ends until n) {
+            val d = distance(points[i], points[j])
+            if (d < best - .5f) { best = d; from = i; to = j }
+        }
+        if (best > reach) return null
+        // Retracing a large part (a spiral, a "6", a second lap) is not an overshoot.
+        if (from + (n - 1 - to) > (to - from) * .3f) return null
+        return if (from == 0 && to == n - 1) points else points.subList(from, to + 1)
+    }
+
+    /** The path without a short, sharply turned first or last segment, or null if there is none. */
+    private fun dehook(points: List<InkPoint>, span: Float): List<InkPoint>? {
+        val corners = simplify(points, span * .035f)
+        if (corners.size < 3) return null
+        val total = length(points)
+        fun hook(end: InkPoint, corner: InkPoint, next: InkPoint) =
+            distance(end, corner) < total * .1f && abs(turn(listOf(end, corner, next), 1)) > .9f
+        val start = if (hook(corners[0], corners[1], corners[2])) points.indexOf(corners[1]) else 0
+        val last = corners.lastIndex
+        val stop = if (hook(corners[last], corners[last - 1], corners[last - 2])) points.lastIndexOf(corners[last - 1]) else points.lastIndex
+        if ((start == 0 && stop == points.lastIndex) || stop - start < 4) return null
+        return points.subList(start, stop + 1)
     }
 
     private fun edge(s: Stroke, a: InkPoint, b: InkPoint) =
@@ -106,7 +192,7 @@ internal object ShapeRecognition {
         if (min(rx, ry) < 6f) return null
         val cx = (xs.max() + xs.min()) / 2; val cy = (ys.max() + ys.min()) / 2
         val errors = xs.indices.map { abs(hypot((xs[it] - cx) / rx, (ys[it] - cy) / ry) - 1f) }
-        if (errors.average() > .055 || errors.max() > .18f) return null
+        if (errors.average() > .07 || errors.max() > .22f) return null
         val angles = xs.indices.map { atan2((ys[it] - cy) / ry, (xs[it] - cx) / rx) }
         var swept = 0f; var travel = 0f
         for (i in 1..angles.lastIndex) {
@@ -194,6 +280,13 @@ internal object ShapeRecognition {
     }
 
     private fun distance(a: InkPoint, b: InkPoint) = hypot(a.x - b.x, a.y - b.y)
+    private fun span(points: List<InkPoint>) =
+        hypot(points.maxOf { it.x } - points.minOf { it.x }, points.maxOf { it.y } - points.minOf { it.y })
+    private fun length(points: List<InkPoint>): Float {
+        var length = 0f
+        for (i in 1..points.lastIndex) length += distance(points[i - 1], points[i])
+        return length
+    }
     private fun gap(p: InkPoint, a: InkPoint, b: InkPoint): Float {
         val dx = b.x - a.x; val dy = b.y - a.y; val squared = dx * dx + dy * dy
         if (squared == 0f) return distance(p, a)

@@ -123,6 +123,47 @@ fun main() {
     check(ShapeCleanup.strokes(cleaned.strokes, defaults).changed == 0)
     check(ShapeCleanup.strokes(listOf(dot), defaults).strokes.single() === dot)
 
+    // Ink as people really draw it: overshooting the start, hooks, rounded corners.
+    fun arc(cx: Float, cy: Float, r: Float, from: Double, to: Double, n: Int = 160) =
+        (0..n).map { val t = from + (to - from) * it / n; p(cx + r * cos(t).toFloat(), cy + r * sin(t).toFloat()) }
+    check(tidy(arc(200f, 200f, 90f, 0.0, 2 * PI + 1.1), "overshot circle").single().tool == Tool.ELLIPSE)
+    check(tidy(arc(200f, 200f, 90f, 0.0, 2 * PI - .4), "unclosed circle").single().tool == Tool.ELLIPSE)
+    check(tidy(path(box + box[0] + p(box[0].x + 40f, box[0].y), false), "overshot box").single().tool == Tool.RECTANGLE)
+    check(tidy(path(listOf(p(10f, 10f), p(220f, 20f), p(212f, 32f)), false), "hooked line").single().tool == Tool.LINE)
+    check(tidy(path(listOf(p(16f, 2f), p(10f, 10f), p(220f, 20f)), false), "line with a landing hook").single().tool == Tool.LINE)
+    val rounded = listOf(0.0, .5 * PI, PI, 1.5 * PI).zip(listOf(p(290f, 210f), p(110f, 210f), p(110f, 110f), p(290f, 110f))).flatMap { (angle, c) ->
+        arc(c.x, c.y, 10f, angle, angle + .5 * PI, 8) }
+    check(tidy(rounded + rounded.first(), "rounded box").single().tool == Tool.RECTANGLE)
+
+    // Lasso cleanup joins shapes drawn in several strokes, and leaves handwriting alone.
+    fun clean(vararg parts: List<InkPoint>) = ShapeCleanup.strokes(parts.map { stroke(it) }, defaults)
+    val corners = listOf(p(100f, 100f), p(300f, 100f), p(300f, 220f), p(100f, 220f))
+    val fourLines = clean(*corners.indices.map { path(listOf(corners[it], corners[(it + 1) % 4]), false) }.toTypedArray())
+    check(fourLines.changed == 4 && fourLines.shapes == 1 && fourLines.strokes.single().tool == Tool.RECTANGLE) { "Box of lines: ${fourLines.strokes.map { it.tool }}" }
+    check(fourLines.strokes.single().layer == 2 && fourLines.strokes.single().opacity == .7f)
+    check(ShapeCleanup.strokes(fourLines.strokes, defaults).changed == 0)
+    val crossing = clean(path(listOf(p(88f, 100f), p(312f, 100f)), false), path(listOf(p(300f, 88f), p(300f, 232f)), false),
+        path(listOf(p(314f, 220f), p(90f, 220f)), false), path(listOf(p(100f, 234f), p(100f, 92f)), false))
+    check(crossing.strokes.single().tool == Tool.RECTANGLE) { "Overrunning box: ${crossing.strokes.map { it.tool }}" }
+    val stoppedShort = clean(path(listOf(p(104f, 300f), p(196f, 124f)), false), path(listOf(p(204f, 126f), p(296f, 296f)), false),
+        path(listOf(p(292f, 302f), p(108f, 301f)), false))
+    check(stoppedShort.shapes == 1 && stoppedShort.strokes.size == 3 && stoppedShort.strokes.last().points.last() == stoppedShort.strokes.first().points.first())
+    check(clean(arc(200f, 200f, 80f, 0.0, PI), arc(200f, 200f, 80f, 0.0, -PI)).strokes.single().tool == Tool.ELLIPSE)
+    check(clean(path(listOf(corners[0], corners[1], corners[2]), false), path(listOf(corners[0], corners[3], corners[2]), false)).strokes.single().tool == Tool.RECTANGLE)
+    val shaft = path(listOf(p(0f, 50f), p(200f, 50f)), false)
+    val vHead = clean(shaft, path(listOf(p(176f, 32f), p(201f, 51f), p(175f, 69f)), false))
+    check(vHead.changed == 2 && vHead.strokes.size == 3 && vHead.strokes.all { it.tool == Tool.LINE }) { "V head: ${vHead.strokes.map { it.tool }}" }
+    val wingHead = clean(shaft, path(listOf(p(176f, 32f), p(201f, 51f)), false), path(listOf(p(201f, 49f), p(175f, 69f)), false))
+    check(wingHead.changed == 3 && wingHead.strokes.size == 3) { "Wing head: ${wingHead.strokes.map { it.tool }}" }
+    check(ShapeCleanup.strokes(wingHead.strokes, defaults).changed == 0)
+    check(clean(shaft, path(listOf(p(176f, 32f), p(201f, 51f), p(175f, 69f)), false)).let { ShapeCleanup.strokes(it.strokes, defaults.copy(arrows = false)).changed } == 0)
+    check(ShapeCleanup.strokes(listOf(stroke(shaft), stroke(path(listOf(p(176f, 32f), p(201f, 51f), p(175f, 69f)), false))), defaults.copy(arrows = false)).strokes.size == 2)
+    val word = clean(*(0..2).map { k -> arc(k * 22f, 0f, 9f, 0.0, 2 * PI) }.toTypedArray())
+    check(word.changed == 0) { "Tidied handwriting" }
+    check(clean(arc(0f, 0f, 15f, 0.0, 2 * PI), path(listOf(p(-2f, -6f), p(-2f, 6f)), false)).strokes.first().tool == Tool.ELLIPSE) { "Labelled node stayed freehand" }
+    val rotatedOval = tidy(rotate(oval(150f, 80f), .55), "rotated oval")
+    check(ShapeCleanup.strokes(rotatedOval, defaults).changed == 0) { "Tidied ink counted again" }
+
     val hold = ShapeHold()
     check(hold.remaining(0, 650) == null)
     check(hold.sample(0f, 0f, 100, 8f))

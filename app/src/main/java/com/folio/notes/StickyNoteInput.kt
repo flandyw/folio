@@ -15,6 +15,9 @@ import kotlin.math.hypot
  */
 internal class StickyLift(val box: TextBox, val left: Float, val top: Float, val unit: Float, val fingerX: Float, val fingerY: Float, val moving: Boolean = true, val drawControls: ((Canvas) -> Unit)? = null)
 
+/** A rejected transfer must never fall through to committing the stale local preview. */
+internal enum class StickyDrop { LOCAL, MOVED, REFUSED }
+
 /**
  * Sticky note handling on an [InkView]: making, picking up, moving, resizing and typing into notes.
  * Writing and erasing inside a note is *not* here — the pen, highlighter, shapes and eraser go
@@ -38,14 +41,13 @@ internal class StickyNoteInput(
     /** The focused note (menu above it) and whether it is being typed in; null when none. */
     private val onFocus: (TextBox?, Boolean) -> Unit
 ) {
-    private enum class Mode { CREATE, MOVE, RESIZE, TYPE_TAP }
+    private enum class Mode { CREATE, MOVE, RESIZE, TYPE_TAP, BLOCKED }
 
     private var mode: Mode? = null
     private var start: InkPoint? = null
     private var original: TextBox? = null
     private var preview: TextBox? = null
     private var moved = false
-    private var cancelled = false
     /** The press put a focused note down; a plain tap then only does that, it makes no new note. */
     private var dismissed = false
     private var tapHit: TextBox? = null
@@ -67,16 +69,23 @@ internal class StickyNoteInput(
      * moved inside its view.
      */
     var onLift: ((StickyLift?) -> Unit)? = null
-    /** Offered a lifted note on release; true when the editor placed it (e.g. on another page). */
-    var onDrop: ((StickyLift) -> Boolean)? = null
+    /** Offered a lifted note on release; distinguishes staying here from a refused transfer. */
+    var onDrop: ((StickyLift) -> StickyDrop)? = null
     private var lift: StickyLift? = null
+    /** Keep an accepted drop out of the source until its next content bind acknowledges removal. */
+    private var droppedId: String? = null
 
     var focusedId: String? = null
         private set
     var typing = false
         private set
 
-    fun focused(): TextBox? = focusedId?.let { id -> page().texts.find { it.id == id && it.isSticky } }
+    private fun editableNote(id: String): TextBox? {
+        val current = page()
+        return current.texts.find { it.id == id && it.isSticky && PageLayers.editable(current.layers, it.layer) }
+    }
+
+    fun focused(): TextBox? = focusedId?.let(::editableNote)
 
     /** The focused note where the user sees it: mid-drag it is the live preview, so its menu travels with it. */
     fun shown(): TextBox? {
@@ -85,18 +94,34 @@ internal class StickyNoteInput(
     }
 
     fun focus(box: TextBox?, type: Boolean = false) {
-        focusedId = box?.id; typing = box != null && type
-        onFocus(box, typing)
+        val current = box?.let { editableNote(it.id) }
+        focusedId = current?.id; typing = current != null && type
+        onFocus(current, typing)
         host.invalidate()
     }
 
     /** The view is going away mid-carry: place the note where it was last held instead of losing the drop. */
-    fun dropLift() { lift?.takeIf { it.moving }?.let { onDrop?.invoke(it) } }
+    fun dropLift() {
+        val held = lift?.takeIf { it.moving } ?: return
+        val box = original ?: return
+        if (editableNote(box.id) != box) return
+        when (onDrop?.invoke(held) ?: StickyDrop.LOCAL) {
+            StickyDrop.MOVED -> droppedId = box.id
+            StickyDrop.REFUSED -> Unit
+            StickyDrop.LOCAL -> {
+                val r = frame(box)
+                val origin = IntArray(2).also(host::getLocationInWindow)
+                replace(box.moved((held.left - origin[0] - r.left) / held.unit,
+                    (held.top - origin[1] - r.top) / held.unit), box)
+            }
+        }
+    }
 
     /** Drops a gesture in progress and the focus, e.g. on a tool or page change. */
-    fun reset() {
+    fun reset(clearDrop: Boolean = false) {
         clearGesture()
         tapHit = null
+        if (clearDrop) droppedId = null
         if (focusedId != null) focus(null)
     }
 
@@ -104,38 +129,40 @@ internal class StickyNoteInput(
     fun cancel() {
         clearGesture()
         tapHit = null
+        refresh()
         host.parent?.requestDisallowInterceptTouchEvent(false)
     }
 
     /** Re-reads the focused note after the page changed underneath it (undo, delete, move). */
     fun refresh() {
+        if (page().texts.none { it.id == droppedId }) droppedId = null
+        original?.let { if (editableNote(it.id) != it) clearGesture() }
         if (focusedId == null) return
-        val box = focused()?.takeIf { PageLayers.editable(page().layers, it.layer) }
+        val box = focused()
         if (box == null) focus(null) else onFocus(shown() ?: box, typing)
     }
 
     fun setText(id: String, text: String) {
-        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(text = text)) }
+        editableNote(id)?.let { replace(it.copy(text = text)) }
     }
 
     /** Gives the note the stored paper [paper] (0 is yellow); new notes wear it too from now on. */
     fun setPaper(id: String, paper: Int) {
-        nextPaper = paper
-        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(stickyColor = paper)) }
+        editableNote(id)?.let { nextPaper = paper; replace(it.copy(stickyColor = paper)) }
     }
 
     /** Gives the note its own type size; the note's words reflow inside it, its paper stays as it is. */
     fun setTextSize(id: String, size: Float) {
-        page().texts.find { it.id == id && it.isSticky }?.let { replace(it.copy(size = StickyNotes.textSize(size))) }
+        editableNote(id)?.let { replace(it.copy(size = StickyNotes.textSize(size))) }
     }
 
     fun clearInk(id: String) {
-        page().texts.find { it.id == id && it.isSticky && it.stickyInk.isNotEmpty() }?.let { replace(it.copy(stickyInk = emptyList())) }
+        editableNote(id)?.takeIf { it.stickyInk.isNotEmpty() }?.let { replace(it.copy(stickyInk = emptyList())) }
     }
 
     /** A copy offset down and right, focused so it can be dragged straight away. */
     fun duplicate(id: String) {
-        val box = page().texts.find { it.id == id && it.isSticky } ?: return
+        val box = editableNote(id) ?: return
         val copy = box.copy(id = java.util.UUID.randomUUID().toString(), x = box.x + DUPLICATE_OFFSET, y = box.y + DUPLICATE_OFFSET)
         commit(page().texts + copy)
         focus(copy)
@@ -144,12 +171,13 @@ internal class StickyNoteInput(
     /** Lifts the note to the top of the stack, above any note it overlaps. */
     fun bringToFront(id: String) {
         val texts = page().texts
-        val box = texts.find { it.id == id && it.isSticky } ?: return
-        if (texts.last { it.isSticky }.id == id) return
+        val box = editableNote(id) ?: return
+        if (texts.last { it.isSticky && PageLayers.resolve(page().layers, it.layer) == PageLayers.resolve(page().layers, box.layer) }.id == id) return
         commit(texts.filterNot { it.id == id } + box)
     }
 
     fun delete(id: String) {
+        if (editableNote(id) == null) return
         if (focusedId == id) focus(null)
         commit(page().texts.filterNot { it.id == id })
     }
@@ -163,13 +191,16 @@ internal class StickyNoteInput(
     fun touch(event: MotionEvent, at: InkPoint, tool: Tool, canCreate: Boolean, tapFocuses: Boolean, layer: Int): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             clearGesture()
+            refresh()
             val layers = page().layers
             val editable = { l: Int -> PageLayers.editable(layers, l) }
-            val hit = StickyNotes.at(page().texts, at.x, at.y, editable)
+            val visible = PageLayers.view(page()).texts
+            val covered = visible.lastOrNull { StickyNotes.contains(it, at.x, at.y) }
+            val hit = StickyNotes.at(visible, at.x, at.y, editable)
             val focusedBox = focused()
             // The grip hangs off the corner, so it is tested before the note it belongs to. It is drawn
             // whatever the tool, so it works with every tool; it is hidden (and dead) while typing.
-            val onGrip = focusedBox != null && !typing && gripHit(focusedBox, event.x, event.y)
+            val onGrip = focusedBox != null && !typing && (covered == null || covered.id == focusedBox.id) && gripHit(focusedBox, event.x, event.y)
             // Touching anything but the focused note puts it down.
             dismissed = focusedBox != null && !onGrip && hit?.id != focusedBox.id
             if (dismissed) focus(null)
@@ -177,11 +208,12 @@ internal class StickyNoteInput(
             tapHit = null
             mode = when {
                 onGrip -> Mode.RESIZE
-                tool == Tool.STICKY_NOTE && hit != null -> Mode.MOVE
+                covered != null && hit == null && (tool == Tool.STICKY_NOTE || tool == Tool.TEXT) -> Mode.BLOCKED
+                tool == Tool.STICKY_NOTE && hit != null && !typing -> Mode.MOVE
                 // A note already picked up follows a hand or navigating finger, whatever the tool: that
                 // input cannot write on it, so dragging it can only mean moving it.
                 tapFocuses && hit != null && hit.id == focusedBox?.id && !typing -> Mode.MOVE
-                tool == Tool.STICKY_NOTE && canCreate && editable(layer) -> Mode.CREATE
+                tool == Tool.STICKY_NOTE && covered == null && canCreate && editable(layer) -> Mode.CREATE
                 tool == Tool.TEXT && hit != null -> Mode.TYPE_TAP
                 else -> null
             }
@@ -191,7 +223,7 @@ internal class StickyNoteInput(
                 return false
             }
             host.parent?.requestDisallowInterceptTouchEvent(true)
-            start = at; moved = false; cancelled = false
+            start = at; moved = false
             original = if (onGrip) focusedBox else hit
             preview = original
             host.invalidate()
@@ -201,16 +233,16 @@ internal class StickyNoteInput(
         val began = start ?: return trackTap(event)
         when (event.actionMasked) {
             // A second finger is a pinch: abandon the note gesture and let the workspace zoom.
-            MotionEvent.ACTION_POINTER_DOWN -> { cancelled = true; preview = original; endLift() }
-            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> if (!cancelled) {
-                moved = moved || hypot(event.x - fromX, event.y - fromY) > slop
+            MotionEvent.ACTION_POINTER_DOWN -> { cancel(); return false }
+            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                moved = moved || travelled(event)
                 val box = original
                 if (moved) preview = when (current) {
                     Mode.CREATE -> StickyNotes.spanning(began.x, began.y, at.x, at.y, layer, nextPaper, newTextSize)
                     // The corner follows the finger's travel, so grabbing the grip off-centre never makes it jump.
                     Mode.RESIZE -> box?.let { StickyNotes.resized(it, it.x + it.width + at.x - began.x, it.y + it.stickyHeight + at.y - began.y) }
                     Mode.MOVE -> box?.moved(at.x - began.x, at.y - began.y)
-                    Mode.TYPE_TAP -> box
+                    Mode.TYPE_TAP, Mode.BLOCKED -> box
                 }
                 if (moved && current == Mode.MOVE) liftNote(event, began, at, box)
                 else if (moved && (current == Mode.CREATE || current == Mode.RESIZE)) preview?.let { liftPreview(event, it) }
@@ -220,7 +252,7 @@ internal class StickyNoteInput(
             }
         }
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-            clearGesture()
+            if (event.actionMasked == MotionEvent.ACTION_CANCEL) cancel() else clearGesture()
             host.parent?.requestDisallowInterceptTouchEvent(false)
         }
         host.invalidate()
@@ -231,8 +263,8 @@ internal class StickyNoteInput(
     private fun trackTap(event: MotionEvent): Boolean {
         val box = tapHit ?: return false
         when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> if (hypot(event.x - fromX, event.y - fromY) > slop) tapHit = null
-            MotionEvent.ACTION_UP -> { tapHit = null; page().texts.find { it.id == box.id }?.let { focus(it) } }
+            MotionEvent.ACTION_MOVE -> if (travelled(event)) tapHit = null
+            MotionEvent.ACTION_UP -> { tapHit = null; if (!travelled(event)) editableNote(box.id)?.let { focus(it) } }
             else -> tapHit = null
         }
         return false
@@ -240,25 +272,39 @@ internal class StickyNoteInput(
 
     private fun finish(mode: Mode, began: InkPoint, layer: Int) {
         val box = original
+        if (box != null && editableNote(box.id) != box) { refresh(); return }
+        if (box != null && moved && mode == Mode.MOVE) {
+            when (lift?.let { onDrop?.invoke(it) } ?: StickyDrop.LOCAL) {
+                StickyDrop.MOVED -> { droppedId = box.id; focus(null); return }
+                StickyDrop.REFUSED -> { focus(null); return }
+                StickyDrop.LOCAL -> Unit
+            }
+        }
         when (mode) {
             Mode.CREATE -> {
+                if (!PageLayers.editable(page().layers, layer)) return
                 val made = if (moved) preview else if (dismissed) null else StickyNotes.centred(began.x, began.y, layer, nextPaper, newTextSize)
                 if (made != null) { commit(page().texts + made); focus(made) }
             }
             Mode.MOVE, Mode.RESIZE -> when {
                 box == null -> Unit
-                moved && mode == Mode.MOVE && lift?.let { onDrop?.invoke(it) } == true -> focus(null)
-                moved -> preview?.let { next -> replace(next); page().texts.find { it.id == next.id }?.let { focus(it) } }
+                moved -> preview?.let { next -> replace(next, box); page().texts.find { it.id == next.id }?.let { focus(it) } }
                 // A tap focuses the note; tapping the focused note again types in it.
                 focusedId == box.id && mode == Mode.MOVE -> focus(box, type = true)
                 else -> focus(box)
             }
             Mode.TYPE_TAP -> if (!moved && box != null) focus(box, type = true)
+            Mode.BLOCKED -> Unit
         }
     }
 
+    private fun travelled(event: MotionEvent): Boolean =
+        hypot(event.x - fromX, event.y - fromY) > slop || (0 until event.historySize).any {
+            hypot(event.getHistoricalX(0, it) - fromX, event.getHistoricalY(0, it) - fromY) > slop
+        }
+
     private fun clearGesture() {
-        mode = null; start = null; original = null; preview = null; moved = false; cancelled = false
+        mode = null; start = null; original = null; preview = null; moved = false
         endLift()
         host.invalidate()
     }
@@ -300,9 +346,10 @@ internal class StickyNoteInput(
         return hypot(x - r.right, y - r.bottom) <= GRIP_REACH_DP * density
     }
 
-    private fun replace(box: TextBox) {
+    private fun replace(box: TextBox, expected: TextBox? = null) {
         // An undo or delete while the gesture ran must never resurrect a stale note.
-        val current = page().texts.find { it.id == box.id } ?: return
+        val current = editableNote(box.id) ?: return
+        if (expected != null && current != expected) return
         if (current != box) commit(page().texts.map { if (it.id == box.id) box else it })
     }
 
@@ -316,7 +363,7 @@ internal class StickyNoteInput(
              liveInk: Map<String, List<Stroke>> = emptyMap(), afterNote: (TextBox) -> Unit = {}) {
         notes.forEach { note ->
             // A carried note is drawn by the editor above every page.
-            if (lift != null && note.id == original?.id) return@forEach
+            if (note.id == droppedId || (lift != null && note.id == original?.id)) return@forEach
             var box = if (note.id == original?.id) preview ?: note else note
             liveInk[box.id]?.let { box = box.copy(stickyInk = it) }
             // The typing field shows the words while it is open; the note keeps its paper and ink.

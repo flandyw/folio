@@ -358,7 +358,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal fun placeSelection(clip: CanvasSelection, page: NotePage, at: InkPoint?, offset: Float = 0f, centred: Boolean = false): CanvasSelection = editorSelectionController.placeSelection(clip, page, at, offset, centred)
 
     fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null, centred: Boolean = at != null): Unit = editorSelectionController.moveSelectionToPage(sourceId, targetId, selection, at, centred)
-    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float): Unit = editorSelectionController.moveStickyToPage(sourceId, targetId, box, x, y)
+    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float, scale: Float = 1f): Boolean = editorSelectionController.moveStickyToPage(sourceId, targetId, box, x, y, scale)
     fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null): Unit = editorSelectionController.restyleSelection(strokes, color, widthScale, opacity, style)
 
     // ---- Marking & feedback ---------------------------------------------------------------------

@@ -50,7 +50,10 @@ import androidx.compose.ui.viewinterop.AndroidView
             identity.role = role; identity.pageId = page.id
             registry?.bind(view, role, page.id)
             view.documentInputBusy = if (!presentation.readOnly && documentInput != null) documentInput::isHistoryBusy else null
-            val continuous = presentation.paperWidth != null && !presentation.readOnly && !surface.zoomWritingPane && !surface.inputBlocked
+            // Rendering ownership follows layout. Blocking input must not move notes into the
+            // clipped page surface for a frame (peek/zoom gestures used to make them flash).
+            val continuous = presentation.paperWidth != null && !page.infinite && !presentation.fullscreen &&
+                !presentation.pageCamera && !presentation.readOnly && !surface.zoomWritingPane
             view.workspaceNotes = continuous
             view.onDocumentGestureStart = if (continuous && documentInput != null) { stroke, lasso -> documentInput.begin(page.id, stroke, lasso) } else null
             view.onDocumentGestureSamples = if (continuous && documentInput != null) { points -> documentInput.samples(page.id, points) } else null

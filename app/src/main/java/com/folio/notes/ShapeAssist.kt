@@ -18,17 +18,3 @@ internal data class ShapeAssistOptions(
         }
     }
 }
-
-internal object ShapeCleanup {
-    data class Result(val strokes: List<Stroke>, val changed: Int)
-
-    /** Replace in place: overlapping shapes keep their original stacking order. */
-    fun strokes(strokes: List<Stroke>, options: ShapeAssistOptions): Result {
-        var changed = 0
-        val after = strokes.flatMap { stroke ->
-            val tidy = ShapeRecognition.tidy(stroke, options)
-            if (tidy != null && tidy != listOf(stroke)) { changed++; tidy } else listOf(stroke)
-        }
-        return Result(if (changed == 0) strokes else after, changed)
-    }
-}

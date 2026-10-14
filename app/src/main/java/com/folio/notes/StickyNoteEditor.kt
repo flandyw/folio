@@ -22,11 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 
@@ -34,7 +37,7 @@ import kotlin.math.roundToInt
 internal data class StickyFocus(val box: TextBox, val frame: Rect, val typing: Boolean)
 
 /** Words being typed into a note, held until typing ends so a note is one undo step, not one per key. */
-internal data class StickyDraft(val id: String, val value: TextFieldValue)
+internal data class StickyDraft(val id: String, val value: TextFieldValue, val originalText: String = value.text)
 
 /**
  * Typing happens in place: a transparent field over the note, at the note's own size and type,
@@ -53,7 +56,9 @@ internal data class StickyDraft(val id: String, val value: TextFieldValue)
     var focused by remember { mutableStateOf(false) }
     LaunchedEffect(box.id) { focus.requestFocus() }
     BackHandler(onBack = onDone)
-    val color = Color(box.color)
+    val baseColor = Color(box.color)
+    val color = baseColor.copy(alpha = baseColor.alpha * box.opacity.coerceIn(TextBox.MIN_OPACITY, TextBox.MAX_OPACITY))
+    val textSize = StickyNotes.renderedTextSize(box.size) * unit
     with(density) {
         BasicTextField(value, onValue,
             modifier = Modifier.offset { IntOffset(left.roundToInt(), top.roundToInt()) }
@@ -61,7 +66,10 @@ internal data class StickyDraft(val id: String, val value: TextFieldValue)
                 .focusRequester(focus)
                 .onFocusChanged { if (focused && !it.isFocused) onDone(); focused = it.isFocused }
                 .padding((StickyNotes.PADDING * unit).toDp()),
-            textStyle = TextStyle(color = color, fontSize = (box.size * unit).toSp(), fontFamily = FontFamily.Serif,
+            textStyle = TextStyle(color = color, fontSize = textSize.toSp(), lineHeight = (textSize * 1.1f).toSp(),
+                platformStyle = PlatformTextStyle(includeFontPadding = false), fontFamily = FontFamily.Serif,
+                textAlign = when (box.align) { TextAlignMode.LEFT -> TextAlign.Start; TextAlignMode.CENTER -> TextAlign.Center; TextAlignMode.RIGHT -> TextAlign.End },
+                textDecoration = if (box.underline) TextDecoration.Underline else TextDecoration.None,
                 fontWeight = if (box.bold) FontWeight.Bold else FontWeight.Normal,
                 fontStyle = if (box.italic) FontStyle.Italic else FontStyle.Normal),
             cursorBrush = SolidColor(color),
@@ -69,7 +77,7 @@ internal data class StickyDraft(val id: String, val value: TextFieldValue)
             decorationBox = { field ->
                 Box {
                     if (value.text.isEmpty()) androidx.compose.material3.Text("Type a note…",
-                        style = TextStyle(color = color.copy(alpha = .45f), fontSize = (box.size * unit).toSp(), fontFamily = FontFamily.Serif))
+                        style = TextStyle(color = color.copy(alpha = color.alpha * .45f), fontSize = textSize.toSp(), fontFamily = FontFamily.Serif))
                     field()
                 }
             })

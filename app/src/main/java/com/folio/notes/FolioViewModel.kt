@@ -159,7 +159,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun duplicateSelection(selection: CanvasSelection): Unit = runtime.duplicateSelection(selection)
     fun pasteClipboard(at: InkPoint? = null): Unit = runtime.pasteClipboard(at)
     fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null, centred: Boolean = at != null): Unit = runtime.moveSelectionToPage(sourceId, targetId, selection, at, centred)
-    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float): Unit = runtime.moveStickyToPage(sourceId, targetId, box, x, y)
+    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float, scale: Float = 1f): Boolean = runtime.moveStickyToPage(sourceId, targetId, box, x, y, scale)
     fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null): Unit = runtime.restyleSelection(strokes, color, widthScale, opacity, style)
     fun applyMarking(action: MarkingAction, at: InkPoint, color: Int): Unit = runtime.applyMarking(action, at, color)
     fun placeInFreeSpace(action: MarkingAction, color: Int): Boolean = runtime.placeInFreeSpace(action, color)

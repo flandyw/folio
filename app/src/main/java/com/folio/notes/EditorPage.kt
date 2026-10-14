@@ -65,7 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     var carrying by remember { mutableStateOf(false) }
     // A note can remain visible beyond its owning item's lifetime. Keep that native surface
     // available for drawing and input while the note overlaps another row.
-    val spanningNotes = presentation.paperWidth != null && page.texts.any {
+    val spanningNotes = presentation.paperWidth != null && PageLayers.view(page).texts.any {
         StickyNotes.spansRows(it, page)
     }
     DisposableEffect(carrying, spanningNotes) {
@@ -114,7 +114,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     fun commitStickyDraft() {
         val draft = stickyDraft ?: return
         stickyDraft = null
-        boundInkView?.setStickyText(draft.id, draft.value.text)
+        val view = boundInkView
+        val current = view?.page ?: model.state.value.notes.firstOrNull { it.id == noteId }?.pages?.firstOrNull { it.id == page.id } ?: return
+        val box = current.texts.find { it.id == draft.id && it.isSticky } ?: return
+        if (box.text != draft.originalText || !PageLayers.editable(current.layers, box.layer)) return
+        if (view != null) view.setStickyText(draft.id, draft.value.text)
+        else model.texts(current.id, current.texts.map { if (it.id == draft.id) it.copy(text = draft.value.text) else it })
+    }
+    val finishDraft by rememberUpdatedState(::commitStickyDraft)
+    DisposableEffect(noteId, page.id) { onDispose { finishDraft() } }
+    LaunchedEffect(active, readOnly, inputBlocked, ready) {
+        if (!active || readOnly || inputBlocked || !ready) {
+            boundInkView?.finishStickyTyping()
+            commitStickyDraft()
+        }
     }
     // Paper rows keep their own height. Sticky notes draw above the whole column and never
     // push adjacent pages apart, even when they cross a seam.
@@ -182,7 +195,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                 view.onStickyFocus = { box, frame, typing ->
                     val draft = stickyDraft
                     if (draft != null && (!typing || box?.id != draft.id)) commitStickyDraft()
-                    if (typing && box != null && stickyDraft == null)
+                    // An external Undo/Redo replaces the source wording rather than letting an
+                    // old field silently overwrite it when typing eventually ends.
+                    if (typing && box != null && (stickyDraft == null || stickyDraft?.originalText != box.text))
                         stickyDraft = StickyDraft(box.id, TextFieldValue(box.text, TextRange(box.text.length)))
                     sticky = if (box != null && frame != null) StickyFocus(box, frame, typing) else null
                 }

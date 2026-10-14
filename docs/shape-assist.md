@@ -13,6 +13,11 @@ Writing → Tidy up shapes share the same controls:
 - Straight highlighter underlines that preserve the highlighter tool, opacity, colour and width.
 - A disposable practice area with Undo and Clear, using the real editor input pipeline.
 
+Recognition forgives how people actually draw: overshooting the start of a closed shape (the
+overlap is cut at the crossing), stopping a little short of it, a short hook where the nib
+landed or flicked off a line, and boxes with rounded corners. Retracing a large part (a spiral,
+a second lap, a "6") is not an overshoot and stays freehand.
+
 Draw, pause gently with the tip down, adjust, then lift. A clean preview, a screen-sized
 “Move to adjust” pill and an Android haptic tick confirm recognition. Settling allows 14 dp of
 pen drift and gives excursions up to twice that radius an 80 ms grace period. Larger or
@@ -30,8 +35,25 @@ off until enabled; existing enabled/delay preferences retain their values.
 ## Existing diagrams
 
 Lasso ink (including sticky-note ink), open selection options and choose **Tidy up shapes…**.
-The panel recognises on a worker, shows Original/Tidied previews and the number of changed
-source strokes, and lets the user change recognition options for this cleanup. It works even
+The panel recognises on a worker, shows Original/Tidied previews and the number of shapes (and
+the source strokes they replace), and lets the user change recognition options for this cleanup.
+
+Existing ink is cleaned as a whole (`ShapeCleanup.kt`), because diagrams are rarely one stroke:
+
+- Boxes and polygons drawn line by line become one outline. Corners are where neighbouring lines
+  meet, so sides that stop short of a corner or run past it both work.
+- Outlines drawn in pieces (a circle in two halves, a box as two L shapes) join end to end and are
+  recognised as one stroke.
+- An arrow whose head is a separate V, or two separate wing strokes, joins its shaft. Both ends
+  of a shaft can carry a head.
+- Each end of a part joins at most its closest partner, parts must share colour and layer, and a
+  joined shape must be at least 40 page units. Groups with no freehand member (ink tidied
+  before) are left alone, and re-tidying ink that is already clean reports nothing to do.
+- Marks under 40 units with another small mark beside them are handwriting and stay as written;
+  a small circle with a label inside it still tidies.
+- Nearly level or upright single lines (within about 2°) are made exactly so about their middle.
+
+A joined shape takes the stacking position of its first source stroke. It works even
 when live hold recognition is off. Apply replaces recognised strokes in their original positions;
 unrecognised ink, text, images, stacking order and layer assignments are retained. Note ink stays
 in note-local coordinates. Hidden and locked layers are never changed.
@@ -43,7 +65,7 @@ all affected pages. Live page drawing retains its existing two-step history: Und
 freehand source, then a second Undo removes it. A live sticky-note stroke retains its existing
 single text-edit undo behavior.
 
-`ShapeAssist.kt`, `ShapeRecognition.kt`, `ShapeHold.kt`, `ShapeAdjustment.kt` and `ShapeSelectionCleanup.kt` keep the
+`ShapeAssist.kt`, `ShapeRecognition.kt`, `ShapeHold.kt`, `ShapeAdjustment.kt`, `ShapeCleanup.kt` and `ShapeSelectionCleanup.kt` keep the
 rules independent of Android UI. Options use one append-only preference string under
 `AppPrefs.SHAPE_ASSIST_OPTIONS`; no notebook format or new ink tool is introduced. Recognition
 rejects small marks, open loops, scribbles and multiply traced shapes. Highlighter recognition
@@ -54,8 +76,10 @@ held lines (ruler-constrained lines keep their ruler angle); lasso cleanup retai
 
 - `node tools/shapes-smoke.cjs`: hold timing/drift/grace/cancellation, live adjustment and both winding directions,
   rotated geometry, polygons/stars/arrows, rejected writing, all option round trips, exact
-  circles/squares, elongated shapes, highlighter style and cleanup ordering.
-- `ShapeSelectionCleanupTest`: positional replacement, journal inversion back to the original
+  circles/squares, elongated shapes, highlighter style and cleanup ordering, overshoot/hook/rounded
+  corner forgiveness, multi-stroke boxes, triangles, split outlines and arrows, handwriting left
+  alone and idempotent re-cleanup.
+- `ShapeSelectionCleanupTest`: positional replacement (including a box drawn line by line), journal inversion back to the original
   samples, locked/hidden layers, sticky coordinates and preserved page content.
 - Canonical signed build: `./build.sh -p`.
 
@@ -74,7 +98,9 @@ On a device:
    normal text does not tidy unless held. Test grid snapping and a ruler at a non-15° angle.
 5. Practice with pen and finger; restore freehand using Undo and clear the test area. Navigate
    away and confirm the practice drawing was not saved in any notebook.
-6. Lasso a mix of writing, rough diagrams, pictures and sticky notes. Compare previews, cancel,
+6. Lasso a mix of writing, rough diagrams drawn in several strokes (boxes line by line, arrows
+   with separate heads, circles in two halves), pictures and sticky notes. Labels and words must
+   stay as written. Compare previews, cancel,
    then apply. Check overlap order, editable layers, one-step Undo/Redo, reopening and export.
 7. Repeat cleanup across two pages. While a preview is open, change the document through another
    surface and confirm applying the stale preview is refused.

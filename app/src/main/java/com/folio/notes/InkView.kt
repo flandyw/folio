@@ -110,7 +110,7 @@ class InkView(context: Context) : View(context) {
     var onStrokesChanged: (List<Stroke>) -> Unit = {}
     /** Exact append from a pen gesture; [before] is the page list held at pen-up. */
     internal var documentInputBusy: (() -> Boolean)? = null
-    internal fun cancelExternalGesture() { inputRouter.reset(::handleTouchEvent); cancelGesture(); onLiveInk(null, false); invalidate() }
+    internal fun cancelExternalGesture() { inputRouter.reset(::handleTouchEvent); stickyNotes.cancel(); cancelGesture(); onLiveInk(null, false); invalidate() }
     internal var onDocumentGestureStart: ((Stroke, Boolean) -> Boolean)? = null
     internal var onDocumentGestureSamples: ((List<InkPoint>) -> Boolean)? = null
     internal var onDocumentGestureFinish: (() -> Boolean)? = null
@@ -313,8 +313,8 @@ class InkView(context: Context) : View(context) {
     internal var onStickyLift: ((StickyLift?) -> Unit)?
         get() = stickyNotes.onLift
         set(value) { stickyNotes.onLift = value }
-    /** Offered a carried note on release; true when it was placed elsewhere (another page). */
-    internal var onStickyDrop: ((StickyLift) -> Boolean)?
+    /** Offered a carried note on release, including refusal of a stale or protected transfer. */
+    internal var onStickyDrop: ((StickyLift) -> StickyDrop)?
         get() = stickyNotes.onDrop
         set(value) { stickyNotes.onDrop = value }
     private var stickyFrameReported: Rect? = null
@@ -1220,9 +1220,11 @@ class InkView(context: Context) : View(context) {
      * [bodies] is set, on any sticky note: a finger there is moving, resizing or typing, never turning a page.
      */
     fun touchesNote(windowX: Float, windowY: Float, bodies: Boolean = true): Boolean {
-        if (page.infinite || width <= 0) return false
         val at = IntArray(2).also(::getLocationInWindow)
-        val x = windowX - at[0]; val y = windowY - at[1]
+        return touchesLocalNote(windowX - at[0], windowY - at[1], bodies)
+    }
+    internal fun touchesLocalNote(x: Float, y: Float, bodies: Boolean = true): Boolean {
+        if (page.infinite || width <= 0) return false
         val px = (x - originX) / scale; val py = (y - originY) / scale
         if (bodies && visibleNotes().any { StickyNotes.contains(it, px, py) }) return true
         val focus = stickyNotes.focused() ?: return false
@@ -1418,7 +1420,7 @@ class InkView(context: Context) : View(context) {
             writingWindowTarget = null; lastWritingWindow = null
             liveInkPreview = null; followLandingPreview = null
             inputRouter.reset(::handleTouchEvent)
-            stickyNotes.reset()
+            stickyNotes.reset(clearDrop = true)
             followPaused = false; followLastPoint = null
             followBack.clear(); writingFollow.state = WritingFollowState(); cancelFollowMotion()
             automaticReturnTarget.clear()
@@ -1437,7 +1439,7 @@ class InkView(context: Context) : View(context) {
             boundsCache.retainAll(keep)
         }
         page = value; background = bitmap; imageBitmaps = images
-        if (stickyNotes.focusedId != null) post { stickyNotes.refresh() }
+        post { stickyNotes.refresh() }
         // Content deleted from outside the view stops being selected, per list so one removed
         // stroke does not drop a still-present text box from the selection. Identity only:
         // the ViewModel reuses untouched stroke instances, so a deep value walk over every
@@ -1638,12 +1640,13 @@ class InkView(context: Context) : View(context) {
         inputRouter.stylus.detachNavigationSurface()
         inputRouter.stylus.removeArrivalListener(penArrival)
         recentFingerInk.clear()
+        // A router reset emits CANCEL, which would discard the held position before the drop.
+        stickyNotes.dropLift()
         inputRouter.reset(::handleTouchEvent)
         onLiveInk(null, false)
         onFollowLanding(null)
         endObjectLift()
-        stickyNotes.dropLift()
-        stickyNotes.reset()
+        stickyNotes.reset(clearDrop = true)
         removeCallbacks(followFrame)
         removeCallbacks(reportMeasurement)
         removeCallbacks(reportTextFrame)
@@ -1896,6 +1899,7 @@ class InkView(context: Context) : View(context) {
 
     /** Finite-column notes are painted on the shared workspace, outside every paper/item clip. */
     internal var workspaceNotes = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     internal var onWorkspaceNotesInvalidated: (() -> Unit)? = null
     override fun invalidate() { super.invalidate(); onWorkspaceNotesInvalidated?.invoke() }
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -2056,7 +2060,7 @@ class InkView(context: Context) : View(context) {
             cancelGesture(); reportSelectionViewBounds(); invalidate()
             return true
         }
-        if (documentInputBusy?.invoke() == true) { cancelGesture(); return true }
+        if (documentInputBusy?.invoke() == true) { stickyNotes.cancel(); cancelGesture(); return true }
         if (inputBlocked) return true
         if (handleWritingWindow(event)) return true
         val touchNavigation = inputRouter.stylus.isNavigation(event.deviceId, event.downTime)
@@ -2068,7 +2072,12 @@ class InkView(context: Context) : View(context) {
             // A finger that will navigate rather than draw (and the hand tool) can tap a note for its menu.
             val tapFocuses = tool == Tool.HAND || (!pen && !fingerDrawing && tool != Tool.LASSO && tool != Tool.TEXT)
             if (stickyNotes.touch(event, point(event, 0), tool, pen || fingerDrawing, tapFocuses, activeLayer)) {
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) { onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable) }
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    onActive(); suspendWritingFollow(); removeCallbacks(longPressRunnable)
+                    // Seed navigation before a possible second finger hands this gesture back.
+                    pointerId = event.getPointerId(0); stylus = pen; ignored = false
+                    if ((page.infinite || cameraPage) && !pen) zoomDetector.onTouchEvent(event)
+                }
                 return true
             }
         }

@@ -197,18 +197,22 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
         }
     }
 
-    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float) {
+    fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float, scale: Float = 1f): Boolean {
         with(runtime) {
-            if (sourceId == targetId || !box.isSticky) return
-            scope.launch {
-                val target = awaitLoaded(targetId) ?: run { reportError("Couldn't open the destination page."); return@launch }
-                val note = _state.value.active ?: return@launch
-                val source = note.pages.find { it.id == sourceId && it.loaded } ?: return@launch
-                if (source.texts.none { it.id == box.id }) return@launch
-                val placed = box.copy(x = x, y = y, layer = activeLayerOf(target))
-                updateContent(target.id, target.strokes, target.texts + placed, target.images)
-                updateContent(source.id, source.strokes, source.texts.filterNot { it.id == box.id }, source.images)
+            val note = _state.value.active ?: return false
+            val source = note.pages.find { it.id == sourceId && it.loaded } ?: return false
+            val target = note.pages.find { it.id == targetId } ?: return false
+            if (!target.loaded) {
+                loadPage(targetId)
+                reportError("The destination page is still loading. Try the move again when it opens.")
+                return false
             }
+            val transfer = StickyNotes.transfer(source, target, box, x, y, activeLayerOf(target), scale)
+                ?: run { reportError("The note or destination layer changed. Pick up the note again to move it."); return false }
+            // Both pages are loaded, so accept synchronously against this notebook and these contents.
+            updateContent(target.id, target.strokes, transfer.targetTexts, target.images)
+            updateContent(source.id, source.strokes, transfer.sourceTexts, source.images)
+            return true
         }
     }
 

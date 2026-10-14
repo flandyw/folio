@@ -60,4 +60,23 @@ class ShapeSelectionCleanupTest {
         assertNull(PageJournal.diff(page.content(), result.content))
         assertSame(clean, ShapeCleanup.strokes(listOf(clean), ShapeAssistOptions()).strokes.single())
     }
+
+    @Test fun joinsABoxDrawnLineByLineAtItsFirstStrokeAndUndoRestoresEveryStroke() {
+        fun edge(ax: Float, ay: Float, bx: Float, by: Float) = Stroke(Tool.PEN, 0x123456, 3f,
+            (0..40).map { InkPoint(ax + (bx - ax) * it / 40f, ay + (by - ay) * it / 40f, .5f) }, .6f, layer = 0)
+        val before = line(400f)
+        val sides = listOf(edge(100f, 100f, 300f, 100f), edge(300f, 100f, 300f, 220f), edge(300f, 220f, 100f, 220f), edge(100f, 220f, 100f, 100f))
+        val between = line(500f)
+        val page = NotePage(strokes = listOf(before, sides[0], sides[1], between, sides[2], sides[3]))
+        val result = ShapeSelectionCleanup.plan(page, CanvasSelection(strokes = sides), ShapeAssistOptions())
+        assertEquals(4, result.changed)
+        assertEquals(1, result.shapes)
+        assertEquals(3, result.content.strokes.size)
+        assertSame(before, result.content.strokes[0])
+        assertEquals(Tool.RECTANGLE, result.content.strokes[1].tool)
+        assertSame(between, result.content.strokes[2])
+        assertEquals(listOf(result.content.strokes[1]), result.selection.strokes)
+        val edit = requireNotNull(PageJournal.diff(page.content(), result.content))
+        assertEquals(page.content(), PageJournal.apply(result.content, PageJournal.invert(edit, page.content())))
+    }
 }

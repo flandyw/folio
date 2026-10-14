@@ -28,15 +28,20 @@ import kotlinx.coroutines.withContext
         }
     }
     val results = prepared?.takeIf { it.first == options }?.second
-    val count = results?.values?.sumOf { it.changed } ?: 0
+    val count = results?.values?.sumOf { it.shapes } ?: 0
+    val sources = results?.values?.sumOf { it.changed } ?: 0
     var after by remember { mutableStateOf(true) }
     var failure by remember { mutableStateOf<String?>(null) }
     FolioPanel("Tidy up shapes", onDismiss) {
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (results == null) "Finding shapes…" else if (count == 0) "No shapes to tidy with these options." else "$count ${if (count == 1) "stroke" else "strokes"} ready to tidy.",
-                style = MaterialTheme.typography.titleMedium)
-            Text("Preview the selected ink before applying. Handwriting that isn't recognised stays as drawn. Colour, line weight, transparency and layers are preserved.",
+            Text(when {
+                results == null -> "Finding shapes…"
+                count == 0 -> "No shapes to tidy with these options."
+                else -> "$count ${if (count == 1) "shape" else "shapes"} ready to tidy" +
+                    if (sources > count) " (from $sources strokes)." else "."
+            }, style = MaterialTheme.typography.titleMedium)
+            Text("Preview the selected ink before applying. Boxes drawn line by line, outlines drawn in pieces and arrows with a separate head become one shape. Handwriting and anything not recognised stay as drawn. Colour, line weight, transparency and layers are preserved.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(!after, { after = false }, label = { Text("Original") })
