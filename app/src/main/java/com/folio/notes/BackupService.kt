@@ -86,6 +86,27 @@ internal class BackupService(private val runtime: FolioRuntime) {
                 (option.exam.year != null && option.exam.year !in 1900..2099) ||
                 (option.exam.marksTotal != null && option.exam.marksTotal !in 1..300) } != false }) return
             _state.update { it.copy(busy = true, pendingPdfImports = emptyList()) }
+            runPdfImport(folderId, items, options)
+        }
+    }
+
+    /**
+     * PDFs Folio fetched itself (the VCAA library), already described, so there is nothing to
+     * review. The downloaded copies are deleted once the notebooks own theirs.
+     */
+    fun importDownloadedPdfs(folderId: String?, items: List<PendingPdfImport>, files: List<java.io.File>) {
+        with(runtime) {
+            val request = _state.value
+            if (request.busy || request.loading || request.loadFailed || items.isEmpty() ||
+                (folderId != null && request.folders.none { it.id == folderId })) { files.forEach { it.delete() }; return }
+            _state.update { it.copy(busy = true) }
+            runPdfImport(folderId, items, items.associateBy { it.uri }) { files.forEach { it.delete() } }
+        }
+    }
+
+    private fun runPdfImport(folderId: String?, items: List<PendingPdfImport>, options: Map<Uri, PendingPdfImport>,
+                             cleanup: () -> Unit = {}) {
+        with(runtime) {
             scope.launch {
                 val imported = mutableListOf<Notebook>()
                 val failures = mutableListOf<String>()
@@ -120,7 +141,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
                             append("\nExam details and smart notebook names were applied.")
                         if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
                     })
-                } finally { _state.update { it.copy(busy = false, importProgress = null) } }
+                } finally { _state.update { it.copy(busy = false, importProgress = null) }; cleanup() }
             }
         }
     }

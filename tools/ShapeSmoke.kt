@@ -84,6 +84,45 @@ fun main() {
     )) check(ShapeRecognition.tidy(stroke(points)) == null) { "Accepted $name" }
     check(ShapeRecognition.tidy(stroke(circle).copy(tool = Tool.HIGHLIGHTER)) == null)
 
+    val defaults = ShapeAssistOptions()
+    check(ShapeAssistOptions.decode(null) == defaults)
+    check(ShapeAssistOptions.decode("invalid") == defaults)
+    for (mask in 0..63) {
+        val config = ShapeAssistOptions((mask and 1) != 0, (mask and 2) != 0, (mask and 4) != 0,
+            (mask and 8) != 0, (mask and 16) != 0, (mask and 32) != 0)
+        check(ShapeAssistOptions.decode(config.encode()) == config)
+    }
+    check(ShapeRecognition.tidy(stroke(line), defaults.copy(lines = false)) == null)
+    check(ShapeRecognition.tidy(stroke(path(arrow, false)), defaults.copy(arrows = false)) == null)
+    check(ShapeRecognition.tidy(stroke(path(regular(3))), defaults.copy(arrows = false)) != null)
+    check(ShapeRecognition.tidy(stroke(circle), defaults.copy(closed = false)) == null)
+    val highlight = stroke(line).copy(tool = Tool.HIGHLIGHTER)
+    val underline = checkNotNull(ShapeRecognition.tidy(highlight)).single()
+    check(underline.tool == Tool.HIGHLIGHTER && underline.opacity == highlight.opacity && underline.width == highlight.width && underline.layer == 2)
+    check(ShapeRecognition.tidy(highlight, defaults.copy(highlighter = false)) == null)
+    val perfect = defaults.copy(perfect = true)
+    val round = checkNotNull(ShapeRecognition.tidy(stroke(oval(100f, 90f)), perfect)).single().points
+    check(abs((round[1].x - round[0].x) - (round[1].y - round[0].y)) < .01f)
+    val longOval = checkNotNull(ShapeRecognition.tidy(stroke(oval(150f, 80f)), perfect)).single().points
+    check((longOval[1].x - longOval[0].x) > (longOval[1].y - longOval[0].y) * 1.5f)
+    val almostSquare = path(listOf(p(0f, 0f), p(100f, 0f), p(100f, 90f), p(0f, 90f)))
+    val square = checkNotNull(ShapeRecognition.tidy(stroke(almostSquare), perfect)).single().points
+    check(abs((square[1].x - square[0].x) - (square[1].y - square[0].y)) < .01f)
+    for (n in listOf(3, 5, 6, 10)) for (reverse in listOf(false, true)) {
+        val points = regular(n, .27, n == 10).mapIndexed { i, v -> if (i == 1) p(v.x + 6f, v.y + 3f) else v }
+        val raw = path(points).let { if (reverse) it.reversed() else it }
+        val fitted = checkNotNull(ShapeRecognition.tidy(stroke(raw), defaults.copy(regular = true)))
+        val lengths = fitted.map { hypot(it.points[1].x - it.points[0].x, it.points[1].y - it.points[0].y) }
+        check(lengths.max() - lengths.min() < .01f) { "Regular $n-gon lost equal sides" }
+    }
+    val dot = stroke(List(20) { p(20f, 20f) })
+    val source = listOf(dot, stroke(line), dot.copy(color = 99))
+    val cleaned = ShapeCleanup.strokes(source, defaults)
+    check(cleaned.changed == 1 && cleaned.strokes.size == 3)
+    check(cleaned.strokes[0] === source[0] && cleaned.strokes[2] === source[2])
+    check(ShapeCleanup.strokes(cleaned.strokes, defaults).changed == 0)
+    check(ShapeCleanup.strokes(listOf(dot), defaults).strokes.single() === dot)
+
     val hold = ShapeHold()
     check(hold.remaining(0, 650) == null)
     check(hold.sample(0f, 0f, 100, 8f))
@@ -91,7 +130,7 @@ fun main() {
     check(!hold.sample(3f, 2f, 740, 8f)) // Stationary sample traffic must not postpone the hold.
     check(hold.attempt(750, 650)) // Fires even if no new MOVE is delivered.
     check(!hold.attempt(800, 650))
-    check(hold.sample(12f, 0f, 900, 8f)) // Continue drawing: new pause, no early conversion.
+    check(hold.sample(20f, 0f, 900, 8f)) // Deliberate movement: new pause, no early conversion.
     check(!hold.attempt(1549, 650))
     check(hold.attempt(1550, 650))
     hold.reset() // UP, CANCEL, navigation, detach, tool change and disabling recognition.
@@ -99,5 +138,90 @@ fun main() {
     check(hold.sample(0f, 0f, 6000, 8f))
     hold.reset() // Quick lift never tidies.
     check(!hold.attempt(7000, 650))
-    println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, arrows and rejected writing")
+    hold.reset()
+    hold.sample(0f, 0f, 100, ShapeHold.SLOP_DP)
+    for (time in 110L..740L step 10) {
+        check(!hold.sample(if (time % 20L == 0L) 10f else -10f, 3f, time, ShapeHold.SLOP_DP))
+    }
+    check(hold.attempt(750, 650)) // Normal hand tremor never restarts the timer.
+    hold.reset()
+    hold.sample(0f, 0f, 100, 8f)
+    check(!hold.sample(11f, 0f, 740, 8f))
+    check(!hold.attempt(750, 650)) // Wait out a brief excursion near the hold deadline.
+    check(!hold.sample(2f, 0f, 770, 8f))
+    check(hold.attempt(770, 650)) // Returning inside the radius keeps the original timer.
+    hold.reset()
+    hold.sample(0f, 0f, 100, 8f)
+    hold.sample(11f, 0f, 730, 8f)
+    check(!hold.attempt(810, 650)) // No new MOVE: sustained displacement still restarts.
+    check(hold.remaining(810, 650) == 570L)
+    check(hold.attempt(1380, 650))
+    hold.reset()
+    hold.sample(0f, 0f, 100, 8f)
+    check(!hold.sample(10f, 0f, 200, 8f))
+    check(hold.sample(12f, 0f, 280, 8f))
+    check(hold.remaining(280, 650) == 570L)
+
+    val shakingCircle = stroke(circle + List(100) { i -> p(300f + if (i % 2 == 0) 8f else -8f, 200f + if (i % 2 == 0) 3f else -3f) })
+    val settledCircle = ShapeHold.drawing(shakingCircle, circle.size - 4)
+    check(checkNotNull(ShapeRecognition.tidy(settledCircle)).single().tool == Tool.ELLIPSE)
+    check(shakingCircle.points.size == circle.size + 100)
+    val smallCircle = oval(30f, 30f)
+    val shakingSmallCircle = stroke(smallCircle + List(100) { i -> p(230f + if (i % 2 == 0) 6f else -6f, 200f + if (i % 2 == 0) 2f else -2f) })
+    check(checkNotNull(ShapeRecognition.tidy(ShapeHold.drawing(shakingSmallCircle, smallCircle.size - 18))).single().tool == Tool.ELLIPSE)
+    val shakingLine = stroke(line + List(100) { i -> p(200f + if (i % 2 == 0) 7f else -7f, 25f) })
+    check(checkNotNull(ShapeRecognition.tidy(ShapeHold.drawing(shakingLine, line.size))).single().tool == Tool.LINE)
+    check(ShapeHold.drawing(stroke(line), line.size).points === line)
+
+    val straight = tidy(line, "adjustment line").single()
+    val contact = p(205f, 30f) // Grab offset from the fitted endpoint must never jump.
+    val adjustment = ShapeAdjustment(listOf(straight), contact)
+    val initialFit = adjustment.update(contact, 5f)
+    check(adjustment.update(p(207f, 31f), 5f) === initialFit)
+    val extended = adjustment.update(p(260f, 30f), 5f).single()
+    check(extended.points.first() == straight.points.first())
+    check(abs(extended.points.last().x - straight.points.last().x - 50f) < .01f)
+    check(extended.width == straight.width && extended.layer == straight.layer && extended.opacity == straight.opacity)
+    check(adjustment.update(contact, 5f).single() === straight)
+    val justOutside = adjustment.update(p(210.001f, 30f), 5f).single()
+    check(abs(justOutside.points.last().x - straight.points.last().x) < .002f)
+    val doubled = straight.copy(points = straight.points.map { it.copy(x = it.x * 2, y = it.y * 2) })
+    val zoomed = ShapeAdjustment(listOf(doubled), p(contact.x * 2, contact.y * 2)).update(p(520f, 60f), 10f).single()
+    check(abs(zoomed.points.last().x / 2 - extended.points.last().x) < .01f)
+    check(abs(zoomed.points.last().y / 2 - extended.points.last().y) < .01f)
+    val exactBox = Stroke(Tool.RECTANGLE, 12, 3f, listOf(InkPoint(0f, 0f), InkPoint(100f, 60f)))
+    val boxAdjustment = ShapeAdjustment(listOf(exactBox), InkPoint(100f, 60f))
+    val enlarged = boxAdjustment.update(InkPoint(150f, 90f), 0f).single()
+    check(enlarged.tool == Tool.RECTANGLE)
+    check(enlarged.points == listOf(InkPoint(-50f, -30f), InkPoint(150f, 90f)))
+    val turned = boxAdjustment.update(InkPoint(20f, 80f), 0f)
+    check(turned.size == 4 && turned.all { it.tool == Tool.LINE })
+    for (i in turned.indices) {
+        val a = turned[i].points; val b = turned[(i + 1) % 4].points
+        val dot = (a[1].x - a[0].x) * (b[1].x - b[0].x) + (a[1].y - a[0].y) * (b[1].y - b[0].y)
+        check(abs(dot) < .01f)
+    }
+    val circleStroke = Stroke(Tool.ELLIPSE, 12, 3f, listOf(InkPoint(0f, 0f), InkPoint(100f, 100f)))
+    val circleAdjustment = ShapeAdjustment(listOf(circleStroke), InkPoint(100f, 50f))
+    val biggerCircle = circleAdjustment.update(InkPoint(50f, 150f), 0f).single()
+    check(biggerCircle.tool == Tool.ELLIPSE && biggerCircle.points == listOf(InkPoint(-50f, -50f), InkPoint(150f, 150f)))
+    val ovalStroke = circleStroke.copy(points = listOf(InkPoint(0f, 0f), InkPoint(160f, 100f)))
+    val ovalAdjustment = ShapeAdjustment(listOf(ovalStroke), InkPoint(160f, 50f))
+    val turnedOval = ovalAdjustment.update(InkPoint(80f, 130f), 0f).single()
+    check(turnedOval.tool == Tool.PEN && turnedOval.points.size == 129)
+    check(turnedOval.points.all { it.pressure == 1f })
+    val fittedArrow = tidy(path(arrow, false), "adjustable arrow")
+    val adjustedArrow = ShapeAdjustment(fittedArrow, arrow.last()).update(p(250f, 80f), 0f)
+    check(adjustedArrow.first().points.first() == fittedArrow.first().points.first())
+    check(adjustedArrow[1].points.first() == adjustedArrow[0].points.last())
+    check(adjustedArrow[2].points.first() == adjustedArrow[0].points.last())
+    // Thousands of updates must equal a fresh update at the same tip, with no accumulated drift.
+    repeat(1000) { adjustment.update(p(210f + it % 30, 40f + it % 10), 5f) }
+    check(adjustment.update(p(260f, 30f), 5f) == extended.let { listOf(it) })
+    check(straight.points == tidy(line, "unchanged original").single().points)
+    check(adjustment.update(p(Float.NaN, 0f), 5f).single() === straight)
+    val highlightAdjustment = ShapeAdjustment(listOf(underline), underline.points.last())
+    check(highlightAdjustment.update(InkPoint(300f, 80f), 0f).single().tool == Tool.HIGHLIGHTER)
+
+    println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")
 }

@@ -7,6 +7,15 @@ internal object DocumentToolEdits {
     fun content(page: NotePage, strokes: List<Stroke>, notes: Map<String, List<Stroke>>, options: Options): PageContent =
         page.content().copy(strokes = apply(page.strokes, strokes, options) { PageLayers.editable(page.layers, it.layer) },
             texts = page.texts.map { box -> notes[box.id]?.let { paths -> box.copy(stickyInk = apply(box.stickyInk, paths, options) { true }) } ?: box })
+    /** Record the drawing before interpreting it as erasure. Undo can then keep intentional ink. */
+    fun contentSteps(page: NotePage, strokes: List<Stroke>, notes: Map<String, List<Stroke>>, options: Options): List<PageContent> {
+        val after = content(page, strokes, notes, options)
+        if (options.scribble && !options.erasing) {
+            val drawn = content(page, strokes, notes, options.copy(scribble = false))
+            if (drawn != after) return listOf(drawn, after)
+        }
+        return listOf(after)
+    }
     fun restyle(page: NotePage, selection: CanvasSelection, color: Int?, width: Float?, opacity: Float?, style: StrokeStyle?): PageContent {
         val replacements = java.util.IdentityHashMap<Stroke, Stroke>()
         selection.strokes.zip(InkGeometry.restyle(selection.strokes, color, width, opacity, style)).forEach { (before, after) -> replacements[before] = after }

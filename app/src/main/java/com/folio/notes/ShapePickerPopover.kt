@@ -3,6 +3,8 @@ package com.folio.notes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,11 +43,24 @@ object ShapeRecents {
     tool: Tool,
     shapes: List<Tool> = ShapePickerTools.toList(),
     onPick: (Tool) -> Unit,
+    onDrawHold: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val prefs = rememberPrefs()
     FolioPopover(onDismiss, width = 320.dp) {
         Text("Shapes", style = MaterialTheme.typography.titleMedium)
-        Text("Draw · choose a shape, then drag", style = MaterialTheme.typography.bodySmall,
+        FilledTonalButton({
+            prefs.edit().putBoolean("shapeRecognition", true).apply()
+            onDrawHold()
+        }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Rounded.AutoFixHigh, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Draw & hold with the pen")
+        }
+        Text("Draw a shape and pause gently. Move to adjust it, then lift to keep it. Options and practice are in Pen settings.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        HorizontalDivider()
+        Text("Or choose a shape, then drag", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         ShapeGrid(shapes) { value ->
             ShapeTile(shapeName(value), selected = tool == value, onClick = { onPick(value) }) { color ->

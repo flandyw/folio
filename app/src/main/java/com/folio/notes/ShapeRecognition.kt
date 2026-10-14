@@ -4,7 +4,22 @@ import kotlin.math.*
 
 /** Hold-to-shape geometry. Results are ordinary ink, with no new storage types. */
 internal object ShapeRecognition {
-    fun tidy(stroke: Stroke): List<Stroke>? {
+    fun tidy(stroke: Stroke, options: ShapeAssistOptions = ShapeAssistOptions()): List<Stroke>? {
+        if (stroke.tool == Tool.HIGHLIGHTER) {
+            if (!options.highlighter || !options.lines) return null
+            val line = detect(stroke.copy(tool = Tool.PEN), options)?.singleOrNull()?.takeIf { it.tool == Tool.LINE } ?: return null
+            return listOf(line.copy(tool = Tool.HIGHLIGHTER))
+        }
+        val result = detect(stroke, options) ?: return null
+        val allowed = when {
+            result.singleOrNull()?.tool == Tool.LINE -> options.lines
+            result.size == 3 && result.last().points.last() != result.first().points.first() -> options.arrows
+            else -> options.closed
+        }
+        return result.takeIf { allowed }
+    }
+
+    private fun detect(stroke: Stroke, options: ShapeAssistOptions): List<Stroke>? {
         if (stroke.tool != Tool.PEN || stroke.points.size < 5 ||
             stroke.points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
         val raw = stroke.points
@@ -24,7 +39,7 @@ internal object ShapeRecognition {
         if (length < span * 1.6f || length > span * 4.5f) return null
         val loop = simplify(points + points.first(), span * .035f).dropLast(1)
         val corners = loop.indices.filter { abs(turn(loop, it)) > .35f }.map { loop[it] }
-        if (corners.size !in 3..6 && corners.size != 10) return ellipse(stroke, points)?.let { listOf(it) }
+        if (corners.size !in 3..6 && corners.size != 10) return ellipse(stroke, points, options.perfect)?.let { listOf(it) }
         if (corners.indices.any { distance(corners[it], corners[(it + 1) % corners.size]) < span * .08f }) return null
         // A narrow oval can simplify to six corners. Its arcs still bow away from those
         // chords; an actual hexagon has straight sides, even with an uneven pen speed.
@@ -35,7 +50,7 @@ internal object ShapeRecognition {
         }
         if (corners.indices.any { deviations[it] / samples[it].coerceAtLeast(1) >
                 distance(corners[it], corners[(it + 1) % corners.size]) * .025f })
-            return ellipse(stroke, points)?.let { listOf(it) }
+            return ellipse(stroke, points, options.perfect)?.let { listOf(it) }
         if (points.any { p -> corners.indices.minOf { gap(p, corners[it], corners[(it + 1) % corners.size]) } > span * .045f }) return null
         val turns = corners.indices.map { turn(corners, it) }
         if (corners.size == 10) {
@@ -45,8 +60,8 @@ internal object ShapeRecognition {
         } else if (!(turns.all { it > 0f } || turns.all { it < 0f }) ||
             abs(abs(turns.sum()) - 2 * PI) > .4) return null
         if (corners.size == 4 && turns.all { abs(abs(it) - PI.toFloat() / 2) < .22f })
-            return rectangle(stroke, corners)
-        return edges(stroke, corners)
+            return rectangle(stroke, corners, options.perfect)
+        return edges(stroke, if (options.regular && corners.size != 4) regular(corners) else corners)
     }
 
     private fun edge(s: Stroke, a: InkPoint, b: InkPoint) =
@@ -56,7 +71,7 @@ internal object ShapeRecognition {
         corners.indices.map { edge(s, corners[it], corners[(it + 1) % corners.size]) }
 
     /** Fit orthogonal edges in the drawing's own orientation, rather than its screen box. */
-    private fun rectangle(s: Stroke, corners: List<InkPoint>): List<Stroke> {
+    private fun rectangle(s: Stroke, corners: List<InkPoint>, perfect: Boolean): List<Stroke> {
         val i = corners.indices.maxBy { distance(corners[it], corners[(it + 1) % corners.size]) }
         val a = corners[i]; val b = corners[(i + 1) % corners.size]
         var angle = atan2(b.y - a.y, b.x - a.x)
@@ -66,14 +81,17 @@ internal object ShapeRecognition {
         val c = cos(angle); val t = sin(angle)
         val xs = corners.map { it.x * c + it.y * t }; val ys = corners.map { -it.x * t + it.y * c }
         fun p(x: Float, y: Float) = InkPoint(x * c - y * t, x * t + y * c)
-        val fitted = listOf(p(xs.min(), ys.min()), p(xs.max(), ys.min()), p(xs.max(), ys.max()), p(xs.min(), ys.max()))
+        val cx = (xs.min() + xs.max()) / 2; val cy = (ys.min() + ys.max()) / 2
+        var rx = (xs.max() - xs.min()) / 2; var ry = (ys.max() - ys.min()) / 2
+        if (perfect && min(rx, ry) / max(rx, ry) >= .8f) { val radius = (rx + ry) / 2; rx = radius; ry = radius }
+        val fitted = listOf(p(cx - rx, cy - ry), p(cx + rx, cy - ry), p(cx + rx, cy + ry), p(cx - rx, cy + ry))
         if (angle == aligned) return listOf(s.copy(tool = Tool.RECTANGLE,
             points = listOf(InkPoint(fitted.minOf { it.x }, fitted.minOf { it.y }),
                 InkPoint(fitted.maxOf { it.x }, fitted.maxOf { it.y }))))
         return edges(s, fitted)
     }
 
-    private fun ellipse(s: Stroke, points: List<InkPoint>): Stroke? {
+    private fun ellipse(s: Stroke, points: List<InkPoint>, perfect: Boolean): Stroke? {
         val mx = points.map { it.x.toDouble() }.average(); val my = points.map { it.y.toDouble() }.average()
         var xx = 0.0; var yy = 0.0; var xy = 0.0
         for (p in points) { val x = p.x - mx; val y = p.y - my; xx += x * x; yy += y * y; xy += x * y }
@@ -84,7 +102,7 @@ internal object ShapeRecognition {
         if (abs(angle - aligned) < .04f) angle = aligned
         val c = cos(angle); val t = sin(angle)
         val xs = points.map { it.x * c + it.y * t }; val ys = points.map { -it.x * t + it.y * c }
-        val rx = (xs.max() - xs.min()) / 2; val ry = (ys.max() - ys.min()) / 2
+        var rx = (xs.max() - xs.min()) / 2; var ry = (ys.max() - ys.min()) / 2
         if (min(rx, ry) < 6f) return null
         val cx = (xs.max() + xs.min()) / 2; val cy = (ys.max() + ys.min()) / 2
         val errors = xs.indices.map { abs(hypot((xs[it] - cx) / rx, (ys[it] - cy) / ry) - 1f) }
@@ -98,6 +116,12 @@ internal object ShapeRecognition {
             swept += d; travel += abs(d)
         }
         if (abs(swept) < 5.5f || travel > 7.2f) return null
+        if (perfect && min(rx, ry) / max(rx, ry) >= .8f) {
+            val radius = (rx + ry) / 2
+            val centre = InkPoint(cx * c - cy * t, cx * t + cy * c)
+            return s.copy(tool = Tool.ELLIPSE, points = listOf(
+                InkPoint(centre.x - radius, centre.y - radius), InkPoint(centre.x + radius, centre.y + radius)))
+        }
         fun p(x: Float, y: Float) = InkPoint(x * c - y * t, x * t + y * c)
         if (angle == aligned) {
             val ends = listOf(p(cx - rx, cy - ry), p(cx + rx, cy + ry))
@@ -132,6 +156,25 @@ internal object ShapeRecognition {
         val back = (b1 + b2) / 2; val half = (abs(h1) + abs(h2)) / 2
         fun wing(sign: Float) = InkPoint(tip.x - back * ux - sign * half * uy, tip.y - back * uy + sign * half * ux)
         return listOf(edge(s, start, tip), edge(s, tip, wing(1f)), edge(s, tip, wing(-1f)))
+    }
+
+    /** Fit equal sides without changing the drawing's direction or centre. Stars keep two radii. */
+    private fun regular(corners: List<InkPoint>): List<InkPoint> {
+        val cx = corners.map { it.x.toDouble() }.average().toFloat()
+        val cy = corners.map { it.y.toDouble() }.average().toFloat()
+        val direction = if (turn(corners, 0) > 0f) 1 else -1
+        // A star can start at either an inward or outward corner. Use its winding, not that corner.
+        val winding = if (corners.size == 10) if (corners.indices.sumOf { turn(corners, it).toDouble() } > 0) 1 else -1 else direction
+        val step = winding * 2 * PI / corners.size
+        val phases = corners.mapIndexed { i, point -> atan2((point.y - cy).toDouble(), (point.x - cx).toDouble()) - i * step }
+        val angle = atan2(phases.sumOf { sin(it) }, phases.sumOf { cos(it) })
+        val radii = corners.map { hypot(it.x - cx, it.y - cy) }
+        val even = radii.filterIndexed { i, _ -> corners.size != 10 || i % 2 == 0 }.average().toFloat()
+        val odd = if (corners.size == 10) radii.filterIndexed { i, _ -> i % 2 == 1 }.average().toFloat() else even
+        return corners.indices.map { i ->
+            val radius = if (i % 2 == 0) even else odd
+            InkPoint(cx + radius * cos(angle + i * step).toFloat(), cy + radius * sin(angle + i * step).toFloat())
+        }
     }
 
     private fun resample(raw: List<InkPoint>, step: Float): List<InkPoint> {

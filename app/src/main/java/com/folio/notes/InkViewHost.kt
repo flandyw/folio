@@ -19,7 +19,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable internal fun InkViewHost(
     noteId: String, page: NotePage, surface: InkSurfaceConfig,
     presentation: PagePresentation, actions: EditorPageActions, assets: PageAssets, inputStylusActivity: StylusActivity,
-    penSmoothing: Float, shapeHoldMs: Long, stickyTextSize: Float, onBound: (InkView) -> Unit,
+    penSmoothing: Float, shapeHoldMs: Long, shapeAssistOptions: ShapeAssistOptions, stickyTextSize: Float, onBound: (InkView) -> Unit,
     onReleased: (InkView) -> Unit, configure: (InkView) -> Unit,
 ) {
     val registry = LocalEditorSurfaces.current
@@ -124,6 +124,7 @@ import androidx.compose.ui.viewinterop.AndroidView
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
                 view.shapeRecognition = shapeRecognition
                 view.shapeHoldMs = shapeHoldMs
+                view.shapeAssistOptions = shapeAssistOptions
                 view.stickyTextSize = stickyTextSize
                 view.onStrokesChanged = { if (!readOnly) actions.mutations.strokes(it) }
                 view.onStrokeAppended = { before, stroke, after ->

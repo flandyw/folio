@@ -226,7 +226,7 @@ import kotlin.math.roundToInt
             }
             if (shapePicker) ShapePickerPopover(tool, shapes = shapeTools, onPick = { value ->
                 chooseShape(value); shapePicker = false
-            }, onDismiss = { shapePicker = false })
+            }, onDrawHold = { pick(Tool.PEN); shapePicker = false }, onDismiss = { shapePicker = false })
         }
     }
     @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
@@ -317,7 +317,7 @@ import kotlin.math.roundToInt
             }
             if (shapePicker && ToolbarSlot.SHAPES in overflow) {
                 ShapePickerPopover(tool, shapes = shapeTools, onPick = { value -> chooseShape(value); shapePicker = false },
-                    onDismiss = { shapePicker = false })
+                    onDrawHold = { pick(Tool.PEN); shapePicker = false }, onDismiss = { shapePicker = false })
             }
             FolioMenuPopover(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
                 if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); shapes = false }, enabled = canUndo,

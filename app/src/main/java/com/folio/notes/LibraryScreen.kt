@@ -80,6 +80,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
+    var vcaaLibrary by rememberSaveable { mutableStateOf(false) }
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
     // A mark just recorded for Focal, awaiting confirmation in the save review.
     var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
@@ -243,6 +244,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         PopoverRow(Icons.Rounded.CreateNewFolder, if (openFolder != null) "New folder in ${openFolder.name}" else "New folder") { close(); startNewFolder(openFolder?.id) }
         HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
         PopoverRow(Icons.Rounded.PictureAsPdf, "Import PDF document") { close(); onImport() }
+        PopoverRow(Icons.Rounded.School, "VCAA exam library") { close(); vcaaLibrary = true }
         PopoverRow(Icons.Rounded.FolderZip, "Import Folio backup") { close(); onImportArchive() }
     }
     // Never put the library's palm guard above the native handwriting surface.
@@ -687,6 +689,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         }
         NotebookDragFeedback(libraryDrag, Modifier.align(Alignment.BottomCenter).padding(horizontal = FolioSpacing.dp16, vertical = if (wide) FolioSpacing.dp16 else 88.dp))
     }
+    if (vcaaLibrary) VcaaLibraryPanel(state, model, openFolder?.id) { vcaaLibrary = false }
     examDetails?.let { note ->
         // The dialog edits a snapshot: refresh the notebook from state so a mark recorded
         // elsewhere (e.g. the quick Record action) shows up while the panel is open.

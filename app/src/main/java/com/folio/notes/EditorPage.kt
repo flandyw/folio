@@ -77,6 +77,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     val shapeHoldMs by rememberPref(shapePrefs, AppPrefs.SHAPE_HOLD_MS) {
         AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
     }
+    val shapeAssistOptions by rememberPref(shapePrefs, AppPrefs.SHAPE_ASSIST_OPTIONS) {
+        ShapeAssistOptions.decode(it.getString(AppPrefs.SHAPE_ASSIST_OPTIONS, null))
+    }
     val penSmoothing by rememberPref(shapePrefs, AppPrefs.PEN_SMOOTHING) {
         AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING))
     }
@@ -161,7 +164,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                     Text("Loading page…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            else if (ready) InkViewHost(noteId, page, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs, stickyTextSize,
+            else if (ready) InkViewHost(noteId, page, surface, presentation, actions, assets, inputStylusActivity, penSmoothing, shapeHoldMs, shapeAssistOptions, stickyTextSize,
                 onBound = { boundInkView = it }, onReleased = { if (boundInkView === it) boundInkView = null }) { view ->
                 view.onDocumentGesturePresence = { carrying = it }
                 view.documentPaperWidth = paperWidthPx

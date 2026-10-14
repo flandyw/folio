@@ -359,6 +359,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     var noteSearchOpen by editor.overlays.noteSearch
     val searchQuery = rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
+    var tidyPicked by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     var inkConverting by remember { mutableStateOf(false) }
     // The straightedge is a toolbar switch for this visit. It sits on the current page: a page that
     // has not had it yet places it across the middle of the screen; one that has keeps where it was put.
@@ -905,7 +906,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     onDeselect = ::dismissSelection,
                     onSelectAll = ::selectAllInk,
                     onConvertText = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() } || inkConverting) null
-                        else ({ convertSelectionToText(page.id, selected) })
+                        else ({ convertSelectionToText(page.id, selected) }),
+                    onTidyShapes = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() }) null
+                        else ({ tidyPicked = page.id to selected })
                 )
             }
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
@@ -1601,6 +1604,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         EditorMarkingPresentation(markAssist, markScanBusy, markScanStatus, markZones, markingColor),
         onAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
         onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() })
+    tidyPicked?.let { (pageId, picked) ->
+        ShapeCleanupPanel(note, model, mapOf(pageId to picked), onDismiss = { tidyPicked = null }, onApplied = {
+            activeInkView?.clearSelection(); selection = null
+        })
+    }
     restyleSelection?.let { originals ->
         RestyleSelectionPanel(
             originals = originals, quickColors = quick.colors(InkColors.INK_GROUP),

@@ -156,7 +156,6 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
     val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
-    val shapeHoldMs by rememberPref(p, AppPrefs.SHAPE_HOLD_MS) { AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS)) }
     val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
     SettingsGroup("Input") {
         SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
@@ -169,16 +168,9 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
                 ({ p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING) } }) else null)
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
-        SettingsDivider()
-        SettingsSwitchRow("Tidy up shapes", "Draw, then pause with the pen down to preview a clean shape. Lift to keep it, or keep drawing to return to freehand. Supports lines, arrows, circles, ovals, triangles, quadrilaterals, pentagons, hexagons and stars. Undo restores your drawing.", s.shapeRecognition, s.onShapeRecognition)
-        if (s.shapeRecognition) {
-            SettingsDivider()
-            SettingsSliderRow("Hold delay", "$shapeHoldMs ms", shapeHoldMs.toFloat(),
-                AppPrefs.SHAPE_HOLD_MIN_MS.toFloat()..AppPrefs.SHAPE_HOLD_MAX_MS.toFloat(),
-                { p.write { putLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.shapeHoldMs(it.toLong())) } }, steps = 23,
-                onReset = if (shapeHoldMs != AppPrefs.DEFAULT_SHAPE_HOLD_MS)
-                    ({ p.write { putLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS) } }) else null)
-        }
+    }
+    SettingsGroup("Tidy up shapes") {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { ShapeAssistSettings() }
     }
     SettingsGroup("Shapes") {
         SettingsPrefSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live measurements", "Show length and angle, or width × height, while drawing a shape.")

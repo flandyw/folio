@@ -198,8 +198,11 @@ class InkView(context: Context) : View(context) {
             if (spanning) {
                 if (routed.blocked) onLayerBlocked()
                 else {
-                    val content = localContent(routed, true)
-                    if (content != page.content()) {
+                    val options = DocumentToolEdits.Options(local.template.tool == Tool.ERASER, eraserWholeStroke,
+                        eraserPressureEnabled && stylus, scribbleToErase && heldShape == null && local.template.tool in FREEHAND_TOOLS, scribbleSensitivity)
+                    val steps = if (options.erasing) listOf(localContent(routed, true)) else DocumentToolEdits.contentSteps(
+                        page, routed.strokes()[page.id].orEmpty(), routed.noteStrokes()[page.id].orEmpty(), options)
+                    for (content in steps) if (content != page.content()) {
                         page = page.copy(strokes = content.strokes, texts = content.texts)
                         onContentChanged(content.strokes, content.texts, content.images)
                     }
@@ -236,6 +239,9 @@ class InkView(context: Context) : View(context) {
     /** Pause at the end of a pen drawing to preview a clean shape before lifting. */
     var shapeRecognition = false
         set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
+    internal var shapeAssistOptions = ShapeAssistOptions()
+        set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
+    internal var onShapeAssistPreview: (Boolean) -> Unit = {}
     var shapeHoldMs = AppPrefs.DEFAULT_SHAPE_HOLD_MS
         set(value) {
             val delay = AppPrefs.shapeHoldMs(value)
@@ -392,33 +398,61 @@ class InkView(context: Context) : View(context) {
     private var zoneOffered = false
     private var lastZoneOfferAt = 0L
     private var draft: Stroke? = null
+    private val shapeHintBackground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xED202624.toInt() }
+    private val shapeHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val shapeHold = ShapeHold()
     private var heldShape: List<Stroke>? = null
+    private var shapeAdjustment: ShapeAdjustment? = null
+    private var shapeContact: InkPoint? = null
+    private var shapeFitPointCount = 0
     internal val documentHeldShape get() = heldShape
-    private val shapeHoldRunnable = Runnable {
-        if (shapeRecognition && tool == Tool.PEN && !readOnly && !inputBlocked && !navigating &&
-            PageLayers.editable(page.layers, activeLayer) && shapeHold.attempt(SystemClock.uptimeMillis(), shapeHoldMs)) {
-            heldShape = draft?.let { InkGeometry.tidy(it) }?.let(::snapShapes)
-            if (heldShape != null) { removeCallbacks(longPressRunnable); if (documentGesture) documentSamples(emptyList()); invalidate() }
+    private val shapeHoldRunnable: Runnable = Runnable {
+        if (shapeRecognition && tool in FREEHAND_TOOLS && !readOnly && !inputBlocked && !navigating &&
+            PageLayers.editable(page.layers, activeLayer)) {
+            if (!shapeHold.attempt(SystemClock.uptimeMillis(), shapeHoldMs)) {
+                shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
+                return@Runnable
+            }
+            heldShape = draft?.let { ShapeRecognition.tidy(ShapeHold.drawing(it, shapeFitPointCount), shapeAssistOptions) }?.let(::snapShapes)
+            if (heldShape != null) {
+                shapeAdjustment = ShapeAdjustment(heldShape!!, shapeContact ?: draft!!.points.last())
+                removeCallbacks(longPressRunnable)
+                onShapeAssistPreview(true)
+                performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                if (documentGesture) documentSamples(emptyList())
+                invalidate()
+            }
         }
     }
     private fun clearShapeHold() {
         removeCallbacks(shapeHoldRunnable)
         shapeHold.reset()
         heldShape = null
+        shapeAdjustment = null
+        shapeContact = null
+        shapeFitPointCount = 0
     }
-    private fun trackShapeHold(event: MotionEvent, index: Int) {
-        if (!shapeRecognition || draft?.tool != Tool.PEN) return
-        val slop = 8f * resources.displayMetrics.density
+    private fun trackShapeHold(event: MotionEvent, index: Int): Boolean {
+        if (!shapeRecognition || draft?.tool !in FREEHAND_TOOLS) return false
+        var contact = point(event, index)
+        if (rulerEdge != 0) contact = snapToRuler(contact)
+        shapeContact = contact
+        shapeAdjustment?.let { adjustment ->
+            heldShape = snapShapes(adjustment.update(contact, ShapeHold.ADJUST_SLOP_DP * resources.displayMetrics.density / scale.coerceAtLeast(.001f)))
+            invalidate()
+            return false
+        }
         var moved = false
+        val slop = ShapeHold.SLOP_DP * resources.displayMetrics.density
         for (h in 0 until event.historySize) {
             moved = shapeHold.sample(event.getHistoricalX(index, h), event.getHistoricalY(index, h),
                 event.getHistoricalEventTime(h), slop) || moved
         }
         moved = shapeHold.sample(event.getX(index), event.getY(index), event.eventTime, slop) || moved
-        if (moved && heldShape != null) { heldShape = null; invalidate() }
+        if (moved) shapeFitPointCount = draft!!.points.size
         removeCallbacks(shapeHoldRunnable)
         shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
+        return moved
     }
     private var erasing: List<Stroke>? = null
     private var lasso: List<InkPoint>? = null
@@ -1840,6 +1874,24 @@ class InkView(context: Context) : View(context) {
         if (laserStrokes.isNotEmpty() || laserHover != null) drawLaser(canvas)
         followStickyFrame()
         canvas.restore()
+        drawShapeAssistHint(canvas)
+    }
+
+    /** Screen-sized feedback stays above the tip, including in a clipped scrolling page. */
+    private fun drawShapeAssistHint(canvas: Canvas) {
+        if (heldShape == null || !getLocalVisibleRect(followVisible)) return
+        val tip = shapeAdjustment?.tip ?: draft?.points?.lastOrNull() ?: return
+        val unit = resources.displayMetrics.density
+        shapeHintText.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12f, resources.displayMetrics)
+        val label = "Move to adjust · lift to keep"
+        val metrics = shapeHintText.fontMetrics
+        val h = metrics.descent - metrics.ascent + 16f * unit
+        val w = shapeHintText.measureText(label) + 24f * unit
+        if (followVisible.width() < w + 16f * unit || followVisible.height() < h + 16f * unit) return
+        val left = (originX + tip.x * scale - w / 2f).coerceIn(followVisible.left + 8f * unit, followVisible.right - w - 8f * unit)
+        val top = (originY + tip.y * scale - h - 36f * unit).coerceIn(followVisible.top + 8f * unit, followVisible.bottom - h - 8f * unit)
+        canvas.drawRoundRect(left, top, left + w, top + h, h / 2f, h / 2f, shapeHintBackground)
+        canvas.drawText(label, left + 12f * unit, top + 8f * unit - metrics.ascent, shapeHintText)
     }
 
     /** Finite-column notes are painted on the shared workspace, outside every paper/item clip. */
@@ -2354,8 +2406,8 @@ class InkView(context: Context) : View(context) {
                         }
                     }
                     draft?.let { current ->
-                        trackShapeHold(event, index)
-                        val accepted = if (documentSamples(points)) { if (rulerEdge == 0) points else points.map(::snapToRuler) } else pagePoints(points)
+                        val restartedHold = trackShapeHold(event, index)
+                        val accepted = if (documentSamples(if (heldShape != null) emptyList() else points)) { if (rulerEdge == 0) points else points.map(::snapToRuler) } else pagePoints(points)
                         draft = when {
                             heldShape != null -> current
                             accepted.isEmpty() -> current
@@ -2379,6 +2431,7 @@ class InkView(context: Context) : View(context) {
                                 current.copy(points = listOf(start, end))
                             }
                         }
+                        if (restartedHold) shapeFitPointCount = draft!!.points.size
                         // Freehand grows incrementally, so only its tip needs redrawing; shapes
                         // invalidate their own tight bounds instead of the whole view.
                         if (draft?.tool in FREEHAND_TOOLS || erasing != null) {
@@ -2467,6 +2520,7 @@ class InkView(context: Context) : View(context) {
         if (erasing != null) { documentSamples(samples(event, index, finishing = true)); return }
         val current = draft ?: return
         trackShapeHold(event, index)
+        if (heldShape != null) { documentSamples(emptyList()); return }
         val raw = samples(event, index, finishing = true)
         val accepted = if (documentSamples(raw)) { if (rulerEdge == 0) raw else raw.map(::snapToRuler) } else pagePoints(raw)
         var end = accepted.lastOrNull() ?: return
@@ -2518,9 +2572,9 @@ class InkView(context: Context) : View(context) {
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
         cancelGesture()
         if (changed) {
-            if (tidied != null && drawn != null) {
-                // Commit the hand-drawn stroke first, then swap in the clean shape as its own step,
-                // so one undo brings the original drawing back instead of removing the ink entirely.
+            if ((tidied != null || scribbleErased != null) && drawn != null) {
+                // Save the drawing first, then its interpretation. One undo restores intentional
+                // scribbles (and the ink they erased), just as it restores a shape's freehand source.
                 val original = drawn.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
                 val withOriginal = beforeStrokes + original
                 if (onStrokeAppended != null) onStrokeAppended!!.invoke(beforeStrokes, original, withOriginal)
@@ -2543,8 +2597,8 @@ class InkView(context: Context) : View(context) {
 
     /**
      * Files the stroke just drawn under [note], in the note's own coordinates. Shape tidy-up, graph
-     * axes and scribble-to-erase behave as they do on the page; the note's ink is one text edit, so
-     * one undo takes the stroke back off the note.
+     * axes and scribble-to-erase behave as they do on the page. Scribble erasure has its own undo
+     * step after the drawing, so an intentional scribble can be recovered as note-local ink.
      */
     private fun finishNoteStroke(note: TextBox?) {
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
@@ -2554,6 +2608,8 @@ class InkView(context: Context) : View(context) {
         if (tidied == null && scribbleToErase && drawn.tool in FREEHAND_TOOLS) {
             val scrubbed = InkGeometry.scribbleErase(note.stickyInk, StickyNotes.toNote(note, drawn), SCRIBBLE_RADIUS, scribbleSensitivity)
             if (scrubbed !== note.stickyInk) {
+                val original = StickyNotes.toNote(note, drawn.copy(layer = 0))
+                commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = it.stickyInk + original) else it })
                 commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = scrubbed) else it })
                 return
             }
@@ -2707,8 +2763,8 @@ class InkView(context: Context) : View(context) {
 
     /** A tidied single line follows the grid and 15° snapping the user already has switched on. */
     private fun snapShapes(shapes: List<Stroke>): List<Stroke> {
-        val line = shapes.singleOrNull()?.takeIf { it.tool == Tool.LINE } ?: return shapes
-        if (!snapEnabled) return shapes
+        val line = shapes.singleOrNull()?.takeIf { it.tool == Tool.LINE || it.tool == Tool.HIGHLIGHTER } ?: return shapes
+        if (!snapEnabled || rulerEdge != 0) return shapes
         val start = line.points.first()
         var end = line.points.last()
         if (page.paper.isGrid) end = InkGeometry.snapToGrid(end, page.paper.gridSpacing)

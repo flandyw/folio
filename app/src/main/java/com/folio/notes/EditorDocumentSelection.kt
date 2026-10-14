@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
     var more by remember { mutableStateOf(false) }
     var resizing by remember { mutableStateOf(false) }
     var resizeFactor by remember { mutableFloatStateOf(1f) }
+    var tidying by remember { mutableStateOf(false) }
     var restyling by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var converting by remember { mutableStateOf(false) }
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CancellationException
             FolioMenuPopover(more, { more = false }, title = "${selection.size} pages selected") {
                 FolioMenuItem({ Text("Duplicate selection") }, { more = false; input.duplicateSelection() })
                 if (ink.isNotEmpty()) {
+                    FolioMenuItem({ Text("Tidy up shapes…") }, { more = false; tidying = true })
                     FolioMenuItem({ Text("Restyle ink") }, { more = false; restyling = true })
                     FolioMenuItem({ Text(if (converting) "Reading handwriting…" else "Convert to text") }, {
                         more = false
@@ -57,6 +59,7 @@ import kotlinx.coroutines.CancellationException
         IconButton(input::deleteSelection) { Icon(Icons.Rounded.DeleteOutline, "Delete document selection") }
         IconButton(input::clearSelection) { Icon(Icons.Rounded.Close, "Clear document selection") }
     }
+    if (tidying) ShapeCleanupPanel(note, model, selection, { tidying = false }, input::clearSelection)
     if (restyling) RestyleSelectionPanel(ink, quickColors,
         onDismiss = { restyling = false }, onApply = { color, width, opacity, style -> input.restyleSelection(color, width, opacity, style); restyling = false })
     if (resizing) FolioPanel("Resize document selection", { resizing = false }) {

@@ -335,8 +335,15 @@ internal fun FocalStudyContent(
         }
     }
 
-    // ── Context column: today's total + sync, other apps' sessions, history. ──
-    val contextItems: LazyListScope.() -> Unit = {
+    val timeline: @Composable (Boolean) -> Unit = { compact ->
+        StudyTimeline(state, now, canStart = examRecording == null && state.canStartFocus && !anotherRunning, cardColor = cardColor,
+            onStartPlanned = { manager.startPlannedFocus(it, selectedNote); manualLog = false },
+            onStartFocus = { manager.startFocus(selectedNote, it) },
+            onEditPlan = { planEditorId = it }, compact = compact)
+    }
+    // ── Context column: the day's timeline (when it isn't spanning the page), today's total + sync, other apps' sessions, history. ──
+    val contextItems: LazyListScope.(Boolean) -> Unit = { withTimeline ->
+        if (dedicated && withTimeline) item(key = "timeline") { timeline(false) }
         item(key = "today") {
             Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -496,14 +503,23 @@ internal fun FocalStudyContent(
     val top = if (dedicated) 0.dp else FolioSpacing.dp8
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         if (maxWidth >= 840.dp) {
-            Row(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding(),
-                horizontalArrangement = Arrangement.spacedBy(FolioDestinationInset)) {
-                Column(Modifier.weight(5f).fillMaxHeight().verticalScroll(rememberScrollState())
-                    .padding(start = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)
-                LazyColumn(Modifier.weight(6f).fillMaxHeight(),
-                    contentPadding = PaddingValues(end = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), content = contextItems)
+            // Landscape tablet: a time strip wants width, so the timeline spans both columns. It is
+            // capped at under half the height (scrolling inside) so the clock and history keep theirs.
+            val spanning = dedicated && constraints.hasBoundedHeight
+            val timelineMax = maxHeight * 0.45f
+            val columnsTop = if (spanning) FolioSpacing.dp12 else top
+            Column(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding()) {
+                if (spanning) Box(Modifier.fillMaxWidth().heightIn(max = timelineMax).verticalScroll(rememberScrollState())
+                    .padding(horizontal = FolioDestinationInset)) { timeline(true) }
+                Row(Modifier.fillMaxWidth().then(if (dedicated) Modifier.weight(1f) else Modifier),
+                    horizontalArrangement = Arrangement.spacedBy(FolioDestinationInset)) {
+                    Column(Modifier.weight(5f).fillMaxHeight().verticalScroll(rememberScrollState())
+                        .padding(start = FolioDestinationInset, top = columnsTop, bottom = FolioSpacing.dp16),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)
+                    LazyColumn(Modifier.weight(6f).fillMaxHeight(),
+                        contentPadding = PaddingValues(end = FolioDestinationInset, top = columnsTop, bottom = FolioSpacing.dp16),
+                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) { contextItems(!spanning) }
+                }
             }
         } else {
             LazyColumn((if (dedicated) Modifier.fillMaxWidth() else Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter)).imePadding(),
@@ -512,7 +528,7 @@ internal fun FocalStudyContent(
                 item(key = "timer") {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)
                 }
-                contextItems()
+                contextItems(true)
             }
         }
     }

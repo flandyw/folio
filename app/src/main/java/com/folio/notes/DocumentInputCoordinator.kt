@@ -67,18 +67,30 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         }
         return current.generated(if (drag.tool == Tool.GRAPH) GraphAxes.strokes(drag, view?.graphStyle ?: GraphStyle.DEFAULT) else listOf(drag))
     }
-    private fun contentAfter(current: DocumentInkCapture, finishing: Boolean = false): Map<String, PageContent> {
-        val strokes = current.strokes(); val notes = current.noteStrokes()
-        val erasing = current.template.tool == Tool.ERASER
+    private fun toolOptions(current: DocumentInkCapture, finishing: Boolean): DocumentToolEdits.Options {
         val view = surfaces.find(EditorSurfaceRole.MAIN, current.sourceId)
-        val options = DocumentToolEdits.Options(erasing, view?.eraserWholeStroke == true,
+        return DocumentToolEdits.Options(current.template.tool == Tool.ERASER, view?.eraserWholeStroke == true,
             view?.eraserPressureEnabled == true && view.hasDocumentStylusContact,
             finishing && view?.scribbleToErase == true && view.documentHeldShape == null && current.template.tool in setOf(Tool.PEN, Tool.HIGHLIGHTER),
             view?.scribbleSensitivity ?: ScribbleSensitivity.DEFAULT)
+    }
+    private fun contentAfter(current: DocumentInkCapture, finishing: Boolean = false): Map<String, PageContent> {
+        val strokes = current.strokes(); val notes = current.noteStrokes()
+        val options = toolOptions(current, finishing)
         return (strokes.keys + notes.keys).associateWith { id ->
-            if (erasing) eraserSession.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
+            if (options.erasing) eraserSession.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
             else DocumentToolEdits.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
         }
+    }
+    private fun commitContents(current: DocumentInkCapture): List<Map<String, PageContent>> {
+        val options = toolOptions(current, finishing = true)
+        if (options.erasing) return listOf(contentAfter(current, finishing = true))
+        val strokes = current.strokes(); val notes = current.noteStrokes()
+        val steps = (strokes.keys + notes.keys).associateWith { id ->
+            DocumentToolEdits.contentSteps(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
+        }
+        val after = steps.mapValues { it.value.last() }
+        return if (steps.values.any { it.size > 1 }) listOf(steps.mapValues { it.value.first() }, after) else listOf(after)
     }
     fun samples(sourceId: String, points: List<InkPoint>): Boolean {
         val current = capture?.takeIf { it.sourceId == sourceId } ?: return false
@@ -179,16 +191,22 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         } else {
             val routed = routed(current)
             if (routed.blocked) { model.reportError("A crossed surface is locked or unavailable; draw again"); return true }
-            val contents = contentAfter(routed, finishing = true)
-            val edits = contents.mapNotNull { (id, content) -> PageJournal.diff(pageById.getValue(id).content(), content)?.let { id to it } }.toMap()
-            if (edits.isEmpty()) {
-                if (current.template.tool == Tool.ERASER) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.let { if (it.tool == Tool.ERASER) it.onEraserFinished?.invoke() }
-                return true
-            }
-            if (!model.commitDocumentEdits(note.id, edits, edits.keys.associateWith { revisions.getValue(it) })) model.reportError("The document changed during this gesture; try again")
-            else {
+            var before = pageById
+            var expectedRevisions = revisions
+            for (contents in commitContents(routed)) {
+                val edits = contents.mapNotNull { (id, content) -> PageJournal.diff(before.getValue(id).content(), content)?.let { id to it } }.toMap()
+                if (edits.isEmpty()) continue
+                val expected = edits.keys.associateWith { expectedRevisions.getValue(it) }
+                // The first step must still match the contact-down revisions; later steps use the
+                // just-published drawing, including its incremented member revisions.
+                if (!model.commitDocumentEdits(note.id, edits, expected)) {
+                    model.reportError("The document changed during this gesture; try again")
+                    break
+                }
                 val committed = model.state.value.active?.takeIf { it.id == note.id }?.pages?.associateBy { it.id }.orEmpty()
                 surfaces.mainSurfaces().forEach { view -> if (view.page.id in edits) committed[view.page.id]?.let { view.bind(it, view.background, view.imageBitmaps) } }
+                before = committed
+                expectedRevisions = committed.mapValues { it.value.revision }
             }
         }
         if (current.template.tool == Tool.ERASER) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.let { if (it.tool == Tool.ERASER) it.onEraserFinished?.invoke() }

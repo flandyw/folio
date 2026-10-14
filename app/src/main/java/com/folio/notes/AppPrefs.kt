@@ -72,6 +72,7 @@ object AppPrefs {
     const val DEFAULT_PEN_SMOOTHING = PenSmoothing.DEFAULT
     fun penSmoothing(value: Float): Float = PenSmoothing.strength(value)
     /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
+    const val SHAPE_ASSIST_OPTIONS = "input.shapeAssistOptions"
     const val SHAPE_HOLD_MS = "input.shapeHoldMs"
     const val DEFAULT_SHAPE_HOLD_MS = 650L
     const val SHAPE_HOLD_MIN_MS = 300L

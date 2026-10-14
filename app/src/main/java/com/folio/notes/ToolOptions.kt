@@ -106,7 +106,7 @@ object EditorQuickPrefs {
         }
         when (tool) {
             Tool.HAND -> Text("Drag to move the document. Pinch anywhere on the document to zoom all pages together.", style = MaterialTheme.typography.bodyMedium)
-            Tool.LASSO -> Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.", style = MaterialTheme.typography.bodyMedium)
+            Tool.LASSO -> Text("Draw a loop around ink, text and pictures to select them together, then drag the selection to move it. Preview and tidy shapes, copy, duplicate, restyle or delete it from the pill beside the selection; drag its corner handle to resize and its top handle to rotate.", style = MaterialTheme.typography.bodyMedium)
             Tool.STICKY_NOTE -> Text("Tap to drop a sticky note, or drag to draw one to size, on the page or beside it. Drag a note to move it and its corner handle to resize it. Tap a note for its menu, and tap it again to type. Anything you write or draw starting on a note belongs to the note and moves with it; the eraser over a note erases only the note. Notes beside the page stay out of exports.", style = MaterialTheme.typography.bodyMedium)
             Tool.LASER -> {
                 Text("Point, circle and underline while you present. The trail fades on its own and nothing is written to the page. A hovering pen shows the pointer too.", style = MaterialTheme.typography.bodyMedium)
@@ -172,16 +172,9 @@ object EditorQuickPrefs {
                     }
                     if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
                 }
-                if (tool == Tool.PEN || tool in ShapePickerTools) PopoverSection("Tidy up shapes") {
-                    val tidy by rememberPref(prefs, "shapeRecognition") { it.getBoolean("shapeRecognition", false) }
-                    val delay by rememberPref(prefs, AppPrefs.SHAPE_HOLD_MS) {
-                        AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
-                    }
-                    SwitchRow("Tidy up shapes", tidy, { prefs.edit().putBoolean("shapeRecognition", it).apply() },
-                        "Draw with the pen, then hold still to tidy lines, arrows, circles, ovals, polygons and stars. Lift to keep the shape; keep drawing to return to freehand.")
-                    if (tidy) PopoverSlider("Hold delay", "$delay ms", delay.toFloat(),
-                        AppPrefs.SHAPE_HOLD_MIN_MS.toFloat()..AppPrefs.SHAPE_HOLD_MAX_MS.toFloat(),
-                        { prefs.edit().putLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.shapeHoldMs(it.toLong())).apply() })
+                if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool in ShapePickerTools) {
+                    HorizontalDivider()
+                    ShapeAssistSettings()
                 }
                 if (tool == Tool.ERASER) {
                     var pressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }

@@ -92,6 +92,9 @@ object FocalSubjects {
         VceSubject.ECONOMICS to "econ"
     )
 
+    /** The subject's Folio cover band, so a study block wears the same colour as its notebooks. */
+    fun color(id: String?): Long? = folioIds.entries.firstOrNull { it.value == id }?.key?.color
+
     fun suggest(note: Notebook, subjects: List<FocalSubject> = builtIn): String? {
         folioIds[note.exam.subject]?.let { return it }
         val source = note.exam.subjectText.ifBlank { note.title }.trim()
@@ -135,7 +138,9 @@ data class FocalStudyEntry(
     val examBoundaries: List<FocalExamBoundary> = emptyList(),
     val examLastBoundaryAt: Long? = null,
     /** Pending plan details kept separate from the last acknowledged server row. */
-    val planDraft: String? = null
+    val planDraft: String? = null,
+    /** A timeline move, resize or done/not-done waiting to replace the server's blocks. */
+    val pendingBlocks: List<FocalStudyInterval>? = null
 ) {
     val active: Boolean get() = !completed && !planned && !deleted
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
@@ -425,6 +430,7 @@ internal fun focalPlannedFocus(entry: FocalStudyEntry, note: Notebook?, now: Lon
 
 /** Planned slots are display context, never evidence of time worked. */
 internal fun focalPlannedSlots(entry: FocalStudyEntry): List<FocalStudyInterval> = runCatching {
+    if (entry.planned) entry.pendingBlocks?.let { return it }
     val payload = JSONObject(entry.planDraft ?: entry.remotePayload ?: return emptyList())
     val segments = payload.optJSONArray("segments") ?: JSONArray()
     val metadata = payload.optJSONObject("metadata")
@@ -485,7 +491,7 @@ internal fun focalPlanEdit(original: FocalStudyEntry, title: String, subjectId: 
     raw.remove("segments")
     require(metadata.toString().toByteArray(Charsets.UTF_8).size <= 60_000) { "Plan details are too long. Shorten the notes or topics." }
     return original.copy(title = title.trim(), subjectId = subjectId, synced = false,
-        changeId = UUID.randomUUID().toString(), planDraft = raw.toString())
+        changeId = UUID.randomUUID().toString(), planDraft = raw.toString(), pendingBlocks = null)
 }
 
 /** Old saves may contain an open interval without a heartbeat. Its start is all we can prove. */
@@ -697,6 +703,11 @@ internal fun focalCommandsFor(
     if (entry.synced) return emptyList()
     val desired = focalDesiredState(entry)
     val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
+    // A timeline edit replaces the server's blocks (and done flag) in one save, as Focal does.
+    entry.pendingBlocks?.let { blocks ->
+        if (canonical != null && !entry.deleted) return listOf(focalStudyCommand(entry, "save_progress", entry.revision, deviceId)
+            .put("blocks", focalBlocksJson(blocks)).put("completed", entry.completed))
+    }
     // Past study is evidence, not a synthetic start/complete timer replay.
     if (canonical == null && entry.kind == "study" && entry.completed && !entry.deleted &&
         entry.intervals.isEmpty() && entry.activeMillis > 0L) {
@@ -806,6 +817,11 @@ internal fun focalCommandsFor(
         }
     }
     return commands
+}
+
+internal fun focalBlocksJson(blocks: List<FocalStudyInterval>): JSONArray = JSONArray().also { array ->
+    blocks.forEach { array.put(JSONObject().put("start", Instant.ofEpochMilli(it.startAt).toString())
+        .put("end", Instant.ofEpochMilli(requireNotNull(it.endAt)).toString())) }
 }
 
 private fun focalEntryPhase(entry: FocalStudyEntry): String =
@@ -995,7 +1011,8 @@ class FocalStudyManager(context: Context) {
                             request = event.optString("request").takeIf { it.isNotBlank() && it != "null" })
                     }.getOrNull() }
                 },
-                intervals = focalDecodeIntervals(row.optJSONArray("intervals"))
+                intervals = focalDecodeIntervals(row.optJSONArray("intervals")),
+                pendingBlocks = row.optJSONArray("pendingBlocks")?.let(::focalDecodeIntervals)
             )
         }.getOrNull() }
         val focus = data.optJSONObject("focus")?.let { row -> runCatching {
@@ -1050,6 +1067,7 @@ class FocalStudyManager(context: Context) {
             .put("examPhaseBeforePause", entry.examPhaseBeforePause)
             .put("remotePayload", entry.remotePayload).put("planDraft", entry.planDraft).put("notebookTitle", entry.notebookTitle)
             .put("examLastBoundaryAt", entry.examLastBoundaryAt)
+            .put("pendingBlocks", entry.pendingBlocks?.let(::focalEncodeIntervals))
             .put("examBoundaries", JSONArray().also { array -> entry.examBoundaries.forEach { event ->
                 array.put(JSONObject().put("id", event.id).put("action", event.action)
                     .put("phase", event.phase).put("at", event.at).put("elapsedMs", event.elapsedMs)
@@ -1373,6 +1391,48 @@ class FocalStudyManager(context: Context) {
             endedAt = now, activeMillis = minutes * 60_000L, notebookTitle = note?.title,
             notes = notes.trim().take(500), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
     }
+    /** Study that already happened, drawn on the timeline as one block. */
+    fun logBlock(subjectId: String?, title: String, startAt: Long, endAt: Long, now: Long = this.now()): Boolean {
+        if (endAt <= startAt || endAt > now || endAt - startAt > MAX_REPORTED_SESSION_MILLIS) return false
+        add(FocalStudyEntry(notebookId = null, title = title.trim().take(512).ifBlank { focalSessionTitle(subjectId, _state.value.subjects) },
+            subjectId = subjectId, kind = "study", startedAt = startAt, endedAt = endAt,
+            activeMillis = endAt - startAt, userId = _state.value.userId))
+        return true
+    }
+
+    /**
+     * Moves, resizes or ticks off a study session that is not being timed. A session the server
+     * has is rewritten with one save_progress; one that never left this device is simply changed.
+     */
+    fun editBlocks(id: String, blocks: List<FocalStudyInterval>, completed: Boolean, now: Long = this.now()): Boolean {
+        val sorted = blocks.sortedBy { it.startAt }
+        if (sorted.isEmpty() || sorted.size > 100 ||
+            sorted.any { val end = it.endAt; end == null || end <= it.startAt || end - it.startAt > MAX_REPORTED_SESSION_MILLIS } ||
+            sorted.zipWithNext().any { (a, b) -> requireNotNull(a.endAt) > b.startAt } ||
+            (completed && requireNotNull(sorted.last().endAt) > now)) return false
+        val state = _state.value
+        val current = state.visibleEntries.firstOrNull { it.id == id } ?: return false
+        if (current.kind != "study" || current.active || current.id == state.focus?.sessionId) return false
+        val local = current.remotePayload == null
+        // An unsent timer replays its intervals as boundaries, so only a plain log or plan reshapes before it syncs.
+        if (local && (current.intervals.isNotEmpty() || (completed && sorted.size > 1))) return false
+        val end = requireNotNull(sorted.last().endAt)
+        return saveEntry(current.copy(changeId = UUID.randomUUID().toString(), synced = false,
+            completed = completed, planned = !completed, startedAt = sorted.first().startAt, endedAt = end,
+            activeMillis = if (completed) sorted.sumOf { requireNotNull(it.endAt) - it.startAt } else 0L,
+            intervals = if (completed && !local) sorted else emptyList(),
+            pendingBlocks = if (local && completed) null else sorted))
+    }
+
+    /** Deletes a plan or a finished session everywhere; a running or paused one is discarded instead. */
+    fun deleteSession(id: String) {
+        val state = _state.value
+        val current = state.visibleEntries.firstOrNull { it.id == id } ?: return
+        if (current.planned) return deletePlan(id)
+        if (current.active || current.id == state.focus?.sessionId) return
+        saveEntry(current.copy(deleted = true, synced = false, pendingBlocks = null, changeId = UUID.randomUUID().toString()))
+    }
+
     private fun add(entry: FocalStudyEntry) {
         _state.update { state -> state.copy(entries = listOf(entry) + state.entries, error = null) }
         if (persist()) scope.launch { publishEntry(entry) }
@@ -1572,6 +1632,7 @@ class FocalStudyManager(context: Context) {
                 val ack = sendCommands(user, commands)
                 if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
                 else if (latest.planned && latest.planDraft != null) retainRefusedPlan(latest, ack)
+                else if (latest.pendingBlocks != null) dropRefusedEdit(latest, ack)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { reportPublishFailure("Sending this session to Focal", e) }
         }
@@ -1594,6 +1655,7 @@ class FocalStudyManager(context: Context) {
                 val ack = sendCommands(user, commands)
                 if (ack.sent) { commitTimingAnchor(latest, commands); acknowledge(latest.id, ack) }
                 else if (latest.planned && latest.planDraft != null) retainRefusedPlan(latest, ack)
+                else if (latest.pendingBlocks != null) dropRefusedEdit(latest, ack)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { throw e }
         }
@@ -1612,6 +1674,20 @@ class FocalStudyManager(context: Context) {
         // The server definitively refused this edit. An explicit Save creates the next command.
         if (!timingPreferences.edit().remove("commands:$user:${entry.id}").commit())
             error("Could not clear the refused plan command")
+    }
+
+    /** The server refused a timeline edit (the session is being timed or is gone): show what it has instead. */
+    private fun dropRefusedEdit(entry: FocalStudyEntry, ack: FocalPublishAck) {
+        val user = entry.userId ?: _state.value.userId ?: return
+        val remote = ack.canonical?.let { focalEntryFromCanonical(entry.id, it, ack.mutationIds.lastOrNull() ?: entry.changeId, user) }
+        _state.update { state -> state.copy(entries = state.entries.map { current ->
+            if (current.id != entry.id || current.changeId != entry.changeId) current
+            else remote?.copy(notebookId = current.notebookId, notebookTitle = current.notebookTitle)
+                ?: current.copy(synced = true, pendingBlocks = null)
+        }, error = "This session changed on Focal, so your timeline change was not applied.") }
+        if (!persist()) error("Could not save the refused timeline change")
+        if (!timingPreferences.edit().remove("commands:$user:${entry.id}").commit())
+            error("Could not clear the refused timeline change")
     }
 
     private fun markSynced(sessionId: String) {
@@ -1653,7 +1729,8 @@ class FocalStudyManager(context: Context) {
                         entry.userId ?: state.userId ?: return@let null)
                 }?.copy(notebookId = entry.notebookId, notebookTitle = entry.notebookTitle)
                     ?: entry.copy(synced = true, changeId = mutationId ?: entry.changeId,
-                        revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload, planDraft = null)
+                        revision = revision ?: entry.revision, remotePayload = payload ?: entry.remotePayload, planDraft = null,
+                        pendingBlocks = null)
             }
         }) }
         if (!persist()) error("Could not save the session receipt")
@@ -1700,7 +1777,9 @@ class FocalStudyManager(context: Context) {
                     rest = rest.drop(1)
                     continue
                 }
-                if (terminal || !focalMutationCanRebase(action, state)) {
+                // A timeline edit of a finished or scheduled session is last-writer-wins, as on Focal.
+                val blockEdit = action == "save_progress" && command.has("blocks") && state in setOf("planned", "completed")
+                if (terminal || !(focalMutationCanRebase(action, state) || blockEdit)) {
                     return FocalPublishAck(false, canonical, mutationIds)
                 }
                 if ((!command.isNull("occurred_at")) || command.has("elapsed_since_previous_ms"))
