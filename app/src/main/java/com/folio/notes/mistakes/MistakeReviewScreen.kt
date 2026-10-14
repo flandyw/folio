@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,8 @@ import com.folio.notes.*
     actionMessage: String? = null,
     onRate: (ReviewRating) -> Unit,
     onDelete: () -> Unit = {}) {
+    val mistakesState by model.state.collectAsStateWithLifecycle()
+    val reviewPreferences = mistakesState.cache.reviewPreferences
     val androidContext = LocalContext.current
     val shareScope = rememberCoroutineScope()
     val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
@@ -153,10 +156,10 @@ import com.folio.notes.*
                         val now = remember(revealed) { isoTime() }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             ReviewRating.entries.forEach { rating ->
-                                val preview = remember(m.id, rating) {
-                                    runCatching { MistakeScheduler.previewMistakeReview(m, rating, now) }.getOrNull()
+                                val preview = remember(m, rating, reviewPreferences, mistakesState.cache.mistakes, now) {
+                                    runCatching { MistakeScheduler.previewMistakeReview(m, rating, now, reviewPreferences, mistakesState.cache.mistakes.values.toList()) }.getOrNull()
                                 }
-                                val label = preview?.let { intervalLabel(it, rating) } ?: ""
+                                val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000), rating) } ?: ""
                                 // Autosave runs after each stroke. Rating waits for it in the
                                 // handler, so drawing must not pulse the buttons' enabled state.
                                 val canRate = !busy && !state.saveFailed

@@ -82,7 +82,7 @@ internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis(), zon
 }
 
 internal fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): String {
-    if (rating == ReviewRating.AGAIN) return "10 min"
+    if (schedule.intervalDays < 1) return "${(schedule.intervalDays * 24 * 60).toLong()} min"
     val days = schedule.intervalDays.toLong()
     return when {
         days <= 0 -> "today"
@@ -122,6 +122,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var shuffle by rememberSaveable { mutableStateOf(false) }
     var reviewQueue by rememberSaveable { mutableStateOf(listOf<String>()) }
     var destination by rememberSaveable { mutableStateOf("Today") }
+    var showPacing by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
     var newestDueFirst by rememberSaveable { mutableStateOf(false) }
@@ -133,6 +134,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     LaunchedEffect(Unit) {
         while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
     }
+    if (showPacing) MistakeReviewControls(state.cache.reviewPreferences, state.cache.mistakes.values.toList(),
+        working, { showPacing = false },
+        onSave = { preferences -> scope.launch {
+            working = true
+            try { model.saveReviewPreferences(preferences); showPacing = false }
+            catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; snackbar.showSnackbar("Could not save review pacing. Try again.") }
+            finally { working = false }
+        } },
+        onReduce = { days, target -> scope.launch {
+            working = true
+            try { val moved = model.reduceReviews(days, target); showPacing = false; snackbar.showSnackbar("Moved $moved review dates") }
+            catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; snackbar.showSnackbar("Could not move review dates. Try again.") }
+            finally { working = false }
+        } },
+    )
     val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
     val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
@@ -519,6 +535,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         }
                     }) else null,
                 ) {
+                    if (state.userId != null && detail == null) IconButton({ showPacing = true }) {
+                        Icon(Icons.Rounded.Tune, "Review pacing")
+                    }
                     FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
                 }
             },

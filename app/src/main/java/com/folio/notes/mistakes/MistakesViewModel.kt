@@ -82,7 +82,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                 coroutineScope {
                     // ExamTrack publishes the append-only sync log. Base tables are not
                     // guaranteed to be in the Realtime publication.
-                    for (entity in listOf("mistakes", "attempts")) {
+                    for (entity in listOf("mistakes", "attempts", "user_state")) {
                         channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                             table = "sync_log"; filter("entity", FilterOperator.EQ, entity)
                         }.onEach { requestSync(force = true) }.launchIn(this)
@@ -227,6 +227,18 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         } finally {
             requestSync(force = true)
         }
+    }
+    suspend fun saveReviewPreferences(preferences: MistakeReviewPreferences) {
+        val user = _state.value.userId ?: return
+        syncJob?.cancelAndJoin()
+        try { repository.saveReviewPreferences(user, preferences); reload(user) }
+        finally { requestSync(force = true) }
+    }
+    suspend fun reduceReviews(days: Int, dailyTarget: Int): Int {
+        val user = _state.value.userId ?: return 0
+        syncJob?.cancelAndJoin()
+        return try { repository.reduceReviews(user, days, dailyTarget).also { reload(user) } }
+        finally { requestSync(force = true) }
     }
     /** Forgets cached reviews whose practice notebooks were deleted from this device. */
     suspend fun removeAttemptsForNotebooks(notebookIds: Set<String>) {

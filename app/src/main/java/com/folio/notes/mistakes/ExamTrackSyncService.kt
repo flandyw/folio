@@ -18,7 +18,7 @@ class ExamTrackSyncService(
     }
 
     override suspend fun apply(userId: String, change: SyncProtocol.QueuedChange): ApplyResult {
-        require(change.entity == "mistakes" && change.expectedSeq != null) { "Mistake changes require a durable row version" }
+        require((change.entity == "mistakes" || change.entity == "user_state" && change.rowId == MistakeReviewPreferences.ROW_ID) && change.expectedSeq != null) { "Mistake changes require a durable row version" }
         return syncRemote.apply(userId, listOf(change), deviceId)
     }
 }

@@ -453,6 +453,38 @@ internal fun focalSessionBlocks(entry: FocalStudyEntry): List<FocalStudyInterval
     }
 }
 
+/** Unsent timer boundaries must sync before they can be replaced by timeline edits. */
+internal fun focalCanEditBlocks(entry: FocalStudyEntry): Boolean = entry.kind == "study" &&
+    !entry.deleted && !entry.active && (entry.remotePayload != null || entry.intervals.isEmpty()) &&
+    !(entry.planned && entry.planDraft != null && entry.synced)
+
+/** Replaces one displayed block, keeping the other blocks and their break gaps. */
+internal fun focalReplaceSessionBlock(entry: FocalStudyEntry, index: Int, block: FocalStudyInterval): List<FocalStudyInterval> =
+    focalSessionBlocks(entry).mapIndexed { i, original -> if (i == index) block else original }
+
+internal fun focalBlockEdit(current: FocalStudyEntry, blocks: List<FocalStudyInterval>,
+                            completed: Boolean, now: Long): FocalStudyEntry? {
+    val sorted = blocks.sortedBy { it.startAt }
+    if (!focalCanEditBlocks(current) || sorted.isEmpty() || sorted.size > 100 ||
+        sorted.any { val end = it.endAt; end == null || end <= it.startAt || end - it.startAt > MAX_REPORTED_SESSION_MILLIS } ||
+        sorted.zipWithNext().any { (a, b) -> requireNotNull(a.endAt) > b.startAt } ||
+        (completed && requireNotNull(sorted.last().endAt) > now)) return null
+    val local = current.remotePayload == null
+    if (local && completed && sorted.size > 1) return null
+    val end = requireNotNull(sorted.last().endAt)
+    // Keep a plan's metadata in step with its blocks, including plans not yet created remotely.
+    val edited = if (current.planned && !completed) {
+        val (description, topics) = focalPlanDetails(current)
+        runCatching { focalPlanEdit(current, current.title, current.subjectId, description, topics, sorted) }.getOrNull()
+            ?: return null
+    } else current
+    return edited.copy(changeId = UUID.randomUUID().toString(), synced = false,
+        completed = completed, planned = !completed, startedAt = sorted.first().startAt, endedAt = end,
+        activeMillis = if (completed) sorted.sumOf { requireNotNull(it.endAt) - it.startAt } else 0L,
+        intervals = if (completed && !local) sorted else emptyList(),
+        pendingBlocks = if (local && completed) null else sorted)
+}
+
 /** Every block of [sessions] in order, with overlapping or touching blocks joined so shared time counts once. */
 internal fun focalMergedBlocks(sessions: List<FocalStudyEntry>): List<FocalStudyInterval> {
     val merged = mutableListOf<FocalStudyInterval>()
@@ -1466,23 +1498,11 @@ class FocalStudyManager(context: Context) {
      * has is rewritten with one save_progress; one that never left this device is simply changed.
      */
     fun editBlocks(id: String, blocks: List<FocalStudyInterval>, completed: Boolean, now: Long = this.now()): Boolean {
-        val sorted = blocks.sortedBy { it.startAt }
-        if (sorted.isEmpty() || sorted.size > 100 ||
-            sorted.any { val end = it.endAt; end == null || end <= it.startAt || end - it.startAt > MAX_REPORTED_SESSION_MILLIS } ||
-            sorted.zipWithNext().any { (a, b) -> requireNotNull(a.endAt) > b.startAt } ||
-            (completed && requireNotNull(sorted.last().endAt) > now)) return false
         val state = _state.value
         val current = state.visibleEntries.firstOrNull { it.id == id } ?: return false
-        if (current.kind != "study" || current.active || current.id == state.focus?.sessionId) return false
-        val local = current.remotePayload == null
-        // An unsent timer replays its intervals as boundaries, so only a plain log or plan reshapes before it syncs.
-        if (local && (current.intervals.isNotEmpty() || (completed && sorted.size > 1))) return false
-        val end = requireNotNull(sorted.last().endAt)
-        return saveEntry(current.copy(changeId = UUID.randomUUID().toString(), synced = false,
-            completed = completed, planned = !completed, startedAt = sorted.first().startAt, endedAt = end,
-            activeMillis = if (completed) sorted.sumOf { requireNotNull(it.endAt) - it.startAt } else 0L,
-            intervals = if (completed && !local) sorted else emptyList(),
-            pendingBlocks = if (local && completed) null else sorted))
+        if (current.id == state.visibleFocus?.sessionId) return false
+        val edited = focalBlockEdit(current, blocks, completed, now) ?: return false
+        return saveEntry(edited)
     }
 
     /** Deletes a plan or a finished session everywhere; a running or paused one is discarded instead. */

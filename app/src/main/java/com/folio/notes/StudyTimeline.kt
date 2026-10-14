@@ -72,7 +72,7 @@ private val COMPACT_BLOCK = 44.dp
 private enum class Tone { DONE, LIVE, TODO }
 private enum class Grip { START, END, MOVE }
 private data class Span(val start: Float, val end: Float)
-private data class Block(val key: String, val entry: FocalStudyEntry, val start: Float, val end: Float, val tone: Tone, val count: Int)
+private data class Block(val key: String, val entry: FocalStudyEntry, val start: Float, val end: Float, val tone: Tone, val count: Int, val index: Int)
 
 private fun clampWindow(span: Span): Span {
     val size = (span.end - span.start).coerceIn(MIN_SPAN, DAY)
@@ -117,9 +117,7 @@ private fun initials(name: String) = name.split(' ', '-').filter { it.firstOrNul
 /** The blocks a session occupies: its plan, its finished time, or the time it has run so far. */
 private fun spansOf(entry: FocalStudyEntry, focus: FocalFocus?): List<FocalStudyInterval> = when {
     entry.planned -> focalPlannedSlots(entry)
-    entry.completed -> entry.pendingBlocks ?: entry.intervals.ifEmpty {
-        listOf(FocalStudyInterval(entry.endedAt - entry.activeMillis, entry.endedAt))
-    }
+    entry.completed -> focalSessionBlocks(entry)
     focus?.sessionId == entry.id -> focus.intervals
     else -> entry.intervals
 }
@@ -203,7 +201,7 @@ internal fun StudyTimeline(
                 if (end <= 0f || start >= DAY || end <= start) return@mapIndexedNotNull null
                 val live = span.endAt == null && entry.active && (focus?.sessionId != entry.id || focus.resumedAt != null)
                 Block("${entry.id}:$index", entry, start.coerceAtLeast(0f), end.coerceAtMost(DAY),
-                    if (live) Tone.LIVE else if (entry.planned) Tone.TODO else Tone.DONE, spans.size)
+                    if (live) Tone.LIVE else if (entry.planned) Tone.TODO else Tone.DONE, spans.size, index)
             }
         }
     }
@@ -278,12 +276,16 @@ internal fun StudyTimeline(
         val center = (block.start + block.end) / 2f
         view = clampWindow(Span(center - size / 2f, center + size / 2f))
     }
-    /** A session not being timed, with one block fully inside the day, can be dragged or resized. */
-    fun movable(block: Block): Boolean = block.entry.kind == "study" && block.tone != Tone.LIVE && !block.entry.active &&
-        block.entry.id != focus?.sessionId && block.count == 1 && block.start > 0f && block.end < DAY &&
-        (block.entry.remotePayload != null || block.entry.intervals.isEmpty())
+    /** Only complete blocks inside this day can be moved; clipped overnight blocks keep their full range. */
+    fun movable(block: Block): Boolean {
+        val original = focalSessionBlocks(block.entry).getOrNull(block.index) ?: return false
+        return focalCanEditBlocks(block.entry) && block.tone != Tone.LIVE && block.entry.id != focus?.sessionId &&
+            original.startAt >= dayStart && original.endAt != null && original.endAt <= millisAt(DAY)
+    }
+    fun splittable(block: Block) = movable(block) && block.count == 1
     fun persist(block: Block, range: Span) {
-        val ok = manager.editBlocks(block.entry.id, listOf(FocalStudyInterval(millisAt(range.start), millisAt(range.end))), block.entry.completed)
+        val next = focalReplaceSessionBlock(block.entry, block.index, FocalStudyInterval(millisAt(range.start), millisAt(range.end)))
+        val ok = manager.editBlocks(block.entry.id, next, block.entry.completed)
         message = if (ok) "Moved to ${clock(range.start)}–${clock(range.end)}" else "That block can't go there."
     }
 
@@ -295,11 +297,11 @@ internal fun StudyTimeline(
             Grip.END -> Span(live.start, maxOf(snap(live.end + delta), live.start + SNAP))
             Grip.MOVE -> {
                 val length = live.end - live.start
-                val start = snap(live.start + delta).coerceIn(SNAP, DAY - SNAP - length)
+                val start = snap(live.start + delta).coerceIn(0f, DAY - length)
                 Span(start, start + length)
             }
         }
-        return Span(next.start.coerceAtLeast(SNAP), next.end.coerceAtMost(DAY - SNAP))
+        return Span(next.start.coerceAtLeast(0f), next.end.coerceAtMost(DAY))
     }
 
     fun pick(on: Boolean, first: String? = null) {
@@ -327,7 +329,7 @@ internal fun StudyTimeline(
     fun split(block: Block, at: Float) {
         cut = null
         val cut = at.roundToInt().toFloat()
-        if (!movable(block)) { message = "That block can't be split."; return }
+        if (!splittable(block)) { message = "That block can't be split."; return }
         if (cut - block.start < CUT_EDGE || block.end - cut < CUT_EDGE) { message = "Cut at least a minute from either end."; return }
         val entry = block.entry
         val restStart = millisAt(cut)
@@ -553,7 +555,7 @@ internal fun StudyTimeline(
                                     else message = "Only stopped study sessions can be merged."
                                 }
                                 else if (razorOn) {
-                                    if (movable(live)) cut = live.key to (maxOf(live.start, window.start) + x / trackWidth.floatValue * span).coerceIn(live.start + CUT_EDGE, live.end - CUT_EDGE)
+                                    if (splittable(live)) cut = live.key to (maxOf(live.start, window.start) + x / trackWidth.floatValue * span).coerceIn(live.start + CUT_EDGE, live.end - CUT_EDGE)
                                     else message = "That block can't be split."
                                 }
                                 else { selected = if (selected == live.key) null else live.key; confirmRemove = false; draft = null }
@@ -713,7 +715,7 @@ internal fun StudyTimeline(
                         FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, if (compact) Alignment.End else Alignment.Start),
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), itemVerticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton({ zoomTo(picked) }) { Text("Zoom") }
-                            if (movable(picked)) OutlinedButton({ split(picked, splitPoint(picked)) }) { Text("Split") }
+                            if (splittable(picked)) OutlinedButton({ split(picked, splitPoint(picked)) }) { Text("Split") }
                             if (mergeable(picked)) OutlinedButton({ pick(true, entry.id) }) { Text("Select to merge") }
                             if (entry.planned) OutlinedButton({ onEditPlan(entry.id) }) { Text("Edit") }
                             if (!timing && entry.kind == "study") {

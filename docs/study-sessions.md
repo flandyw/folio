@@ -62,8 +62,17 @@ device's reschedule. A conflicted draft is synced-but-retained and cannot start
 until reviewed and explicitly saved. Atomic local plan mutations check the current
 account, lifecycle and revision. No notebook/journal/backup format changes.
 
+The timeline moves and resizes individual blocks of both plans and completed study,
+including completed sessions started from plans. Other blocks and break gaps stay
+intact; overlapping edits and completed time in the future are refused. Blocks
+clipped across midnight cannot be dragged. Unsent timer boundaries must sync first,
+and conflicted plan drafts must be reviewed in Edit before timeline changes.
+
 Device checks:
 
+- Drag the body and both resize handles of a multi-block plan, then complete it
+  and repeat. Verify the other blocks, break gaps and details survive refresh
+  and restart. Check blocks starting/ending at midnight and rejected overlaps.
 - Create a multi-block plan in each client; verify its subject, notes, topics and
   break gaps on the other. Edit, duplicate, move to today/now, and delete it.
 - Start a website plan from each Folio entry point and Focal's calendar/timer;

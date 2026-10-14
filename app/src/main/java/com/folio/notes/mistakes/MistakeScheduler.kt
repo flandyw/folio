@@ -10,6 +10,11 @@ import kotlin.math.max
 /** Port of examtrack/src/lib/exam-data.ts; no Android dependencies. */
 object MistakeScheduler {
     private const val DAY = 86_400_000L
+    fun reviewDayStart(now: Long, days: Long = 0): Long = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
+        .toLocalDate().plusDays(days).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    private fun daySlot(due: Long, now: Long): Long = java.time.temporal.ChronoUnit.DAYS.between(
+        Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate(),
+        Instant.ofEpochMilli(due).atZone(ZoneId.systemDefault()).toLocalDate()).coerceAtLeast(0)
     private fun round(n: Double) = floor(n + 0.5) // JavaScript Math.round (positive scheduling values)
     fun getMistakeSchedule(m: ExamTrackMistake): MistakeSchedule {
         val last = m.reviewHistory.lastOrNull()
@@ -28,13 +33,14 @@ object MistakeScheduler {
             interval, max(1.3, m.easeFactor ?: 2.5), m.repetitions ?: m.reviewHistory.count { it.result != ReviewRating.AGAIN },
             m.lapses ?: m.reviewHistory.count { it.result == ReviewRating.AGAIN }, m.resolved || state == ReviewState.REVIEW && interval >= 21)
     }
-    fun previewMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String): MistakeSchedule {
+    fun previewMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String, preferences: MistakeReviewPreferences = MistakeReviewPreferences(), mistakes: List<ExamTrackMistake> = emptyList()): MistakeSchedule {
+        val settings = preferences.normalized()
         val c = getMistakeSchedule(m)
         var ease = c.easeFactor
         var repetitions = c.repetitions
         var lapses = c.lapses
         val state: ReviewState
-        val interval: Double
+        var interval: Double
         val early = c.state == ReviewState.NEW || c.state == ReviewState.LEARNING
         when (rating) {
             ReviewRating.AGAIN -> {
@@ -59,11 +65,18 @@ object MistakeScheduler {
                 ease += 0.15; repetitions++
             }
         }
-        return MistakeSchedule(state, isoTime(timestamp(completedAt) + if (rating == ReviewRating.AGAIN) 600_000L else (interval * DAY).toLong()),
+        // Successful early practice gets no extra overdue credit; late practice can grow gently.
+        val elapsed = m.lastReviewedAt?.let { (timestamp(completedAt) - timestamp(it)).coerceAtLeast(0).toDouble() / DAY } ?: 0.0
+        if (rating == ReviewRating.GOOD || rating == ReviewRating.EASY) {
+            interval = round(interval * settings.spacingMultiplier + max(0.0, elapsed - c.intervalDays) * 0.25)
+        }
+        interval = if (rating == ReviewRating.AGAIN) settings.retryHours / 24.0
+            else interval.coerceIn(1.0, settings.maximumIntervalDays.toDouble())
+        return MistakeSchedule(state, pacedDueAt(m.id, isoTime(timestamp(completedAt) + (interval * DAY).toLong()), settings, mistakes, timestamp(completedAt)),
             interval, round(ease * 100) / 100, repetitions, lapses, state == ReviewState.REVIEW && interval >= 21)
     }
-    fun recordMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String, reviewId: String): ExamTrackMistake {
-        val next = previewMistakeReview(m, rating, completedAt)
+    fun recordMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String, reviewId: String, preferences: MistakeReviewPreferences = MistakeReviewPreferences(), mistakes: List<ExamTrackMistake> = emptyList()): ExamTrackMistake {
+        val next = previewMistakeReview(m, rating, completedAt, preferences, mistakes)
         val o = JSONObject(m.originalJson)
         val history = o.optJSONArray("reviewHistory") ?: JSONArray()
         history.put(JSONObject().put("id", reviewId).put("completedAt", completedAt).put("result", rating.wire)
@@ -73,6 +86,50 @@ object MistakeScheduler {
             .put("lastReviewedAt", completedAt).put("resolved", next.resolved).put("dueAt", next.dueAt).put("updatedAt", completedAt)
         return requireNotNull(ExamTrackMistakeCodec.decode(o.toString()))
     }
+    private fun pacedDueAt(id: String, dueAt: String, settings: MistakeReviewPreferences,
+        mistakes: List<ExamTrackMistake>, now: Long): String {
+        val until = settings.lighterUntil?.let { timestamp(it) } ?: return dueAt
+        val due = timestamp(dueAt)
+        if (until <= now || due >= until) return dueAt
+        val occupied = mistakes.filter { !it.suspended && it.id != id }.groupingBy {
+            daySlot(timestamp(getMistakeSchedule(it).dueAt), now)
+        }.eachCount()
+        var slot = daySlot(due, now)
+        if (settings.lighterDailyTarget == 0) slot = maxOf(slot, daySlot(until, now))
+        val capacity = if (settings.lighterDailyTarget == 0) 10 else settings.lighterDailyTarget
+        while ((occupied[slot] ?: 0) >= capacity) slot++
+        return isoTime(maxOf(due, reviewDayStart(now, slot)))
+    }
+
+    /** Postpone only; overflow respects already-booked future dates and never adds reviews. */
+    fun reduceReviews(mistakes: List<ExamTrackMistake>, days: Int, dailyTarget: Int,
+        now: Long = System.currentTimeMillis()): Map<String, String> {
+        require(days in 1..90 && dailyTarget in 0..100)
+        val horizon = reviewDayStart(now, days.toLong())
+        val active = mistakes.filterNot { it.suspended }
+        val selected = active.filter { timestamp(getMistakeSchedule(it).dueAt) < horizon }
+            .sortedWith(compareBy({ timestamp(getMistakeSchedule(it).dueAt) }, { it.id }))
+        val occupied = mutableMapOf<Long, Int>()
+        active.filter { timestamp(getMistakeSchedule(it).dueAt) >= horizon }.forEach {
+            val day = daySlot(timestamp(getMistakeSchedule(it).dueAt), now)
+            occupied[day] = (occupied[day] ?: 0) + 1
+        }
+        val changes = mutableMapOf<String, String>()
+        var slot = 0L
+        for (m in selected) {
+            val due = timestamp(getMistakeSchedule(m).dueAt)
+            slot = maxOf(slot, daySlot(due, now))
+            // A zero target is a break; resume at a gentle ten cards per day.
+            if (dailyTarget == 0) slot = maxOf(slot, days.toLong())
+            val capacity = if (dailyTarget == 0) 10 else dailyTarget
+            while ((occupied[slot] ?: 0) >= capacity) slot++
+            occupied[slot] = (occupied[slot] ?: 0) + 1
+            val next = if (slot == 0L) due else maxOf(due, reviewDayStart(now, slot))
+            if (next > due) changes[m.id] = isoTime(next)
+        }
+        return changes
+    }
+
     /** Calendar-day overdue status, matching Focal's schedule (not a rolling 24 hours). */
     fun overdueDays(dueAt: String, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Long {
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()

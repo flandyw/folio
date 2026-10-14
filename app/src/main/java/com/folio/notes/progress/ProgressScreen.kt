@@ -75,6 +75,9 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     var paperFilter by rememberSaveable { mutableStateOf("All papers") }
     var yearFilter by rememberSaveable { mutableStateOf("All years") }
     var sort by rememberSaveable { mutableStateOf("Newest first") }
+    val folioState by model.state.collectAsStateWithLifecycle()
+    var libraryYear by rememberSaveable { mutableStateOf("All years") }
+    var libraryPaper by rememberSaveable { mutableStateOf("All papers") }
     var completion by rememberSaveable { mutableStateOf("All papers") }
     var listSection by rememberSaveable { mutableStateOf("Progression") }
     var draft by rememberSaveable { mutableStateOf<String?>(null) }
@@ -112,11 +115,13 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         when (sort) { "Oldest first" -> matching.sortedBy { it.completedAt }; "Highest mark" -> matching.sortedByDescending { it.percentage }
             "Lowest mark" -> matching.sortedBy { it.percentage }; else -> matching }
     }
-    val official = remember(state.catalog, subject, query, completion, exams, state.cache.completedIds) {
+    val official = remember(state.catalog, subject, query, completion, libraryYear, libraryPaper, exams, state.cache.completedIds) {
         state.catalog.exams.filter { exam ->
             val done = exam.logged(exams) != null || exam.resource.url in state.cache.completedIds
             (subject == ALL_SUBJECTS || exam.subject == subject) &&
                 "${exam.subject} ${exam.year} ${exam.paper} ${exam.provider}".contains(query.trim(), true) &&
+                (libraryYear == "All years" || exam.year.toString() == libraryYear) &&
+                (libraryPaper == "All papers" || exam.paper == libraryPaper) &&
                 (completion == "All papers" || if (completion == "Completed") done else !done)
         }.sortedWith(compareByDescending<OfficialExam> { it.year }.thenBy { it.subject }.thenBy { it.paper })
     }
@@ -271,7 +276,14 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                                 SearchField(query, { query = it }, when (listSection) { "Progression" -> "Search planned papers"; "VCAA library" -> "Search official papers"; else -> "Search exam notebooks" })
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, Icons.Rounded.School)
-                                    if (listSection == "VCAA library") MenuChip("Status", completion, listOf("All papers", "To do", "Completed"), { completion = it }, Icons.Rounded.TaskAlt)
+                                    if (listSection == "VCAA library") {
+                                        MenuChip("Year", libraryYear, listOf("All years") + state.catalog.exams.map { it.year.toString() }.distinct().sortedDescending(), { libraryYear = it })
+                                        MenuChip("Paper", libraryPaper, listOf("All papers") + state.catalog.exams.map { it.paper }.distinct().sorted(), { libraryPaper = it })
+                                        MenuChip("Status", completion, listOf("All papers", "To do", "Completed"), { completion = it }, Icons.Rounded.TaskAlt)
+                                        if (subject != ALL_SUBJECTS || libraryYear != "All years" || libraryPaper != "All papers" || completion != "All papers" || query.isNotEmpty())
+                                            AssistChip({ subject = ALL_SUBJECTS; libraryYear = "All years"; libraryPaper = "All papers"; completion = "All papers"; query = "" },
+                                                { Text("Clear filters") }, leadingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) })
+                                    }
                                 }
                             }
                         }
@@ -281,14 +293,25 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                                 onResult = { detailId = it }, onLog = { draft = it })
                             "VCAA library" -> {
                                 wide("library-note") {
-                                    Text("${official.size} papers · offline catalogue ${state.catalog.generatedAt.take(10)}. Check the current study design before using older papers.",
-                                        Modifier.padding(start = FolioSpacing.dp4), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                        Text("Import a paper to write on it in Folio. Subject, year and exam details are filled in automatically.",
+                                            style = MaterialTheme.typography.bodyMedium)
+                                        Text("${official.size} papers · newest first · catalogue ${state.catalog.generatedAt.take(10)}. Older papers may follow a different study design.",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        folioState.importProgress?.let { progress ->
+                                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                                            Text(progress, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
                                 }
                                 items(official, key = { it.resource.url }) { exam -> OfficialExamCard(exam, exams, state.cache.completedIds,
                                     onLog = { draft = exam.draft().toString() }, onResult = { detailId = it }, onToggle = { toggleCompleted(exam) },
-                                    onTimed = { startTimed(exam) }, enabled = enabled) }
+                                    onTimed = { startTimed(exam) }, enabled = enabled,
+                                    owned = VcaaLibrary.imported(exam.importPaper(), notes),
+                                    importEnabled = !folioState.busy && !folioState.loading && !folioState.loadFailed,
+                                    onImport = { model.importVcaaPapers(null, listOf(exam.importPaper())) }, onOpen = onOpenNotebook) }
                                 if (official.isEmpty()) wide("library-empty") {
-                                    EmptyState(Icons.Rounded.LocalLibrary, "No matching papers", "Choose another subject or status.")
+                                    EmptyState(Icons.Rounded.LocalLibrary, "No matching papers", "Try another subject, year or paper, or clear the filters.")
                                 }
                             }
                             else -> {
@@ -650,8 +673,14 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
     }
 }
 
+/** Keep Progress imports on the same metadata and duplicate rules as Library imports. */
+private fun OfficialExam.importPaper() = VcaaExam(subject, resource.label, resource.url, year, provider,
+    when (paper) { "Exam 1" -> ExamType.EXAM_1; "Exam 2" -> ExamType.EXAM_2; else -> ExamType.EXAM },
+    companions.filter { it.kind == "report" }.map { it.label to it.url })
+
 @Composable private fun OfficialExamCard(exam: OfficialExam, attempts: List<LoggedExam>, completed: Set<String>,
-    onLog: () -> Unit, onResult: (String) -> Unit, onToggle: () -> Unit, onTimed: () -> Unit, enabled: Boolean) {
+    onLog: () -> Unit, onResult: (String) -> Unit, onToggle: () -> Unit, onTimed: () -> Unit, enabled: Boolean,
+    owned: Notebook?, importEnabled: Boolean, onImport: () -> Unit, onOpen: (String) -> Unit) {
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var linkError by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -666,18 +695,23 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
                 }
                 Column(Modifier.weight(1f)) {
                     Text(exam.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${exam.provider} · ${exam.paper}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(listOfNotNull(exam.provider, exam.paper, knownExamMarks(exam.subject, exam.paper)?.let { "$it marks" }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 when {
                     logged != null -> Surface({ onResult(logged.id) }, shape = CircleShape, color = Color.Transparent) { ScoreRing(logged.percentage, 44.dp) }
                     done -> StatusPill("Done", Icons.Rounded.Check, strong = true)
                 }
             }
+            if (owned != null) Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Button({ if (owned != null) onOpen(owned.id) else onImport() }, modifier = Modifier.fillMaxWidth(),
+                enabled = importEnabled, shapes = ButtonDefaults.shapes()) {
+                Icon(if (owned != null) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.Download, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(if (owned != null) "Open in Folio" else "Import into Folio")
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                FilledTonalButton(onLog, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text(if (logged != null) "Log again" else "Log result") }
-                OutlinedButton({ open(exam.resource.url) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Paper")
-                }
+                TextButton(onLog, enabled = enabled) { Text(if (logged != null) "Log again" else "Log result") }
                 Spacer(Modifier.weight(1f))
                 Box {
                     IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More for ${exam.subject} ${exam.year} ${exam.paper}") }

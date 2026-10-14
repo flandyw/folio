@@ -271,6 +271,41 @@ fun main() {
     check(focalPlanEdit(retainedDraft, retainedDraft.title, retainedDraft.subjectId,
         focalPlanDetails(retainedDraft).first, focalPlanDetails(retainedDraft).second, focalPlannedSlots(retainedDraft)).synced == false)
 
+    // Moving/resizing a block preserves its siblings, identity and plan details through publication.
+    val movedSlot = FocalStudyInterval(slots[0].startAt - 300_000L, requireNotNull(slots[0].endAt) - 300_000L)
+    val movedBlocks = focalReplaceSessionBlock(plan, 0, movedSlot)
+    check(movedBlocks == listOf(movedSlot, slots[1]))
+    val movedPlan = requireNotNull(focalBlockEdit(plan, movedBlocks, false, start))
+    check(movedPlan.id == plan.id && movedPlan.revision == plan.revision)
+    check(focalPlanDetails(movedPlan) == focalPlanDetails(plan))
+    check(focalSessionBlocks(movedPlan) == movedBlocks && movedPlan.activeMillis == 0L)
+    val movedCommand = commands(movedPlan).single()
+    check(movedCommand.getString("action") == "save_progress" && !movedCommand.getBoolean("completed"))
+    check(movedCommand.getJSONArray("blocks").length() == 2)
+    check(movedCommand.getJSONObject("metadata").getJSONObject("schedule").getJSONArray("blocks")
+        .getJSONObject(0).getString("start") == java.time.Instant.ofEpochMilli(movedSlot.startAt).toString())
+    val movedDraft = requireNotNull(focalBlockEdit(draft, focalReplaceSessionBlock(draft, 0, movedSlot), false, start))
+    check(focalPlannedSlots(movedDraft) == movedBlocks)
+    val movedCreate = commands(movedDraft).single()
+    check(movedCreate.getString("action") == "create")
+    check(movedCreate.getJSONArray("blocks").toString() == movedCreate.getJSONObject("metadata")
+        .getJSONObject("schedule").getJSONArray("blocks").toString())
+    val donePlan = requireNotNull(focalBlockEdit(plan.copy(synced = false, planDraft = focalPlanStartPayload(plan)), slots, true, start + 3_000_000L))
+    val resizedSlot = slots[1].copy(endAt = requireNotNull(slots[1].endAt) + 100_000L)
+    val resizedDone = requireNotNull(focalBlockEdit(donePlan,
+        focalReplaceSessionBlock(donePlan, 1, resizedSlot), true, start + 3_000_000L))
+    check(resizedDone.completed && !resizedDone.planned && resizedDone.id == plan.id)
+    check(focalSessionBlocks(resizedDone) == listOf(slots[0], resizedSlot))
+    check(resizedDone.activeMillis == 1_900_000L) // The gap remains a break.
+    check(focalPlannedSlots(resizedDone) == slots) // Keep the original goal for completed plans.
+    val resizedCommand = commands(resizedDone).single()
+    check(resizedCommand.getString("action") == "save_progress" && resizedCommand.getBoolean("completed"))
+    check(resizedCommand.getJSONArray("blocks").length() == 2)
+    check(focalBlockEdit(plan, listOf(slots[0], slots[1].copy(startAt = slots[0].startAt)), false, start) == null)
+    check(focalBlockEdit(donePlan, listOf(slots[0], resizedSlot), true, start) == null)
+    check(!focalCanEditBlocks(begun) && !focalCanEditBlocks(conflictedPlan))
+    check(!focalCanEditBlocks(offlinePlan.copy(remotePayload = null)))
+
     // Manual merge: Focal's study_session_merge request. Shared time counts once, gaps stay breaks.
     fun done(id: String, from: Long, to: Long, notes: String, topic: String) = FocalStudyEntry(id = id, notebookId = null, title = id,
         subjectId = "maths", kind = "study", startedAt = from, endedAt = to, activeMillis = to - from, notes = notes,

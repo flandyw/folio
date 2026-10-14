@@ -24,7 +24,13 @@ data class MistakeCache(
     val rowSequences: Map<String, Long> = emptyMap(),
     val versionsBootstrapped: Boolean = false,
     /** Stable, durable generic mutations; a lost response retries the same change id. */
-    val outbox: Map<String, SyncProtocol.QueuedChange> = emptyMap()
+    val outbox: Map<String, SyncProtocol.QueuedChange> = emptyMap(),
+    val reviewPreferences: MistakeReviewPreferences = MistakeReviewPreferences(),
+    val preferencesSequence: Long = 0L,
+    val preferencesChange: SyncProtocol.QueuedChange? = null,
+    val preferencesFeedBootstrapped: Boolean = false,
+    val preferencesReplayCursor: Long? = null,
+    val pendingDateOnly: Set<String> = emptySet()
 )
 data class ExamContext(val subject: String, val title: String, val paper: String)
 data class RemoteMistakeRow(val id: String, val payload: String?, val updatedAt: String, val deletedAt: String?)
@@ -61,12 +67,38 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         val m = requireNotNull(c.mistakes[attempt.mistakeId]) { "This mistake was removed. Your handwriting is saved." }
         val completed = attempt.copy(completedAt = at, rating = rating.wire)
         // A retry after process interruption must not add the same logical review twice.
-        val next = if (m.reviewHistory.any { it.id == attempt.reviewId }) m else MistakeScheduler.recordMistakeReview(m, rating, at, attempt.reviewId)
+        val next = if (m.reviewHistory.any { it.id == attempt.reviewId }) m else MistakeScheduler.recordMistakeReview(m, rating, at, attempt.reviewId, c.reviewPreferences, c.mistakes.values.toList())
         val change = queuedMistakeChange(m.id, "put", JSONObject(next.originalJson), c.rowSequences[m.id], at)
         store.save(user, c.copy(mistakes = c.mistakes + (m.id to next), pending = c.pending + m.id,
             attempts = c.attempts.filterNot { it.reviewId == attempt.reviewId } + completed,
-            outbox = c.outbox + (m.id to change)))
+            outbox = c.outbox + (m.id to change), pendingDateOnly = c.pendingDateOnly - m.id))
         completed
+    }
+    suspend fun saveReviewPreferences(user: String, preferences: MistakeReviewPreferences) = lock.withLock {
+        val c = store.load(user)
+        val next = preferences.normalized().copy(updatedAt = isoTime())
+        val change = queuedPreferencesChange(next, c.preferencesSequence)
+        store.save(user, c.copy(reviewPreferences = next, preferencesChange = change))
+    }
+    suspend fun reduceReviews(user: String, days: Int, dailyTarget: Int): Int = lock.withLock {
+        val c = store.load(user)
+        val now = System.currentTimeMillis()
+        val dates = MistakeScheduler.reduceReviews(c.mistakes.values.toList(), days, dailyTarget, now)
+        val mistakes = c.mistakes.toMutableMap()
+        val outbox = c.outbox.toMutableMap()
+        for ((id, dueAt) in dates) {
+            val original = requireNotNull(mistakes[id])
+            val json = JSONObject(original.originalJson).put("dueAt", dueAt).put("updatedAt", isoTime(now))
+            mistakes[id] = requireNotNull(ExamTrackMistakeCodec.decode(json.toString()))
+            outbox[id] = queuedMistakeChange(id, "put", json, c.rowSequences[id], isoTime(now))
+        }
+        val preferences = c.reviewPreferences.copy(lighterUntil = isoTime(MistakeScheduler.reviewDayStart(now, days.toLong())),
+            lighterDailyTarget = dailyTarget, updatedAt = isoTime(now))
+        store.save(user, c.copy(reviewPreferences = preferences,
+            preferencesChange = queuedPreferencesChange(preferences, c.preferencesSequence),
+            mistakes = mistakes, outbox = outbox, pending = c.pending + dates.keys,
+            pendingDateOnly = c.pendingDateOnly + (dates.keys - c.pending)))
+        dates.size
     }
     /**
      * Soft-deletes a card: it leaves the local list immediately, drops any queued rating,
@@ -83,31 +115,44 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             pending = c.pending - mistakeId,
             tombstones = c.tombstones + (mistakeId to at),
             pendingDeletes = c.pendingDeletes + mistakeId,
-            outbox = c.outbox + (mistakeId to change),
+            outbox = c.outbox + (mistakeId to change), pendingDateOnly = c.pendingDateOnly - mistakeId,
         ))
     }
     suspend fun sync(user: String): SyncResult = lock.withLock {
         val initial = store.load(user)
         val mistakes = initial.mistakes.toMutableMap()
         val pending = initial.pending.toMutableSet()
+        val pendingDateOnly = initial.pendingDateOnly.toMutableSet()
         val tombstones = initial.tombstones.toMutableMap()
         val pendingDeletes = initial.pendingDeletes.toMutableSet()
         val contexts = initial.contexts.toMutableMap()
         val rowSequences = initial.rowSequences.toMutableMap()
         val outbox = initial.outbox.toMutableMap()
         var versionsBootstrapped = initial.versionsBootstrapped
+        var preferences = initial.reviewPreferences
+        var preferencesSequence = initial.preferencesSequence
+        var preferencesChange = initial.preferencesChange
         var invalid = 0
         var updated = 0
         // Old versions kept only a cursor. Replay from zero once to rebuild per-row CAS versions.
-        var cursor = if (versionsBootstrapped) initial.remoteCursor else 0L
+        var cursor = if (versionsBootstrapped && initial.preferencesFeedBootstrapped) initial.remoteCursor else initial.preferencesReplayCursor ?: 0L
+        var preferencesFeedBootstrapped = initial.preferencesFeedBootstrapped
         var pages = 0
 
         fun applyRow(entity: String, id: String, operation: String, rawPayload: String?, deletedStamp: String?, seq: Long) {
+            if (entity == "user_state" && id == MistakeReviewPreferences.ROW_ID) {
+                preferencesSequence = seq
+                if (preferencesChange == null) preferences = MistakeReviewPreferences.decode(
+                    rawPayload?.let { runCatching { JSONObject(it).optJSONObject("value") }.getOrNull() })
+                else preferencesChange = preferencesChange?.copy(changeId = java.util.UUID.randomUUID().toString(), expectedSeq = seq)
+                return
+            }
             if (entity == "mistakes") rowSequences[id] = seq
             if (operation == "delete") {
                 if (entity == "mistakes") {
                     if (mistakes.remove(id) != null) updated++
                     pending.remove(id)
+                    pendingDateOnly.remove(id)
                     pendingDeletes.remove(id)
                     outbox.remove(id)
                     tombstones[id] = deletedStamp ?: tombstones[id] ?: ""
@@ -129,7 +174,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             }
             val local = mistakes[id]
             val next = if (id in pending && local != null) {
-                preserveRemoteFields(RemoteMistakeRow(id, raw, incoming.updatedAt, null), local)
+                preserveRemoteFields(RemoteMistakeRow(id, raw, incoming.updatedAt, null), local, id in pendingDateOnly)
             } else incoming
             if (local?.originalJson != next.originalJson) updated++
             mistakes[id] = next
@@ -147,27 +192,33 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 mistakes.clear(); mistakes.putAll(localPending)
                 contexts.clear()
                 rowSequences.clear()
+                preferencesSequence = 0L
+                if (preferencesChange == null) preferences = MistakeReviewPreferences()
                 tombstones.keys.retainAll(pendingDeletes)
                 page.rows.forEach { row ->
-                    if (row.entity == "mistakes" || row.entity == "attempts")
+                    if (row.entity == "mistakes" || row.entity == "attempts" || row.entity == "user_state")
                         applyRow(row.entity, row.rowId, row.operation, row.payload?.toString(), null, row.seq)
                 }
                 cursor = page.head
                 versionsBootstrapped = true
+                preferencesFeedBootstrapped = true
                 break
             }
             page.changes.sortedBy { it.seq }.forEach { change ->
-                if (change.entity != "mistakes" && change.entity != "attempts") return@forEach
+                if (change.entity == "user_state" && change.rowId == MistakeReviewPreferences.ROW_ID &&
+                    preferencesChange?.changeId == change.changeId) preferencesChange = null
+                if (change.entity != "mistakes" && change.entity != "attempts" && change.entity != "user_state") return@forEach
                 val queued = outbox[change.rowId]
                 if (queued?.changeId == change.changeId) {
                     outbox.remove(change.rowId)
                     if (change.operation == "delete") pendingDeletes.remove(change.rowId) else pending.remove(change.rowId)
+                    pendingDateOnly.remove(change.rowId)
                 }
                 applyRow(change.entity, change.rowId, change.operation, change.payload?.toString(), change.createdAt, change.seq)
             }
             cursor = page.changes.fold(cursor) { value, change -> maxOf(value, change.seq) }
             if (cursor >= page.head || page.changes.size < 500) {
-                if (cursor >= page.head) versionsBootstrapped = true
+                if (cursor >= page.head) { versionsBootstrapped = true; preferencesFeedBootstrapped = true }
                 break
             }
         }
@@ -187,9 +238,28 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         var cache = initial.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
             tombstones = tombstones.toMap(), contexts = contexts.toMap(), pendingDeletes = pendingDeletes.toSet(),
             remoteCursor = maxOf(initial.remoteCursor, cursor), rowSequences = rowSequences.toMap(),
-            versionsBootstrapped = versionsBootstrapped, outbox = outbox.toMap())
+            versionsBootstrapped = versionsBootstrapped, outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet(),
+            reviewPreferences = preferences, preferencesSequence = preferencesSequence,
+            preferencesChange = preferencesChange, preferencesFeedBootstrapped = preferencesFeedBootstrapped,
+            preferencesReplayCursor = if (preferencesFeedBootstrapped) null else cursor)
         // Feed state, per-row versions, and the cursor are durable before sending any mutation.
         store.save(user, cache)
+
+        repeat(3) {
+            val change = preferencesChange ?: return@repeat
+            val result = remote.apply(user, change)
+            val receipt = result.receipts.firstOrNull { it.changeId == change.changeId }
+            if (receipt != null) {
+                preferencesSequence = receipt.seq
+                preferencesChange = null
+            } else {
+                val stale = result.stale.firstOrNull { it.changeId == change.changeId } ?: return@repeat
+                preferencesSequence = stale.current?.seq ?: 0L
+                preferencesChange = change.copy(changeId = java.util.UUID.randomUUID().toString(), expectedSeq = preferencesSequence)
+            }
+            cache = cache.copy(preferencesSequence = preferencesSequence, preferencesChange = preferencesChange)
+            store.save(user, cache)
+        }
 
         for ((id, initialChange) in outbox.toMap()) {
             var change = initialChange
@@ -198,7 +268,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 if (seq == null) {
                     if (change.operation == "delete") {
                         outbox.remove(id); pendingDeletes.remove(id)
-                        cache = cache.copy(outbox = outbox.toMap(), pendingDeletes = pendingDeletes.toSet())
+                        cache = cache.copy(outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet(), pendingDeletes = pendingDeletes.toSet())
                         store.save(user, cache)
                     }
                     continue // Never recreate a missing or malformed remote mistake.
@@ -214,9 +284,10 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                     rowSequences[id] = receipt.seq
                     outbox.remove(id)
                     if (change.operation == "delete") pendingDeletes.remove(id) else pending.remove(id)
+                    pendingDateOnly.remove(id)
                     cache = cache.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
                         tombstones = tombstones.toMap(), pendingDeletes = pendingDeletes.toSet(),
-                        rowSequences = rowSequences.toMap(), outbox = outbox.toMap())
+                        rowSequences = rowSequences.toMap(), outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet())
                     store.save(user, cache)
                     break
                 }
@@ -232,7 +303,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                     if (change.operation != "delete") mistakes.remove(id)
                     cache = cache.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
                         tombstones = tombstones.toMap(), pendingDeletes = pendingDeletes.toSet(),
-                        rowSequences = rowSequences.toMap(), outbox = outbox.toMap())
+                        rowSequences = rowSequences.toMap(), outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet())
                     store.save(user, cache)
                     break
                 }
@@ -246,7 +317,7 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 val remoteRow = RemoteMistakeRow(id, remoteJson, remoteMistake.updatedAt, null)
                 if (change.operation == "put") {
                     val local = mistakes[id]
-                    val merged = if (local == null) remoteMistake else preserveRemoteFields(remoteRow, local)
+                    val merged = if (local == null) remoteMistake else preserveRemoteFields(remoteRow, local, id in pendingDateOnly)
                     mistakes[id] = merged
                     pending.add(id)
                     change = queuedMistakeChange(id, "put", JSONObject(merged.originalJson), current.seq, merged.updatedAt)
@@ -256,20 +327,27 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
                 outbox[id] = change
                 attempts++
                 cache = cache.copy(mistakes = mistakes.toMap(), pending = pending.toSet(),
-                    pendingDeletes = pendingDeletes.toSet(), rowSequences = rowSequences.toMap(), outbox = outbox.toMap())
+                    pendingDeletes = pendingDeletes.toSet(), rowSequences = rowSequences.toMap(), outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet())
                 store.save(user, cache) // Persist the rebase before retrying it.
             }
         }
         cache = cache.copy(mistakes = mistakes.toMap(), pending = pending.toSet(), tombstones = tombstones.toMap(),
             contexts = contexts.toMap(), pendingDeletes = pendingDeletes.toSet(), rowSequences = rowSequences.toMap(),
-            versionsBootstrapped = versionsBootstrapped, outbox = outbox.toMap(),
+            versionsBootstrapped = versionsBootstrapped, outbox = outbox.toMap(), pendingDateOnly = pendingDateOnly.toSet(),
             lastSyncedAt = isoTime(), remoteCursor = maxOf(cache.remoteCursor, cursor))
         store.save(user, cache)
-        SyncResult(mistakes.size, updated, invalid, pending.size + pendingDeletes.size)
+        SyncResult(mistakes.size, updated, invalid, pending.size + pendingDeletes.size + if (preferencesChange != null) 1 else 0)
     }
-    private fun preserveRemoteFields(remote: RemoteMistakeRow, local: ExamTrackMistake): ExamTrackMistake {
+    private fun preserveRemoteFields(remote: RemoteMistakeRow, local: ExamTrackMistake, dateOnly: Boolean = false): ExamTrackMistake {
         val output = JSONObject(requireNotNull(remote.payload))
         val source = JSONObject(local.originalJson)
+        if (dateOnly) {
+            val due = source.getString("dueAt")
+            val remoteDue = ExamTrackMistakeCodec.decode(requireNotNull(remote.payload))?.let { MistakeScheduler.getMistakeSchedule(it).dueAt }
+            output.put("dueAt", if (remoteDue != null && timestamp(remoteDue) > timestamp(due)) remoteDue else due)
+            output.put("updatedAt", maxOf(source.getString("updatedAt"), output.optString("updatedAt", "")))
+            return requireNotNull(ExamTrackMistakeCodec.decode(output.toString()))
+        }
         // Folio only edits scheduling. Keep the latest remote question, attachments and future fields.
         listOf("reviewHistory", "reviewState", "intervalDays", "easeFactor", "repetitions", "lapses",
             "lastReviewedAt", "resolved", "dueAt", "updatedAt").forEach { key ->
@@ -279,6 +357,12 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
     }
 }
 
+
+private fun queuedPreferencesChange(preferences: MistakeReviewPreferences, sequence: Long) = SyncProtocol.QueuedChange(
+    changeId = java.util.UUID.randomUUID().toString(), entity = "user_state", rowId = MistakeReviewPreferences.ROW_ID,
+    operation = "put", payload = JSONObject().put("value", preferences.encode()).put("updated_at", preferences.updatedAt),
+    lamport = 0L, createdAt = preferences.updatedAt, expectedSeq = sequence,
+)
 
 private fun queuedMistakeChange(
     id: String,
@@ -294,6 +378,12 @@ private fun queuedMistakeChange(
 object MistakeCacheCodec {
     const val VERSION = 4
     fun encode(c: MistakeCache): String = JSONObject().put("version", VERSION).apply {
+        put("reviewPreferences", c.reviewPreferences.encode())
+        put("preferencesSequence", c.preferencesSequence)
+        put("preferencesChange", c.preferencesChange?.toJson())
+        put("preferencesReplayCursor", c.preferencesReplayCursor)
+        put("preferencesFeedBootstrapped", c.preferencesFeedBootstrapped)
+        put("pendingDateOnly", JSONArray(c.pendingDateOnly.toList()))
         put("mistakes", JSONArray(c.mistakes.values.map { JSONObject(it.originalJson) }))
         put("pending", JSONArray(c.pending.toList()))
         put("tombstones", JSONObject(c.tombstones))
@@ -330,6 +420,12 @@ object MistakeCacheCodec {
         return MistakeCache(mistakes = mistakes, pending = pending, tombstones = tombstones, attempts = attempts,
             contexts = contexts, lastSyncedAt = o.opt("lastSyncedAt") as? String,
             pendingDeletes = pendingDeletes, remoteCursor = o.optLong("remoteCursor").coerceAtLeast(0L),
-            rowSequences = rowSequences, versionsBootstrapped = o.optBoolean("versionsBootstrapped"), outbox = outbox)
+            rowSequences = rowSequences, versionsBootstrapped = o.optBoolean("versionsBootstrapped"), outbox = outbox,
+            reviewPreferences = MistakeReviewPreferences.decode(o.optJSONObject("reviewPreferences")),
+            preferencesSequence = o.optLong("preferencesSequence").coerceAtLeast(0),
+            preferencesChange = o.optJSONObject("preferencesChange")?.let { SyncProtocol.QueuedChange.fromJson(it) },
+            preferencesFeedBootstrapped = o.optBoolean("preferencesFeedBootstrapped"),
+            preferencesReplayCursor = if (o.isNull("preferencesReplayCursor")) null else o.optLong("preferencesReplayCursor"),
+            pendingDateOnly = o.optJSONArray("pendingDateOnly")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty())
     }
 }

@@ -192,6 +192,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun removePdfImport(uri: Uri): Unit = runtime.removePdfImport(uri)
     fun cancelPdfImport(): Unit = runtime.cancelPdfImport()
     fun importPdfs(folderId: String?, reviewed: List<PendingPdfImport> = runtime._state.value.pendingPdfImports): Unit = runtime.importPdfs(folderId, reviewed)
+    fun importVcaaPapers(folderId: String?, papers: List<VcaaExam>): Unit = runtime.importVcaaPapers(folderId, papers)
     fun importDownloadedPdfs(folderId: String?, items: List<PendingPdfImport>, files: List<java.io.File>): Unit = runtime.importDownloadedPdfs(folderId, items, files)
     fun importArchive(uri: Uri): Unit = runtime.importArchive(uri)
     fun exportArchive(note: Notebook, uri: Uri): Unit = runtime.exportArchive(note, uri)

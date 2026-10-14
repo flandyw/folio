@@ -90,6 +90,51 @@ internal class BackupService(private val runtime: FolioRuntime) {
         }
     }
 
+    /** Own the download as well as import, so closing a library view cannot cancel the request. */
+    fun importVcaaPapers(folderId: String?, papers: List<VcaaExam>) {
+        with(runtime) {
+            val request = _state.value
+            if (request.busy || request.loading || request.loadFailed || papers.isEmpty() ||
+                (folderId != null && request.folders.none { it.id == folderId })) return
+            val chosen = papers.distinctBy { it.url }.filter { VcaaLibrary.imported(it, request.notes) == null }
+            if (chosen.isEmpty()) return
+            _state.update { it.copy(busy = true, importProgress = "Downloading VCAA papers…") }
+            scope.launch {
+                val files = mutableListOf<java.io.File>()
+                var handedOff = false
+                try {
+                    val dir = java.io.File(getApplication<Application>().cacheDir, "vcaa")
+                    withContext(Dispatchers.IO) { check(dir.isDirectory || dir.mkdirs()) { "Could not prepare the download folder" } }
+                    val items = mutableListOf<PendingPdfImport>()
+                    val failures = mutableListOf<String>()
+                    chosen.forEachIndexed { index, exam ->
+                        _state.update { it.copy(importProgress = "Downloading ${index + 1} of ${chosen.size}: ${exam.title}") }
+                        val file = java.io.File(dir, "${java.util.UUID.randomUUID()}.pdf")
+                        files += file
+                        try {
+                            downloadVcaaPdf(exam.url, file)
+                            items += PendingPdfImport(Uri.fromFile(file), exam.title, exam.tags, detected = true,
+                                filename = exam.url.substringAfterLast('/'))
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { failures += "${exam.title}: ${e.message ?: "Download failed"}" }
+                    }
+                    if (items.isEmpty()) reportError("Could not download VCAA papers.\n" + failures.joinToString("\n"))
+                    else {
+                        runPdfImport(folderId, items, items.associateBy { it.uri }, initialFailures = failures) { files.forEach { it.delete() } }
+                        handedOff = true
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { reportError("Could not import VCAA papers: ${e.message ?: "Try again"}") }
+                finally {
+                    if (!handedOff) {
+                        files.forEach { it.delete() }
+                        _state.update { it.copy(busy = false, importProgress = null) }
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * PDFs Folio fetched itself (the VCAA library), already described, so there is nothing to
      * review. The downloaded copies are deleted once the notebooks own theirs.
@@ -105,11 +150,11 @@ internal class BackupService(private val runtime: FolioRuntime) {
     }
 
     private fun runPdfImport(folderId: String?, items: List<PendingPdfImport>, options: Map<Uri, PendingPdfImport>,
-                             cleanup: () -> Unit = {}) {
+                             initialFailures: List<String> = emptyList(), cleanup: () -> Unit = {}) {
         with(runtime) {
             scope.launch {
                 val imported = mutableListOf<Notebook>()
-                val failures = mutableListOf<String>()
+                val failures = initialFailures.toMutableList()
                 try {
                     ready.await()
                     importBatch(items,
@@ -136,7 +181,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
                     }
                     captureTab()
                     reportError(buildString {
-                        append("Imported ${imported.size} of ${items.size} PDFs.")
+                        append("Imported ${imported.size} of ${items.size + initialFailures.size} PDFs.")
                         if (imported.any { it.exam.isTagged })
                             append("\nExam details and smart notebook names were applied.")
                         if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
