@@ -10,6 +10,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Note
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,7 +47,7 @@ import com.folio.notes.math.KaTeXText
     val scheme = MaterialTheme.colorScheme
     Surface(modifier, shape = FolioShapes.extraLarge, color = scheme.surfaceContainerLow) {
         if (note == null) Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Icon(Icons.Rounded.MenuBook, null, Modifier.size(32.dp), tint = scheme.primary)
+            Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(32.dp), tint = scheme.primary)
             Text("Your page, with a second pair of eyes", style = MaterialTheme.typography.titleMedium)
             Text("Open a notebook, then tap the sparkle button beside Share and choose Review page with ChatGPT. You can connect your account here first.",
                 style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
@@ -207,7 +209,7 @@ import com.folio.notes.math.KaTeXText
                         if (!feedback.applied) Checkbox(draft.included, { manager.updateDraft(feedback.request, index, included = it) }, enabled = enabled,
                             modifier = Modifier.semantics { contentDescription = "Include sticky note ${index + 1}" },
                             colors = CheckboxDefaults.colors(checkedColor = ink, checkmarkColor = paper, uncheckedColor = ink))
-                        else Icon(Icons.Rounded.Note, null, Modifier.padding(FolioSpacing.dp12).size(20.dp))
+                        else Icon(Icons.AutoMirrored.Rounded.Note, null, Modifier.padding(FolioSpacing.dp12).size(20.dp))
                         Text("Note ${index + 1}${if (!draft.included) " · not selected" else ""}", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
                         if (!feedback.applied) IconButton({ editing = !editing }, enabled = enabled) {
                             Icon(if (editing) Icons.Rounded.Check else Icons.Rounded.Edit, if (editing) "Finish editing note ${index + 1}" else "Edit note ${index + 1}", Modifier.size(20.dp))

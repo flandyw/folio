@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,7 +73,7 @@ import kotlinx.coroutines.launch
     }
 
     fun review() {
-        if (ready && note != null && page != null && (if (intent == ChatGptReviewIntent.CUSTOM) custom.isNotBlank() else true)) {
+        if (ready && (if (intent == ChatGptReviewIntent.CUSTOM) custom.isNotBlank() else true)) {
             focus.clearFocus(); applyError = null
             manager.review(note, page, reviewPages, model.repository, prompt)
         }
@@ -184,8 +186,8 @@ import kotlinx.coroutines.launch
                     val action: () -> Unit
                     val icon = when {
                         feedback?.applied == true -> Icons.Rounded.Check
-                        feedback != null && samePage -> Icons.Rounded.NoteAdd
-                        account?.connected != true || !account.plan -> Icons.Rounded.Login
+                        feedback != null && samePage -> Icons.AutoMirrored.Rounded.NoteAdd
+                        account?.connected != true || !account.plan -> Icons.AutoMirrored.Rounded.Login
                         else -> Icons.Rounded.AutoAwesome
                     }
                     when {

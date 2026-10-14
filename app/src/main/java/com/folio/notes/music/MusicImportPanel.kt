@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.CallMerge
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.*
@@ -232,7 +233,7 @@ import kotlinx.coroutines.withContext
                                             activePart = 0
                                         }
                                     }, enabled = !busy && mergeable, shapes = ButtonDefaults.shapes()) {
-                                        Icon(Icons.Rounded.CallMerge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
+                                        Icon(Icons.AutoMirrored.Rounded.CallMerge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
                                     }
                                 }
                             }

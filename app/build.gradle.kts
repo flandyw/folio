@@ -158,6 +158,9 @@ android {
         )
         // Compress native libraries inside the APK (smaller download; the installer extracts them).
         jniLibs.useLegacyPackaging = true
+        // These vendor binaries already contain no debug sections or static symbol table.
+        // Avoid a redundant strip attempt (and its warning on hosts without an NDK).
+        jniLibs.keepDebugSymbols += setOf("**/libandroidx.graphics.path.so", "**/libmlkit_google_ocr_pipeline.so")
     }
     lint {
         // Release lint-vital re-analyses the whole app on every build; run :app:lintDebug locally.

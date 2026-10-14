@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -218,7 +219,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
         contentColor = if (likely) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(if (likely) Icons.Rounded.ContentCopy else Icons.Rounded.HelpOutline, null, Modifier.size(16.dp))
+                Icon(if (likely) Icons.Rounded.ContentCopy else Icons.AutoMirrored.Rounded.HelpOutline, null, Modifier.size(16.dp))
                 Text("${if (likely) "Likely already logged" else "Possible match"} · ${(match.confidence * 100).roundToInt()}% sure",
                     style = MaterialTheme.typography.labelLarge)
             }

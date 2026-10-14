@@ -8,7 +8,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.window.Dialog
@@ -69,7 +69,7 @@ internal fun <T> folioSpring() = spring<T>(dampingRatio = .76f, stiffness = 380f
 ) {
     val visibility = remember { MutableTransitionState(false).apply { targetState = true } }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
-    val transition = updateTransition(visibility, label = "modal")
+    val transition = rememberTransition(visibility, label = "modal")
     val progress = transition.animateFloat(
         transitionSpec = { tween(if (targetState) 240 else 180, easing = FastOutSlowInEasing) },
         label = "modalProgress",

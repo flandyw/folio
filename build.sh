@@ -202,7 +202,7 @@ if ((size == 0 || size > 100 * 1024 * 1024)); then
 fi
 sum=$(sha256sum -- "$verified_apk")
 sum=${sum%% *}
-if ! signers=$("$tools/apksigner" verify --print-certs "$verified_apk"); then
+if ! signers=$("$tools/apksigner" -J-enable-native-access=ALL-UNNAMED verify --print-certs "$verified_apk"); then
     fail "Release APK signature verification failed"; exit 1
 fi
 cert=$(printf '%s\n' "$signers" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')

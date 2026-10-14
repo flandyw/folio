@@ -21,6 +21,8 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.FormatAlignRight
+import androidx.compose.material.icons.automirrored.rounded.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.rounded.WrapText
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -251,9 +253,9 @@ private class PageTextField(context: Context) : EditText(context) {
             }
             if (expanded) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    TextFormatButton(Icons.Rounded.FormatAlignLeft, "Align left", box.align == TextAlignMode.LEFT) { onChange(box.copy(align = TextAlignMode.LEFT)) }
+                    TextFormatButton(Icons.AutoMirrored.Rounded.FormatAlignLeft, "Align left", box.align == TextAlignMode.LEFT) { onChange(box.copy(align = TextAlignMode.LEFT)) }
                     TextFormatButton(Icons.Rounded.FormatAlignCenter, "Align centre", box.align == TextAlignMode.CENTER) { onChange(box.copy(align = TextAlignMode.CENTER)) }
-                    TextFormatButton(Icons.Rounded.FormatAlignRight, "Align right", box.align == TextAlignMode.RIGHT) { onChange(box.copy(align = TextAlignMode.RIGHT)) }
+                    TextFormatButton(Icons.AutoMirrored.Rounded.FormatAlignRight, "Align right", box.align == TextAlignMode.RIGHT) { onChange(box.copy(align = TextAlignMode.RIGHT)) }
                     colors.forEach { color -> InkColorDot(color, color == box.color, { onChange(box.copy(color = color)) }, touch = 40.dp, dot = 24.dp, label = "Text colour") }
                 }
                 Row(Modifier.padding(horizontal = FolioSpacing.dp12), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

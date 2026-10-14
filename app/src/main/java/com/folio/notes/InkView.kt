@@ -1898,7 +1898,7 @@ class InkView(context: Context) : View(context) {
     internal var workspaceNotes = false
     internal var onWorkspaceNotesInvalidated: (() -> Unit)? = null
     override fun invalidate() { super.invalidate(); onWorkspaceNotesInvalidated?.invoke() }
-    @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun invalidate(left: Int, top: Int, right: Int, bottom: Int) {
         super.invalidate(left, top, right, bottom); onWorkspaceNotesInvalidated?.invoke()
     }

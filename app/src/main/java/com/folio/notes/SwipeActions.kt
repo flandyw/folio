@@ -61,15 +61,18 @@ class SwipeAction(val icon: ImageVector, val label: String, val destructive: Boo
     val haptics = LocalHapticFeedback.current
     val start by rememberUpdatedState(startToEnd)
     val end by rememberUpdatedState(endToStart)
-    val state = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
+    val state = rememberSwipeToDismissBoxState()
+    LaunchedEffect(state.settledValue) {
+        val value = state.settledValue
         val action = when (value) {
             SwipeToDismissBoxValue.StartToEnd -> start
             SwipeToDismissBoxValue.EndToStart -> end
             SwipeToDismissBoxValue.Settled -> null
         }
         action?.let { haptics.performHapticFeedback(HapticFeedbackType.LongPress); it.perform() }
-        false
-    })
+        // Return the row after its shortcut; dismissal never removes it here.
+        if (value != SwipeToDismissBoxValue.Settled) state.reset()
+    }
     SwipeToDismissBox(state, modifier = modifier,
         enableDismissFromStartToEnd = startToEnd != null, enableDismissFromEndToStart = endToStart != null,
         backgroundContent = {

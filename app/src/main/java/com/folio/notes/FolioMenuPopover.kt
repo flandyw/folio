@@ -3,7 +3,7 @@ package com.folio.notes
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -71,7 +71,7 @@ import androidx.compose.ui.window.PopupProperties
 ) {
     val state = remember { MutableTransitionState(false) }
     state.targetState = expanded
-    val transition = updateTransition(state, label = "Menu popover")
+    val transition = rememberTransition(state, label = "Menu popover")
     val opacity by transition.animateFloat(transitionSpec = { tween(120) }, label = "Opacity") { if (it) 1f else 0f }
     val scale by transition.animateFloat(transitionSpec = { if (targetState) folioSpring() else tween(90) }, label = "Scale") { if (it) 1f else 0f }
     if (!state.currentState && !state.targetState) return
