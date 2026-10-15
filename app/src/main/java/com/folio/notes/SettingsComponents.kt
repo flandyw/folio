@@ -66,7 +66,7 @@ internal inline fun SharedPreferences.write(block: SharedPreferences.Editor.() -
     footer: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+    Column(Modifier.settingsTarget(title.orEmpty()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         if (title != null) {
             Text(
                 title, Modifier.padding(horizontal = FolioSpacing.dp16).semantics { heading() },
@@ -93,7 +93,7 @@ private val RowPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical 
 
 @Composable private fun RowText(title: String, subtitle: String?, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+    Column(modifier.settingsTarget(title), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
         Text(title, style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else muted)
         if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = muted)
     }
@@ -184,7 +184,7 @@ private fun Modifier.clickableRow(enabled: Boolean, onClick: () -> Unit): Modifi
     lowLabel: String? = null,
     highLabel: String? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(RowPadding), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+    Column(Modifier.fillMaxWidth().settingsTarget(title).padding(RowPadding), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)

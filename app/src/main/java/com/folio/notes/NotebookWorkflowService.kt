@@ -18,12 +18,24 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
             val note = Notebook(title = title.trim(), folderId = folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover,
                 defaultPaper = if (response != null) Paper.RULED else null,
                 longResponse = response?.copy(attempts = listOf(ResponseAttempt(title = "First attempt", mode = responseMode, pageIds = pages.map { it.id }))))
+            installNewNotebook(note)
+        }
+    }
+
+    private fun installNewNotebook(note: Notebook) = with(runtime) {
             captureTab()
             selectNotebookTimer(note.id)
             _state.update { it.copy(notes = it.notes + note, activeId = note.id, pageIndex = 0, canUndo = false, canRedo = false, pdfSearch = PdfSearchState()) }
             captureTab()
             enqueue { repository.saveAll(note) }
-        }
+    }
+    fun createLike(source: Notebook) = with(runtime) {
+        if (_state.value.loading || _state.value.loadFailed || source.hiddenFromLibrary) return
+        val names = _state.value.notes.map { it.title }.toSet()
+        val base = "New ${source.title}"
+        var title = base; var suffix = 2
+        while (title in names) title = "$base (${suffix++})"
+        installNewNotebook(source.blankLike(title))
     }
 
     fun configureResponse(noteId: String, response: LongResponse, subject: String) {

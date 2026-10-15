@@ -49,6 +49,11 @@ internal class EditorViewportCoordinator(
         if (visible.size > 0) camera.anchor = DocumentPageGeometry.Anchor(page.id,
             top - visible.offset.toFloat() / visible.size * (bottom - top))
     }
+    fun restoreVisit(anchor: DocumentPageGeometry.Anchor, paperWidthPx: Float): Boolean {
+        navigation = PageNavigation()
+        camera.anchor = anchor
+        return restore(paperWidthPx)
+    }
     fun restore(paperWidthPx: Float): Boolean {
         if (navigation.awaitingLanding) return false
         val anchor = camera.anchor ?: return false

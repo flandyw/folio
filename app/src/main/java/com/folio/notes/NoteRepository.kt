@@ -1172,6 +1172,34 @@ class NoteRepository(private val context: Context) {
      * runs. A scanned or locked PDF simply yields empty strings, which the search panel reports
      * as having no searchable text rather than failing the search.
      */
+    /** Content equality avoids duplicate warnings based only on filenames or guessed metadata. */
+    suspend fun findDuplicatePdf(uri: android.net.Uri, notebookIds: List<String>): String? = withContext(Dispatchers.IO) {
+        fun digest(input: java.io.InputStream): ByteArray = input.use { stream ->
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            while (true) { val size = stream.read(buffer); if (size < 0) break; hash.update(buffer, 0, size) }
+            hash.digest()
+        }
+        val wanted = context.contentResolver.openInputStream(uri)?.let(::digest) ?: return@withContext null
+        for (id in notebookIds) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val source = File(storedDirectory(id), "source.pdf")
+            if (source.exists() && digest(source.inputStream()).contentEquals(wanted)) return@withContext id
+        }
+        null
+    }
+
+    suspend fun pdfPageLabels(noteId: String): Map<Int, String> = withContext(Dispatchers.IO) {
+        pdfLock.withLock {
+            val file = File(storedDirectory(noteId), "source.pdf")
+            if (!file.exists()) return@withLock emptyMap()
+            ensurePdfBox()
+            PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024).setTempDir(context.cacheDir)).use { doc ->
+                doc.documentCatalog.pageLabels?.labelsByPageIndices?.mapIndexed { index, label -> index to label }?.toMap().orEmpty()
+            }
+        }
+    }
+
     suspend fun pdfPageTexts(noteId: String): List<PdfPageText> = withContext(Dispatchers.IO) {
         pdfLock.withLock {
             pdfTextCache[noteId]?.let { return@withLock it }

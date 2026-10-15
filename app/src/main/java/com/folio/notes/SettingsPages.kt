@@ -58,6 +58,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 // ---- Appearance ---------------------------------------------------------------------------------
 
 @Composable internal fun AppearancePage(s: AppSettings) {
+    UxAppearanceSettings()
     SettingsGroup("Theme") {
         SettingsRadioGroup {
             ThemeMode.entries.forEach { SettingsRadioRow(it.label, it.description, it == s.themeMode) { s.onThemeMode(it) } }
@@ -152,6 +153,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 // ---- Writing ------------------------------------------------------------------------------------
 
 @Composable internal fun WritingPage(s: AppSettings) {
+    UxWritingSettings()
     val p = rememberPrefs()
     val defaultTool by rememberPref(p, AppPrefs.DEFAULT_TOOL) { AppPrefs.defaultTool(it.getString(AppPrefs.DEFAULT_TOOL, null)) }
     val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
@@ -302,6 +304,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 // ---- Stylus & touch -----------------------------------------------------------------------------
 
 @Composable internal fun StylusPage(s: AppSettings) {
+    UxStylusPractice(s.stylus)
     val p = rememberPrefs()
     val palmMs by rememberPref(p, AppPrefs.PALM_MS) { AppPrefs.palmMs(it.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { _ -> it.contains(AppPrefs.PALM_MS) }) }
     val fastPan by rememberPref(p, AppPrefs.FAST_PAN) { it.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN) }
@@ -361,6 +364,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 // ---- Library & covers ---------------------------------------------------------------------------
 
 @Composable internal fun LibraryPage(folders: List<Folder>) {
+    UxLibrarySettings()
     val p = rememberPrefs()
     val sort by rememberPref(p, AppPrefs.LIB_SORT) { AppPrefs.librarySort(it.getString(AppPrefs.LIB_SORT, null)) }
     val kind by rememberPref(p, AppPrefs.LIB_KIND) { AppPrefs.libraryKind(it.getString(AppPrefs.LIB_KIND, null)) }
@@ -572,6 +576,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 
 /** The printed guide a new mistake-practice page starts with; the canvas itself stays infinite. */
 @Composable internal fun MistakesPage() {
+    SettingsGroup("Review confirmation") { SettingsPrefSwitch(AppPrefs.UX_REVIEW_CONFIRM, true, "Confirm answer reveal and skip", "Turn off for single-tap review. Keyboard controls: Space reveal, 1–4 rate, S skip.") }
     val p = rememberPrefs()
     val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
     SettingsGroup("Practice pages", footer = "Every question you practise opens on its own infinite canvas; this picks the guide printed behind it. It applies to the next question; pages you have already written keep their own paper.") {

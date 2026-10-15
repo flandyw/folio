@@ -70,6 +70,9 @@ internal class EditorInteractionState {
     val transfers = EditorTransferCoordinator()
 }
 internal class EditorOverlayState {
+    val searchMatches = mutableStateOf<List<Int>>(emptyList())
+    val searchMatch = mutableIntStateOf(0)
+    val searchCaption = mutableStateOf("")
     val palette = mutableStateOf(false)
     val noteSearch = mutableStateOf(false)
     val keyboardShortcuts = mutableStateOf(false)
@@ -135,3 +138,7 @@ internal class EditorPaperState {
     val chosen = mutableStateOf(Paper.MATH_GRID)
     val saveDefault = mutableStateOf(false)
 }
+
+/** A visit uses page identity so reordering cannot turn Back into an unrelated page jump. */
+internal data class EditorVisit(val pageId: String, val anchor: DocumentPageGeometry.Anchor?,
+    val zoom: Float, val pan: Float, val pageZoom: Float, val pagePan: Float, val camera: WorkspaceViewport?)

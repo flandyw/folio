@@ -26,9 +26,9 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     internal val loadingPages = mutableSetOf<String>()
     private val historyAvailability = DocumentHistoryAvailability()
 
-    internal fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit) {
+    internal fun recordStructure(noteId: String, label: String = "Page organisation change", undo: () -> Unit, redo: () -> Unit) {
         with(runtime) {
-            structureUndo.add(StructureStep(noteId, ++actionCounter, undo, redo))
+            structureUndo.add(StructureStep(noteId, ++actionCounter, label, undo, redo))
             while (structureUndo.size > MAX_STRUCTURE_UNDO) structureUndo.removeAt(0)
             structureRedo.removeAll { it.noteId == noteId }
             historyState()
@@ -166,7 +166,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             removePageRaw(noteId, pageId)
             // Deleting the only page leaves a blank one behind; undoing the delete takes that filler away again.
             val filler = if (wasOnly) _state.value.notes.notebook(noteId)?.pages?.singleOrNull()?.id else null
-            recordStructure(noteId,
+            recordStructure(noteId, "Delete page ${index + 1}",
                 undo = {
                     insertPageRaw(noteId, index, removed, history, select = true)
                     filler?.let { removePageRaw(noteId, it) }
@@ -220,7 +220,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         with(runtime) {
             var held: Pair<NotePage, PageJournal.History>? = null
             var heldAt = 0
-            recordStructure(noteId,
+            recordStructure(noteId, "Insert page ${(_state.value.notes.notebook(noteId)?.pages?.pageIndex(pageId) ?: 0) + 1}",
                 undo = {
                     heldAt = _state.value.notes.notebook(noteId)?.pages?.indexOfFirst { it.id == pageId } ?: 0
                     held = removePageRaw(noteId, pageId)
@@ -229,13 +229,30 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
+    fun movePages(noteId: String, ids: Set<String>, position: Int) = with(runtime) {
+        val note = _state.value.active?.takeIf { it.id == noteId } ?: return
+        val before = note.pages.map { it.id }
+        val after = reorderedPageBlock(before, ids, position)
+        if (before == after) return
+        if (applyPageOrder(noteId, after)) recordStructure(noteId, "Move ${ids.size} pages", undo = { applyPageOrder(noteId, before) }, redo = { applyPageOrder(noteId, after) })
+    }
+    private fun applyPageOrder(noteId: String, order: List<String>): Boolean = with(runtime) {
+        val note = _state.value.notes.notebook(noteId) ?: return false
+        if (note.pages.size != order.size || note.pages.map { it.id }.toSet() != order.toSet()) { reportError("The page order changed. Undo intervening page changes first."); return false }
+        val currentId = _state.value.takeIf { it.activeId == noteId }?.page?.id
+        val byId = note.pages.associateBy { it.id }
+        updateNote(note.copy(pages = order.map { byId.getValue(it) }, updated = System.currentTimeMillis()))
+        if (currentId != null) { _state.update { it.copy(pageIndex = order.indexOf(currentId).coerceAtLeast(0)) }; captureTab() }
+        return true
+    }
+
     fun movePage(from: Int, to: Int) {
         with(runtime) {
             val note = _state.value.active ?: return
             val target = to.coerceIn(0, note.pages.lastIndex)
             if (from !in note.pages.indices || from == target) return
             movePageRaw(note.id, from, target)
-            recordStructure(note.id, undo = { movePageRaw(note.id, target, from) }, redo = { movePageRaw(note.id, from, target) })
+            recordStructure(note.id, "Move page ${from + 1} to ${target + 1}", undo = { movePageRaw(note.id, target, from) }, redo = { movePageRaw(note.id, from, target) })
         }
     }
 
@@ -266,7 +283,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         with(runtime) {
             val was = before.meta(); val now = after.meta()
             if (was == now) return
-            recordStructure(noteId, undo = { applyPageMeta(noteId, before.id, was) }, redo = { applyPageMeta(noteId, before.id, now) })
+            recordStructure(noteId, "Change properties · ${before.title.ifBlank { "page" }}", undo = { applyPageMeta(noteId, before.id, was) }, redo = { applyPageMeta(noteId, before.id, now) })
         }
     }
 
@@ -592,6 +609,19 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                 finally { documentHistoryBusy = false; _state.update { it.copy(documentHistoryBusy = false) } }
             }
         }
+    }
+
+    internal fun undoDescriptions(): List<String> = with(runtime) {
+        val note = _state.value.active ?: return emptyList()
+        val page = _state.value.page
+        fun pageName(id: String) = note.pages.indexOfFirst { it.id == id }.let { i -> if (i < 0) "removed page" else note.pages[i].displayTitle(i) }
+        val ink = page?.let { p -> undo[p.id].orEmpty().filter { it.groupId == null }.mapIndexed { index, edit ->
+            val channels = listOfNotNull("ink".takeIf { edit.strokes != null }, "text".takeIf { edit.texts != null }, "pictures".takeIf { edit.images != null }, "layers".takeIf { edit.layers != null }).joinToString(", ")
+            (edit.actionSequence.takeIf { it > 0 } ?: ((inkSeq[p.id] ?: 0L) - undo[p.id].orEmpty().lastIndex + index)) to "$channels · ${pageName(p.id)}"
+        } }.orEmpty()
+        val structure = structureUndo.filter { it.noteId == note.id }.map { it.seq to it.label }
+        val groups = note.documentHistory.undo.map { it.sequence to "Document edit · ${it.pages.joinToString { id -> pageName(id) }}" }
+        (ink + structure + groups).sortedByDescending { it.first }.map { it.second }.take(60)
     }
 
     fun undo() {

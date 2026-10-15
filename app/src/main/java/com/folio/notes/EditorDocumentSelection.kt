@@ -18,6 +18,7 @@ import kotlinx.coroutines.CancellationException
     input: DocumentInputCoordinator, quickColors: List<Int>, modifier: Modifier = Modifier) {
     val selection by interaction.documentSelection
     if (selection.isEmpty()) return
+    var aligning by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var resizing by remember { mutableStateOf(false) }
@@ -25,6 +26,7 @@ import kotlinx.coroutines.CancellationException
     var tidying by remember { mutableStateOf(false) }
     var restyling by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var conversionDraft by remember { mutableStateOf<InkConversionDraft?>(null) }
     var converting by remember { mutableStateOf(false) }
     val ink = selection.values.flatMap { it.strokes + it.texts.flatMap { box -> box.stickyInk } }
     val count = selection.values.sumOf { it.strokes.size + it.texts.size + it.images.size }
@@ -34,6 +36,7 @@ import kotlinx.coroutines.CancellationException
         Box {
             IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Document selection options") }
             FolioMenuPopover(more, { more = false }, title = "${selection.size} pages selected") {
+                FolioMenuItem({ Text("Align and distribute…") }, { more = false; aligning = true })
                 FolioMenuItem({ Text("Duplicate selection") }, { more = false; input.duplicateSelection() })
                 if (ink.isNotEmpty()) {
                     FolioMenuItem({ Text("Tidy up shapes…") }, { more = false; tidying = true })
@@ -43,7 +46,7 @@ import kotlinx.coroutines.CancellationException
                         if (!converting) {
                             converting = true
                             scope.launch {
-                                try { input.convertSelectionToText() }
+                                try { conversionDraft = input.prepareTextConversion() }
                                 catch (e: CancellationException) { throw e }
                                 catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
                                 finally { converting = false }
@@ -59,6 +62,8 @@ import kotlinx.coroutines.CancellationException
         IconButton(input::deleteSelection) { Icon(Icons.Rounded.DeleteOutline, "Delete document selection") }
         IconButton(input::clearSelection) { Icon(Icons.Rounded.Close, "Clear document selection") }
     }
+    conversionDraft?.let { draft -> InkConversionPreview(draft, model, { conversionDraft = null }) { conversionDraft = null; input.clearSelection() } }
+    if (aligning) SelectionPlacementPanel(note, selection, model, { aligning = false }, input::clearSelection)
     if (tidying) ShapeCleanupPanel(note, model, selection, { tidying = false }, input::clearSelection)
     if (restyling) RestyleSelectionPanel(ink, quickColors,
         onDismiss = { restyling = false }, onApply = { color, width, opacity, style -> input.restyleSelection(color, width, opacity, style); restyling = false })

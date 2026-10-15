@@ -17,6 +17,28 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
 
     internal fun identitySet(strokes: List<Stroke>): Set<Stroke> = with(runtime) { java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(strokes) } }
 
+    fun pasteSnippet(selection: CanvasSelection, bytes: Map<String, ByteArray>) {
+        with(runtime) {
+        val captured = _state.value
+        val note = captured.active ?: return
+        val page = captured.page ?: return
+        scope.launch {
+            try {
+                awaitLoaded(page.id) ?: run { reportError("Wait for the destination page to load before inserting a snippet"); return@launch }
+                val images = selection.images.map { image ->
+                    val id = java.util.UUID.randomUUID().toString()
+                    repository.saveImage(note.id, id, bytes[image.id] ?: error("Missing snippet picture"))
+                    image.copy(id = id)
+                }
+                val current = _state.value.active?.takeIf { it.id == note.id }?.pages?.firstOrNull { it.id == page.id && it.loaded } ?: return@launch
+                if (!PageLayers.editable(current.layers, activeLayerOf(current))) { reportError("Unlock the destination layer before inserting a snippet"); return@launch }
+                val placed = runtime.editorSelectionController.placeSelection(selection.copy(images = images), current, null)
+                updateContent(current.id, current.strokes + placed.strokes, current.texts + placed.texts, current.images + placed.images)
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { reportError("Couldn't insert snippet: ${e.message.orEmpty()}") }
+        }
+        }
+    }
+
     fun copyToClipboard(selection: CanvasSelection) {
         with(runtime) {
             if (selection.isEmpty()) return

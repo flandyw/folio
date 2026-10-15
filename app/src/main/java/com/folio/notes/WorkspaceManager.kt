@@ -193,6 +193,47 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         with(runtime) { persistCompanionPosition(); _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
     }
 
+    fun workspaceSnapshot(name: String): org.json.JSONObject? = with(runtime) {
+        captureTab()
+        val snapshot = _state.value
+        val note = snapshot.active ?: return null
+        val companion = snapshot.companion ?: return null
+        val editor = snapshot.tabs.firstOrNull { it.notebookId == note.id } ?: return null
+        fun position(tab: EditorTab) = NotebookPositionCodec.encode(NotebookPosition(tab.currentPageId, tab.viewport, tab.tool, tab.search.query))
+        val offsetKey = AppPrefs.UX_LINK_OFFSET + ".${note.id}.${companion.notebookId}"
+        org.json.JSONObject().put("name", name).put("editor", note.id).put("companion", companion.notebookId)
+            .put("editorPosition", position(editor)).put("companionPosition", position(companion)).put("mode", snapshot.companionMode.name)
+            .put("fraction", snapshot.splitFraction.toDouble()).put("right", snapshot.editorOnRight).put("linked", snapshot.companionLinked).put("offset", prefs.getInt(offsetKey, 0))
+    }
+    fun restoreWorkspace(item: org.json.JSONObject): Boolean = with(runtime) {
+        val editorId = item.optString("editor"); val companionId = item.optString("companion")
+        if (_state.value.notes.none { it.id == editorId } || _state.value.notes.none { it.id == companionId }) { reportError("A saved document is unavailable"); return false }
+        val editorPosition = NotebookPositionCodec.decode(item.optString("editorPosition")) ?: return false
+        val companionPosition = NotebookPositionCodec.decode(item.optString("companionPosition")) ?: return false
+        captureTab()
+        open(editorId)
+        showCompanion(companionId, CompanionMode.entries.find { it.name == item.optString("mode") } ?: CompanionMode.REFERENCE)
+        val current = _state.value
+        val editorNote = current.notes.first { it.id == editorId }
+        val referenceNote = current.notes.first { it.id == companionId }
+        val editorIndex = editorNote.pages.indexOfFirst { it.id == editorPosition.pageId }.coerceAtLeast(0)
+        val referenceIndex = referenceNote.pages.indexOfFirst { it.id == companionPosition.pageId }.coerceAtLeast(0)
+        val restoredEditor = editorPosition.copy(pageId = editorNote.pages[editorIndex].id).toTab(editorId, editorNote.title)
+        _state.update { state -> state.copy(
+            pageIndex = editorIndex,
+            tabs = state.tabs.filterNot { it.notebookId == editorId } + restoredEditor,
+            pdfSearch = restoredEditor.search,
+            companion = state.companion?.copy(currentPageId = referenceNote.pages[referenceIndex].id, viewport = companionPosition.viewport),
+            workspaceRestoreRequest = state.workspaceRestoreRequest + 1,
+            navigationRequest = state.navigationRequest + 1)
+        }
+        setSplitFraction(item.optDouble("fraction", .5).toFloat()); setEditorOnRight(item.optBoolean("right")); setCompanionLinked(item.optBoolean("linked"))
+        prefs.edit().putInt(AppPrefs.UX_LINK_OFFSET + ".$editorId.$companionId", AppPrefs.uxLinkOffset(item.optInt("offset"))).apply()
+        persistPosition(editorId); persistCompanionPosition()
+        loadPage(editorNote.pages[editorIndex].id); loadPage(referenceNote.pages[referenceIndex].id)
+        true
+    }
+
     fun setSplitFraction(fraction: Float) {
         with(runtime) {
             val next = SplitPanes.coerce(fraction)
@@ -295,7 +336,9 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                 val pane = next.companion
                 if (next.companionLinked && pane != null) {
                     val companionNote = next.notes.notebook(pane.notebookId)
-                    val pageId = if (companionNote != null) linkedCompanionTarget(note, companionNote, target) else null
+                    val offset = prefs.getInt(AppPrefs.UX_LINK_OFFSET + ".${note.id}.${pane.notebookId}", 0)
+                    val pageId = if (companionNote == null) null else if (offset == 0) linkedCompanionTarget(note, companionNote, target)
+                        else companionNote.pages.getOrNull((target + offset).coerceIn(0, companionNote.pages.lastIndex))?.id
                     if (pageId != null && pageId != pane.currentPageId) {
                         next = next.copy(companion = pane.copy(currentPageId = pageId, viewport = WorkspaceViewport()))
                     }

@@ -141,8 +141,9 @@ import kotlinx.coroutines.withContext
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var settings by rememberSaveable { mutableStateOf(false) }
+    var settingsStartWithBackup by rememberSaveable { mutableStateOf(false) }
     var settingsStartWithFollow by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(settings) { if (!settings) settingsStartWithFollow = false }
+    LaunchedEffect(settings) { if (!settings) { settingsStartWithFollow = false; settingsStartWithBackup = false } }
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
@@ -440,7 +441,8 @@ import kotlinx.coroutines.withContext
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (FolioSpacing.dp16 - padding.calculateTopPadding()).coerceAtLeast(0.dp)
             CompositionLocalProvider(LocalDestinationTopGap provides topGap,
-                LocalOpenWritingFollowSettings provides { settingsStartWithFollow = true; settings = true }) {
+                LocalOpenWritingFollowSettings provides { settingsStartWithFollow = true; settings = true },
+                LocalOpenBackupSettings provides { settingsStartWithBackup = true; settings = true }) {
             Box(Modifier.fillMaxSize().padding(padding).then(
                 if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
@@ -465,7 +467,7 @@ import kotlinx.coroutines.withContext
                         }
                         state.active != null && state.active?.musicScoreId == null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
-                            onSettings = { settings = true }, onExport = { exportMenu = true },
+                            onSettings = { settings = true }, onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                             onShareLongPress = shareLongPress,
                             onChatGpt = { chatGptStartAccount = false; chatGptOpen = true },
                             onBrowseLibrary = { purpose, mode ->
@@ -476,6 +478,7 @@ import kotlinx.coroutines.withContext
                         )
                         else -> LibraryScreen(
                             state.copy(notes = remember(state.notes) { state.notes.filterNot { it.hiddenFromLibrary } }), model,
+                            onShareNotebook = ::shareWholeNotebook,
                             onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMusic = false; showMistakes = true },
                             showStudy = showStudy,
                             onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showMusic = false; showStudy = true },
@@ -526,7 +529,7 @@ import kotlinx.coroutines.withContext
                                 com.folio.notes.mistakes.MistakesScreen(
                                     mistakes, model, state, finger, haptics, shapeRecognition,
                                     onBack = { showMistakes = false }, onSettings = { settings = true },
-                                    onExport = { exportMenu = true }, onReviewMode = onReviewMode,
+                                    onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true }, onReviewMode = onReviewMode,
                                     onAccount = { focalAccountOpen = true }, onShareLongPress = shareLongPress,
                                 )
                             },
@@ -544,7 +547,7 @@ import kotlinx.coroutines.withContext
             }
         }
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
-            PdfImportDialog(state, model::cancelPdfImport, model::updatePdfImport, model::removePdfImport) { folder, reviewed -> model.importPdfs(folder, reviewed) }
+            PdfImportDialog(state, model::cancelPdfImport, model::updatePdfImport, model::removePdfImport, model) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
         if (newNote) NewNotebookDialog(onDismiss = { newNote = false }, onCreate = { title, cover, paper, exam, pageCount, infinite, pageCover -> model.create(title, cover, paper, exam, pageCount, infinite = infinite, pageCover = pageCover); newNote = false })
         if (settings) Dialog(onDismissRequest = { settings = false }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
@@ -570,6 +573,7 @@ import kotlinx.coroutines.withContext
                     onChatGpt = { chatGptStartAccount = true; chatGptOpen = true },
                     folders = state.folders,
                     startWithWritingFollow = settingsStartWithFollow,
+                    startWithBackup = settingsStartWithBackup,
                     backupExcludedCount = state.notes.count { it.id in state.backupExcludedNotebookIds },
                     onBackupExclusions = { backupExclusionsOpen = true },
                     onBackupLibrary = { settings = false; saveLibraryBackup.launch("Folio-library-${java.time.LocalDate.now()}.folio-backup.zip") },
@@ -637,7 +641,9 @@ import kotlinx.coroutines.withContext
             else ExportPagesDialog(
                 note = note,
                 thumbnails = model.thumbnails,
+                model = model,
                 initialIndex = state.pageIndex,
+                initialSelection = model.exportSelection.also { model.exportSelection = null },
                 initialFormat = pagesExportFormat,
                 initialPdfMode = pdfExportMode,
                 onDismiss = { pageExportDialog = false },

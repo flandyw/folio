@@ -13,6 +13,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -34,7 +39,12 @@ import kotlin.math.roundToInt
     val feature: WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by feature.state.collectAsStateWithLifecycle()
     var paneOptions by remember { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    var savedWorkspaces by remember { mutableStateOf(false) }
+    var maximised by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.activeId, state.companion?.notebookId) { maximised = null }
+    BoxWithConstraints(Modifier.fillMaxSize().onKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.Backslash && state.companion != null) { maximised = if (maximised == null) "editor" else null; true } else false
+    }) {
         val compact = maxWidth < 600.dp
         val boxDensity = LocalDensity.current
         val totalWidthPx = with(boxDensity) { maxWidth.toPx() }
@@ -46,7 +56,12 @@ import kotlin.math.roundToInt
             // editor composition (LazyListState, InkViews, PDF backgrounds) on every page jump.
             // Page jumps scroll via LaunchedEffect in EditorScreen instead.
             val editor: @Composable () -> Unit = {
-                key(state.activeId) {
+                key(state.activeId, state.workspaceRestoreRequest) {
+                    CompositionLocalProvider(LocalWorkspaceCommands provides listOf(
+                        EditorCommand("Open reference beside editor", run = { onBrowseLibrary(PickerPurpose.COMPANION, CompanionMode.REFERENCE) }),
+                        EditorCommand("Saved workspaces", run = { savedWorkspaces = true }),
+                        EditorCommand("Pane options", enabled = state.companion != null, reason = "Open a companion document first", run = { paneOptions = true })
+                    )) {
                     EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                         onShareLongPress = onShareLongPress,
                         onChatGpt = onChatGpt,
@@ -54,22 +69,30 @@ import kotlin.math.roundToInt
                         notebookActions = { dismiss ->
                             PopoverRow(Icons.AutoMirrored.Rounded.ChromeReaderMode, "Open beside the editor") { dismiss(); onBrowseLibrary(PickerPurpose.COMPANION, state.companionMode) }
                             PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); onBrowseLibrary(PickerPurpose.TABS, state.companionMode) }
+                            PopoverRow(Icons.Rounded.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
                             PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN, state.companionMode) }
                             PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight), enabled = state.companion != null) { dismiss(); model.swapPaneSides() }
                             PopoverRow(Icons.Rounded.Close, "Close this tab") { dismiss(); state.activeId?.let(model::closeTab) }
                             PopoverRow(Icons.Rounded.ClearAll, "Close other tabs", enabled = state.tabs.size > 1) { dismiss(); state.activeId?.let(model::closeOtherTabs) }
                         })
+                    }
                 }
             }
             val secondary: @Composable () -> Unit = {
                 // Keyed on the document alone: the pane keeps its PDF tools (search, contents,
                 // previews, link following) across page turns, and its InkView is keyed per page
                 // inside, so a turn still resets the camera onto a fresh page.
-                if (companion != null && note != null) key(companion.notebookId) {
+                if (companion != null && note != null) key(companion.notebookId, state.workspaceRestoreRequest) {
                     CompanionPane(state, model, companion, note, onPaneOptions = { paneOptions = true })
                 }
             }
-            val editorFraction = SplitPanes.coerce(state.splitFraction)
+            if (companion != null && note != null) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                TextButton({ paneOptions = true }) { Text("Pane options") }
+                TextButton({ savedWorkspaces = true }) { Text("Workspaces") }
+                TextButton({ maximised = if (maximised == "editor") null else "editor" }) { Text(if (maximised == "editor") "Restore split" else "Expand editor") }
+                TextButton({ maximised = if (maximised == "companion") null else "companion" }) { Text(if (maximised == "companion") "Restore split" else "Expand companion") }
+            }
+            val editorFraction = when (maximised) { "editor" -> .99999f; "companion" -> .00001f; else -> SplitPanes.coerce(state.splitFraction) }
             val editorFirst = !state.editorOnRight
             // Dragging right/down grows the first pane; invert when the editor sits second.
             fun dragFraction(deltaPx: Float, totalPx: Float) {
@@ -79,8 +102,8 @@ import kotlin.math.roundToInt
             fun resetFraction() = model.setSplitFraction(SplitPanes.EQUAL)
             if (companion == null || note == null) Box(Modifier.weight(1f)) { editor() }
             else if (compact) Column(Modifier.weight(1f)) {
-                Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction)) { if (state.editorOnRight) secondary() else editor() }
-                SplitPaneHandle(
+                Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction).clipToBounds().keepPaneSize(if (state.editorOnRight) maximised == "editor" else maximised == "companion")) { if (state.editorOnRight) secondary() else editor() }
+                if (maximised == null) SplitPaneHandle(
                     vertical = false,
                     onDrag = { dragFraction(it, totalHeightPx) },
                     onRelease = ::snapFraction,
@@ -88,10 +111,10 @@ import kotlin.math.roundToInt
                     onFlip = model::swapPaneSides,
                     onOpenOptions = { paneOptions = true }
                 )
-                Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
+                Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction).clipToBounds().keepPaneSize(if (state.editorOnRight) maximised == "companion" else maximised == "editor")) { if (state.editorOnRight) editor() else secondary() }
             } else Row(Modifier.weight(1f)) {
-                Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction)) { if (state.editorOnRight) secondary() else editor() }
-                SplitPaneHandle(
+                Box(Modifier.weight(if (editorFirst) editorFraction else 1f - editorFraction).clipToBounds().keepPaneSize(if (state.editorOnRight) maximised == "editor" else maximised == "companion")) { if (state.editorOnRight) secondary() else editor() }
+                if (maximised == null) SplitPaneHandle(
                     vertical = true,
                     onDrag = { dragFraction(it, totalWidthPx) },
                     onRelease = ::snapFraction,
@@ -99,10 +122,11 @@ import kotlin.math.roundToInt
                     onFlip = model::swapPaneSides,
                     onOpenOptions = { paneOptions = true }
                 )
-                Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction)) { if (state.editorOnRight) editor() else secondary() }
+                Box(Modifier.weight(if (editorFirst) 1f - editorFraction else editorFraction).clipToBounds().keepPaneSize(if (state.editorOnRight) maximised == "companion" else maximised == "editor")) { if (state.editorOnRight) editor() else secondary() }
             }
         }
     }
+    if (savedWorkspaces) SavedWorkspacesPanel(state, model) { savedWorkspaces = false }
     if (paneOptions) SplitOptionsPanel(state, model, onDismiss = { paneOptions = false })
 
 }
@@ -327,4 +351,16 @@ import kotlin.math.roundToInt
         onClick = onFlip,
         onLongClick = onOpenOptions,
     )
+}
+
+/** Hidden panes keep their last measurement, so expanding their peer cannot reset their cameras. */
+private class PaneMeasurement { var visible: androidx.compose.ui.unit.Constraints? = null }
+private fun Modifier.keepPaneSize(hidden: Boolean): Modifier = composed {
+    val saved = remember { PaneMeasurement() }
+    val semantics = if (hidden) Modifier.clearAndSetSemantics { } else Modifier
+    this.then(semantics).then(Modifier.layout { measurable, constraints ->
+        val measuring = if (hidden) saved.visible ?: constraints else constraints.also { saved.visible = it }
+        val placeable = measurable.measure(measuring)
+        layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) { placeable.place(0, 0) }
+    })
 }

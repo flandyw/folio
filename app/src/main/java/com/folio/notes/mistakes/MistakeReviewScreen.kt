@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -43,6 +45,8 @@ import com.folio.notes.*
     val androidContext = LocalContext.current
     val shareScope = rememberCoroutineScope()
     val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
+    val confirmReview by rememberPref(preferences, AppPrefs.UX_REVIEW_CONFIRM) { it.getBoolean(AppPrefs.UX_REVIEW_CONFIRM, AppPrefs.DEFAULT_UX_REVIEW_CONFIRM) }
+    val rootView = LocalView.current
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
@@ -71,6 +75,7 @@ import com.folio.notes.*
         }
     }
     fun confirmDoubleTap(action: String, confirmed: () -> Unit) {
+        if (!confirmReview) { confirmed(); return }
         val now = android.os.SystemClock.uptimeMillis()
         if (pendingAction == action && now - firstTapAt <= 1000) {
             pendingAction = null
@@ -88,7 +93,17 @@ import com.folio.notes.*
     Scaffold(
         // Keep the editor mounted while the next page is prepared, but do not let
         // a stray stroke or tap edit a notebook during the handoff.
-        modifier = Modifier.pointerInput(busy) {
+        modifier = Modifier.onKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown || busy || rootView.findFocus() is android.widget.EditText || event.nativeKeyEvent.repeatCount != 0) false
+            else when (event.key) {
+                Key.Spacebar -> { if (!revealed) { revealed = true; questionExpanded = true; true } else false }
+                Key.S -> { if (canSkip) { confirmDoubleTap("skipTop", onSkip); true } else false }
+                Key.One, Key.Two, Key.Three, Key.Four -> {
+                    if (revealed && !state.saveFailed) { val index = listOf(Key.One, Key.Two, Key.Three, Key.Four).indexOf(event.key); ReviewRating.entries.getOrNull(index)?.let(onRate); true } else false
+                }
+                else -> false
+            }
+        }.pointerInput(busy) {
             if (busy) awaitPointerEventScope {
                 while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
             }
@@ -151,7 +166,7 @@ import com.folio.notes.*
                                 }
                             }
                         }
-                        Text(if (pendingAction == "skipTop") "Tap the top Skip button again to confirm." else "Double-tap Compare answer or Skip to confirm.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Text(if (!confirmReview) "Tap Compare answer or Skip. Keyboard: Space reveal, S skip, 1–4 rate." else if (pendingAction == "skipTop") "Activate Skip again to confirm." else "Activate Compare answer or Skip twice to confirm. Change this in Settings › Mistakes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     } else {
                         val now = remember(revealed) { isoTime() }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

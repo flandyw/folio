@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -35,7 +36,7 @@ import kotlin.math.roundToInt
 
 @Composable internal fun EditorPageBrowser(state: FolioState, model: FolioViewModel, overlays: EditorOverlayState,
     browser: EditorBrowserState, jumpTo: (Int) -> Unit, addPage: () -> Unit, revealNewPage: (Int) -> Unit,
-    openPaperMenu: (Boolean) -> Unit) {
+    openPaperMenu: (Boolean) -> Unit, onExport: () -> Unit) {
     val note = state.active ?: return
     val page = state.page ?: return
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -50,8 +51,14 @@ import kotlin.math.roundToInt
     var movingPage by overlays.movingPage
     var destinationPage by overlays.destinationPage
     var deletingPage by overlays.deletingPage
+    var batching by remember { mutableStateOf(false) }
+    val pdfLabels by produceState<Map<Int, String>>(emptyMap(), note.id) { value = runCatching { model.repository.pdfPageLabels(note.id) }.getOrDefault(emptyMap()) }
+    if (batching) BatchPagesPanel(note, model, onExport) { batching = false }
     if (pageBrowser) FolioPanel(title = "Notebook pages", onDismissRequest = { pageBrowser = false }) {
-        val visiblePages = remember(note.pages, pageQuery, pageFilter) { organizePages(note.pages, pageQuery, pageFilter) }
+        val visiblePages = remember(note.pages, pageQuery, pageFilter, pdfLabels) {
+            val labelled = resolvePageLabel(note.pages, pdfLabels, pageQuery)
+            organizePages(note.pages, if (labelled != null && pageQuery.toIntOrNull() == null) (labelled + 1).toString() else pageQuery, pageFilter)
+        }
         val canDrag = !pageBrowserGrid && pageQuery.isBlank() && pageFilter == PageFilter.ALL
         val browserPages = rememberLazyListState()
         val browserGrid = rememberLazyGridState()
@@ -61,8 +68,8 @@ import kotlin.math.roundToInt
             else browserPages.scrollToItem(current.coerceAtLeast(0))
         }
         fun goToPage() {
-            val target = pageNumber.toIntOrNull()?.takeIf { it in 1..note.pages.size } ?: return
-            jumpTo(target - 1); pageBrowser = false; pageNumber = ""
+            val target = resolvePageLabel(note.pages, pdfLabels, pageNumber) ?: return
+            jumpTo(target); pageBrowser = false; pageNumber = ""
         }
         OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
@@ -82,14 +89,14 @@ import kotlin.math.roundToInt
         if (pageJumpExpanded) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             val jumpFocus = remember { androidx.compose.ui.focus.FocusRequester() }
             LaunchedEffect(Unit) { jumpFocus.requestFocus() }
-            OutlinedTextField(pageNumber, { pageNumber = it.filter(Char::isDigit).take(9) },
-                label = { Text("Go to page (1–${note.pages.size})") }, singleLine = true,
+            OutlinedTextField(pageNumber, { pageNumber = it.take(100) },
+                label = { Text("Page number, name or PDF label") }, supportingText = { Text("Use label:3 for printed PDF page 3, or name:12 for a page named 12.") }, singleLine = true,
                 shape = FolioShapes.large,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { goToPage() }),
                 modifier = Modifier.weight(1f).focusRequester(jumpFocus))
             FilledTonalButton(::goToPage,
-                enabled = pageNumber.toIntOrNull()?.let { it in 1..note.pages.size } == true,
+                enabled = resolvePageLabel(note.pages, pdfLabels, pageNumber) != null,
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
@@ -99,10 +106,24 @@ import kotlin.math.roundToInt
                     if (pageBrowserGrid) "Show page list" else "Show page thumbnails")
             }
         }
+        TextButton({ batching = true }) { Text("Select pages for batch actions") }
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
         var dragDelta by remember { mutableFloatStateOf(0f) }
+        var dragY by remember { mutableStateOf<Float?>(null) }
+        var dragScroll by remember { mutableFloatStateOf(0f) }
+        LaunchedEffect(dragFrom) {
+            while (dragY != null && dragFrom != null) {
+                val y = dragY!!
+                val height = browserPages.layoutInfo.viewportSize.height
+                val delta = when { y < 80f -> -18f; y > height - 80f -> 18f; else -> 0f }
+                if (delta != 0f) { var consumed = 0f; browserPages.scroll { consumed = scrollBy(delta) }; dragScroll += consumed }
+                kotlinx.coroutines.delay(24)
+            }
+        }
+        val insertion = dragFrom?.let { (it + ((dragDelta + dragScroll) / rowHeightPx).roundToInt()).coerceIn(0, note.pages.lastIndex) }
+        if (insertion != null) Text("Release to move page ${dragFrom!! + 1} to position ${insertion + 1}", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.labelMedium)
         if (pageBrowserGrid && visiblePages.isNotEmpty()) LazyVerticalGrid(
             columns = GridCells.Adaptive(144.dp), state = browserGrid,
             modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
@@ -149,21 +170,22 @@ import kotlin.math.roundToInt
                 val dragging = dragFrom == index
                 PageRow(item, index, state.pageIndex == index, dragging,
                     Modifier.height(rowHeight)
+                        .then(if (insertion == index && dragFrom != index) Modifier.drawBehind { drawLine(androidx.compose.ui.graphics.Color(0xFF527A5A), androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 4.dp.toPx()) } else Modifier)
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
                         .pointerInput(item.id, index, canDrag, note.pages.size) {
                             if (canDrag) detectDragGesturesAfterLongPress(
-                                onDragStart = { dragFrom = index; dragDelta = 0f },
-                                onDrag = { change, amount -> change.consume(); dragDelta += amount.y },
+                                onDragStart = { dragFrom = index; dragDelta = 0f; dragScroll = 0f; dragY = browserPages.layoutInfo.visibleItemsInfo.firstOrNull { it.key == item.id }?.offset?.toFloat() ?: 0f },
+                                onDrag = { change, amount -> change.consume(); dragDelta += amount.y; dragY = (browserPages.layoutInfo.visibleItemsInfo.firstOrNull { it.key == item.id }?.offset ?: 0) + change.position.y },
                                 onDragEnd = {
                                     val from = dragFrom
                                     if (from != null) {
-                                        val to = (from + (dragDelta / rowHeightPx).roundToInt()).coerceIn(0, note.pages.lastIndex)
+                                        val to = (from + ((dragDelta + dragScroll) / rowHeightPx).roundToInt()).coerceIn(0, note.pages.lastIndex)
                                         if (to != from) model.movePage(from, to)
                                     }
-                                    dragFrom = null; dragDelta = 0f
+                                    dragFrom = null; dragDelta = 0f; dragY = null; dragScroll = 0f
                                 },
-                                onDragCancel = { dragFrom = null; dragDelta = 0f }
+                                onDragCancel = { dragFrom = null; dragDelta = 0f; dragY = null; dragScroll = 0f }
                             )
                         },
                     onOpen = { jumpTo(index); pageBrowser = false },

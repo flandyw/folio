@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -96,7 +97,7 @@ object EditorQuickPrefs {
  * The tool's settings, laid out for a popover: the live sample, width and opacity first, then
  * colours, and everything else in collapsible sections. Each tool remembers its own values.
  */
-@Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, presets: ToolPresetState? = null) {
+@Composable fun ToolOptionsPanel(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState, presets: ToolPresetState? = null, onApplyPreset: ((ToolPreset) -> Unit)? = null) {
     val label = tool.name.lowercase().replaceFirstChar(Char::uppercase)
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("preferences", 0)
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -194,7 +195,7 @@ object EditorQuickPrefs {
                     }, "Removes the entire stroke or shape you touch instead of cutting it.")
                 }
                 if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) PopoverSection("Scribble to erase") { ScribbleSettingsSection(showPracticeInitially = false) }
-                if (presets != null && tool in DrawingTools) PopoverSection("Tool presets") { ToolPresetSection(tool, options, presets) }
+                if (presets != null && tool in DrawingTools) PopoverSection("Tool presets") { ToolPresetSection(tool, options, presets, onApplyPreset) }
             }
         }
     }
@@ -485,7 +486,9 @@ object EditorQuickPrefs {
  * name, like GoodNotes' pen slots, so a revision black fine-liner and a diagram blue dashed
  * line are each one tap away in any notebook.
  */
-@Composable private fun ToolPresetSection(tool: Tool, options: ToolOptions, presets: ToolPresetState) {
+@Composable private fun ToolPresetSection(tool: Tool, options: ToolOptions, presets: ToolPresetState, onApply: ((ToolPreset) -> Unit)?) {
+    val appSettings = rememberPrefs()
+    val layout = rememberToolbarLayoutState(LocalNotebookToolbarPreferences.current ?: appSettings)
     var naming by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
     val saved = presets.presets
@@ -500,13 +503,15 @@ object EditorQuickPrefs {
             val hold = rememberLongPressGuard()
             InputChip(
                 selected = preset.tool == tool && preset.color == options.color && preset.width == options.width,
-                onClick = hold.click { },
+                onClick = hold.click { onApply?.invoke(preset) },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
-                modifier = Modifier.longPressAction(hold) { presets.delete(preset.id) },
-                trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(18.dp).clickable(role = Role.Button) { presets.delete(preset.id) }) }
+                                trailingIcon = { Row {
+                    IconButton({ layout.togglePin(preset.id) }) { Icon(Icons.Rounded.PushPin, if (preset.id in layout.layout.pinnedPresetIds) "Unpin ${preset.name}" else "Pin ${preset.name} to toolbar", tint = if (preset.id in layout.layout.pinnedPresetIds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton({ presets.delete(preset.id) }) { Icon(Icons.Rounded.Close, "Delete ${preset.name}") }
+                } }
             )
         }
-        Text("Apply a preset from the toolbar's More menu.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Tap to apply. Pin a preset here to keep it on the toolbar.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (naming) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),

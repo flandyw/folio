@@ -39,6 +39,7 @@ internal fun PdfImportDialog(
     onDismiss: () -> Unit,
     onUpdate: (PendingPdfImport) -> Unit,
     onRemove: (Uri) -> Unit,
+    model: FolioViewModel,
     onImport: (String?, List<PendingPdfImport>) -> Unit
 ) {
     val files = state.pendingPdfImports
@@ -47,6 +48,20 @@ internal fun PdfImportDialog(
     var selectedUri by rememberSaveable { mutableStateOf(files.first().uri.toString()) }
     val selected = files.firstOrNull { it.uri.toString() == selectedUri } ?: files.first()
     val folder = destination?.takeIf { id -> state.folders.any { it.id == id } }
+    var checkingDuplicates by remember { mutableStateOf(true) }
+    var duplicateCheckError by remember { mutableStateOf(false) }
+    val duplicates by produceState<Map<String, String>>(emptyMap(), files.map { it.uri.toString() }, state.notes.map { it.id }) {
+        checkingDuplicates = true; duplicateCheckError = false; value = emptyMap()
+        val found = mutableMapOf<String, String>()
+        for (file in files) {
+            try { model.repository.findDuplicatePdf(file.uri, state.notes.filter { note -> note.pages.any { it.pdfIndex != null } }.map { it.id })?.let { found[file.uri.toString()] = it } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { duplicateCheckError = true }
+            value = found.toMap()
+        }
+        checkingDuplicates = false
+    }
+    var acknowledged by remember { mutableStateOf<Set<String>>(emptySet()) }
     val remaining = files.count { !it.detected }
     val valid = files.all { it.detected && it.inspectionError == null && it.title.isNotBlank() &&
         (it.exam.year == null || it.exam.year in 1900..2099) &&
@@ -70,6 +85,20 @@ internal fun PdfImportDialog(
                         IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Cancel import") }
                     }
                     ImportDestination(folder, state.folders, { destination = it }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                    if (checkingDuplicates) Text("Checking for existing copies…", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
+                    if (duplicateCheckError) Text("Some PDFs could not be checked for duplicates. You can still review and import them.", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
+                    if (files.size > 1) TextButton({
+                        files.filter { it.detected && !it.plainPdf }.forEach { file ->
+                            onUpdate(file.withExam(file.exam.copy(subject = selected.exam.subject, subjectText = selected.exam.subjectText, year = selected.exam.year, company = selected.exam.company, tags = selected.exam.tags)))
+                        }
+                    }, enabled = selected.detected && !selected.plainPdf) { Text("Apply this subject, year, company and exam tags to all") }
+                    duplicates[selected.uri.toString()]?.let { existingId ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("This PDF already exists in ${state.notes.firstOrNull { it.id == existingId }?.title ?: "your library"}.", Modifier.weight(1f))
+                            TextButton({ onDismiss(); model.open(existingId) }) { Text("Open existing") }
+                            TextButton({ acknowledged = acknowledged + selected.uri.toString() }) { Text(if (selected.uri.toString() in acknowledged) "Another copy allowed" else "Import another copy") }
+                        }
+                    }
                     HorizontalDivider(Modifier.padding(horizontal = 24.dp))
                     if (wide && files.size > 1) {
                         Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -101,12 +130,13 @@ internal fun PdfImportDialog(
                                 remaining > 0 -> "Reading ${files.size - remaining + 1} of ${files.size}…"
                                 files.any { it.inspectionError != null } -> "Remove unreadable files to continue"
                                 !valid -> "Check the highlighted details"
+                                duplicates.keys.any { it !in acknowledged } -> "Review duplicate PDFs before importing"
                                 else -> "${files.size} PDF${if (files.size == 1) "" else "s"} ready"
                             }, style = MaterialTheme.typography.labelLarge)
                             Text("Original files stay where they are", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Button({ onImport(folder, files) }, enabled = valid, shapes = ButtonDefaults.shapes(),
+                        Button({ onImport(folder, files) }, enabled = valid && !checkingDuplicates && duplicates.keys.all { it in acknowledged }, shapes = ButtonDefaults.shapes(),
                             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)) {
                             Icon(Icons.Rounded.FileDownload, null, Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))

@@ -127,7 +127,7 @@ import kotlin.math.roundToInt
     LaunchedEffect(palette) { if (!palette) paletteFromQuickBar = false }
     @Composable fun ToolSettingsPopover(fromQuickBar: Boolean = false) {
         if (palette && paletteFromQuickBar == fromQuickBar) FolioPopover(onDismiss = { onPalette(false) }, width = 344.dp) {
-            ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState)
+            ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState, onApplyPreset)
         }
     }
     // A selected tool's tile reaches its button's edge, so a divider beside the tools keeps a
@@ -478,8 +478,9 @@ import kotlin.math.roundToInt
 private val DividerAir = 4.dp
 
 /** The strip's button edge; one more 2dp gap makes the pitch the capacity budget divides by. */
-private val ToolbarButton = 36.dp
-private val ToolbarSlotPitch = ToolbarButton + 2.dp
+private val ToolbarButton: Dp
+    @Composable get() { val p = rememberPrefs(); val large by rememberPref(p, AppPrefs.UX_LARGE_CONTROLS) { it.getBoolean(AppPrefs.UX_LARGE_CONTROLS, AppPrefs.DEFAULT_UX_LARGE_CONTROLS) }; return if (large) 48.dp else 36.dp }
+private val ToolbarSlotPitch: Dp @Composable get() = (if (showEditorToolNames()) 76.dp else ToolbarButton) + 2.dp
 
 /** A one-tap action shown beside the tools in the dock. */
 internal class ToolbarAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)

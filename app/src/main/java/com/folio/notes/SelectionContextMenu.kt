@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.AlignHorizontalLeft
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.RotateLeft
 import androidx.compose.material.icons.automirrored.rounded.RotateRight
@@ -30,8 +31,8 @@ import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
 
 /** One touch target in the icon bars; every bar below sizes its overflow thresholds from this. */
-private val BarButton = 36.dp
-private fun barWidth(buttons: Int): Dp = BarButton * buttons + 8.dp
+private val BarButton: Dp @Composable get() = if (largeEditorControls()) 48.dp else 36.dp
+@Composable private fun barWidth(buttons: Int): Dp = BarButton * buttons + 8.dp
 
 private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
 
@@ -83,7 +84,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     onStyle: () -> Unit, onDelete: () -> Unit, onDeselect: () -> Unit, onSelectAll: () -> Unit,
     /** Null hides the row; a selection with no handwriting, or one already converting, passes null. */
     onConvertText: (() -> Unit)? = null,
-    onTidyShapes: (() -> Unit)? = null
+    onTidyShapes: (() -> Unit)? = null,
+    onPlacement: (() -> Unit)? = null, onSaveSnippet: (() -> Unit)? = null
 ) {
     var overflow by remember { mutableStateOf(false) }
     val showCopy = availableWidth >= barWidth(2)
@@ -114,6 +116,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             if (onTidyShapes != null) PageMenuRow(Icons.Rounded.AutoFixHigh, "Tidy up shapes…", true) { run(onTidyShapes) }
             if (onConvertText != null) PageMenuRow(Icons.Rounded.TextFields, "Convert handwriting to text", true) { run(onConvertText) }
             if (!showDelete) PageMenuRow(Icons.Rounded.DeleteOutline, "Delete", true) { run(onDelete) }
+            if (onPlacement != null) PageMenuRow(Icons.AutoMirrored.Rounded.AlignHorizontalLeft, "Align and distribute…", true) { run(onPlacement) }
+            if (onSaveSnippet != null) PageMenuRow(Icons.Rounded.Bookmarks, "Save as reusable snippet…", true) { run(onSaveSnippet) }
             HorizontalDivider()
             PageMenuRow(Icons.Rounded.SelectAll, "Select all", true) { run(onSelectAll) }
             PageMenuRow(Icons.Rounded.Close, "Deselect", true) { run(onDeselect) }

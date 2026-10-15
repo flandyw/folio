@@ -41,6 +41,8 @@ data class FolioState(
     val trashBusyIds: Set<String> = emptySet(),
     val examFilter: ExamFilter = ExamFilter(),
     val navigationRequest: Int = 0,
+    /** Explicit restoration recreates presentation cameras, without treating normal page jumps as remounts. */
+    val workspaceRestoreRequest: Int = 0,
     val editorOnRight: Boolean = false,
     val tabs: List<EditorTab> = emptyList(),
     val companion: EditorTab? = null,

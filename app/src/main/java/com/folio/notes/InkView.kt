@@ -459,6 +459,10 @@ class InkView(context: Context) : View(context) {
     private var selection: List<Stroke> = emptyList()
     private var selectedTexts: List<TextBox> = emptyList()
     private var selectedImages: List<PageImage> = emptyList()
+    internal var selectionSnapBypassed = false
+    private var selectionSnapX: List<Pair<Float, Float>> = emptyList()
+    private var selectionSnapY: List<Pair<Float, Float>> = emptyList()
+    private var rawSelectionDx = 0f; private var rawSelectionDy = 0f
     private var selectionDx = 0f; private var selectionDy = 0f
     /** Cached identity set of the lasso selection, rebuilt only when the selection itself changes. */
     private var selectionIdsKey: List<Stroke>? = null
@@ -1475,7 +1479,7 @@ class InkView(context: Context) : View(context) {
         }
         if (keptStrokes.size != selection.size || keptTexts.size != selectedTexts.size || keptImages.size != selectedImages.size) {
             selection = keptStrokes; selectedTexts = keptTexts; selectedImages = keptImages
-            selectionDx = 0f; selectionDy = 0f
+            selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f
             onSelectionChanged(CanvasSelection(selection, selectedTexts, selectedImages))
         }
         // A text box that was edited or removed elsewhere cannot still be under the finger.
@@ -2017,6 +2021,7 @@ class InkView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean = inputRouter.touch(event) { admitted ->
+        selectionSnapBypassed = (admitted.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
         val handled = handleTouchEvent(admitted)
         onLiveInk(draft?.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }, isWritingGesture)
         handled
@@ -2338,7 +2343,15 @@ class InkView(context: Context) : View(context) {
                         val where = IntArray(2).also { getLocationInWindow(it) }
                         dragWindowX = where[0] + event.getX(index); dragWindowY = where[1] + event.getY(index)
                         val moved = if (onObjectLift != null) rawPoint else clampToPage(rawPoint)
-                        selectionDx += moved.x - lastMoveX; selectionDy += moved.y - lastMoveY
+                        rawSelectionDx += moved.x - lastMoveX; rawSelectionDy += moved.y - lastMoveY
+                        selectionDx = rawSelectionDx; selectionDy = rawSelectionDy
+                        if (!documentSelectionOwner && (event.metaState and android.view.KeyEvent.META_SHIFT_ON) == 0 && context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.UX_SNAP, AppPrefs.DEFAULT_UX_SNAP)) {
+                            val bounds = InkGeometry.selectionBounds(selection, selectedTexts, selectedImages, { InkRenderer.textHeight(it) }, 0f)
+                            if (bounds != null) {
+                                selectionDx = ObjectSnapping.offset(bounds[0], bounds[2], rawSelectionDx, page.width.takeUnless { page.infinite }, selectionSnapX, 8f / scale)
+                                selectionDy = ObjectSnapping.offset(bounds[1], bounds[3], rawSelectionDy, page.height.takeUnless { page.infinite }, selectionSnapY, 8f / scale)
+                            }
+                        }
                         lastMoveX = moved.x; lastMoveY = moved.y
                         if (documentSelectionOwner) onDocumentSelectionDrag?.invoke(selectionDx, selectionDy, false)
                         else liftObjects(event, index, CanvasSelection(selection, selectedTexts, selectedImages), selectionDx, selectionDy)
@@ -3143,7 +3156,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -3167,7 +3180,17 @@ class InkView(context: Context) : View(context) {
                 }
             }
         }
-        if (insideSelection(start)) { movingSelection = true; lastMoveX = start.x; lastMoveY = start.y; return }
+        if (insideSelection(start)) {
+            if (context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.UX_SNAP, AppPrefs.DEFAULT_UX_SNAP)) {
+                val visible = layerView()
+                val items = visible.strokes.filterNot { it in selection }.take(200).map { CanvasSelection(strokes = listOf(it)) } +
+                    visible.texts.filterNot { it in selectedTexts }.take(100).map { CanvasSelection(texts = listOf(it)) } +
+                    visible.images.filterNot { it in selectedImages }.take(100).map { CanvasSelection(images = listOf(it)) }
+                val targets = items.map { item -> val b = InkGeometry.contentBounds(item.strokes, item.texts, item.images, InkRenderer::textHeight, page.width, page.height); ObjectSnapping.Bounds(b.left, b.top, b.right, b.bottom) }
+                selectionSnapX = targets.map { it.left to it.right }; selectionSnapY = targets.map { it.top to it.bottom }
+            } else { selectionSnapX = emptyList(); selectionSnapY = emptyList() }
+            movingSelection = true; lastMoveX = start.x; lastMoveY = start.y; return
+        }
         setSelection(CanvasSelection())
         lasso = listOf(start)
         documentGesture = beginDocument(Stroke(Tool.LASSO, inkColor, inkWidth, listOf(start), inkOpacity, layer = activeLayer), true)
@@ -3210,7 +3233,7 @@ class InkView(context: Context) : View(context) {
     private fun commitSelectionMove() {
         if (documentSelectionOwner) {
             onDocumentSelectionDrag?.invoke(selectionDx, selectionDy, true)
-            selectionDx = 0f; selectionDy = 0f; dragOffPage = false
+            selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; dragOffPage = false
             return
         }
         if (dropObjects()) {
@@ -3237,7 +3260,7 @@ class InkView(context: Context) : View(context) {
     }
     private fun setSelection(value: CanvasSelection) {
         selection = value.strokes; selectedTexts = value.texts; selectedImages = value.images
-        selectionDx = 0f; selectionDy = 0f
+        selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
         onSelectionChanged(value); reportSelectionViewBounds(); invalidate()
     }

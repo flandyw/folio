@@ -73,6 +73,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     // Extra top space for panes with no top bar of their own (full screen has no status bar inset).
     onQuickNote: () -> Unit = onNew,
     onQuickCanvas: () -> Unit = onNew,
+    onShareNotebook: (Notebook) -> Unit = {},
 ) {
     val libraryDrag = rememberNotebookDrag(state, model)
     val focusManager = LocalFocusManager.current
@@ -144,6 +145,15 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     var rename by remember { mutableStateOf<Notebook?>(null) }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
+    var undoTrash by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(delete) { delete?.let { note -> model.delete(note); if (model.state.value.trash.any { it.notebook.id == note.id }) undoTrash = setOf(note.id); delete = null } }
+    val swipeRight by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_RIGHT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_RIGHT, null), "FAVOURITE") }
+    val swipeLeft by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_LEFT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_LEFT, null), "TRASH") }
+    fun swipe(note: Notebook, action: String) = SwipeAction(
+        when (action) { "TRASH" -> Icons.Rounded.DeleteOutline; "TAGS" -> Icons.Rounded.Sell; "MOVE" -> Icons.Rounded.FolderOpen; "SHARE" -> Icons.Rounded.IosShare; else -> Icons.Rounded.Star },
+        when (action) { "TRASH" -> "Move to Trash"; "TAGS" -> "Edit tags"; "MOVE" -> "Move notebook"; "SHARE" -> "Share notebook PDF"; else -> if (note.starred) "Remove favourite" else "Add favourite" }, destructive = action == "TRASH") {
+        when (action) { "TRASH" -> delete = note; "TAGS" -> notebookTags = setOf(note.id); "MOVE" -> move = note; "SHARE" -> onShareNotebook(note); else -> model.star(note) }
+    }
     var folderMenu by remember { mutableStateOf(false) }
     val shelfHold = rememberLongPressGuard()
     var newFolder by remember { mutableStateOf(false) }
@@ -381,7 +391,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                         state.folderId == null -> place.drop()
                         else -> null
                     }
-                LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(coverWidth), modifier = Modifier.weight(1f).fillMaxHeight().then(if (drag != null) Modifier.notebookDragScroll(drag) { libraryGridState.scrollBy(it) } else Modifier)
+                LazyVerticalGrid(columns = if (listView) GridCells.Fixed(1) else GridCells.Adaptive(coverWidth), modifier = Modifier.weight(1f).fillMaxHeight().notebookRangeSelect(selecting && !pickingNotebook, libraryGridState, notes.map { it.id }, selectedIds) { selectedIds = it }.then(if (drag != null) Modifier.notebookDragScroll(drag) { libraryGridState.scrollBy(it) } else Modifier)
                         .notebookDropTarget(if (backgroundDrop != null) drag else null, backgroundDrop ?: NotebookDropDestination.Favorites),
                     state = libraryGridState,
                     contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(if (listView) FolioSpacing.dp8 else FolioSpacing.dp16)) {
@@ -412,20 +422,20 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                         Icon(Icons.Rounded.AllInclusive, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Canvas")
                                     }
                                 }
-                                state.notes.maxByOrNull { it.updated }?.let { recent ->
-                                    Surface(onClick = { onOpenNotebook(recent.id) }, shape = FolioShapes.large,
-                                        color = MaterialTheme.colorScheme.secondaryContainer) {
-                                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                            NotebookListThumbnail(recent, model.thumbnails, Modifier.width(32.dp).height(42.dp))
-                                            Column(Modifier.weight(1f)) {
-                                                Text("Continue writing · ${libraryLastEditedLabel(recent.updated)} · ${recent.pages.size} ${if (recent.pages.size == 1) "page" else "pages"}", style = MaterialTheme.typography.labelMedium)
-                                                Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
-                                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open most recently edited notebook")
-                                        }
-                                    }
-                                }
+                            }
+                            if (!pickingNotebook && !selecting) { ContinueWorkingStrip(state.notes, onOpenNotebook); LibraryShortcutHint() }
+                            if (!pickingNotebook && undoTrash.isNotEmpty()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Moved ${undoTrash.size} notebook(s) to Trash", Modifier.weight(1f))
+                                TextButton({ model.restoreNotebooks(undoTrash); undoTrash = emptySet() }, enabled = undoTrash.none { it in state.trashBusyIds }) { Text("Undo") }
+                                TextButton({ undoTrash = emptySet() }) { Text("Dismiss") }
+                            }
+                            if (!pickingNotebook) SavedLibraryViews(org.json.JSONObject().put("query", query).put("place", place.name).put("folder", state.folderId.orEmpty()).put("tag", tag.orEmpty()).put("kind", kind.name).put("sort", sort.name).put("exam", examFilter.toUxJson())) { saved ->
+                                query = saved.optString("query"); debouncedQuery = query
+                                place = LibraryPlace.entries.find { it.name == saved.optString("place") } ?: LibraryPlace.ALL
+                                model.folder(saved.optString("folder").takeIf { id -> state.folders.any { it.id == id } })
+                                tag = saved.optString("tag").takeIf { it.isNotBlank() }
+                                kind = AppPrefs.libraryKind(saved.optString("kind")); sort = AppPrefs.librarySort(saved.optString("sort"))
+                                model.setExamFilter(uxExamFilter(saved.optJSONObject("exam") ?: org.json.JSONObject()))
                             }
                             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(),
                                 placeholder = { Text(when { openFolder != null -> "Search ${openFolder.name} and its subfolders…"; tag != null -> "Search notebooks tagged $tag…"; place == LibraryPlace.FAVORITES -> "Search favorites…"; else -> "Find notebooks, folders, page names or tags…" }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -608,8 +618,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                         if (listView) FolioSwipeRow(
                             dragModifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection },
                             shape = FolioShapes.large,
-                            startToEnd = if (selecting || pickingNotebook) null else SwipeAction(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") { model.star(note) },
-                            endToStart = if (selecting || pickingNotebook) null else SwipeAction(Icons.Rounded.DeleteOutline, "Move to Trash", destructive = true) { delete = note },
+                            startToEnd = if (selecting || pickingNotebook) null else swipe(note, swipeRight),
+                            endToStart = if (selecting || pickingNotebook) null else swipe(note, swipeLeft),
                         ) { Surface(
                             shape = FolioShapes.large,
                             color = selectionColor,
@@ -633,7 +643,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                     if (!selecting) {
 
                                         IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); model.star(note) }, shapes = IconButtonDefaults.shapes()) { Icon(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites", Modifier.folioSelected(note.starred)) }
-                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title, pinned = pinned, pin = pin)
+                                        NotebookMenu({ rename = note }, { move = note }, { delete = note }, { examDetails = note }, { pendingMark = note }, note.pageCover, { model.setPageCover(note, !note.pageCover) }, { model.duplicateNotebook(note) }, note.id in state.backupExcludedNotebookIds, { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) }, { coverFor = note.id }, onTags = { notebookTags = setOf(note.id) }, title = note.title, pinned = pinned, pin = pin, createLike = { model.createLike(note) })
                                     }
                                 }
                             } } else NotebookCard(
@@ -645,7 +655,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                 onChangeCover = { coverFor = note.id },
                                 onTags = { notebookTags = setOf(note.id) },
                                 pinned = pinned, pin = pin,
-                                duplicate = { model.duplicateNotebook(note) },
+                                duplicate = { model.duplicateNotebook(note) }, createLike = { model.createLike(note) },
                                 backupExcluded = note.id in state.backupExcludedNotebookIds,
                                 onBackupToggle = { model.setBackupExcluded(setOf(note.id), note.id !in state.backupExcludedNotebookIds) },
                                 modifier = dragModifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection }
@@ -672,7 +682,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                 Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
                     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                            Text("${selection.size} of ${notes.size} selected", style = MaterialTheme.typography.labelMedium, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
+                            Text("${selection.size} of ${notes.size} selected · drag across cards to select a range", style = MaterialTheme.typography.labelMedium, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
                             Spacer(Modifier.weight(1f))
                             TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                             TextButton({ selecting = false; selectedIds = emptyList() }, shapes = ButtonDefaults.shapes()) { Text("Done") }
@@ -763,7 +773,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
         dismissButton = { TextButton({ bulkDelete = false }, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
         confirmButton = {
             TextButton(
-                { model.deleteNotebooks(selection); bulkDelete = false; selectedIds = emptyList() },
+                { model.deleteNotebooks(selection); undoTrash = selection; bulkDelete = false; selectedIds = emptyList() },
                 enabled = selection.isNotEmpty(),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 shapes = ButtonDefaults.shapes()) { Text("Move to Trash") }
@@ -837,7 +847,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
         onMove = { model.move(note, it); move = null },
         onCreateAndMove = { name -> model.createFolderAndMove(setOf(note.id), name) },
         onDismiss = { move = null }) }
-    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Move “${note.title}” to Trash?") }, text = { Text("You can restore this notebook and all its pages from Trash. It stays there until you delete it forever.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Move to Trash") } }) }
+
 }
 
 /** A quiet label between the folder tiles and the notebooks below them. */
@@ -852,7 +862,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
         alwaysShowLabel = true)
 }
 
-@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -890,7 +900,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", folder, libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin, createLike = createLike)
         }
         if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -898,7 +908,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     }
 }
 
-@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null) {
+@Composable private fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
@@ -909,6 +919,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                 PopoverTile(Icons.Rounded.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
                 PopoverTile(Icons.Rounded.ContentCopy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
             }
+            createLike?.let { action -> PopoverRow(Icons.AutoMirrored.Rounded.NoteAdd, "Create another like this") { run(action) } }
             pin?.let { action ->
                 PopoverRow(Icons.Rounded.PushPin, if (pinned) "Unpin" else "Pin to top") { run(action) }
             }

@@ -34,83 +34,72 @@ import kotlinx.coroutines.withContext
     var keyboardShortcuts by overlays.keyboardShortcuts
     var pdfSearchOpen by overlays.pdfSearch
     var pdfContentsOpen by overlays.pdfContents
-    if (noteSearchOpen) FolioPanel(title = "Find in notes", onDismissRequest = { noteSearchOpen = false }) {
+    if (noteSearchOpen) FolioPanel(title = "Find in document", onDismissRequest = { noteSearchOpen = false }) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val prefs = rememberPrefs()
+        val handwriting by rememberPref(prefs, AppPrefs.UX_SEARCH_HANDWRITING) { it.getBoolean(AppPrefs.UX_SEARCH_HANDWRITING, AppPrefs.DEFAULT_UX_SEARCH_HANDWRITING) }
         val searchFocus = remember { FocusRequester() }
-        val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         LaunchedEffect(Unit) { searchFocus.requestFocus() }
-        // Search runs off the main thread with a debounce so typing never janks composition.
-        var debouncedQuery by remember { mutableStateOf(noteQuery) }
-        LaunchedEffect(noteQuery) {
-            kotlinx.coroutines.delay(200)
-            debouncedQuery = noteQuery
-        }
-        var hits by remember { mutableStateOf<List<NotebookTextSearch.Hit>>(emptyList()) }
-        val searchPages by produceState<List<NotePage>?>(null, note.id, note.pages, noteQuery.isNotBlank()) {
-            value = null
-            value = if (noteQuery.isBlank()) emptyList() else model.pagesForSearch(note.id)
-        }
-        var searchingText by remember { mutableStateOf(false) }
-        LaunchedEffect(debouncedQuery, searchPages) {
-            hits = emptyList()
-            val snapshot = searchPages ?: return@LaunchedEffect
-            if (debouncedQuery.isBlank()) return@LaunchedEffect
-            searchingText = true
-            try { hits = withContext(Dispatchers.Default) { NotebookTextSearch.search(snapshot, debouncedQuery) } }
-            finally { searchingText = false }
-        }
-        Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            OutlinedTextField(
-                noteQuery, { noteQuery = it },
-                Modifier.fillMaxWidth().focusRequester(searchFocus),
-                label = { Text("Find typed text") },
-                placeholder = { Text("e.g. quadratic formula") },
-                singleLine = true,
-                shape = FolioShapes.large,
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { debouncedQuery = noteQuery; keyboard?.hide() }),
-                trailingIcon = {
-                    if (noteQuery.isNotEmpty()) IconButton({ noteQuery = "" }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Clear, "Clear search")
-                    }
+        var pages by remember(note.id) { mutableStateOf<List<NotePage>?>(null) }
+        var pdf by remember(note.id) { mutableStateOf<List<PdfPageText>>(emptyList()) }
+        var ocr by remember(note.id) { mutableStateOf<Map<Int, String>>(emptyMap()) }
+        var indexProgress by remember { mutableStateOf<String?>(null) }
+        var searchError by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(note.id, note.pages.map { it.id to it.revision }, handwriting) {
+            pages = null; ocr = emptyMap(); searchError = null
+            try {
+                val snapshot = model.pagesForSearch(note.id)
+                pages = snapshot
+                val embedded = model.repository.pdfPageTexts(note.id).associate { it.pageIndex to it.text }
+                pdf = snapshot.mapIndexedNotNull { index, page -> page.pdfIndex?.let { PdfPageText(index, embedded[it].orEmpty()) } }
+                if (handwriting) snapshot.forEachIndexed { index, page ->
+                    if (!page.loaded) return@forEachIndexed
+                    indexProgress = "Indexing handwriting ${index + 1} of ${snapshot.size}…"
+                    try { ocr = ocr + (index to NotebookSearchIndex.handwriting(context, note.id, page)) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { searchError = "Some handwriting could not be read. Typed and PDF results remain available." }
                 }
-            )
-            if (note.pages.any { it.pdfIndex != null }) TextButton({ noteSearchOpen = false; pdfSearchOpen = true }) {
-                Text("Search PDF text instead")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { searchError = "Some document text could not be read. Try searching again." }
+            finally { indexProgress = null }
+        }
+        var hits by remember { mutableStateOf<List<Pair<String, PdfSearchHit>>>(emptyList()) }
+        var searching by remember { mutableStateOf(false) }
+        LaunchedEffect(noteQuery, pages, pdf, ocr) {
+            searching = true
+            try {
+                delay(180)
+                val snapshot = pages.orEmpty()
+                hits = withContext(Dispatchers.Default) {
+                    val typed = NotebookTextSearch.search(snapshot, noteQuery).map { "Typed note" to PdfSearchHit(it.pageIndex, it.matchCount, it.snippet) }
+                    val embedded = PdfSearch.search(pdf, noteQuery).map { "PDF" to it }
+                    val written = PdfSearch.search(ocr.map { PdfPageText(it.key, it.value) }, noteQuery).map { "Handwriting" to it }
+                    (typed + embedded + written).sortedWith(compareBy<Pair<String, PdfSearchHit>> { it.second.pageIndex }.thenBy { it.first })
+                }
+            } finally { searching = false }
+        }
+        Column(Modifier.fillMaxWidth().weight(1f, false).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(noteQuery, { noteQuery = it }, Modifier.fillMaxWidth().focusRequester(searchFocus), label = { Text("PDF, typed notes and indexed handwriting") }, singleLine = true,
+                trailingIcon = { if (noteQuery.isNotEmpty()) TextButton({ noteQuery = "" }) { Text("Clear") } })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(handwriting, { prefs.write { putBoolean(AppPrefs.UX_SEARCH_HANDWRITING, it) } })
+                Text("Search handwriting on this device", style = MaterialTheme.typography.bodyMedium)
             }
-            if (searchPages?.any { !it.loaded } == true) Text("Some pages could not be read. Results may be incomplete.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            if (noteQuery.isBlank()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                    Icon(Icons.Rounded.FindInPage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Searches every typed text box in this notebook. Handwriting is not searched.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else if (searchPages == null || noteQuery != debouncedQuery || searchingText) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Searching notebook text"))
-                    Text("Searching all pages…", style = MaterialTheme.typography.bodySmall)
-                }
-            } else if (hits.isEmpty()) {
-                Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("No typed text matches “${noteQuery.trim().take(80)}”.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                Text("${hits.size} ${if (hits.size == 1) "page matches" else "pages match"} — most matches first.",
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    items(hits, key = { it.pageIndex }) { hit ->
-                        Surface(onClick = { jumpTo(hit.pageIndex); noteSearchOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Page ${hit.pageIndex + 1} · ${hit.matchCount}×", style = MaterialTheme.typography.titleSmall)
-                                    if (hit.snippet.isNotBlank()) Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                }
-                                Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${hit.pageIndex + 1}")
-                            }
+            if (indexProgress != null) Text(indexProgress!!, style = MaterialTheme.typography.bodySmall)
+            if (searchError != null) Text(searchError!!, color = MaterialTheme.colorScheme.error)
+            if (pages?.any { !it.loaded } == true) Text("Some pages are unavailable; results are incomplete.", color = MaterialTheme.colorScheme.error)
+            Text(when { pages == null || searching -> "Searching…"; noteQuery.isBlank() -> "Enter a word or phrase. Results identify their source."; hits.isEmpty() -> "No matches."; else -> "${hits.size} matching page sources" }, style = MaterialTheme.typography.bodySmall)
+            LazyColumn(Modifier.weight(1f, false), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+                itemsIndexed(hits) { index, (source, hit) ->
+                    Surface(onClick = {
+                        overlays.searchMatches.value = hits.map { it.second.pageIndex }.distinct()
+                        overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(hit.pageIndex).coerceAtLeast(0)
+                        overlays.searchCaption.value = noteQuery
+                        jumpTo(hit.pageIndex); noteSearchOpen = false
+                    }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text("${note.pages[hit.pageIndex].displayTitle(hit.pageIndex)} · $source · ${hit.matchCount} matches", style = MaterialTheme.typography.titleSmall)
+                            Text(hit.snippet, style = MaterialTheme.typography.bodySmall, maxLines = 3)
                         }
                     }
                 }
@@ -119,8 +108,10 @@ import kotlinx.coroutines.withContext
     }
     if (keyboardShortcuts) FolioPanel("Keyboard shortcuts", { keyboardShortcuts = false }) {
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            listOf("Ctrl + F" to "Find in the current document", "Ctrl + G" to "Go to a page", "Ctrl + 0" to "Reset zoom",
-                "Ctrl + Z" to "Undo", "Ctrl + Shift + Z / Ctrl + Y" to "Redo", "Ctrl + Enter" to "Apply a text-box draft").forEach { (keys, action) ->
+            val prefs = rememberPrefs()
+            val bindings by rememberPref(prefs, AppPrefs.UX_TOOL_BINDINGS) { EditorKeyBindings.decode(it.getString(AppPrefs.UX_TOOL_BINDINGS, null)) }
+            Text("Your tool keys: " + bindings.entries.joinToString(" · ") { "${it.key} ${toolLabel(it.value)}" }, style = MaterialTheme.typography.bodySmall)
+            editorShortcutHelp.forEach { (keys, action) ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                     Text(action, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Text(keys, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -131,7 +122,7 @@ import kotlinx.coroutines.withContext
     if (pdfSearchOpen) ReferenceSearchPanel(
         search = state.pdfSearch, currentIndex = state.pageIndex,
         onQuery = model::searchPdf,
-        onJump = { jumpTo(it); pdfSearchOpen = false },
+        onJump = { index -> overlays.searchMatches.value = state.pdfSearch.results.map { it.pageIndex }; overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(index).coerceAtLeast(0); overlays.searchCaption.value = state.pdfSearch.query; jumpTo(index); pdfSearchOpen = false },
         onDismiss = { pdfSearchOpen = false },
         onFindNotes = { pdfSearchOpen = false; noteSearchOpen = true }
     )

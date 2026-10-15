@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.dp
             Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
+            LinkedPageOffset(state, model)
             Text("Mode", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             CompanionModeChips(state.companionMode, model::setCompanionMode)
             Text(WorkspacePicker.modeCaption(state.companionMode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

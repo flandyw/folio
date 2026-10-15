@@ -41,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,7 +58,9 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun ExportPagesDialog(
     note: Notebook,
     thumbnails: PageThumbnailCache,
+    model: FolioViewModel,
     initialIndex: Int,
+    initialSelection: Set<Int>? = null,
     initialFormat: PageExportFormat = PageExportFormat.PDF,
     initialPdfMode: PdfExportMode = PdfExportMode.PRESERVE,
     onDismiss: () -> Unit,
@@ -66,8 +69,9 @@ import androidx.compose.ui.unit.dp
     onFormatChange: ((PageExportFormat) -> Unit)? = null,
     onPdfModeChange: ((PdfExportMode) -> Unit)? = null
 ) {
+    val annotatedPages by produceState<List<NotePage>?>(null, note.id, note.pages.map { it.id to it.revision }) { value = model.pagesForSearch(note.id) }
     var selected by remember(note.id, initialIndex) {
-        mutableStateOf(if (note.pages.isEmpty()) emptySet() else setOf(initialIndex.coerceIn(0, note.pages.lastIndex)))
+        mutableStateOf(initialSelection?.filter { it in note.pages.indices }?.toSet() ?: if (note.pages.isEmpty()) emptySet() else setOf(initialIndex.coerceIn(0, note.pages.lastIndex)))
     }
     var format by remember(note.id) { mutableStateOf(initialFormat) }
     var pdfMode by remember(note.id) { mutableStateOf(initialPdfMode) }
@@ -125,6 +129,7 @@ import androidx.compose.ui.unit.dp
                     }
                 )
             }
+            ExportPreview(PageExportRequest(note, selected.sorted(), format, pdfMode), model)
             OutlinedTextField(
                 value = rangeText,
                 onValueChange = { rangeText = it; rangeError = null },
@@ -171,6 +176,10 @@ import androidx.compose.ui.unit.dp
                 val bookmarks = remember(note.pages) { note.pages.indices.filter { note.pages[it].bookmarked }.toSet() }
                 FilterChip(selected == bookmarks && bookmarks.isNotEmpty(),
                     { selected = bookmarks; rangeError = null }, { Text("Bookmarks (${bookmarks.size})") }, enabled = bookmarks.isNotEmpty())
+                val flagged = note.pages.indices.filter { note.pages[it].redoFlag }.toSet()
+                FilterChip(selected == flagged && flagged.isNotEmpty(), { selected = flagged }, { Text("Flagged (${flagged.size})") }, enabled = flagged.isNotEmpty())
+                val annotated = annotatedPages.orEmpty().indices.filter { index -> annotatedPages!![index].let { it.strokes.isNotEmpty() || it.texts.isNotEmpty() || it.images.isNotEmpty() } }.toSet()
+                FilterChip(selected == annotated && annotated.isNotEmpty(), { selected = annotated }, { Text("Annotated (${annotated.size})") }, enabled = annotated.isNotEmpty())
                 val odd = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 0 }.toSet() }
                 val even = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 1 }.toSet() }
                 FilterChip(selected == odd && odd.isNotEmpty(), { selected = odd; rangeError = null }, { Text("Odd pages") }, enabled = note.pages.size > 1)

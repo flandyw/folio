@@ -64,13 +64,16 @@ import androidx.compose.ui.unit.dp
     onLongClick: (() -> Unit)? = null,
 ) {
     val hold = rememberLongPressGuard()
-    Box(Modifier.size(36.dp).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier), contentAlignment = Alignment.Center) {
+    val large = largeEditorControls()
+    val showNames = showEditorToolNames()
+    val touchSize = if (large) 48.dp else 36.dp
+    Box(Modifier.width(if (showNames) 76.dp else touchSize).height(if (showNames) touchSize + 20.dp else touchSize).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier), contentAlignment = Alignment.Center) {
         FilledTonalIconToggleButton(
             checked = selected,
             // Tapping the active pen still opens its options rather than deselecting the tool.
             onCheckedChange = { hold.click(onClick)() },
             shapes = IconButtonDefaults.toggleableShapes(),
-            modifier = Modifier.size(36.dp).folioSelected(selected),
+            modifier = Modifier.size(touchSize).align(if (showNames) Alignment.TopCenter else Alignment.Center).folioSelected(selected),
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -78,6 +81,7 @@ import androidx.compose.ui.unit.dp
                 checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
         ) { Icon(icon, label, Modifier.size(20.dp)) }
+        if (showNames) Text(label.substringBefore(" —"), Modifier.align(Alignment.BottomCenter), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         if (indicatorColor != null) {
             Box(
                 Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp2, bottom = FolioSpacing.dp2).size(8.dp)

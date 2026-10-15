@@ -106,6 +106,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val note = state.active ?: return
     val page = state.page ?: return
     val context = LocalContext.current
+    val workspaceEpoch = remember { state.workspaceRestoreRequest }
     val session = state.tabs.find { it.notebookId == note.id }
     val prefs = context.getSharedPreferences("ink-tools", 0)
     val appPrefs = context.getSharedPreferences("preferences", 0)
@@ -126,8 +127,19 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val singlePage = preferences.singlePage
     val focusMode = preferences.focusMode && music == null
     val showPageBoundaries = !focusMode
-    fun undoEditor() { editor.documentInput.cancelNativeContacts(); model.undo() }
-    fun redoEditor() { editor.documentInput.cancelNativeContacts(); model.redo() }
+    var actionNotice by remember { mutableStateOf<String?>(null) }
+    var commandPalette by remember { mutableStateOf(false) }
+    var gestureGuide by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
+    var placementOpen by remember { mutableStateOf(false) }
+    var snippetsOpen by remember { mutableStateOf(false) }
+    var temporaryTool by remember { mutableStateOf<Tool?>(null) }
+    val backPositions = remember(note.id) { mutableStateListOf<EditorVisit>() }
+    var restoringVisit by remember(note.id) { mutableStateOf<EditorVisit?>(null) }
+    val forwardPositions = remember(note.id) { mutableStateListOf<EditorVisit>() }
+    fun undoEditor() { editor.documentInput.cancelNativeContacts(); actionNotice = model.nextUndoDescription()?.let { "Undid $it" }; model.undo() }
+    fun redoEditor() { editor.documentInput.cancelNativeContacts(); actionNotice = "Redid the previous action"; model.redo() }
+    LaunchedEffect(actionNotice) { if (actionNotice != null) { delay(3000); actionNotice = null } }
     val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
     val toolbarOptions by rememberPref(appPrefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var tool by editor.tools.tool
@@ -171,12 +183,21 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val peekInkView = (peekShown ?: peekAnchor)?.let { editor.surfaces.find(EditorSurfaceRole.PEEK, it.pageId) }
     // "Go to" from a peek on a canvas frames the peeked area once that page's view is bound.
     var peekGoTo by remember(note.id) { mutableStateOf<PeekAnchor?>(null) }
+    LaunchedEffect(note.pages.map { it.id }) { editor.overlays.searchMatches.value = emptyList() }
     val quick = remember(prefs) { QuickColorsState(prefs) }
     val toolPresets = remember(prefs) { ToolPresetState(prefs) }
-    val toolbarLayouts = rememberToolbarLayoutState(appPrefs)
+    val toolbarLayouts = rememberToolbarLayoutState(LocalNotebookToolbarPreferences.current ?: appPrefs)
     var options by editor.tools.options
     fun changeOptions(value: ToolOptions) = editor.tools.changeOptions(value)
-    fun applyPreset(preset: ToolPreset) = editor.tools.apply(preset)
+    fun applyPreset(preset: ToolPreset) {
+        editor.tools.apply(preset)
+    }
+    LaunchedEffect(note.id) {
+        if (appPrefs.getBoolean(AppPrefs.UX_LOCAL_TOOLS, AppPrefs.DEFAULT_UX_LOCAL_TOOLS)) {
+            appPrefs.getString(AppPrefs.UX_NOTE_TOOL_PREFIX + note.id, null)?.let { runCatching { Tool.valueOf(it) }.getOrNull() }?.let { tool = restoredTool(it.name) }
+        }
+    }
+    LaunchedEffect(tool) { if (appPrefs.getBoolean(AppPrefs.UX_LOCAL_TOOLS, AppPrefs.DEFAULT_UX_LOCAL_TOOLS) && temporaryTool == null) appPrefs.edit().putString(AppPrefs.UX_NOTE_TOOL_PREFIX + note.id, tool.name).apply() }
     fun setSnap(v: Boolean) { appPrefs.edit().putBoolean("mathSnap", v).apply() }
     // Eraser single-stroke + pressure + scribble-to-erase + whole-stroke + measurements + multitouch undo
     fun setEraserSingleStroke(v: Boolean) {
@@ -362,6 +383,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val searchQuery = rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
     var tidyPicked by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
+    var conversionDraft by remember { mutableStateOf<InkConversionDraft?>(null) }
     var inkConverting by remember { mutableStateOf(false) }
     // The straightedge is a toolbar switch for this visit. It sits on the current page: a page that
     // has not had it yet places it across the middle of the screen; one that has keeps where it was put.
@@ -521,10 +543,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             .distinctUntilChanged()
             .debounce(250)
             .collect { (viewport, selectedTool) ->
-                model.updateTabViewport(note.id, viewport, selectedTool)
+                if (model.state.value.workspaceRestoreRequest == workspaceEpoch) model.updateTabViewport(note.id, viewport, selectedTool)
             }
     }
     val saveOnLeave by rememberUpdatedState<() -> Unit>({
+        if (model.state.value.workspaceRestoreRequest == workspaceEpoch) {
         val anchorId = editor.viewport.anchor?.pageId
         val offset = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.key == anchorId }?.let { -it.offset }
             ?: pages.firstVisibleItemScrollOffset
@@ -532,6 +555,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             editor.viewport.zoom.floatValue, editor.viewport.pan.floatValue, offset,
             savedCanvas.canvasX, savedCanvas.canvasY, savedCanvas.canvasZoom,
             editor.viewport.anchor?.pageId, editor.viewport.anchor?.localY), editor.tools.tool.value)
+        }
     })
     DisposableEffect(note.id) { onDispose { saveOnLeave() } }
     val scope = rememberCoroutineScope()
@@ -570,10 +594,37 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         )
     }
     val viewportCoordinator = remember(note.id, pages, motion) { EditorViewportCoordinator(pages, motion, model, note.id, editor.viewport) }
+    fun captureVisit(): EditorVisit {
+        viewportCoordinator.capture()
+        return EditorVisit(model.state.value.page?.id ?: page.id, editor.viewport.anchor, editor.viewport.zoom.floatValue, editor.viewport.pan.floatValue,
+            editor.viewport.pageZoom.floatValue, editor.viewport.pagePan.floatValue, mainInkView?.canvasView())
+    }
     fun jumpTo(index: Int) {
+        if (index != model.state.value.pageIndex) {
+            backPositions.add(captureVisit())
+            while (backPositions.size > 60) backPositions.removeAt(0)
+            forwardPositions.clear()
+        }
         finishTextEditing()
         activeInkView?.suspendWritingFollow()
         viewportCoordinator.jump(index)
+    }
+    fun navigateHistory(back: Boolean) {
+        val from = if (back) backPositions else forwardPositions
+        val to = if (back) forwardPositions else backPositions
+        var target = from.removeLastOrNull() ?: return
+        val currentPages = model.state.value.active?.pages ?: return
+        while (currentPages.none { it.id == target.pageId }) target = from.removeLastOrNull() ?: return
+        to.add(captureVisit())
+        finishTextEditing(); activeInkView?.suspendWritingFollow()
+        val index = currentPages.indexOfFirst { it.id == target.pageId }
+        restoringVisit = target
+        viewportCoordinator.jump(index)
+    }
+    fun newNotebook() { context.startActivity(Intent(context, MainActivity::class.java).setAction("com.folio.notes.NEW_NOTE").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }
+    fun switchNotebook(back: Boolean) {
+        val tabs = state.tabs
+        if (tabs.size > 1) { finishTextEditing(); val index = tabs.indexOfFirst { it.notebookId == note.id }; model.open(tabs[(index + if (back) tabs.size - 1 else 1) % tabs.size].notebookId) }
     }
     /** Previous/next page in either view; the single-page view starts each page fitted. */
     fun turnPage(forward: Boolean) {
@@ -658,6 +709,15 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
      * recogniser runs off the page, so drawing and navigation stay available while it works.
      */
     fun convertSelectionToText(pageId: String, lasso: CanvasSelection) {
+        if (documentSelection.isNotEmpty()) {
+            if (!inkConverting) { inkConverting = true; scope.launch {
+                try { conversionDraft = editor.documentInput.prepareTextConversion() }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
+                finally { inkConverting = false }
+            } }
+            return
+        }
         if (inkConverting || lasso.strokes.isEmpty() && lasso.texts.none { it.stickyInk.isNotEmpty() }) return
         val sourcePage = note.pages.firstOrNull { it.id == pageId } ?: return
         inkConverting = true
@@ -666,9 +726,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 val after = InkToText.convert(sourcePage, lasso)
                 val edit = PageJournal.diff(sourcePage.content(), after)
                 if (edit == null) model.reportError("No readable text in this selection")
-                else if (model.commitDocumentEdits(note.id, mapOf(pageId to edit), mapOf(pageId to sourcePage.revision))) {
-                    activeInkView?.clearSelection(); selection = null
-                } else model.reportError("The document changed while reading handwriting; select it again")
+                else conversionDraft = InkConversionDraft(note.id, mapOf(pageId to (sourcePage to after)))
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}")
@@ -802,7 +860,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     LaunchedEffect(tool) {
         if (zoomPaneOpen && tool in setOf(Tool.TEXT, Tool.LASSO, Tool.MARK_AREA, Tool.STICKY_NOTE, Tool.LASER)) closeZoomPane()
     }
-    val sharedSurface = InkSurfaceConfig(tool = tool,
+    val inputTool = if (temporaryTool != null) Tool.HAND else tool
+    val sharedSurface = InkSurfaceConfig(tool = inputTool,
         options = options,
         finger = finger,
         snapEnabled = snapEnabled,
@@ -817,17 +876,52 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         palmRejectMs = palmRejectMs,
         panMultiplier = panMultiplier,
         inkStyle = options.style)
+    val keyboardWindowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(keyboardWindowFocused) { if (!keyboardWindowFocused) temporaryTool = null }
+    val keyLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(keyLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) temporaryTool = null }
+        keyLifecycle.lifecycle.addObserver(observer)
+        onDispose { temporaryTool = null; keyLifecycle.lifecycle.removeObserver(observer) }
+    }
+    val canvasKeys = !commandPalette && conversionDraft == null && !gestureGuide && !historyOpen && !placementOpen && !snippetsOpen &&
+        !editor.overlays.pageBrowser.value && !editor.overlays.noteSearch.value && !editor.overlays.pdfSearch.value &&
+        !palette && !editor.overlays.rename.value && !editor.overlays.timer.value && !editor.overlays.exam.value && !editor.overlays.study.value
+    fun clearPicked() { activeInkView?.clearSelection(); activeInkView?.clearImageSelection(); selectedImage = null; selection = null; editor.documentInput.clearSelection() }
+    fun keyboardPicked(): CanvasSelection = if (selected.isNotEmpty()) selected else selectedImage?.takeIf { it.first == page.id }?.let { CanvasSelection(images = listOf(it.second)) } ?: CanvasSelection()
+    fun copyPicked(cut: Boolean) {
+        if (documentSelection.isNotEmpty()) { editor.documentInput.copySelection(); if (cut) editor.documentInput.deleteSelection() }
+        else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { if (cut) model.cutSelection(picked) else model.copyToClipboard(picked); if (cut) clearPicked() } }
+    }
+    fun duplicatePicked() { if (documentSelection.isNotEmpty()) editor.documentInput.duplicateSelection() else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { model.duplicateSelection(picked); clearPicked() } } }
+    fun deletePicked() { if (documentSelection.isNotEmpty()) editor.documentInput.deleteSelection() else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { model.deleteSelection(picked); clearPicked() } } }
     Column(Modifier.fillMaxSize().onSizeChanged { editorSize = it }.onPreviewKeyEvent { event ->
-        if (textEditor != null && event.type == KeyEventType.KeyDown &&
-            (event.key == Key.Escape || (event.key == Key.Enter && event.isCtrlPressed))) { finishTextEditing(); true }
-        else if (textEditor == null && music != null && music.onKey(event.nativeKeyEvent)) true
+        if (event.key == Key.Spacebar && event.type == KeyEventType.KeyUp && temporaryTool != null) {
+            temporaryTool = null; true
+        } else if (textEditor != null) {
+            if (event.type == KeyEventType.KeyDown && (event.key == Key.Escape || (event.key == Key.Enter && event.isCtrlPressed))) { finishTextEditing(); true } else false
+        } else if (!canvasKeys) false
+        else if (music != null && music.onKey(event.nativeKeyEvent)) true
         else if (event.type == KeyEventType.KeyDown && event.isCtrlPressed) when (event.key) {
-            Key.Z -> { finishTextEditing(); if (event.isShiftPressed) redoEditor() else undoEditor(); true }
-            Key.Y -> { finishTextEditing(); redoEditor(); true }
-            Key.F -> { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true; true }
-            Key.G -> { finishTextEditing(); pageBrowser = true; editor.browser.jumpExpanded.value = true; true }
+            Key.K -> { commandPalette = true; true }
+            Key.Z -> { if (event.isShiftPressed) redoEditor() else undoEditor(); true }
+            Key.Y -> { redoEditor(); true }
+            Key.F -> { noteSearchOpen = true; true }
+            Key.G -> { pageBrowser = true; editor.browser.jumpExpanded.value = true; true }
             Key.Zero -> { resetZoom(); true }
+            Key.C -> { copyPicked(false); true }
+            Key.X -> { copyPicked(true); true }
+            Key.V -> { pasteInView(); true }
+            Key.A -> { selectAllInk(); true }
+            Key.D -> { if (event.isShiftPressed) model.duplicatePage()?.let(::revealNewPage) else duplicatePicked(); true }
+            Key.Tab -> { switchNotebook(event.isShiftPressed); true }
+            Key.N -> { newNotebook(); true }
+            Key.Enter -> { revealNewPage(model.insertPage(state.pageIndex + 1)); true }
+            Key.MoveHome -> { jumpToEnd(false); true }
+            Key.MoveEnd -> { jumpToEnd(true); true }
             else -> false
+        } else if (event.type == KeyEventType.KeyDown && event.isAltPressed && event.key in setOf(Key.DirectionLeft, Key.DirectionRight)) {
+            navigateHistory(event.key == Key.DirectionLeft); true
         } else if (event.type == KeyEventType.KeyDown && event.isAltPressed && writingFollowEnabled && overviewReturn == null &&
             !peekOpen && textEditor == null && event.key in setOf(Key.DirectionDown, Key.DirectionUp, Key.Backspace)) {
             // Keyboard writing follow: Alt+Down next line, Alt+Up previous line, Alt+Backspace back.
@@ -837,6 +931,25 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 else -> activeInkView?.backWritingView()
             }
             true
+        } else if (event.type == KeyEventType.KeyDown && !event.isAltPressed && !event.isCtrlPressed) when {
+            event.key == Key.PageUp -> { turnPage(false); true }
+            event.key == Key.PageDown -> { turnPage(true); true }
+            event.key == Key.Delete || event.key == Key.Backspace -> { if (keyboardPicked().isNotEmpty() || documentSelection.isNotEmpty()) { deletePicked(); true } else false }
+            event.key == Key.Spacebar -> { if (temporaryTool == null) temporaryTool = tool; true }
+            event.key == Key.Escape -> when {
+                cropActive -> { activeInkView?.endImageCrop(false); true }
+                selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
+                documentSelection.isNotEmpty() || selected.isNotEmpty() -> { clearPicked(); true }
+                pageMenu != null -> { pageMenu = null; true }
+                else -> false
+            }
+            appPrefs.getBoolean(AppPrefs.UX_TOOL_KEYS, AppPrefs.DEFAULT_UX_TOOL_KEYS) -> {
+                val keyCode = event.nativeKeyEvent.keyCode
+                val letter = if (keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z) ('A'.code + keyCode - android.view.KeyEvent.KEYCODE_A).toChar() else null
+                val picked = EditorKeyBindings.decode(appPrefs.getString(AppPrefs.UX_TOOL_BINDINGS, null))[letter]
+                if (picked != null) selectTool(picked) else false
+            }
+            else -> false
         } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) when {
             cropActive -> { activeInkView?.endImageCrop(false); true }
             selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
@@ -846,6 +959,15 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
+        EditorUxStatus(state, model, tool, actionNotice, onGuide = { gestureGuide = true }, onCommands = { commandPalette = true }, onHistory = { historyOpen = true }, onLayers = { layersPopover = true }, onBack = { navigateHistory(true) }, canBack = backPositions.isNotEmpty(), onForward = { navigateHistory(false) }, canForward = forwardPositions.isNotEmpty())
+        if (editor.overlays.searchMatches.value.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            val matches = editor.overlays.searchMatches.value
+            val match = editor.overlays.searchMatch.intValue.coerceIn(0, matches.lastIndex)
+            TextButton({ val next = (match + matches.size - 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }) { Text("Previous matching page") }
+            TextButton({ noteSearchOpen = true }) { Text("${editor.overlays.searchCaption.value} · ${match + 1}/${matches.size} · Results") }
+            TextButton({ val next = (match + 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }) { Text("Next matching page") }
+            TextButton({ editor.overlays.searchMatches.value = emptyList() }) { Text("Close search") }
+        }
         LongResponseBar(note, page, model, onAttempts = { responseAttempts = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
@@ -878,11 +1000,25 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 bounds.copy(top = (bounds.top + with(density) { floatingToolbarTop.toPx() }).coerceAtMost(bounds.bottom))
             }
             val viewportWidth = with(density) { maxWidth.toPx() }
-            val baseWidth = (maxWidth - 20.dp).coerceAtMost(900.dp)
+            val baseWidth = (maxWidth - 20.dp).coerceIn(1.dp, 900.dp)
             val baseWidthPx = with(density) { baseWidth.toPx() }
             // Sticky notes can live beside the paper, so the document is wider than its pages.
             val workspaceSide = remember(note.pages) { StickyNotes.workspaceSide(note.pages) }
             val documentScale = 1f + 2f * workspaceSide
+            LaunchedEffect(restoringVisit, page.id, mainInkView, baseWidthPx) {
+                val visit = restoringVisit ?: return@LaunchedEffect
+                if (page.id != visit.pageId) return@LaunchedEffect
+                editor.viewport.zoom.floatValue = visit.zoom; editor.viewport.pan.floatValue = visit.pan
+                editor.viewport.pageZoom.floatValue = visit.pageZoom; editor.viewport.pagePan.floatValue = visit.pagePan
+                if (!page.infinite && !paged && music == null) {
+                    viewportCoordinator.restoreVisit(visit.anchor?.takeIf { it.pageId == visit.pageId } ?: DocumentPageGeometry.Anchor(visit.pageId, 0f), baseWidthPx * visit.zoom)
+                    restoringVisit = null
+                } else {
+                    val view = mainInkView?.takeIf { it.page.id == visit.pageId } ?: return@LaunchedEffect
+                    visit.camera?.let(view::returnToCanvasView)
+                    restoringVisit = null
+                }
+            }
             val stripWidth = FastScrollStripWidth
             val stripInset = FolioSpacing.dp2
             val trackTop = floatingToolbarTop + FolioSpacing.dp8
@@ -916,6 +1052,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     onDelete = { model.deleteSelection(selected); dismissSelection() },
                     onDeselect = ::dismissSelection,
                     onSelectAll = ::selectAllInk,
+                    onPlacement = { placementOpen = true },
+                    onSaveSnippet = { snippetsOpen = true },
                     onConvertText = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() } || inkConverting) null
                         else ({ convertSelectionToText(page.id, selected) }),
                     onTidyShapes = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() }) null
@@ -943,7 +1081,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             if (paged || (music != null && musicInsets != null)) {
                 val sheet: @Composable (NotePage, Int, Boolean) -> Unit = { item, index, preview ->
                     EditorPage(note.id, item, model,
-                        surface = sharedSurface.copy(tool = if (music?.performance == true || zoomPaneOpen) Tool.HAND else tool,
+                        surface = sharedSurface.copy(tool = if (music?.performance == true || zoomPaneOpen) Tool.HAND else inputTool,
                             activeLayer = model.activeLayerOf(item),
                             followEnabled = writingFollowEnabled && !zoomPaneOpen && !preview && item.id == page.id,
                             writingHand = writingHand,
@@ -1006,7 +1144,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     }, sheet = sheet)
             } else if (page.infinite) {
                 InfiniteCanvas(note.id, page, model,
-                    surface = sharedSurface.copy(tool = if (zoomPaneOpen) Tool.HAND else tool,
+                    surface = sharedSurface.copy(tool = if (zoomPaneOpen) Tool.HAND else inputTool,
                         activeLayer = model.activeLayerOf(page),
                         followEnabled = writingFollowEnabled && !zoomPaneOpen && overviewReturn == null,
                         writingHand = writingHand,
@@ -1061,7 +1199,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             })
                         }) {
                             EditorPage(note.id, item, model,
-                                surface = sharedSurface.copy(tool = if (zoomPaneOpen) Tool.HAND else tool,
+                                surface = sharedSurface.copy(tool = if (zoomPaneOpen) Tool.HAND else inputTool,
                                     activeLayer = model.activeLayerOf(item),
                                     followEnabled = writingFollowEnabled && !zoomPaneOpen && item.id == page.id && overviewReturn == null,
                                     writingHand = writingHand,
@@ -1604,7 +1742,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     }
     // Popups must belong to the browser window while it is open, or they appear behind it.
 
-    EditorPageBrowser(state, model, editor.overlays, editor.browser, ::jumpTo, ::addPage, ::revealNewPage, ::openPaperMenu)
+    EditorPageBrowser(state, model, editor.overlays, editor.browser, ::jumpTo, ::addPage, ::revealNewPage, ::openPaperMenu, onExport)
 
     if (!pageBrowser) EditorPageDialogs(note, model, editor.overlays)
     EditorRenameDialog(note, model, editor.overlays)
@@ -1713,6 +1851,25 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             onUndo = { finishTextEditing(); undoEditor() }, onRedo = { finishTextEditing(); redoEditor() },
             onDismiss = { pageMenu = null })
     }
+    conversionDraft?.let { draft -> InkConversionPreview(draft, model, { conversionDraft = null }) { conversionDraft = null; clearPicked() } }
+    if (commandPalette) EditorCommandPanel(listOf(
+        EditorCommand("New notebook", "Ctrl+N", run = ::newNotebook),
+        EditorCommand("Insert page after this page", "Ctrl+Enter", run = { revealNewPage(model.insertPage(state.pageIndex + 1)) }),
+        EditorCommand("Duplicate page", "Ctrl+Shift+D", run = { model.duplicatePage()?.let(::revealNewPage) }),
+        EditorCommand("Find in document", "Ctrl+F", run = { noteSearchOpen = true }),
+        EditorCommand("Go to page", "Ctrl+G", run = { pageBrowser = true; editor.browser.jumpExpanded.value = true }),
+        EditorCommand("Choose paper", run = { openPaperMenu(false) }),
+        EditorCommand("Export pages", run = onExport), EditorCommand("Reset zoom", "Ctrl+0", run = ::resetZoom),
+        EditorCommand("Undo history", run = { historyOpen = true }),
+        EditorCommand("Align and distribute selection", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.size >= 2 }, reason = "Select two or more objects on a page", run = { placementOpen = true }),
+        EditorCommand("Saved snippets", run = { snippetsOpen = true }),
+        EditorCommand("Convert handwriting to text", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.strokes.isNotEmpty() || it.texts.any { box -> box.stickyInk.isNotEmpty() } }, reason = "Select handwriting first", run = { convertSelectionToText(page.id, selected) }),
+        EditorCommand("Gestures and shortcuts", run = { gestureGuide = true }), EditorCommand("Settings", run = onSettings)
+    ) + LocalWorkspaceCommands.current + listOf(Tool.PEN, Tool.ERASER, Tool.HIGHLIGHTER, Tool.LASSO, Tool.HAND, Tool.TEXT).map { value -> EditorCommand("Tool: ${toolLabel(value)}", run = { selectTool(value) }) }) { commandPalette = false }
+    if (gestureGuide) GestureGuide { gestureGuide = false }
+    if (historyOpen) EditorHistoryPanel(model) { historyOpen = false }
+    if (placementOpen) SelectionPlacementPanel(note, documentSelection.ifEmpty { mapOf(page.id to selected) }, model, { placementOpen = false }, ::clearPicked)
+    if (snippetsOpen) SnippetsPanel(note, page, if (documentSelection.isNotEmpty()) editor.documentInput.flattened() else selected, model, { snippetsOpen = false })
     EditorSearchPanels(state, model, editor.overlays, searchQuery, pdfOutline, ::jumpTo)
     if (responseAttempts) LongResponseAttemptsPanel(note, page.id, model) { responseAttempts = false }
 

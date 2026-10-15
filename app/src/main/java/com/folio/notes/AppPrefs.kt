@@ -9,6 +9,36 @@ package com.folio.notes
  * and every screen reads the same value.
  */
 object AppPrefs {
+    const val DEFAULT_UX_HINTS = true
+    const val DEFAULT_UX_LABELS = false
+    const val DEFAULT_UX_LARGE_CONTROLS = false
+    const val DEFAULT_UX_TOOL_KEYS = true
+    const val DEFAULT_UX_SNAP = false
+    const val DEFAULT_UX_REVIEW_CONFIRM = true
+    const val DEFAULT_UX_LOCAL_TOOLS = false
+    const val DEFAULT_UX_SEARCH_HANDWRITING = false
+    const val DEFAULT_UX_SWIPE_RIGHT = "FAVOURITE"
+    const val DEFAULT_UX_SWIPE_LEFT = "TRASH"
+    fun uxLinkOffset(value: Int?): Int = (value ?: 0).coerceIn(-99999, 99999)
+    const val UX_HINTS = "ux.hints"
+    const val UX_LABELS = "ux.labels"
+    const val UX_LARGE_CONTROLS = "ux.largeControls"
+    const val UX_TOOL_BINDINGS = "ux.toolBindings"
+    const val UX_SEARCH_HANDWRITING = "ux.searchHandwriting"
+    const val UX_EDITOR_HINT_DISMISSED = "ux.editorHintDismissed"
+    const val UX_LIBRARY_HINT_DISMISSED = "ux.libraryHintDismissed"
+    const val UX_TOOL_KEYS = "ux.toolKeys"
+    const val UX_SNAP = "ux.snapObjects"
+    const val UX_REVIEW_CONFIRM = "ux.reviewConfirm"
+    const val UX_SWIPE_RIGHT = "ux.swipeRight"
+    const val UX_SWIPE_LEFT = "ux.swipeLeft"
+    const val UX_LOCAL_TOOLS = "ux.localTools"
+    const val UX_NOTE_TOOL_PREFIX = "ux.noteTool."
+    const val UX_SAVED_VIEWS = "ux.savedViews"
+    const val UX_WORKSPACES = "ux.workspaces"
+    const val UX_LINK_OFFSET = "ux.linkOffset"
+    fun uxSwipe(raw: String?, fallback: String): String = raw?.takeIf { it in listOf("FAVOURITE", "TRASH", "TAGS", "SHARE", "MOVE") } ?: fallback
+
     /** Tint opacity of the sideways-follow zone; zero hides it without changing its trigger. */
     const val FOLLOW_EDGE_STRIP_OPACITY = "follow.edgeStripOpacity"
     const val DEFAULT_FOLLOW_EDGE_STRIP_OPACITY = .1f

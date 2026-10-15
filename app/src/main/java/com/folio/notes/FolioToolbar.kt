@@ -25,13 +25,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-internal val EditorFloatingGroupHeight = 40.dp
-internal val DockButtonWidth = 40.dp
-internal val DockButtonHeight = 36.dp
+internal val EditorFloatingGroupHeight: Dp @Composable get() = if (showEditorToolNames()) (if (largeEditorControls()) 72.dp else 60.dp) else if (largeEditorControls()) 56.dp else 40.dp
+internal val DockButtonWidth: Dp @Composable get() = if (largeEditorControls()) 48.dp else 40.dp
+internal val DockButtonHeight: Dp @Composable get() = if (largeEditorControls()) 48.dp else 36.dp
 /** The gap between neighbouring buttons in the left and right groups, the same in both styles. */
 internal val DockGap = FolioSpacing.dp4
 /** Width of [buttons] dock buttons, each followed by a [DockGap] (so a row errs a gap wide, never narrow). */
-internal fun dockWidth(buttons: Int): Dp = (DockButtonWidth + DockGap) * buttons
+@Composable internal fun dockWidth(buttons: Int): Dp = (DockButtonWidth + DockGap) * buttons
 /** The "3/12" page readout between the previous and next buttons. */
 private val PageChipWidth = 48.dp
 

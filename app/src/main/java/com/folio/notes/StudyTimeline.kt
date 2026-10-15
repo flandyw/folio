@@ -703,6 +703,14 @@ internal fun StudyTimeline(
                             Box(Modifier.size(10.dp).background(FocalSubjects.color(entry.subjectId)?.let { Color(it) } ?: scheme.primary, CircleShape))
                             Spacer(Modifier.width(FolioSpacing.dp8))
                             Column(Modifier.weight(1f)) {
+                                val restriction = when {
+                                    entry.active -> "Stop this timer before reshaping or merging it."
+                                    entry.pendingBlocks != null && !entry.synced -> "Block changes are waiting for Focal. They remain on this device until acknowledged."
+                                    !focalCanEditBlocks(entry) && entry.intervals.isNotEmpty() -> "This timer session must sync its recorded intervals before it can be reshaped."
+                                    state.userId != null && !entry.synced -> "Waiting for Focal sync. Merge becomes available after this session is acknowledged."
+                                    else -> null
+                                }
+                                if (restriction != null) Text(restriction, style = MaterialTheme.typography.bodySmall, color = scheme.error)
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull(subject?.name, "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
                                     when { picked.tone == Tone.LIVE -> "Studying now"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"

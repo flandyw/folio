@@ -17,6 +17,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     val repository = runtime.repository
     val thumbnails = runtime.thumbnails
     val imageFiles = runtime.imageFiles
+    internal var exportSelection: Set<Int>? = null
     var pendingExport: PageExportRequest?
         get() = runtime.pendingExport
         set(value) { runtime.pendingExport = value }
@@ -72,6 +73,8 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun closeOtherTabs(keepId: String): Unit = runtime.closeOtherTabs(keepId)
     fun showCompanion(id: String, mode: CompanionMode): Unit = runtime.showCompanion(id, mode)
     fun dismissCompanion(): Unit = runtime.dismissCompanion()
+    internal fun workspaceSnapshot(name: String): org.json.JSONObject? = runtime.workspaceManager.workspaceSnapshot(name)
+    internal fun restoreWorkspace(item: org.json.JSONObject): Boolean = runtime.workspaceManager.restoreWorkspace(item)
     fun setSplitFraction(fraction: Float): Unit = runtime.setSplitFraction(fraction)
     fun setCompanionLinked(linked: Boolean): Unit = runtime.setCompanionLinked(linked)
     fun setCompanionMode(mode: CompanionMode): Unit = runtime.setCompanionMode(mode)
@@ -99,6 +102,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun favoriteNotebooks(ids: Set<String>, starred: Boolean): Unit = runtime.favoriteNotebooks(ids, starred)
     fun setPageCoverBatch(ids: Set<String>, pageCover: Boolean): Unit = runtime.setPageCoverBatch(ids, pageCover)
     fun updateExamTagsBatch(ids: Set<String>, transform: (ExamTags) -> ExamTags): Unit = runtime.updateExamTagsBatch(ids, transform)
+    internal fun createLike(note: Notebook): Unit = runtime.notebookWorkflowService.createLike(note)
     fun duplicateNotebook(note: Notebook): Unit = runtime.duplicateNotebook(note)
     fun delete(note: Notebook): Unit = runtime.delete(note)
     fun deleteNotebooks(ids: Set<String>): Unit = runtime.deleteNotebooks(ids)
@@ -110,6 +114,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun duplicatePage(index: Int = runtime._state.value.pageIndex): Int? = runtime.duplicatePage(index)
     fun insertPage(index: Int, paper: Paper? = null): Int = runtime.insertPage(index, paper)
     fun deletePage(index: Int): Unit = runtime.deletePage(index)
+    internal fun movePages(noteId: String, ids: Set<String>, position: Int): Unit = runtime.documentEngine.movePages(noteId, ids, position)
     fun movePage(from: Int, to: Int): Unit = runtime.movePage(from, to)
     fun renamePage(pageId: String, title: String): Unit = runtime.renamePage(pageId, title)
     fun setPeekAnchor(anchor: PeekAnchor?): Unit = runtime.setPeekAnchor(anchor)
@@ -175,6 +180,9 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun moveDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, flattened: CanvasSelection,
         targetId: String, onDone: () -> Unit): Unit = runtime.moveDocumentSelection(noteId, selection, flattened, targetId, onDone)
     suspend fun pagesForMarking(): List<NotePage> = runtime.pagesForMarking()
+    internal fun undoDescriptions(): List<String> = runtime.documentEngine.undoDescriptions()
+    internal fun nextUndoDescription(): String? = undoDescriptions().firstOrNull()
+    internal fun pasteSnippet(selection: CanvasSelection, bytes: Map<String, ByteArray>): Unit = runtime.editorSelectionController.pasteSnippet(selection, bytes)
     fun undo(): Unit = runtime.undo()
     fun redo(): Unit = runtime.redo()
     fun tickTimer(now: Long = runtime.timerNow()): Unit = runtime.tickTimer(now)

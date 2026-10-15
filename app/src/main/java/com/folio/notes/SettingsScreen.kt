@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal val LocalOpenBackupSettings = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /**
@@ -47,12 +48,13 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
  * a tablet keeps the category list beside the page. Search looks at individual settings, not just
  * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, onChatGpt: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
-    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(if (startWithWritingFollow) SettingsCategory.FOLLOW else null) }
+    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(if (startWithBackup) SettingsCategory.BACKUP else if (startWithWritingFollow) SettingsCategory.FOLLOW else null) }
     var query by rememberSaveable { mutableStateOf("") }
     val searching = query.isNotBlank()
+    val searchTarget = remember { mutableStateOf("") }
 
     val backupProgress by LibraryAutoBackup.progress.collectAsState()
     val backupTree by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) }
@@ -79,7 +81,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
 
     // Same top gap as the shell gives its destinations, so this heading lines up with theirs.
     val topGap = (FolioSpacing.dp16 - WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()).coerceAtLeast(0.dp)
-    CompositionLocalProvider(LocalDestinationTopGap provides topGap) {
+    CompositionLocalProvider(LocalDestinationTopGap provides topGap, LocalSettingsTarget provides searchTarget) {
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         val wide = maxWidth >= 840.dp
         val open: (SettingsCategory) -> Unit = { category = it; query = "" }
@@ -242,6 +244,7 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
 // ---- Search -------------------------------------------------------------------------------------
 
 @Composable private fun SearchResults(query: String, open: (SettingsCategory) -> Unit, onClear: () -> Unit) {
+    val target = LocalSettingsTarget.current
     val hits = remember(query) { SettingsIndex.search(query) }
     if (hits.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -255,7 +258,7 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
     SettingsGroup(if (hits.size == 1) "1 result" else "${hits.size} results") {
         hits.forEachIndexed { index, hit ->
             if (index > 0) SettingsDivider()
-            SettingsLinkRow(hit.title, hit.category.title, onClick = { open(hit.category) }, leadingContent = { CategoryIcon(hit.category.icon) })
+            SettingsLinkRow(hit.title, hit.category.title, onClick = { target?.value = hit.target; open(hit.category) }, leadingContent = { CategoryIcon(hit.category.icon) })
         }
     }
 }
@@ -281,11 +284,46 @@ private enum class SettingsCategory(val title: String, val summary: String, val 
 
 /** What search can find: each setting by name plus the words someone might use for it. */
 private object SettingsIndex {
-    class Hit(val category: SettingsCategory, val title: String, val keywords: String)
+    class Hit(val category: SettingsCategory, val title: String, val keywords: String) {
+        val target get() = when (title) {
+            "Colour theme", "Black and white theme" -> "Colours"
+            "Toolbar tools and order", "Toolbar undo and redo", "Toolbar colour dots, presets and timer" -> "Toolbar"
+            "Typed text size and alignment" -> "Typed text"
+            "Reading direction" -> "Writing direction"
+            "Writing follow" -> "Start here"
+            "Room before moving and edge strip width" -> "Room before moving"
+            "Writing position and line spacing" -> "Where your writing sits"
+            "Movement feel and timing" -> "Feel"
+            "Zoom pane height and auto peek" -> "Zoom pane & peek"
+            "Default paper" -> "Paper"
+            "Default cover colour" -> "Cover design and colour"
+            "Library layout" -> "Layout"
+            "Restore from backup folder" -> "Restore"
+            "Library backup file" -> "Library file"
+            "Page image sharpness" -> "Export"
+            "Split view balance" -> "Split view"
+            "Share button long-press" -> "Share button"
+            "Mistake practice paper" -> "Paper guide"
+            "Focal account" -> "Focal"
+            "Check for updates" -> "Updates"
+            else -> title
+        }
+    }
 
     private fun e(c: SettingsCategory, title: String, keywords: String = "") = Hit(c, title, keywords)
 
     private val all = listOf(
+        e(SettingsCategory.APPEARANCE, "Show tool names", "labels learning icons"),
+        e(SettingsCategory.APPEARANCE, "Larger controls", "accessibility touch targets buttons"),
+        e(SettingsCategory.APPEARANCE, "Shortcut hints", "tips guide dismiss"),
+        e(SettingsCategory.WRITING, "Tool letter shortcuts", "keyboard pen eraser"),
+        e(SettingsCategory.WRITING, "Customise tool keys", "keyboard remap bindings"),
+        e(SettingsCategory.WRITING, "Snap moved selections", "align margins grid objects"),
+        e(SettingsCategory.WRITING, "Remember tools per notebook", "local presets global defaults"),
+        e(SettingsCategory.STYLUS, "Try your pencil shortcut", "practice test double tap guide gestures"),
+        e(SettingsCategory.LIBRARY, "Swipe right", "gesture favourite trash tags move share"),
+        e(SettingsCategory.LIBRARY, "Swipe left", "gesture favourite trash tags move share"),
+        e(SettingsCategory.MISTAKES, "Confirm answer reveal and skip", "single tap double tap review keyboard"),
         e(SettingsCategory.APPEARANCE, "Theme", "light dark system mode night"),
         e(SettingsCategory.APPEARANCE, "Colour theme", "color palette sage ocean plum warm mono monochrome greyscale grey neutral wallpaper dynamic material you"),
         e(SettingsCategory.APPEARANCE, "Black and white theme", "mono monochrome greyscale grey colourless neutral no colour pure"),

@@ -226,7 +226,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     fun selectionOn(id: String): CanvasSelection? = interaction.documentSelection.value[id]
     fun selectedOn(id: String): Boolean = interaction.documentSelection.value[id]?.isNotEmpty() == true
     fun clearSelection() {
-        interaction.documentSelection.value = emptyMap(); interaction.selection.value = null; selectionFrames = emptyMap()
+        interaction.documentSelection.value = emptyMap(); interaction.selection.value = null; selectionFrames = emptyMap(); snapSelection = null; snapBounds = null; snapX = emptyList(); snapY = emptyList()
         surfaces.mainSurfaces().forEach { it.showDocumentSelection(CanvasSelection()) }
     }
     fun deleteSelection() {
@@ -254,19 +254,16 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         if (model.commitDocumentEdits(note.id, edits, selected.keys.associateWith { pageById.getValue(it).revision })) clearSelection()
     }
     /** Recognition finishes before one revision-checked commit touches any selected page. */
-    suspend fun convertSelectionToText() {
-        val note = note ?: return; val model = model ?: return
+    suspend fun prepareTextConversion(): InkConversionDraft? {
+        val note = note ?: return null
         val selected = interaction.documentSelection.value
-        val pages = selected.keys.associateWith { pageById.getValue(it) }
-        val edits = LinkedHashMap<String, PageEdit>()
+        val pages = LinkedHashMap<String, Pair<NotePage, PageContent>>()
         for ((id, selection) in selected) {
-            val page = pages.getValue(id)
+            val page = pageById[id] ?: continue
             val after = InkToText.convert(page, selection)
-            PageJournal.diff(page.content(), after)?.let { edits[id] = it }
+            if (PageJournal.diff(page.content(), after) != null) pages[id] = page to after
         }
-        if (edits.isEmpty()) model.reportError("No readable text in this selection")
-        else if (model.commitDocumentEdits(note.id, edits, pages.mapValues { it.value.revision })) clearSelection()
-        else model.reportError("The document changed while reading handwriting; select it again")
+        return if (pages.isEmpty()) { model?.reportError("No readable text in this selection"); null } else InkConversionDraft(note.id, pages)
     }
     fun moveSelectionToLayer(layer: Int) {
         val note = note ?: return; val model = model ?: return
@@ -285,7 +282,40 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         }.toMap()
         if (model.commitDocumentEdits(note.id, edits, selected.keys.associateWith { pageById.getValue(it).revision })) clearSelection()
     }
-    fun dragSelection(sourceId: String, dx: Float, dy: Float, commit: Boolean): Boolean {
+    private var snapSelection: Map<String, CanvasSelection>? = null
+    private var snapBounds: androidx.compose.ui.geometry.Rect? = null
+    private var snapX: List<Pair<Float, Float>> = emptyList()
+    private var snapY: List<Pair<Float, Float>> = emptyList()
+    private fun snappedSelectionDelta(sourceId: String, dx: Float, dy: Float): Pair<Float, Float> {
+        if (dx == 0f && dy == 0f) return dx to dy
+        val view = surfaces.find(EditorSurfaceRole.MAIN, sourceId) ?: return dx to dy
+        if (view.selectionSnapBypassed || !view.context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.UX_SNAP, AppPrefs.DEFAULT_UX_SNAP)) return dx to dy
+        val selected = interaction.documentSelection.value
+        val firstId = selected.keys.firstOrNull() ?: return dx to dy
+        val firstPage = pageById[firstId] ?: return dx to dy
+        val firstFrame = interaction.transfers.paperFrame(firstId) ?: return dx to dy
+        val sourceFrame = interaction.transfers.paperFrame(sourceId) ?: return dx to dy
+        val sourcePage = pageById[sourceId] ?: return dx to dy
+        val firstUnit = firstFrame.width / firstPage.width
+        val sourceUnit = sourceFrame.width / sourcePage.width
+        if (firstUnit <= 0f || sourceUnit <= 0f) return dx to dy
+        if (snapSelection !== selected) {
+            snapSelection = selected
+            val flat = flattened()
+            snapBounds = InkGeometry.contentBounds(flat.strokes, flat.texts, flat.images, InkRenderer::textHeight, firstPage.width, firstPage.height)
+            val picked = selected[firstId] ?: CanvasSelection()
+            val visible = PageLayers.view(firstPage)
+            val items = visible.strokes.filterNot { it in picked.strokes }.take(200).map { CanvasSelection(strokes = listOf(it)) } + visible.texts.filterNot { it in picked.texts }.take(100).map { CanvasSelection(texts = listOf(it)) } + visible.images.filterNot { it in picked.images }.take(100).map { CanvasSelection(images = listOf(it)) }
+            val bounds = items.map { InkGeometry.contentBounds(it.strokes, it.texts, it.images, InkRenderer::textHeight, firstPage.width, firstPage.height) }
+            snapX = bounds.map { it.left to it.right }; snapY = bounds.map { it.top to it.bottom }
+        }
+        val bounds = snapBounds ?: return dx to dy
+        val ratio = sourceUnit / firstUnit
+        return ObjectSnapping.offset(bounds.left, bounds.right, dx * ratio, firstPage.width, snapX, 8f / firstUnit) / ratio to
+            ObjectSnapping.offset(bounds.top, bounds.bottom, dy * ratio, firstPage.height.takeIf { selected.size == 1 }, snapY, 8f / firstUnit) / ratio
+    }
+    fun dragSelection(sourceId: String, rawDx: Float, rawDy: Float, commit: Boolean): Boolean {
+        val (dx, dy) = snappedSelectionDelta(sourceId, rawDx, rawDy)
         if (commit) {
             val result = transformSelection(1f, 0f, dx, dy, sourceId)
             surfaces.mainSurfaces().forEach { it.previewDocumentSelection(0f, 0f) }
@@ -380,7 +410,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         return committed
     }
     fun copySelection() { model?.copyToClipboard(flattened()) }
-    private fun flattened(): CanvasSelection {
+    fun flattened(): CanvasSelection {
         val selected = interaction.documentSelection.value
         val first = selected.keys.firstOrNull()?.let { selectionFrames[it] } ?: return CanvasSelection()
         val unit = first.frame.paper.width / first.frame.width

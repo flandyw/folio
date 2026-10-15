@@ -57,7 +57,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal val redo get() = documentEngine.redo
     internal val publishedHistory get() = documentEngine.publishedHistory
 
-    internal class StructureStep(val noteId: String, var seq: Long, val undo: () -> Unit, val redo: () -> Unit)
+    internal class StructureStep(val noteId: String, var seq: Long, val label: String, val undo: () -> Unit, val redo: () -> Unit)
     internal val structureUndo get() = documentEngine.structureUndo
     internal val structureRedo get() = documentEngine.structureRedo
     internal var actionCounter: Long
@@ -68,7 +68,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
         set(value) { documentEngine.documentHistoryBusy = value }
     internal val inkSeq get() = documentEngine.inkSeq
     internal val inkRedoSeq get() = documentEngine.inkRedoSeq
-    internal fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit): Unit = documentEngine.recordStructure(noteId, undo, redo)
+    internal fun recordStructure(noteId: String, undo: () -> Unit, redo: () -> Unit): Unit = documentEngine.recordStructure(noteId, undo = undo, redo = redo)
     internal var ready = CompletableDeferred<Unit>()
     internal var pasteGeneration: Int
         get() = editorSelectionController.pasteGeneration
