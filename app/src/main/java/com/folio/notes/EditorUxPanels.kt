@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,30 +20,16 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
-@Composable internal fun EditorUxStatus(state: FolioState, model: FolioViewModel, tool: Tool, notice: String?, onGuide: () -> Unit,
-    onCommands: () -> Unit, onHistory: () -> Unit, onLayers: () -> Unit, onBack: () -> Unit, canBack: Boolean, onForward: () -> Unit, canForward: Boolean) {
+@Composable internal fun EditorUxStatus(state: FolioState, model: FolioViewModel, notice: String?, onGuide: () -> Unit) {
     val prefs = rememberPrefs()
     val hints by rememberPref(prefs, AppPrefs.UX_HINTS, AppPrefs.UX_EDITOR_HINT_DISMISSED) { it.getBoolean(AppPrefs.UX_HINTS, AppPrefs.DEFAULT_UX_HINTS) && !it.getBoolean(AppPrefs.UX_EDITOR_HINT_DISMISSED, false) }
-    val labels by rememberPref(prefs, AppPrefs.UX_LABELS) { it.getBoolean(AppPrefs.UX_LABELS, AppPrefs.DEFAULT_UX_LABELS) }
     val quickShare by rememberPref(prefs, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
-    var protection by remember { mutableStateOf(false) }
     Column {
         if (state.saveFailed) Surface(color = MaterialTheme.colorScheme.errorContainer) {
             Row(Modifier.fillMaxWidth().padding(8.dp).semantics { liveRegion = LiveRegionMode.Assertive }) {
                 Text(state.saveFailureReason ?: "Changes have not saved. Keep Folio open and retry.", Modifier.weight(1f))
                 TextButton(model::retrySave, enabled = !state.retryingSave) { Text(if (state.retryingSave) "Retrying…" else "Retry save") }
             }
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onCommands) { Text(if (labels) "${toolLabel(tool)} · Actions" else "Actions") }
-            TextButton(onBack, enabled = canBack) { Text("Back") }; TextButton(onForward, enabled = canForward) { Text("Forward") }
-            TextButton(onHistory) { Text("History") }
-            state.page?.takeIf { it.layers.isNotEmpty() }?.let { page ->
-                val layers = PageLayers.effective(page.layers)
-                val active = layers.firstOrNull { it.id == model.activeLayerOf(page) }
-                TextButton(onLayers) { Text("${active?.name ?: "Layer"} · ${layers.count { it.locked }} locked · ${layers.count { !it.visible }} hidden") }
-            }
-            TextButton({ protection = true }) { Text(if (state.saveFailed) "Save failed" else if (state.saving) "Saving…" else "Saved on device") }
         }
         if (notice != null) Text(notice, Modifier.padding(horizontal = 16.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.labelMedium)
         if (hints) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -53,7 +38,6 @@ import java.util.UUID
             TextButton({ prefs.write { putBoolean(AppPrefs.UX_EDITOR_HINT_DISMISSED, true) } }) { Text("Dismiss") }
         }
     }
-    if (protection) ProtectionPanel(state, model) { protection = false }
 }
 
 @Composable internal fun ProtectionPanel(state: FolioState, model: FolioViewModel, onDismiss: () -> Unit) {

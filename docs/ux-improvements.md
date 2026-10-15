@@ -19,7 +19,7 @@ Notebook, snapshot and journal formats are unchanged. New preferences are in `Ap
 | 11 | Searchable gesture guide available through the command palette and stylus settings | `UxShortcuts.kt` |
 | 12 | Disposable pencil-shortcut practice pad, supporting real pencil events and a double-tap simulation | `UxSettings.kt` |
 | 13 | Command reasons, import state explanations, layer restrictions and study-edit restrictions | `UxShortcuts.kt`, `EditorUxPanels.kt`, `StudyTimeline.kt` |
-| 14 | Optional names beside toolbar icons and active-tool status | `ExpressiveComponents.kt`, `UxSettings.kt` |
+| 14 | Optional names beside toolbar icons | `ExpressiveComponents.kt`, `UxSettings.kt` |
 | 15 | Larger actual toolbar, dock and selection targets with matching width calculations | `InkToolbar.kt`, `FolioToolbar.kt`, `SelectionContextMenu.kt` |
 | 16 | Named presets can be applied and pinned directly from tool options; existing toolbar pins retained | `ToolOptions.kt`, `InkToolbar.kt` |
 | 17 | Opt-in notebook-specific tool settings, last tool and pinned toolbar layouts; global setup remains available | `EditorScreen.kt`, `EditorWorkspaceContent.kt` |
@@ -30,7 +30,7 @@ Notebook, snapshot and journal formats are unchanged. New preferences are in `Ap
 | 22 | Optional movement snapping to spacing, margins, centres and nearby visible objects; Shift bypasses it | `ObjectSnapping.kt`, `InkView.kt`, `DocumentInputCoordinator.kt` |
 | 23 | Named cross-notebook snippets containing ink, text and independent pictures | `EditorUxPanels.kt`, `EditorSelectionController.kt`, `FolioViewModel.kt` |
 | 24 | Original-ink preview plus editable recognised text before one revision-checked replacement, including spanning selections and sticky ink | `InkConversionPreview.kt`, `DocumentInputCoordinator.kt` |
-| 25 | Active layer plus locked/hidden counts remain accessible near the editor; existing blocked-layer feedback retained | `EditorUxPanels.kt`, `InkViewHost.kt` |
+| 25 | Layer controls remain in the existing toolbar popover; blocked-layer feedback retained | `InkViewHost.kt` |
 | 26 | One search combines PDF text, typed notes and optional handwriting; results identify their source | `EditorSearchPanels.kt` |
 | 27 | Opt-in on-device handwriting search, revision-keyed cache and indexing progress/incomplete-state feedback | `NotebookSearchIndex.kt`, `EditorSearchPanels.kt` |
 | 28 | Previous/next matching-page controls preserve the query and reopen results | `EditorWorkspaceContent.kt`, `EditorSession.kt` |
@@ -99,3 +99,5 @@ These are follow-on proposals, not changes included in this implementation.
 8. **Accessible document text view.** Present typed notes, PDF text and indexed handwriting in a structured, scalable reading view for TalkBack and text selection.
 9. **Editable notebook section outlines.** Group pages into named sections and navigate them from a collapsible contents tree.
 10. **Music rehearsal loops.** Define an A–B page range or rehearsal-mark pair, then return to its start using a pedal or one visible action.
+
+The permanent Actions / Back / Forward / History / save-status row has been removed. History and saving, sync and backup details are available through Ctrl+K; navigation shortcuts and the save-failure retry banner remain available.

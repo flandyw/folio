@@ -78,6 +78,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     var selecting by rememberSaveable { mutableStateOf(false) }
     var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var linkError by remember { mutableStateOf<String?>(null) }
+    var previewUrl by rememberSaveable { mutableStateOf<String?>(null) }
 
     val studies = remember(index, state.notes) { index?.let { VcaaIndex.yoursFirst(it.studies, state.notes) }.orEmpty() }
     val owned = remember(index, state.notes) { index?.owned(state.notes).orEmpty() }
@@ -206,6 +207,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                                         PaperCard(exam, notebook, showStudy = study == null, selecting = selecting, checked = exam.url in pickedSet,
                                             enabled = canImport,
                                             onToggle = { picked = if (exam.url in pickedSet) picked - exam.url else picked + exam.url },
+                                            onPreview = { previewUrl = exam.url },
                                             onImport = { import(listOf(exam)) }, onOpen = { notebook?.let { model.open(it.id) } },
                                             onReport = ::openResource)
                                     }
@@ -215,6 +217,12 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                     }
                 }
             }
+        }
+        previewUrl?.let { url ->
+            index?.exams?.firstOrNull { it.url == url }?.let { exam ->
+                VcaaPreview(exam, index?.ownedBy(exam, owned), canImport, onImport = { import(listOf(exam)) },
+                    onOpen = { index?.ownedBy(exam, owned)?.let { model.open(it.id) } }, onDismiss = { previewUrl = null })
+            } ?: run { previewUrl = null }
         }
         if (selecting) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8)) {
@@ -264,7 +272,7 @@ private fun SubjectRow(name: String, count: Int, subject: VceSubject?, selected:
 @Composable
 private fun PaperCard(
     exam: VcaaExam, owned: Notebook?, showStudy: Boolean, selecting: Boolean, checked: Boolean, enabled: Boolean,
-    onToggle: () -> Unit, onImport: () -> Unit, onOpen: () -> Unit, onReport: (String) -> Unit,
+    onToggle: () -> Unit, onPreview: () -> Unit, onImport: () -> Unit, onOpen: () -> Unit, onReport: (String) -> Unit,
 ) {
     val pickable = selecting && owned == null
     Surface(
@@ -314,6 +322,11 @@ private fun PaperCard(
                                 FolioMenuItem({ Text(label) }, { resourcesExpanded = false; onReport(url) })
                             }
                         }
+                    }
+                    TextButton(onPreview) {
+                        Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp6))
+                        Text("Preview")
                     }
                     Spacer(Modifier.weight(1f))
                     if (!selecting) {

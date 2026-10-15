@@ -131,6 +131,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     var commandPalette by remember { mutableStateOf(false) }
     var gestureGuide by remember { mutableStateOf(false) }
     var historyOpen by remember { mutableStateOf(false) }
+    var protectionOpen by remember { mutableStateOf(false) }
     var placementOpen by remember { mutableStateOf(false) }
     var snippetsOpen by remember { mutableStateOf(false) }
     var temporaryTool by remember { mutableStateOf<Tool?>(null) }
@@ -884,7 +885,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         keyLifecycle.lifecycle.addObserver(observer)
         onDispose { temporaryTool = null; keyLifecycle.lifecycle.removeObserver(observer) }
     }
-    val canvasKeys = !commandPalette && conversionDraft == null && !gestureGuide && !historyOpen && !placementOpen && !snippetsOpen &&
+    val canvasKeys = !commandPalette && conversionDraft == null && !gestureGuide && !historyOpen && !protectionOpen && !placementOpen && !snippetsOpen &&
         !editor.overlays.pageBrowser.value && !editor.overlays.noteSearch.value && !editor.overlays.pdfSearch.value &&
         !palette && !editor.overlays.rename.value && !editor.overlays.timer.value && !editor.overlays.exam.value && !editor.overlays.study.value
     fun clearPicked() { activeInkView?.clearSelection(); activeInkView?.clearImageSelection(); selectedImage = null; selection = null; editor.documentInput.clearSelection() }
@@ -959,7 +960,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
-        EditorUxStatus(state, model, tool, actionNotice, onGuide = { gestureGuide = true }, onCommands = { commandPalette = true }, onHistory = { historyOpen = true }, onLayers = { layersPopover = true }, onBack = { navigateHistory(true) }, canBack = backPositions.isNotEmpty(), onForward = { navigateHistory(false) }, canForward = forwardPositions.isNotEmpty())
+        EditorUxStatus(state, model, actionNotice, onGuide = { gestureGuide = true })
         if (editor.overlays.searchMatches.value.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             val matches = editor.overlays.searchMatches.value
             val match = editor.overlays.searchMatch.intValue.coerceIn(0, matches.lastIndex)
@@ -1861,6 +1862,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         EditorCommand("Choose paper", run = { openPaperMenu(false) }),
         EditorCommand("Export pages", run = onExport), EditorCommand("Reset zoom", "Ctrl+0", run = ::resetZoom),
         EditorCommand("Undo history", run = { historyOpen = true }),
+        EditorCommand("Saving, sync and backups", run = { protectionOpen = true }),
         EditorCommand("Align and distribute selection", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.size >= 2 }, reason = "Select two or more objects on a page", run = { placementOpen = true }),
         EditorCommand("Saved snippets", run = { snippetsOpen = true }),
         EditorCommand("Convert handwriting to text", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.strokes.isNotEmpty() || it.texts.any { box -> box.stickyInk.isNotEmpty() } }, reason = "Select handwriting first", run = { convertSelectionToText(page.id, selected) }),
@@ -1868,6 +1870,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     ) + LocalWorkspaceCommands.current + listOf(Tool.PEN, Tool.ERASER, Tool.HIGHLIGHTER, Tool.LASSO, Tool.HAND, Tool.TEXT).map { value -> EditorCommand("Tool: ${toolLabel(value)}", run = { selectTool(value) }) }) { commandPalette = false }
     if (gestureGuide) GestureGuide { gestureGuide = false }
     if (historyOpen) EditorHistoryPanel(model) { historyOpen = false }
+    if (protectionOpen) ProtectionPanel(state, model) { protectionOpen = false }
     if (placementOpen) SelectionPlacementPanel(note, documentSelection.ifEmpty { mapOf(page.id to selected) }, model, { placementOpen = false }, ::clearPicked)
     if (snippetsOpen) SnippetsPanel(note, page, if (documentSelection.isNotEmpty()) editor.documentInput.flattened() else selected, model, { snippetsOpen = false })
     EditorSearchPanels(state, model, editor.overlays, searchQuery, pdfOutline, ::jumpTo)

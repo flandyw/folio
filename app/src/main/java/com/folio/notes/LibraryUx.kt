@@ -3,7 +3,19 @@ package com.folio.notes
 
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.rememberScrollState
@@ -49,13 +61,32 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     }
 }
 
-@Composable internal fun ContinueWorkingStrip(notes: List<Notebook>, onOpen: (String) -> Unit) {
-    val recent = remember(notes) { notes.filterNot { it.hiddenFromLibrary }.sortedByDescending { it.updated }.take(5) }
-    if (recent.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Continue working", style = MaterialTheme.typography.titleSmall)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            recent.forEach { note -> AssistChip({ onOpen(note.id) }, { Text(note.title, maxLines = 1, modifier = Modifier.widthIn(max = 200.dp)) }) }
+@Composable internal fun ContinueWorkingCard(notes: List<Notebook>, thumbnails: PageThumbnailCache, onOpen: (String) -> Unit) {
+    val note = remember(notes) { notes.filterNot { it.hiddenFromLibrary }.maxByOrNull { it.updated } } ?: return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // The page the notebook was left on, from the per-notebook position store the editor writes.
+    val pageId = remember(note.id, note.pages) {
+        NotebookPositionCodec.decode(context.getSharedPreferences("notebook_positions", 0).getString(note.id, null))?.pageId
+    }
+    val index = (note.pages.indexOfFirst { it.id == pageId }).takeIf { it >= 0 } ?: 0
+    val page = note.pages.getOrNull(index)
+    val widthPx = with(androidx.compose.ui.platform.LocalDensity.current) { 120.dp.roundToPx() }
+    var preview by remember(note.id, page?.id, page?.revision) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(note.id, page?.id, page?.revision) { page?.let { preview = thumbnails.thumbnail(note.id, it, widthPx) } }
+    val image = remember(preview) { preview?.asImageBitmap() }
+    val progress = if (note.pages.isEmpty()) 0f else (index + 1f) / note.pages.size
+    ElevatedCard({ onOpen(note.id) }, Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(72.dp).height(96.dp).clip(FolioShapes.small).background(Color.White).border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.small), contentAlignment = Alignment.Center) {
+                if (image != null) Image(image, "Preview of page ${index + 1} of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                else Icon(Icons.AutoMirrored.Rounded.MenuBook, null)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Continue working", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Page ${index + 1} of ${note.pages.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LinearProgressIndicator({ progress }, Modifier.fillMaxWidth().padding(top = 4.dp))
+            }
         }
     }
 }
@@ -68,8 +99,13 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     var name by remember { mutableStateOf("") }
     fun save(values: List<JSONObject>) { prefs.write { putString(AppPrefs.UX_SAVED_VIEWS, JSONArray(values).toString()) } }
     val values = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton({ naming = true }) { Text("Save this view") }
+    var menu by remember { mutableStateOf(false) }
+    // Saved views are niche: existing ones show as chips, but saving lives behind a quiet menu.
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            IconButton({ menu = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.MoreHoriz, "More view options", Modifier.size(18.dp)) }
+            DropdownMenu(menu, { menu = false }) { DropdownMenuItem({ Text("Save this view…") }, { menu = false; naming = true }) }
+        }
         values.forEach { item ->
             InputChip(false, { onRestore(item) }, { Text(item.optString("name", "Saved view")) }, trailingIcon = {
                 TextButton({ save(values.filterNot { it === item }) }) { Text("×", Modifier.semanticsLabel("Delete saved view ${item.optString("name")}")) }

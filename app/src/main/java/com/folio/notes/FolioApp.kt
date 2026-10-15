@@ -478,6 +478,7 @@ import kotlinx.coroutines.withContext
                         )
                         else -> LibraryScreen(
                             state.copy(notes = remember(state.notes) { state.notes.filterNot { it.hiddenFromLibrary } }), model,
+                            snackbar = snackbar,
                             onShareNotebook = ::shareWholeNotebook,
                             onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMusic = false; showMistakes = true },
                             showStudy = showStudy,

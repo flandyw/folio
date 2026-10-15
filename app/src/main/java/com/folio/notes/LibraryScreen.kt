@@ -60,7 +60,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
     onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit,
-    onSettings: () -> Unit, onMistakes: () -> Unit = {},
+    onSettings: () -> Unit, onMistakes: () -> Unit = {}, snackbar: SnackbarHostState? = null,
     showMistakes: Boolean = false, onLibrary: () -> Unit = {},
     showStudy: Boolean = false, onStudy: () -> Unit = {},
     showMusic: Boolean = false, onMusic: () -> Unit = {},
@@ -146,6 +146,13 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
     var undoTrash by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(undoTrash) {
+        if (undoTrash.isEmpty()) return@LaunchedEffect
+        val ids = undoTrash
+        val result = snackbar?.showSnackbar("Moved ${ids.size} notebook${if (ids.size == 1) "" else "s"} to Trash", "Undo", duration = SnackbarDuration.Long)
+        if (result == SnackbarResult.ActionPerformed) model.restoreNotebooks(ids)
+        undoTrash = emptySet()
+    }
     LaunchedEffect(delete) { delete?.let { note -> model.delete(note); if (model.state.value.trash.any { it.notebook.id == note.id }) undoTrash = setOf(note.id); delete = null } }
     val swipeRight by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_RIGHT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_RIGHT, null), "FAVOURITE") }
     val swipeLeft by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_LEFT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_LEFT, null), "TRASH") }
@@ -423,12 +430,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                     }
                                 }
                             }
-                            if (!pickingNotebook && !selecting) { ContinueWorkingStrip(state.notes, onOpenNotebook); LibraryShortcutHint() }
-                            if (!pickingNotebook && undoTrash.isNotEmpty()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Moved ${undoTrash.size} notebook(s) to Trash", Modifier.weight(1f))
-                                TextButton({ model.restoreNotebooks(undoTrash); undoTrash = emptySet() }, enabled = undoTrash.none { it in state.trashBusyIds }) { Text("Undo") }
-                                TextButton({ undoTrash = emptySet() }) { Text("Dismiss") }
-                            }
+                            if (!pickingNotebook && !selecting) { ContinueWorkingCard(state.notes, model.thumbnails, onOpenNotebook); LibraryShortcutHint() }
                             if (!pickingNotebook) SavedLibraryViews(org.json.JSONObject().put("query", query).put("place", place.name).put("folder", state.folderId.orEmpty()).put("tag", tag.orEmpty()).put("kind", kind.name).put("sort", sort.name).put("exam", examFilter.toUxJson())) { saved ->
                                 query = saved.optString("query"); debouncedQuery = query
                                 place = LibraryPlace.entries.find { it.name == saved.optString("place") } ?: LibraryPlace.ALL
