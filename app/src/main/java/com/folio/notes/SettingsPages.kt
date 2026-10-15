@@ -74,6 +74,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsSwitchRow("Pure black dark", "True black backgrounds whenever the dark theme is active.", s.amoled, s.onAmoled)
     }
     AccentGroup(s.themePalette)
+    SidebarGroup()
     TextSizeGroup()
     SettingsGroup("Display") {
         SettingsPrefSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
@@ -606,5 +607,19 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         )
         if (experimental) SettingsLinkRow("Check GitHub Releases", onClick = a.onCheckGitHub, enabled = !a.updateBusy)
         a.updateContent()
+    }
+}
+
+/** Which destinations sit in the sidebar (bottom bar on a phone). Library and Settings are always there. */
+@Composable private fun SidebarGroup() {
+    val p = rememberPrefs()
+    val hidden by rememberPref(p, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
+    SettingsGroup("Sidebar", footer = "Library and Settings are always shown. A hidden destination is still reachable from the Create menu, and the one you are looking at stays visible until you leave it.") {
+        SidebarItem.entries.forEachIndexed { index, item ->
+            if (index > 0) SettingsDivider()
+            SettingsSwitchRow(item.label, item.summary, item !in hidden, { on ->
+                p.write { putString(SidebarItem.PREF_KEY, SidebarItem.encode(if (on) hidden - item else hidden + item)) }
+            })
+        }
     }
 }

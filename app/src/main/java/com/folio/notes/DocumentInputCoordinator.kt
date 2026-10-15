@@ -9,6 +9,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     private var pageById = emptyMap<String, NotePage>()
     private var capture: DocumentInkCapture? = null
     private var eraserSession = DocumentToolEdits.EraserSession()
+    private var frameDrifted = false
     private var lasso = false
     private var revisions = emptyMap<String, Int>()
     private var selectionFrames = emptyMap<String, DocumentInkPage>()
@@ -47,6 +48,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         if (pages.none { it.frame.pageId == sourceId }) return false
         clearSelection()
         eraserSession = DocumentToolEdits.EraserSession()
+        frameDrifted = false
         capture = DocumentInkCapture(sourceId, stroke, pages)
         lasso = isLasso
         revisions = note?.pages?.associate { it.id to it.revision }.orEmpty()
@@ -109,8 +111,13 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         val actual = interaction.transfers.paperFrame(sourceId)
         val original = current.sourceFrame.paper
         if (actual == null || kotlin.math.abs(actual.left - original.left) > .5f || kotlin.math.abs(actual.top - original.top) > .5f ||
-            kotlin.math.abs(actual.width - original.width) > .5f) current.invalidate()
-        else current.add(points, lasso)
+            kotlin.math.abs(actual.width - original.width) > .5f) {
+            // A nudge of the paper (a scroll, a toolbar relayout) only ruins the frozen geometry that
+            // maps the stroke onto *other* pages. While it stays on its own page the page-local
+            // samples are still exact, so the gesture carries on; it is blocked only if it later crosses.
+            if (current.spanning) current.invalidate() else { frameDrifted = true; current.add(points, lasso) }
+        } else current.add(points, lasso)
+        if (frameDrifted && current.spanning) current.invalidate()
         if (current.template.tool == Tool.MARK_AREA) {
             val parts = DocumentMarking.parts(current, pageById)
             surfaces.mainSurfaces().forEach { view ->

@@ -88,3 +88,69 @@ object VcaaLibrary {
             note.exam.type == tags.type && note.exam.subjectLabel.equals(tags.subjectLabel, true) }
     }
 }
+
+/**
+ * The catalogue prepared once for browsing: lowercase search keys, newest-first order, per-study
+ * counts and the key each paper's imported notebook is matched on. Building it is the only slow
+ * part, so the app does it once per process ([VcaaCatalog]); every query afterwards is a scan over
+ * a few thousand short strings.
+ */
+class VcaaIndex(exams: List<VcaaExam>) {
+    /** Newest first, then by study, so a result list needs no sorting of its own. */
+    val exams: List<VcaaExam> = exams.sortedWith(compareByDescending<VcaaExam> { it.year ?: 0 }
+        .thenBy { it.studyName.lowercase() }.thenBy { it.provider }.thenBy { it.type.ordinal })
+    private val keys: Array<String> = Array(this.exams.size) { i ->
+        this.exams[i].let { "${it.studyName} ${it.year ?: ""} ${it.provider} ${it.type.label} ${it.label}" }.lowercase()
+    }
+    private val studyKeys: Array<String> = Array(this.exams.size) { this.exams[it].studyName.lowercase() }
+    /** What [VcaaLibrary.imported] compares, folded into one string so ownership is a set lookup. */
+    private val ownedKeys: Array<String> = Array(this.exams.size) { ownedKey(this.exams[it].tags) }
+
+    val studyCounts: Map<String, Int> = this.exams.groupingBy { it.studyName }.eachCount()
+    val studies: List<String> = studyCounts.keys.sortedBy { it.lowercase() }
+    val years: List<Int> = this.exams.mapNotNull { it.year }.distinct().sortedDescending()
+    val types: List<ExamType> = this.exams.map { it.type }.distinct().sortedBy { it.ordinal }
+
+    /**
+     * Papers matching every word of [query] (anywhere in study, year, provider, paper or title),
+     * within [study], [year] and [type] when set. Words that match a study's name rank that study
+     * first when searching all subjects.
+     */
+    fun search(query: String, study: String?, year: Int?, type: ExamType?): List<VcaaExam> {
+        val words = query.trim().lowercase().split(' ', '\t').filter { it.isNotEmpty() }
+        val hits = ArrayList<Int>()
+        for (i in exams.indices) {
+            val exam = exams[i]
+            if (study != null && exam.studyName != study) continue
+            if (year != null && exam.year != year) continue
+            if (type != null && exam.type != type) continue
+            val key = keys[i]
+            if (words.all { key.contains(it) }) hits += i
+        }
+        // Stable sort: a study whose name holds a typed word comes before the rest, newest first within each.
+        if (study == null && words.isNotEmpty()) hits.sortBy { i -> if (words.any { studyKeys[i].contains(it) }) 0 else 1 }
+        return hits.map { exams[it] }
+    }
+
+    /** Imported notebooks keyed for lookups by [ownedBy]. */
+    fun owned(notes: List<Notebook>): Map<String, Notebook> {
+        val map = HashMap<String, Notebook>()
+        for (note in notes) map.getOrPut(ownedKey(note.exam.company, note.exam.year, note.exam.type, note.exam.subjectLabel)) { note }
+        return map
+    }
+
+    fun ownedBy(exam: VcaaExam, owned: Map<String, Notebook>): Notebook? = owned[ownedKey(exam.tags)]
+
+    private fun ownedKey(tags: ExamTags) = ownedKey(tags.company, tags.year, tags.type, tags.subjectLabel)
+    private fun ownedKey(company: String, year: Int?, type: ExamType?, subject: String) =
+        "${company.lowercase()}|$year|$type|${subject.lowercase()}"
+
+    companion object {
+        /** Studies the user already has notebooks for, so they lead the subject list. */
+        fun yoursFirst(studies: List<String>, notes: List<Notebook>): List<String> {
+            val yours = notes.map { it.exam.subjectLabel.lowercase() }.toSet()
+            return studies.sortedWith(compareBy<String> { name ->
+                if (name.lowercase() in yours || VcaaLibrary.subjectFor(name)?.label?.lowercase() in yours) 0 else 1 }.thenBy { it.lowercase() })
+        }
+    }
+}

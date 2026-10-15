@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
-enum class LibrarySection { LIBRARY, FILES, PROGRESS }
+enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
 
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
@@ -79,8 +79,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     val haptics = LocalHapticFeedback.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val libraryPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    // Settings › Appearance › Sidebar: destinations switched off there leave the rail and bar (the open one stays).
+    val hiddenNav by rememberPref(libraryPrefs, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
-    var vcaaLibrary by rememberSaveable { mutableStateOf(false) }
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
     // A mark just recorded for Focal, awaiting confirmation in the save review.
     var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
@@ -119,6 +120,15 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
     // Study, Mistakes and Music are peer panes of the shelf; any of them hides the notebook shelf.
     val otherPane = showMistakes || showStudy || showMusic
     val pickingNotebook = selectionCaption != null
+    // Progress and VCAA are panes of their own inside the library shell; Library and Files share the shelf.
+    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.VCAA
+    fun navShown(item: SidebarItem) = SidebarItem.shown(item, hiddenNav, when (item) {
+        SidebarItem.MISTAKES -> showMistakes
+        SidebarItem.STUDY -> showStudy
+        SidebarItem.MUSIC -> showMusic
+        SidebarItem.PROGRESS -> !otherPane && section == LibrarySection.PROGRESS
+        SidebarItem.VCAA -> !otherPane && section == LibrarySection.VCAA
+    })
     // Picking a notebook for the workspace browses folders but never reorganizes them.
     val drag = if (pickingNotebook) null else libraryDrag
     var sortMenu by remember { mutableStateOf(false) }
@@ -244,7 +254,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         PopoverRow(Icons.Rounded.CreateNewFolder, if (openFolder != null) "New folder in ${openFolder.name}" else "New folder") { close(); startNewFolder(openFolder?.id) }
         HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
         PopoverRow(Icons.Rounded.PictureAsPdf, "Import PDF document") { close(); onImport() }
-        PopoverRow(Icons.Rounded.School, "VCAA exam library") { close(); vcaaLibrary = true }
+        PopoverRow(Icons.Rounded.School, "VCAA exam library") { close(); selecting = false; selectedIds = emptyList(); section = LibrarySection.VCAA; onLibrary() }
         PopoverRow(Icons.Rounded.FolderZip, "Import Folio backup") { close(); onImportArchive() }
     }
     // Never put the library's palm guard above the native handwriting surface.
@@ -281,12 +291,13 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         }
                     }
                 ) {
-                    RailItem("Library", Icons.Rounded.GridView, !otherPane && (pickingNotebook || section != LibrarySection.PROGRESS)) { libraryHome() }
+                    RailItem("Library", Icons.Rounded.GridView, !otherPane && (pickingNotebook || !libraryPeer)) { libraryHome() }
                     if (!pickingNotebook) {
-                        RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
-                        RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
-                        RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
-                        RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
+                        if (navShown(SidebarItem.MISTAKES)) RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
+                        if (navShown(SidebarItem.STUDY)) RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
+                        if (navShown(SidebarItem.PROGRESS)) RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
+                        if (navShown(SidebarItem.VCAA)) RailItem("VCAA", Icons.Rounded.WorkspacePremium, !otherPane && section == LibrarySection.VCAA) { section = LibrarySection.VCAA; onLibrary() }
+                        if (navShown(SidebarItem.MUSIC)) RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
                     }
                     Spacer(Modifier.height(FolioSpacing.dp4))
                     HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
@@ -307,7 +318,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                         mistakesContent { reviewMode = it }
                     }
                 }
-                if (!otherPane && (pickingNotebook || section != LibrarySection.PROGRESS)) Column(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
+                if (!otherPane && (pickingNotebook || !libraryPeer)) Column(Modifier.weight(1f).fillMaxHeight().then(entrance)) {
                     FolioScreenHeading("Library") {
                         if (!wide) Box {
                             // M3e split button: tap creates a notebook, the trailing half opens
@@ -639,6 +650,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
                     }
                 }
                 }
+                if (!otherPane && !pickingNotebook && section == LibrarySection.VCAA) {
+                    VcaaScreen(state, model, openFolder?.id, openFolder?.name, Modifier.weight(1f).fillMaxHeight().then(entrance))
+                }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
                     com.folio.notes.progress.ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().then(entrance),
                         onSettings, onMistakes, onStudy, onOpenNotebook)
@@ -677,19 +691,20 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS }
         }
         // M3e short navigation bar: three to five destinations, equally weighted on a phone.
         // The wide layout keeps its navigation rail instead.
-        if (!wide && showNavigation && !pickingNotebook && !selecting) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
-            ShortNavigationBarItem(!otherPane && section != LibrarySection.PROGRESS, { libraryHome() },
+        if (!wide && showNavigation && !pickingNotebook && !selecting && SidebarItem.entries.any(::navShown)) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
+            ShortNavigationBarItem(!otherPane && !libraryPeer, { libraryHome() },
                 icon = { Icon(Icons.Rounded.GridView, null) }, label = { Text("Library") })
-            ShortNavigationBarItem(showMistakes, onMistakes, icon = { Icon(Icons.Rounded.School, null) }, label = { Text("Mistakes") })
-            ShortNavigationBarItem(showStudy, onStudy, icon = { Icon(Icons.Rounded.Timer, null) }, label = { Text("Study") })
-            ShortNavigationBarItem(!otherPane && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
+            if (navShown(SidebarItem.MISTAKES)) ShortNavigationBarItem(showMistakes, onMistakes, icon = { Icon(Icons.Rounded.School, null) }, label = { Text("Mistakes") })
+            if (navShown(SidebarItem.STUDY)) ShortNavigationBarItem(showStudy, onStudy, icon = { Icon(Icons.Rounded.Timer, null) }, label = { Text("Study") })
+            if (navShown(SidebarItem.PROGRESS)) ShortNavigationBarItem(!otherPane && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
                 icon = { Icon(Icons.Rounded.Insights, null) }, label = { Text("Progress") })
-            ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
+            if (navShown(SidebarItem.VCAA)) ShortNavigationBarItem(!otherPane && section == LibrarySection.VCAA, { section = LibrarySection.VCAA; onLibrary() },
+                icon = { Icon(Icons.Rounded.WorkspacePremium, null) }, label = { Text("VCAA") })
+            if (navShown(SidebarItem.MUSIC)) ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
         }
         }
         NotebookDragFeedback(libraryDrag, Modifier.align(Alignment.BottomCenter).padding(horizontal = FolioSpacing.dp16, vertical = if (wide) FolioSpacing.dp16 else 88.dp))
     }
-    if (vcaaLibrary) VcaaLibraryPanel(state, model, openFolder?.id) { vcaaLibrary = false }
     examDetails?.let { note ->
         // The dialog edits a snapshot: refresh the notebook from state so a mark recorded
         // elsewhere (e.g. the quick Record action) shows up while the panel is open.

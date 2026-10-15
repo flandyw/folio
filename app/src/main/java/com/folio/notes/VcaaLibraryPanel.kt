@@ -1,11 +1,21 @@
 package com.folio.notes
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -13,172 +23,287 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Official past papers, imported directly as PDF notebooks with their exam details filled in. */
+/** The catalogue is parsed and indexed once per process; opening the screen again is instant. */
+internal object VcaaCatalog {
+    @Volatile private var cached: VcaaIndex? = null
+
+    suspend fun load(context: android.content.Context): VcaaIndex = cached ?: withContext(Dispatchers.Default) {
+        synchronized(this@VcaaCatalog) {
+            cached ?: VcaaIndex(VcaaLibrary.parse(context.applicationContext.assets.open("vcaa-exam-resources.json")
+                .bufferedReader().use { it.readText() })).also { cached = it }
+        }
+    }
+}
+
+private sealed interface VcaaRow {
+    data class Year(val year: Int?, val count: Int) : VcaaRow
+    data class Paper(val exam: VcaaExam) : VcaaRow
+}
+
+/**
+ * Official past papers, imported directly as PDF notebooks with their exam details filled in. A
+ * sidebar destination of its own: subjects down the side (a chip row on a phone), one search box
+ * over every paper, and papers grouped by year. Searching runs off the main thread over an index
+ * built once ([VcaaIndex]), so typing never waits on it.
+ */
 @Composable
-internal fun VcaaLibraryPanel(state: FolioState, model: FolioViewModel, folderId: String?, onDismiss: () -> Unit) {
+internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: String?, folderName: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     var loadAttempt by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf(false) }
-    val exams by produceState<List<VcaaExam>?>(null, loadAttempt) {
-        value = null
+    val index by produceState<VcaaIndex?>(null, loadAttempt) {
         loadError = false
-        val result = withContext(Dispatchers.IO) {
-            runCatching { VcaaLibrary.parse(context.assets.open("vcaa-exam-resources.json").bufferedReader().use { it.readText() }) }
-        }
-        loadError = result.isFailure
-        value = result.getOrDefault(emptyList())
-    }
-    val all = exams.orEmpty()
-    // Studies already in your library come first.
-    val studies = remember(all, state.notes) {
-        val yours = state.notes.map { it.exam.subjectLabel.lowercase() }.toSet()
-        all.map { it.studyName }.distinct().sortedWith(compareBy<String> { name ->
-            if (name.lowercase() in yours || VcaaLibrary.subjectFor(name)?.label?.lowercase() in yours) 0 else 1
-        }.thenBy { it.lowercase() })
+        value = runCatching { VcaaCatalog.load(context) }.onFailure { loadError = true }.getOrNull()
     }
     var study by rememberSaveable { mutableStateOf<String?>(null) }
-    val current = study ?: studies.firstOrNull()
     var query by rememberSaveable { mutableStateOf("") }
-    var year by rememberSaveable { mutableStateOf("All years") }
-    var paper by rememberSaveable { mutableStateOf("All papers") }
+    var year by rememberSaveable { mutableStateOf<Int?>(null) }
+    var type by rememberSaveable { mutableStateOf<ExamType?>(null) }
+    var hideImported by rememberSaveable { mutableStateOf(false) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var linkError by remember { mutableStateOf<String?>(null) }
-    val shown = remember(all, current, query, year, paper) {
-        val needle = query.trim()
-        all.filter { (needle.isNotEmpty() || it.studyName == current) &&
-            "${it.studyName} ${it.year ?: ""} ${it.provider} ${it.label}".contains(needle, ignoreCase = true) &&
-            (year == "All years" || it.year?.toString() == year) && (paper == "All papers" || it.type.label == paper) }
+
+    val studies = remember(index, state.notes) { index?.let { VcaaIndex.yoursFirst(it.studies, state.notes) }.orEmpty() }
+    val owned = remember(index, state.notes) { index?.owned(state.notes).orEmpty() }
+    // Kept (not reset) while a new search runs, so the list never flashes empty between keystrokes.
+    val rows by produceState<List<VcaaRow>?>(null, index, query, study, year, type, hideImported, owned) {
+        val ready = index ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            val found = ready.search(query, study, year, type).let { list ->
+                if (hideImported) list.filter { ready.ownedBy(it, owned) == null } else list
+            }
+            // Ranked results (several subjects, typed words) are not in year order, so no year headings there.
+            if (study == null && query.isNotBlank()) found.map { VcaaRow.Paper(it) } else buildList {
+                var last: Int? = -1
+                found.groupBy { it.year }.forEach { (y, papers) ->
+                    if (y != last) add(VcaaRow.Year(y, papers.size))
+                    last = y
+                    papers.forEach { add(VcaaRow.Paper(it)) }
+                }
+            }
+        }
     }
+    val paperCount = rows?.count { it is VcaaRow.Paper } ?: 0
     val canImport = !state.busy && !state.loading && !state.loadFailed
-    val selected = all.filter { it.url in picked && VcaaLibrary.imported(it, state.notes) == null }
+    val pickedSet = remember(picked) { picked.toSet() }
+    val selectable = remember(rows, owned, index) {
+        rows.orEmpty().mapNotNull { (it as? VcaaRow.Paper)?.exam }.filter { index?.ownedBy(it, owned) == null }
+    }
+    val selected = remember(selectable, pickedSet) { selectable.filter { it.url in pickedSet } }
     fun import(papers: List<VcaaExam>) {
         if (!canImport || papers.isEmpty()) return
         model.importVcaaPapers(folderId, papers)
-        onDismiss()
+        selecting = false; picked = emptyList()
     }
-    fun toggle(exam: VcaaExam) { picked = if (exam.url in picked) picked - exam.url else picked + exam.url }
+    fun resetFilters() { year = null; type = null; hideImported = false; query = "" }
 
-    FolioPanel("VCAA exam library", onDismiss) {
-        Column(Modifier.padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text("Import a paper and start writing in Folio. Subject, year and exam details are filled in automatically.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
-                label = { Text("Search all subjects and years") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } })
-            Box {
-                var expanded by remember { mutableStateOf(false) }
-                OutlinedButton({ expanded = true }, Modifier.fillMaxWidth(), enabled = studies.isNotEmpty(), shape = FolioShapes.large) {
-                    Icon(Icons.Rounded.School, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(if (query.isNotBlank()) "All subjects · search results" else current ?: "Loading subjects…",
-                        Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Icon(Icons.Rounded.ExpandMore, null)
-                }
-                FolioMenuPopover(expanded, { expanded = false }, title = "Study") {
-                    studies.forEach { name -> FolioMenuItem({ Text(name) }, {
-                        study = name; query = ""; year = "All years"; expanded = false
-                    }, selected = name == current && query.isBlank()) }
-                }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                VcaaFilter(year, listOf("All years") + all.mapNotNull { it.year }.distinct().sortedDescending().map { it.toString() }) { year = it }
-                VcaaFilter(paper, listOf("All papers") + all.map { it.type.label }.distinct()) { paper = it }
-                if (year != "All years" || paper != "All papers") AssistChip({ year = "All years"; paper = "All papers" }, { Text("Clear filters") })
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${shown.size} ${if (shown.size == 1) "paper" else "papers"} · newest first", Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton({ selecting = !selecting; picked = emptyList() }, enabled = canImport) { Text(if (selecting) "Cancel selection" else "Select papers") }
+    Column(modifier.fillMaxSize()) {
+        FolioScreenHeading("VCAA exams",
+            subtitle = {
+                Text(
+                    listOfNotNull(index?.let { "${it.exams.size} official papers" }, "importing into ${folderName ?: "Library"}").joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }) {
+            if (index != null) TextButton({ selecting = !selecting; picked = emptyList() }, enabled = canImport || selecting) {
+                Icon(if (selecting) Icons.Rounded.Close else Icons.Rounded.Checklist, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(FolioSpacing.dp8))
+                Text(if (selecting) "Done" else "Select")
             }
         }
-        LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8),
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            when {
-                exams == null -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                loadError -> item {
-                    Column {
-                        Text("Could not load the VCAA catalogue.", color = MaterialTheme.colorScheme.error)
-                        TextButton({ loadAttempt++ }) { Text("Retry") }
-                    }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val wide = maxWidth >= 720.dp
+            Row(Modifier.fillMaxSize()) {
+                if (wide && index != null) {
+                    SubjectList(studies, index?.studyCounts.orEmpty(), index?.exams?.size ?: 0, study, { study = it },
+                        Modifier.width(248.dp).fillMaxHeight())
                 }
-                shown.isEmpty() -> item { EmptyHint("No matching papers. Try another search or clear the filters.", Modifier.padding(vertical = FolioSpacing.dp16)) }
-            }
-            // Search results span studies; keep the newest papers at the top there too.
-            items(shown.sortedByDescending { it.year ?: 0 }, key = { it.url }) { exam ->
-                val owned = VcaaLibrary.imported(exam, state.notes)
-                val checked = exam.url in picked
-                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                        Row(Modifier.fillMaxWidth().then(if (selecting && owned == null)
-                            Modifier.toggleable(checked, enabled = canImport, role = Role.Checkbox, onValueChange = { toggle(exam) }) else Modifier),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            if (selecting) {
-                                Checkbox(checked && owned == null, null, enabled = canImport && owned == null)
-                                Spacer(Modifier.width(FolioSpacing.dp8))
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(listOfNotNull(exam.year?.toString(), exam.provider.takeIf { it != "VCAA" }, exam.type.label).joinToString(" · "),
-                                    style = MaterialTheme.typography.titleSmall)
-                                if (query.isNotBlank()) Text(exam.studyName, style = MaterialTheme.typography.bodyMedium)
-                                Text(exam.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                val details = listOfNotNull(exam.tags.marksTotal?.let { "$it marks" }, owned?.let { "In your library" }).joinToString(" · ")
-                                if (details.isNotEmpty()) Text(details, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            }
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    Column(Modifier.padding(horizontal = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.large,
+                            placeholder = { Text(if (study != null) "Search $study" else "Search every subject, year and paper") },
+                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                        if (!wide && index != null) LazyRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            item { FilterChip(study == null, { study = null }, { Text("All subjects") }) }
+                            items(studies, key = { it }) { name -> FilterChip(study == name, { study = if (study == name) null else name }, { Text(name) }) }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            exam.reports.firstOrNull()?.let { (label, url) ->
-                                TextButton({
-                                    runCatching { uriHandler.openUri(url) }.onFailure { linkError = "Could not open the report. Check that a browser is installed." }
-                                }, Modifier.weight(1f, fill = false)) {
-                                    Text(if (label.contains("assessment guide", true)) "Assessment guide" else "Examiner report", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            YearFilter(year, index?.years.orEmpty()) { year = it }
+                            index?.types.orEmpty().forEach { option ->
+                                FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) })
+                            }
+                            FilterChip(hideImported, { hideImported = !hideImported }, { Text("Not imported yet") },
+                                leadingIcon = if (hideImported) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
+                            if (year != null || type != null || hideImported) AssistChip({ year = null; type = null; hideImported = false }, { Text("Clear") })
+                        }
+                        linkError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                        if (index != null) Text(
+                            "$paperCount ${if (paperCount == 1) "paper" else "papers"}" + if (study == null && query.isBlank()) " · newest first" else "",
+                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    when {
+                        loadError -> Column(Modifier.padding(FolioDestinationInset)) {
+                            Text("Could not load the VCAA catalogue.", color = MaterialTheme.colorScheme.error)
+                            TextButton({ loadAttempt++ }) { Text("Retry") }
+                        }
+                        rows == null -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(FolioDestinationInset))
+                        rows.orEmpty().isEmpty() -> Column(Modifier.padding(FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            EmptyHint("No matching papers. Try another search or clear the filters.", Modifier.padding(top = FolioSpacing.dp16))
+                            TextButton({ resetFilters() }) { Text("Clear search and filters") }
+                        }
+                        else -> LazyVerticalGrid(
+                            GridCells.Adaptive(if (wide) 300.dp else 280.dp), Modifier.weight(1f).fillMaxWidth(),
+                            contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = FolioSpacing.dp8,
+                                bottom = FolioSpacing.dp24),
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
+                        ) {
+                            items(rows.orEmpty(), key = { row -> when (row) { is VcaaRow.Year -> "y${row.year}"; is VcaaRow.Paper -> row.exam.url } },
+                                span = { row -> if (row is VcaaRow.Year) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
+                                contentType = { it::class }) { row ->
+                                when (row) {
+                                    is VcaaRow.Year -> FolioSectionHeading(row.year?.toString() ?: "Undated", Modifier.padding(top = FolioSpacing.dp8)) {
+                                        Text("${row.count}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    is VcaaRow.Paper -> {
+                                        val exam = row.exam
+                                        val notebook = index?.ownedBy(exam, owned)
+                                        PaperCard(exam, notebook, showStudy = study == null, selecting = selecting, checked = exam.url in pickedSet,
+                                            enabled = canImport,
+                                            onToggle = { picked = if (exam.url in pickedSet) picked - exam.url else picked + exam.url },
+                                            onImport = { import(listOf(exam)) }, onOpen = { notebook?.let { model.open(it.id) } },
+                                            onReport = { url -> runCatching { uriHandler.openUri(url) }.onFailure { linkError = "Could not open the report. Check that a browser is installed." } })
+                                    }
                                 }
                             }
-                            Spacer(Modifier.weight(1f))
-                            if (owned != null) TextButton({ onDismiss(); model.open(owned.id) }, enabled = canImport) { Text("Open") }
-                            else if (!selecting) FilledTonalButton({ import(listOf(exam)) }, enabled = canImport) {
-                                Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(FolioSpacing.dp6))
-                                Text("Import")
-                            }
                         }
                     }
                 }
             }
         }
-        Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp16),
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            state.importProgress?.let { LinearProgressIndicator(Modifier.fillMaxWidth()); Text(it, style = MaterialTheme.typography.bodySmall) }
-            linkError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            if (selecting) Button({ import(selected) }, Modifier.fillMaxWidth(), enabled = selected.isNotEmpty() && canImport) {
-                Icon(Icons.Rounded.Download, null)
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text(if (selected.isEmpty()) "Choose papers to import" else "Import ${selected.size} ${if (selected.size == 1) "paper" else "papers"}")
+        if (selecting) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                TextButton({ picked = if (selected.size == selectable.size) emptyList() else selectable.map { it.url } }, enabled = selectable.isNotEmpty()) {
+                    Text(if (selectable.isNotEmpty() && selected.size == selectable.size) "Deselect all" else "Select all ${selectable.size}")
+                }
+                Spacer(Modifier.weight(1f))
+                Button({ import(selected) }, enabled = selected.isNotEmpty() && canImport) {
+                    Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text(if (selected.isEmpty()) "Choose papers" else "Import ${selected.size}")
+                }
             }
-            Text("Downloads need an internet connection. Older papers may follow a different study design.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun VcaaFilter(value: String, options: List<String>, onChange: (String) -> Unit) {
+private fun SubjectList(studies: List<String>, counts: Map<String, Int>, total: Int, current: String?, onPick: (String?) -> Unit, modifier: Modifier) {
+    LazyColumn(modifier, contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioSpacing.dp8, bottom = FolioSpacing.dp24),
+        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+        item(key = "all") { SubjectRow("All subjects", total, null, current == null) { onPick(null) } }
+        items(studies, key = { it }) { name -> SubjectRow(name, counts[name] ?: 0, VcaaLibrary.subjectFor(name), current == name) { onPick(name) } }
+    }
+}
+
+@Composable
+private fun SubjectRow(name: String, count: Int, subject: VceSubject?, selected: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().semanticsLabel(if (selected) "$name, selected" else name),
+        shape = FolioShapes.medium, color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+            Box(Modifier.size(10.dp).clip(CircleShape).background(if (subject != null) subjectColor(subject) else MaterialTheme.colorScheme.outlineVariant))
+            Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                fontWeight = if (selected) FontWeight.SemiBold else null)
+            Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun PaperCard(
+    exam: VcaaExam, owned: Notebook?, showStudy: Boolean, selecting: Boolean, checked: Boolean, enabled: Boolean,
+    onToggle: () -> Unit, onImport: () -> Unit, onOpen: () -> Unit, onReport: (String) -> Unit,
+) {
+    val pickable = selecting && owned == null
+    Surface(
+        Modifier.fillMaxWidth().then(if (pickable) Modifier.toggleable(checked, enabled, Role.Checkbox, onValueChange = { onToggle() }) else Modifier),
+        shape = FolioShapes.large,
+        color = if (pickable && checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (pickable && checked) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+    ) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.width(6.dp).fillMaxHeight().background(subjectColor(exam.tags.subject)))
+            Column(Modifier.weight(1f).padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    if (selecting) Checkbox(checked && owned == null, null, enabled = enabled && owned == null)
+                    Column(Modifier.weight(1f)) {
+                        Text(listOfNotNull(exam.year?.toString(), exam.type.label).joinToString(" · "), style = MaterialTheme.typography.titleMedium)
+                        if (showStudy) Text(exam.studyName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (exam.provider != "VCAA") Text(exam.provider.removePrefix("VCAA ").ifBlank { exam.provider }, style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary)
+                }
+                Text(exam.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    exam.tags.marksTotal?.let {
+                        Text("$it marks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(FolioSpacing.dp8))
+                    }
+                    if (owned != null) {
+                        Icon(Icons.Rounded.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(FolioSpacing.dp4))
+                        Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    exam.reports.firstOrNull()?.let { (label, url) ->
+                        TextButton({ onReport(url) }, Modifier.weight(1f, fill = false)) {
+                            Icon(Icons.Rounded.Description, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(FolioSpacing.dp6))
+                            Text(if (label.contains("assessment guide", true)) "Guide" else "Report", maxLines = 1)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (!selecting) {
+                        if (owned != null) TextButton(onOpen, enabled = enabled) { Text("Open") }
+                        else FilledTonalButton(onImport, enabled = enabled) {
+                            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(FolioSpacing.dp6))
+                            Text("Import")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun YearFilter(year: Int?, years: List<Int>, onChange: (Int?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        AssistChip({ expanded = true }, { Text(value) }, trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
-        FolioMenuPopover(expanded, { expanded = false }, title = options.first()) {
-            options.forEach { option -> FolioMenuItem({ Text(option) }, { onChange(option); expanded = false }, selected = value == option) }
+        FilterChip(year != null, { expanded = true }, { Text(year?.toString() ?: "Any year") },
+            trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+        FolioMenuPopover(expanded, { expanded = false }, title = "Year") {
+            FolioMenuItem({ Text("Any year") }, { onChange(null); expanded = false }, selected = year == null)
+            years.forEach { option -> FolioMenuItem({ Text(option.toString()) }, { onChange(option); expanded = false }, selected = year == option) }
         }
     }
 }
