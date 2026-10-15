@@ -30,11 +30,14 @@ import kotlinx.coroutines.CancellationException
     var converting by remember { mutableStateOf(false) }
     val ink = selection.values.flatMap { it.strokes + it.texts.flatMap { box -> box.stickyInk } }
     val count = selection.values.sumOf { it.strokes.size + it.texts.size + it.images.size }
-    HorizontalFloatingToolbar(expanded = true, modifier = modifier, contentPadding = PaddingValues(horizontal = 8.dp)) {
-        Text("$count · ${selection.size}p", style = MaterialTheme.typography.labelMedium)
-        IconButton(input::copySelection) { Icon(Icons.Rounded.ContentCopy, "Copy document selection") }
+    // The same compact 44dp bar and 40dp controls as the page navigator and writing-follow bars; the default
+    // toolbar container is far taller and covers the pages it is acting on.
+    HorizontalFloatingToolbar(expanded = true, modifier = modifier.height(44.dp),
+        contentPadding = PaddingValues(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp2)) {
+        Text("$count · ${selection.size}p", Modifier.padding(horizontal = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium)
+        IconButton(input::copySelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.ContentCopy, "Copy document selection", Modifier.size(20.dp)) }
         Box {
-            IconButton({ more = true }) { Icon(Icons.Rounded.MoreVert, "Document selection options") }
+            IconButton({ more = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Document selection options", Modifier.size(20.dp)) }
             FolioMenuPopover(more, { more = false }, title = "${selection.size} pages selected") {
                 FolioMenuItem({ Text("Align and distribute…") }, { more = false; aligning = true })
                 FolioMenuItem({ Text("Duplicate selection") }, { more = false; input.duplicateSelection() })
@@ -59,8 +62,8 @@ import kotlinx.coroutines.CancellationException
                 FolioMenuItem({ Text("Move to a page") }, { more = false; moving = true })
             }
         }
-        IconButton(input::deleteSelection) { Icon(Icons.Rounded.DeleteOutline, "Delete document selection") }
-        IconButton(input::clearSelection) { Icon(Icons.Rounded.Close, "Clear document selection") }
+        IconButton(input::deleteSelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.DeleteOutline, "Delete document selection", Modifier.size(20.dp)) }
+        IconButton(input::clearSelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Clear document selection", Modifier.size(20.dp)) }
     }
     conversionDraft?.let { draft -> InkConversionPreview(draft, model, { conversionDraft = null }) { conversionDraft = null; input.clearSelection() } }
     if (aligning) SelectionPlacementPanel(note, selection, model, { aligning = false }, input::clearSelection)
