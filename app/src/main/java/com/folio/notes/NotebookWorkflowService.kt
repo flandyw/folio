@@ -195,7 +195,7 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
 
     internal fun deleteMusicScore(scoreId: String) {
         with(runtime) {
-            _state.value.notes.find { it.musicScoreId == scoreId }?.let { delete(it) }
+            _state.value.notes.find { it.musicScoreId == scoreId }?.let { notebookCatalog.discard(it) }
         }
     }
 
@@ -205,7 +205,7 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
             val updated = note.copy(mistakeReviews = note.mistakeReviews.filterNot { it.reviewId == attempt.reviewId } + attempt)
             // Rating an untouched page must not materialise an empty notebook on disk.
             if (updated.pages.all { it.strokes.isEmpty() && it.images.isEmpty() && it.texts.all { t -> t.text.isBlank() && !t.isSticky } }) {
-                delete(updated)
+                notebookCatalog.discard(updated)
                 return
             }
             updateNote(updated)
@@ -231,7 +231,7 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
                 if (empty) emptyIds += note.id
             }
             if (emptyIds.isEmpty()) return 0
-            deleteNotebooks(emptyIds)
+            notebookCatalog.discardNotebooks(emptyIds)
             return emptyIds.size
         }
     }

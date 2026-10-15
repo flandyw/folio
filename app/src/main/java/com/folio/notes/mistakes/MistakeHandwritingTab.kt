@@ -172,7 +172,7 @@ private fun HandwritingStorageCard(
                     ) {
                         Icon(Icons.Rounded.DeleteForever, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp6))
-                        Text("Delete all")
+                        Text("Trash all")
                     }
                 }
             }
@@ -215,8 +215,8 @@ private fun HandwritingStorageCard(
         AlertDialog(
             onDismissRequest = { if (!working) confirmAll = false },
             icon = { Icon(Icons.Rounded.DeleteForever, null) },
-            title = { Text("Delete all practice pages?") },
-            text = { Text("All ${notes.size} practice notebooks (${formatPracticeBytes(totalBytes)}) will be removed from this device. Your Focal questions and ratings stay; handwriting cannot be recovered.") },
+            title = { Text("Move all practice pages to Trash?") },
+            text = { Text("All ${notes.size} practice notebooks (${formatPracticeBytes(totalBytes)}) will move to Trash. Restore them from Library › Trash, or delete them forever there to free device space. Your Focal questions and ratings stay.") },
             dismissButton = { TextButton({ confirmAll = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(
@@ -226,9 +226,8 @@ private fun HandwritingStorageCard(
                             try {
                                 val ids = notes.map { it.id }.toSet()
                                 folio.deleteNotebooks(ids)
-                                if (userId != null) model.removeAttemptsForNotebooks(ids)
                                 usage = emptyMap()
-                                onShowMessage("Deleted ${ids.size} practice notebook${if (ids.size == 1) "" else "s"}.")
+                                onShowMessage("Moved ${ids.size} practice notebook${if (ids.size == 1) "" else "s"} to Trash.")
                             } catch (e: CancellationException) { throw e }
                             catch (_: Exception) { onShowMessage("Could not delete practice pages. Please try again.") }
                             finally { working = false; confirmAll = false }
@@ -236,7 +235,7 @@ private fun HandwritingStorageCard(
                     },
                     enabled = !working,
                     shapes = ButtonDefaults.shapes(),
-                ) { Text(if (working) "Deleting…" else "Delete all") }
+                ) { Text(if (working) "Moving…" else "Move to Trash") }
             },
         )
     }
@@ -313,15 +312,15 @@ private fun HandwritingNotebookRow(
     }
     FolioMenuPopover(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches(), title = "Practice page") {
         FolioMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
-        FolioMenuItem({ Text("Delete practice page") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+        FolioMenuItem({ Text("Move to Trash") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
     }
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { if (!working) confirmDelete = false },
             icon = { Icon(Icons.Rounded.DeleteOutline, null) },
-            title = { Text("Delete this practice page?") },
-            text = { Text("“${note.title}”${size?.let { " (${formatPracticeBytes(it)})" } ?: ""} will be removed from this device. This cannot be undone.") },
+            title = { Text("Move this practice page to Trash?") },
+            text = { Text("“${note.title}”${size?.let { " (${formatPracticeBytes(it)})" } ?: ""} will move to Trash. You can restore it from Library › Trash.") },
             dismissButton = { TextButton({ confirmDelete = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(
@@ -330,8 +329,7 @@ private fun HandwritingNotebookRow(
                         scope.launch {
                             try {
                                 folio.deleteNotebooks(setOf(note.id))
-                                if (userId != null) model.removeAttemptsForNotebooks(setOf(note.id))
-                                onShowMessage("Deleted practice page.")
+                                onShowMessage("Moved practice page to Trash.")
                             } catch (e: CancellationException) { throw e }
                             catch (_: Exception) { onShowMessage("Could not delete this page. Please try again.") }
                             finally { working = false; confirmDelete = false }
@@ -339,7 +337,7 @@ private fun HandwritingNotebookRow(
                     },
                     enabled = !working,
                     shapes = ButtonDefaults.shapes(),
-                ) { Text(if (working) "Deleting…" else "Delete") }
+                ) { Text(if (working) "Moving…" else "Move to Trash") }
             },
         )
     }

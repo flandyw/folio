@@ -37,6 +37,8 @@ data class PendingPdfImport(
 
 data class FolioState(
     val notes: List<Notebook> = emptyList(), val folders: List<Folder> = emptyList(),
+    val trash: List<TrashedNotebook> = emptyList(),
+    val trashBusyIds: Set<String> = emptySet(),
     val examFilter: ExamFilter = ExamFilter(),
     val navigationRequest: Int = 0,
     val editorOnRight: Boolean = false,

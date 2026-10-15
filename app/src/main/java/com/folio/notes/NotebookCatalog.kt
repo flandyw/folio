@@ -297,7 +297,70 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         }
     }
 
-    fun delete(note: Notebook) {
+    fun delete(note: Notebook) = deleteNotebooks(setOf(note.id))
+
+    fun deleteNotebooks(ids: Set<String>) {
+        with(runtime) {
+            val state = _state.value
+            if (state.loading || state.loadFailed || state.saveFailed) return
+            val removed = state.notes.filter { it.id in ids && it.musicScoreId == null }
+            if (removed.isEmpty()) return
+            val removedIds = removed.map { it.id }.toSet()
+            val now = System.currentTimeMillis()
+            if (state.activeId in removedIds) selectNotebookTimer(null)
+            _state.update {
+                it.copy(notes = it.notes.filterNot { n -> n.id in removedIds },
+                    trash = removed.map { n -> TrashedNotebook(n.copy(pages = n.pages.map { p -> p.asSummary() }), now) } + it.trash,
+                    trashBusyIds = it.trashBusyIds + removedIds,
+                    tabs = it.tabs.filterNot { tab -> tab.notebookId in removedIds },
+                    companion = it.companion?.takeUnless { tab -> tab.notebookId in removedIds },
+                    activeId = it.activeId?.takeUnless { id -> id in removedIds },
+                    pdfSearch = if (it.activeId in removedIds) PdfSearchState() else it.pdfSearch)
+            }
+            removed.forEach { note ->
+                enqueue {
+                    // A failed operation stays queued for Retry save, including its final metadata.
+                    repository.moveToTrash(note, now)
+                    thumbnails.clear(note.id)
+                    _state.update { it.copy(trashBusyIds = it.trashBusyIds - note.id) }
+                }
+            }
+        }
+    }
+
+    fun restoreNotebooks(ids: Set<String>) {
+        with(runtime) {
+            val state = _state.value
+            if (state.loading || state.loadFailed || state.saveFailed) return
+            val selected = state.trash.filter { it.notebook.id in ids && it.notebook.id !in state.trashBusyIds }
+            _state.update { it.copy(trashBusyIds = it.trashBusyIds + selected.map { n -> n.notebook.id }) }
+            selected.forEach { entry -> enqueue {
+                val note = repository.restoreFromTrash(entry.notebook.id, _state.value.folders)
+                _state.update { it.copy(notes = it.notes + note,
+                    trash = it.trash.filterNot { n -> n.notebook.id == note.id },
+                    trashBusyIds = it.trashBusyIds - note.id) }
+            } }
+        }
+    }
+
+    fun deleteTrashedNotebooks(ids: Set<String>) {
+        with(runtime) {
+            val state = _state.value
+            if (state.loading || state.loadFailed || state.saveFailed) return
+            val selected = state.trash.filter { it.notebook.id in ids && it.notebook.id !in state.trashBusyIds }
+            _state.update { it.copy(trashBusyIds = it.trashBusyIds + selected.map { n -> n.notebook.id }) }
+            selected.forEach { entry -> enqueue {
+                val id = entry.notebook.id
+                repository.deleteFromTrash(id)
+                positionPrefs.edit().remove(id).apply()
+                companionPositionPrefs.edit().remove(id).apply()
+                _state.update { it.copy(trash = it.trash.filterNot { n -> n.notebook.id == id },
+                    trashBusyIds = it.trashBusyIds - id) }
+            } }
+        }
+    }
+
+    internal fun discard(note: Notebook) {
         with(runtime) {
             if (_state.value.activeId == note.id) selectNotebookTimer(null)
             _state.update {
@@ -320,7 +383,7 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         }
     }
 
-    fun deleteNotebooks(ids: Set<String>) {
+    internal fun discardNotebooks(ids: Set<String>) {
         with(runtime) {
             if (ids.isEmpty()) return
             val removed = _state.value.notes.filter { it.id in ids }
@@ -358,10 +421,11 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         scope.launch {
             try {
                 val (notes, folders) = repository.load()
+                val trash = repository.loadTrash()
                 actionCounter = maxOf(actionCounter, notes.flatMap { it.documentHistory.undo + it.documentHistory.redo }.maxOfOrNull { it.sequence } ?: 0L)
                 migrateLegacyTimer(notes)
-                prunePositions(notes)
-                _state.update { state -> state.copy(notes = notes, folders = folders, loading = false,
+                prunePositions(notes + trash.map { it.notebook })
+                _state.update { state -> state.copy(notes = notes, folders = folders, trash = trash, loading = false,
                     activeId = state.activeId?.takeIf { id -> notes.any { it.id == id } },
                     tabs = state.tabs.filter { tab -> notes.any { it.id == tab.notebookId } },
                     companion = state.companion?.takeIf { tab -> notes.any { it.id == tab.notebookId } }) }

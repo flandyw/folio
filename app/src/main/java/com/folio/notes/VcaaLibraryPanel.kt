@@ -71,7 +71,10 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     var query by rememberSaveable { mutableStateOf("") }
     var year by rememberSaveable { mutableStateOf<Int?>(null) }
     var type by rememberSaveable { mutableStateOf<ExamType?>(null) }
-    var hideImported by rememberSaveable { mutableStateOf(false) }
+    var availability by rememberSaveable { mutableStateOf(VcaaAvailability.ALL) }
+    var provider by rememberSaveable { mutableStateOf<String?>(null) }
+    var reportsOnly by rememberSaveable { mutableStateOf(false) }
+    var sort by rememberSaveable { mutableStateOf(VcaaSort.NEWEST) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -79,14 +82,12 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     val studies = remember(index, state.notes) { index?.let { VcaaIndex.yoursFirst(it.studies, state.notes) }.orEmpty() }
     val owned = remember(index, state.notes) { index?.owned(state.notes).orEmpty() }
     // Kept (not reset) while a new search runs, so the list never flashes empty between keystrokes.
-    val rows by produceState<List<VcaaRow>?>(null, index, query, study, year, type, hideImported, owned) {
+    val rows by produceState<List<VcaaRow>?>(null, index, query, study, year, type, provider, reportsOnly, availability, sort, owned) {
         val ready = index ?: return@produceState
         value = withContext(Dispatchers.Default) {
-            val found = ready.search(query, study, year, type).let { list ->
-                if (hideImported) list.filter { ready.ownedBy(it, owned) == null } else list
-            }
+            val found = ready.search(query, study, year, type, provider, reportsOnly, availability, owned, sort)
             // Ranked results (several subjects, typed words) are not in year order, so no year headings there.
-            if (study == null && query.isNotBlank()) found.map { VcaaRow.Paper(it) } else buildList {
+            if (sort == VcaaSort.SUBJECT || (sort == VcaaSort.NEWEST && study == null && query.isNotBlank())) found.map { VcaaRow.Paper(it) } else buildList {
                 var last: Int? = -1
                 found.groupBy { it.year }.forEach { (y, papers) ->
                     if (y != last) add(VcaaRow.Year(y, papers.size))
@@ -102,13 +103,26 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     val selectable = remember(rows, owned, index) {
         rows.orEmpty().mapNotNull { (it as? VcaaRow.Paper)?.exam }.filter { index?.ownedBy(it, owned) == null }
     }
-    val selected = remember(selectable, pickedSet) { selectable.filter { it.url in pickedSet } }
+    // Selection spans filters and subjects; imported papers drop out as ownership changes.
+    val selected = remember(index, owned, pickedSet) {
+        index?.exams.orEmpty().filter { it.url in pickedSet && index?.ownedBy(it, owned) == null }
+    }
+    val allVisiblePicked = selectable.isNotEmpty() && selectable.all { it.url in pickedSet }
     fun import(papers: List<VcaaExam>) {
         if (!canImport || papers.isEmpty()) return
         model.importVcaaPapers(folderId, papers)
         selecting = false; picked = emptyList()
     }
-    fun resetFilters() { year = null; type = null; hideImported = false; query = "" }
+    fun resetFilters() {
+        study = null; year = null; type = null; provider = null
+        availability = VcaaAvailability.ALL; reportsOnly = false; query = ""; sort = VcaaSort.NEWEST
+    }
+    fun openResource(url: String) {
+        linkError = null
+        runCatching { uriHandler.openUri(url) }.onFailure {
+            linkError = "Could not open the document. Check that a browser is installed."
+        }
+    }
 
     Column(modifier.fillMaxSize()) {
         FolioScreenHeading("VCAA exams",
@@ -147,13 +161,20 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                             index?.types.orEmpty().forEach { option ->
                                 FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) })
                             }
-                            FilterChip(hideImported, { hideImported = !hideImported }, { Text("Not imported yet") },
-                                leadingIcon = if (hideImported) ({ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }) else null)
-                            if (year != null || type != null || hideImported) AssistChip({ year = null; type = null; hideImported = false }, { Text("Clear") })
+                            ChoiceFilter(provider ?: "All sessions", provider != null, listOf<String?>(null) + index?.providers.orEmpty(),
+                                { it ?: "All sessions" }, { it == provider }) { provider = it }
+                            ChoiceFilter(availability.label, availability != VcaaAvailability.ALL, VcaaAvailability.entries,
+                                { it.label }, { it == availability }) { availability = it }
+                            FilterChip(reportsOnly, { reportsOnly = !reportsOnly }, { Text("With reports or guides") })
+                            ChoiceFilter(sort.label, sort != VcaaSort.NEWEST, VcaaSort.entries,
+                                { it.label }, { it == sort }) { sort = it }
+                            if (study != null || query.isNotBlank() || year != null || type != null || provider != null ||
+                                availability != VcaaAvailability.ALL || reportsOnly || sort != VcaaSort.NEWEST)
+                                AssistChip({ resetFilters() }, { Text("Clear all") })
                         }
                         linkError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         if (index != null) Text(
-                            "$paperCount ${if (paperCount == 1) "paper" else "papers"}" + if (study == null && query.isBlank()) " · newest first" else "",
+                            "$paperCount ${if (paperCount == 1) "paper" else "papers"} · ${sort.label.lowercase()}",
                             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     when {
@@ -186,7 +207,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                                             enabled = canImport,
                                             onToggle = { picked = if (exam.url in pickedSet) picked - exam.url else picked + exam.url },
                                             onImport = { import(listOf(exam)) }, onOpen = { notebook?.let { model.open(it.id) } },
-                                            onReport = { url -> runCatching { uriHandler.openUri(url) }.onFailure { linkError = "Could not open the report. Check that a browser is installed." } })
+                                            onReport = ::openResource)
                                     }
                                 }
                             }
@@ -196,16 +217,21 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
             }
         }
         if (selecting) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                TextButton({ picked = if (selected.size == selectable.size) emptyList() else selectable.map { it.url } }, enabled = selectable.isNotEmpty()) {
-                    Text(if (selectable.isNotEmpty() && selected.size == selectable.size) "Deselect all" else "Select all ${selectable.size}")
+            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton({
+                        val visible = selectable.map { it.url }.toSet()
+                        picked = if (allVisiblePicked) picked.filterNot { it in visible } else (picked + visible).distinct()
+                    }, enabled = selectable.isNotEmpty() && canImport) {
+                        Text(if (allVisiblePicked) "Deselect visible" else "Select ${selectable.size} visible")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (picked.isNotEmpty()) TextButton({ picked = emptyList() }) { Text("Clear selection") }
                 }
-                Spacer(Modifier.weight(1f))
-                Button({ import(selected) }, enabled = selected.isNotEmpty() && canImport) {
+                Button({ import(selected) }, Modifier.fillMaxWidth(), enabled = selected.isNotEmpty() && canImport) {
                     Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(if (selected.isEmpty()) "Choose papers" else "Import ${selected.size}")
+                    Text(if (selected.isEmpty()) "Choose papers" else "Import ${selected.size} selected papers")
                 }
             }
         }
@@ -273,11 +299,20 @@ private fun PaperCard(
                     }
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    exam.reports.firstOrNull()?.let { (label, url) ->
-                        TextButton({ onReport(url) }, Modifier.weight(1f, fill = false)) {
+                    var resourcesExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton({ resourcesExpanded = true }) {
                             Icon(Icons.Rounded.Description, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(FolioSpacing.dp6))
-                            Text(if (label.contains("assessment guide", true)) "Guide" else "Report", maxLines = 1)
+                            Text("Documents")
+                        }
+                        FolioMenuPopover(resourcesExpanded, { resourcesExpanded = false }, title = "Official documents") {
+                            FolioMenuItem({ Text("Original exam PDF") }, {
+                                resourcesExpanded = false; onReport(exam.url)
+                            })
+                            exam.reports.forEach { (label, url) ->
+                                FolioMenuItem({ Text(label) }, { resourcesExpanded = false; onReport(url) })
+                            }
                         }
                     }
                     Spacer(Modifier.weight(1f))
@@ -304,6 +339,24 @@ private fun YearFilter(year: Int?, years: List<Int>, onChange: (Int?) -> Unit) {
         FolioMenuPopover(expanded, { expanded = false }, title = "Year") {
             FolioMenuItem({ Text("Any year") }, { onChange(null); expanded = false }, selected = year == null)
             years.forEach { option -> FolioMenuItem({ Text(option.toString()) }, { onChange(option); expanded = false }, selected = year == option) }
+        }
+    }
+}
+
+/** Shared compact menu for catalogue filters, with the current choice announced and marked. */
+@Composable
+private fun <T> ChoiceFilter(
+    label: String, active: Boolean, options: List<T>, optionLabel: (T) -> String,
+    isSelected: (T) -> Boolean, onChange: (T) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(active, { expanded = true }, { Text(label) },
+            trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+        FolioMenuPopover(expanded, { expanded = false }, title = label) {
+            options.forEach { option ->
+                FolioMenuItem({ Text(optionLabel(option)) }, { onChange(option); expanded = false }, selected = isSelected(option))
+            }
         }
     }
 }

@@ -73,7 +73,7 @@ object VcaaLibrary {
                             (nht && !reportLabel.contains(studyName, ignoreCase = true))) null
                         else Triple(reportLabel, report.optString("url"), (if (reportPaper == paper) 10 else 0) +
                             if (Regex("(?i)assessment guide").containsMatchIn(reportLabel)) 2 else 0)
-                    }.sortedByDescending { it.third }.take(2).map { it.first to it.second }
+                    }.sortedByDescending { it.third }.map { it.first to it.second }.distinctBy { it.second }
                     VcaaExam(studyName, label, url, year, if (nht) "VCAA NHT" else "VCAA",
                         when (paper) { 1 -> ExamType.EXAM_1; 2 -> ExamType.EXAM_2; else -> ExamType.EXAM }, reports)
                 }
@@ -87,6 +87,14 @@ object VcaaLibrary {
         return notes.firstOrNull { note -> note.exam.company.equals(tags.company, true) && note.exam.year == tags.year &&
             note.exam.type == tags.type && note.exam.subjectLabel.equals(tags.subjectLabel, true) }
     }
+}
+
+enum class VcaaSort(val label: String) {
+    NEWEST("Newest first"), OLDEST("Oldest first"), SUBJECT("Subject A–Z"),
+}
+
+enum class VcaaAvailability(val label: String) {
+    ALL("All papers"), NOT_IMPORTED("Not imported yet"), IMPORTED("In your library"),
 }
 
 /**
@@ -109,6 +117,7 @@ class VcaaIndex(exams: List<VcaaExam>) {
     val studyCounts: Map<String, Int> = this.exams.groupingBy { it.studyName }.eachCount()
     val studies: List<String> = studyCounts.keys.sortedBy { it.lowercase() }
     val years: List<Int> = this.exams.mapNotNull { it.year }.distinct().sortedDescending()
+    val providers: List<String> = this.exams.map { it.provider }.distinct().sorted()
     val types: List<ExamType> = this.exams.map { it.type }.distinct().sortedBy { it.ordinal }
 
     /**
@@ -116,20 +125,37 @@ class VcaaIndex(exams: List<VcaaExam>) {
      * within [study], [year] and [type] when set. Words that match a study's name rank that study
      * first when searching all subjects.
      */
-    fun search(query: String, study: String?, year: Int?, type: ExamType?): List<VcaaExam> {
-        val words = query.trim().lowercase().split(' ', '\t').filter { it.isNotEmpty() }
+    fun search(
+        query: String, study: String?, year: Int?, type: ExamType?,
+        provider: String? = null, reportsOnly: Boolean = false,
+        availability: VcaaAvailability = VcaaAvailability.ALL,
+        owned: Map<String, Notebook> = emptyMap(), sort: VcaaSort = VcaaSort.NEWEST,
+    ): List<VcaaExam> {
+        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
         val hits = ArrayList<Int>()
         for (i in exams.indices) {
             val exam = exams[i]
             if (study != null && exam.studyName != study) continue
             if (year != null && exam.year != year) continue
             if (type != null && exam.type != type) continue
+            if (provider != null && exam.provider != provider) continue
+            if (reportsOnly && exam.reports.isEmpty()) continue
+            val imported = ownedKeys[i] in owned
+            if (availability == VcaaAvailability.IMPORTED && !imported) continue
+            if (availability == VcaaAvailability.NOT_IMPORTED && imported) continue
             val key = keys[i]
             if (words.all { key.contains(it) }) hits += i
         }
         // Stable sort: a study whose name holds a typed word comes before the rest, newest first within each.
-        if (study == null && words.isNotEmpty()) hits.sortBy { i -> if (words.any { studyKeys[i].contains(it) }) 0 else 1 }
-        return hits.map { exams[it] }
+        if (sort == VcaaSort.NEWEST && study == null && words.isNotEmpty()) hits.sortBy { i -> if (words.any { studyKeys[i].contains(it) }) 0 else 1 }
+        val found = hits.map { exams[it] }
+        return when (sort) {
+            VcaaSort.NEWEST -> found
+            VcaaSort.OLDEST -> found.sortedWith(compareBy<VcaaExam> { it.year ?: Int.MAX_VALUE }
+                .thenBy { it.studyName.lowercase() }.thenBy { it.provider }.thenBy { it.type.ordinal })
+            VcaaSort.SUBJECT -> found.sortedWith(compareBy<VcaaExam> { it.studyName.lowercase() }
+                .thenByDescending { it.year ?: 0 }.thenBy { it.provider }.thenBy { it.type.ordinal })
+        }
     }
 
     /** Imported notebooks keyed for lookups by [ownedBy]. */

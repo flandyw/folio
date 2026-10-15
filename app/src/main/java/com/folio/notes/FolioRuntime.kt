@@ -253,6 +253,8 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun duplicateNotebook(note: Notebook): Unit = notebookCatalog.duplicateNotebook(note)
     fun delete(note: Notebook): Unit = notebookCatalog.delete(note)
     fun deleteNotebooks(ids: Set<String>): Unit = notebookCatalog.deleteNotebooks(ids)
+    fun restoreNotebooks(ids: Set<String>): Unit = notebookCatalog.restoreNotebooks(ids)
+    fun deleteTrashedNotebooks(ids: Set<String>): Unit = notebookCatalog.deleteTrashedNotebooks(ids)
     fun selectPage(index: Int): Unit = workspaceManager.selectPage(index)
     fun loadPage(pageId: String): Unit = documentEngine.loadPage(pageId)
     fun addPage(paper: Paper? = null): Unit = documentEngine.addPage(paper)

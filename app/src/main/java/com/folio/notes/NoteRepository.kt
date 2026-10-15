@@ -71,6 +71,7 @@ import kotlin.math.max
  */
 class NoteRepository(private val context: Context) {
     private val root = File(context.filesDir, "notebooks").apply { mkdirs() }
+    private val trash = NotebookTrash(root, File(context.filesDir, "trash/notebooks"))
     private val lock = Mutex()
     private val backupStagingLock = Mutex()
     private var backupStagingCleaned = false
@@ -489,6 +490,50 @@ class NoteRepository(private val context: Context) {
         }.toString()) }
     }
 
+    suspend fun loadTrash(): List<TrashedNotebook> = withContext(Dispatchers.IO) {
+        lock.withLock {
+            trash.entries().map { TrashedNotebook(readIndex(it), trash.deletedAt(it)) }
+                .sortedByDescending { it.deletedAt }
+        }
+    }
+
+    suspend fun moveToTrash(note: Notebook, deletedAt: Long) = withContext(Dispatchers.IO) {
+        closePdf(note.id)
+        lock.withLock {
+            if (!trash.stored(note.id).exists()) {
+                recoverDocumentLocked(note.id)
+                // Idle checkpoints skip notebooks removed from runtime state. Capture their final index here.
+                atomicWrite(noteFile(note.id), NoteMetaCodec.encode(note))
+            }
+            trash.move(note.id, deletedAt)
+            forgetNotebookFiles(note.id)
+        }
+    }
+
+    suspend fun restoreFromTrash(id: String, folders: List<Folder>): Notebook = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val dir = trash.stored(id)
+            val saved = readIndex(dir)
+            val note = saved.copy(folderId = saved.folderId?.takeIf { folder -> folders.any { it.id == folder } })
+            atomicWrite(File(dir, "note.json"), NoteMetaCodec.encode(note))
+            trash.restore(id)
+            note
+        }
+    }
+
+    suspend fun deleteFromTrash(id: String) = withContext(Dispatchers.IO) {
+        lock.withLock { trash.deleteForever(id); forgetNotebookFiles(id) }
+    }
+
+    private fun forgetNotebookFiles(id: String) {
+        val prefix = "$id/"
+        journalSeqs.keys.removeAll { it.startsWith(prefix) }
+        journalLengths.keys.removeAll { it.startsWith(prefix) }
+        journalRevs.keys.removeAll { it.startsWith(prefix) }
+        pendingCompaction.removeAll { it.startsWith(prefix) }
+        compactionSources.keys.removeAll { it.startsWith(prefix) }
+    }
+
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)
         pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfMarkZoneCache.remove(id); pdfOutlineCache.remove(id) }
@@ -499,6 +544,7 @@ class NoteRepository(private val context: Context) {
             check(dir.renameTo(deleted)) { "Couldn't delete notebook" }
             // The library stops seeing the notebook atomically; interrupted cleanup is safe.
             deleted.deleteRecursively()
+            forgetNotebookFiles(id)
         }
         Unit
     }

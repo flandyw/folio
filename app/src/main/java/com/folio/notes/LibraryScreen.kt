@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
-enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
+enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
 
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
@@ -120,8 +120,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
     // Study, Mistakes and Music are peer panes of the shelf; any of them hides the notebook shelf.
     val otherPane = showMistakes || showStudy || showMusic
     val pickingNotebook = selectionCaption != null
-    // Progress and VCAA are panes of their own inside the library shell; Library and Files share the shelf.
-    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.VCAA
+    // Progress, VCAA and Trash have their own panes; Library and Files share the shelf.
+    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.VCAA || section == LibrarySection.TRASH
     fun navShown(item: SidebarItem) = SidebarItem.shown(item, hiddenNav, when (item) {
         SidebarItem.MISTAKES -> showMistakes
         SidebarItem.STUDY -> showStudy
@@ -247,6 +247,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
         if (!otherPane && section == LibrarySection.LIBRARY && !located) shelfScope.launch { libraryGridState.animateScrollToItem(0) }
         section = LibrarySection.LIBRARY; goHome(); onLibrary()
     }
+    fun showTrash() { selecting = false; selectedIds = emptyList(); section = LibrarySection.TRASH; onLibrary() }
+    BackHandler(enabled = !otherPane && !pickingNotebook && section == LibrarySection.TRASH) { libraryHome() }
     @Composable fun CreateMenuItems(close: () -> Unit) {
         PopoverRow(Icons.Rounded.Add, "New notebook") { close(); onNew() }
         PopoverRow(Icons.Rounded.EditNote, "Quick note") { close(); onQuickNote() }
@@ -302,6 +304,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
                     Spacer(Modifier.height(FolioSpacing.dp4))
                     HorizontalDivider(Modifier.padding(horizontal = FolioSpacing.dp8))
                     Spacer(Modifier.weight(1f))
+                    if (!pickingNotebook) RailItem("Trash", Icons.Rounded.DeleteOutline, !otherPane && section == LibrarySection.TRASH) { showTrash() }
                     RailItem("Import PDF", Icons.Rounded.PictureAsPdf, false, onImport)
                     RailItem("Settings", Icons.Rounded.Tune, false) { onSettings() }
                 }
@@ -330,6 +333,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
                             if (newButtonMenu) FolioActionPopover("Create or import", { newButtonMenu = false }) {
                                 CreateMenuItems { newButtonMenu = false }
                             }
+                        }
+                        if (!pickingNotebook) IconButton({ showTrash() }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.DeleteOutline, "Trash")
                         }
                         if (!showSidebar && !pickingNotebook) IconButton({ selecting = false; selectedIds = emptyList(); section = LibrarySection.FILES }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.TabletAndroid, "Tablet files")
@@ -603,7 +609,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
                             dragModifier.then(if (wide) Modifier else Modifier.animateItem(placementSpec = folioSpring())).semantics { if (selecting) this.selected = note.id in selection },
                             shape = FolioShapes.large,
                             startToEnd = if (selecting || pickingNotebook) null else SwipeAction(if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (note.starred) "Remove from favorites" else "Add to favorites") { model.star(note) },
-                            endToStart = if (selecting || pickingNotebook) null else SwipeAction(Icons.Rounded.DeleteOutline, "Delete notebook", destructive = true) { delete = note },
+                            endToStart = if (selecting || pickingNotebook) null else SwipeAction(Icons.Rounded.DeleteOutline, "Move to Trash", destructive = true) { delete = note },
                         ) { Surface(
                             shape = FolioShapes.large,
                             color = selectionColor,
@@ -650,6 +656,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
                     }
                 }
                 }
+                if (!otherPane && !pickingNotebook && section == LibrarySection.TRASH) {
+                    TrashScreen(state, model, { libraryHome() }, Modifier.weight(1f).fillMaxHeight())
+                }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.VCAA) {
                     VcaaScreen(state, model, openFolder?.id, openFolder?.name, Modifier.weight(1f).fillMaxHeight().then(entrance))
                 }
@@ -683,7 +692,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
                                 { bulkDelete = true },
                                 enabled = selection.isNotEmpty(),
                                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Delete") }
+                                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Trash") }
                         }
                     }
                 }
@@ -749,15 +758,15 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
         onDismissRequest = { bulkDelete = false },
-        title = { Text("Delete ${selection.size} notebook${if (selection.size == 1) "" else "s"}?") },
-        text = { Text("This removes the selected notebooks and their ${state.notes.filter { it.id in selection }.sumOf { it.pages.size }} pages from this device. Export a copy first if you want to keep them.") },
+        title = { Text("Move ${selection.size} notebook${if (selection.size == 1) "" else "s"} to Trash?") },
+        text = { Text("You can restore these notebooks and all their pages from Trash. They stay there until you delete them forever.") },
         dismissButton = { TextButton({ bulkDelete = false }, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
         confirmButton = {
             TextButton(
                 { model.deleteNotebooks(selection); bulkDelete = false; selectedIds = emptyList() },
                 enabled = selection.isNotEmpty(),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                shapes = ButtonDefaults.shapes()) { Text(if (selection.size > 1) "Delete ${selection.size}" else "Delete") }
+                shapes = ButtonDefaults.shapes()) { Text("Move to Trash") }
         }
     )
     if (bulkTags) BatchExamTagsPanel(
@@ -828,7 +837,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
         onMove = { model.move(note, it); move = null },
         onCreateAndMove = { name -> model.createFolderAndMove(setOf(note.id), name) },
         onDismiss = { move = null }) }
-    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Delete “${note.title}”?") }, text = { Text("This removes the notebook and its ${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} from this device. Export a copy first if you want to keep it.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Delete notebook") } }) }
+    delete?.let { note -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { delete = null }, title = { Text("Move “${note.title}” to Trash?") }, text = { Text("You can restore this notebook and all its pages from Trash. It stays there until you delete it forever.") }, dismissButton = { TextButton({ delete = null }, shapes = ButtonDefaults.shapes()) { Text("Keep notebook") } }, confirmButton = { TextButton({ model.delete(note); delete = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Move to Trash") } }) }
 }
 
 /** A quiet label between the folder tiles and the notebooks below them. */
@@ -912,7 +921,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA }
             PopoverRow(if (backupExcluded) Icons.Rounded.Backup else Icons.Rounded.CloudOff,
                 if (backupExcluded) "Include in library backups" else "Exclude from library backups") { run(onBackupToggle) }
             HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
-            PopoverRow(Icons.Rounded.DeleteOutline, "Delete notebook", destructive = true) { run(delete) }
+            PopoverRow(Icons.Rounded.DeleteOutline, "Move to Trash", destructive = true) { run(delete) }
         }
     }
 }

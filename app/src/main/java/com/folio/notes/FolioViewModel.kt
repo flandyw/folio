@@ -102,6 +102,8 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun duplicateNotebook(note: Notebook): Unit = runtime.duplicateNotebook(note)
     fun delete(note: Notebook): Unit = runtime.delete(note)
     fun deleteNotebooks(ids: Set<String>): Unit = runtime.deleteNotebooks(ids)
+    fun restoreNotebooks(ids: Set<String>): Unit = runtime.restoreNotebooks(ids)
+    fun deleteTrashedNotebooks(ids: Set<String>): Unit = runtime.deleteTrashedNotebooks(ids)
     fun selectPage(index: Int): Unit = runtime.selectPage(index)
     fun loadPage(pageId: String): Unit = runtime.loadPage(pageId)
     fun addPage(paper: Paper? = null): Unit = runtime.addPage(paper)
