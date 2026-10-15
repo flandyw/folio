@@ -145,6 +145,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     var rename by remember { mutableStateOf<Notebook?>(null) }
     var move by remember { mutableStateOf<Notebook?>(null) }
     var delete by remember { mutableStateOf<Notebook?>(null) }
+    var savingView by remember { mutableStateOf(false) }
     var undoTrash by remember { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(undoTrash) {
         if (undoTrash.isEmpty()) return@LaunchedEffect
@@ -431,7 +432,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                 }
                             }
                             if (!pickingNotebook && !selecting) { ContinueWorkingCard(state.notes, model.thumbnails, onOpenNotebook); LibraryShortcutHint() }
-                            if (!pickingNotebook) SavedLibraryViews(org.json.JSONObject().put("query", query).put("place", place.name).put("folder", state.folderId.orEmpty()).put("tag", tag.orEmpty()).put("kind", kind.name).put("sort", sort.name).put("exam", examFilter.toUxJson())) { saved ->
+                            if (!pickingNotebook) SavedLibraryViews(org.json.JSONObject().put("query", query).put("place", place.name).put("folder", state.folderId.orEmpty()).put("tag", tag.orEmpty()).put("kind", kind.name).put("sort", sort.name).put("exam", examFilter.toUxJson()), savingView, { savingView = it }) { saved ->
                                 query = saved.optString("query"); debouncedQuery = query
                                 place = LibraryPlace.entries.find { it.name == saved.optString("place") } ?: LibraryPlace.ALL
                                 model.folder(saved.optString("folder").takeIf { id -> state.folders.any { it.id == id } })
@@ -457,6 +458,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                                         LibrarySort.entries.forEach { option ->
                                             PopoverRow(if (sort == option) Icons.Rounded.Check else null, option.label, selected = sort == option) { sort = option; sortMenu = false }
                                         }
+                                        if (!pickingNotebook) PopoverRow(Icons.Rounded.BookmarkAdd, "Save this view…") { sortMenu = false; savingView = true }
                                     }
                                 }
                                 if (!pickingNotebook && !selecting && !scoped) IconButton({ startNewFolder(null) }, enabled = !state.loading, shapes = IconButtonDefaults.shapes()) {

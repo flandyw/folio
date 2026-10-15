@@ -9,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -91,31 +90,25 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     }
 }
 
-@Composable internal fun SavedLibraryViews(current: JSONObject, onRestore: (JSONObject) -> Unit) {
+@Composable internal fun SavedLibraryViews(current: JSONObject, naming: Boolean, onNaming: (Boolean) -> Unit, onRestore: (JSONObject) -> Unit) {
     val prefs = rememberPrefs()
     val raw by rememberPref(prefs, AppPrefs.UX_SAVED_VIEWS) { it.getString(AppPrefs.UX_SAVED_VIEWS, "[]") }
     val entries = remember(raw) { runCatching { JSONArray(raw) }.getOrDefault(JSONArray()) }
-    var naming by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     fun save(values: List<JSONObject>) { prefs.write { putString(AppPrefs.UX_SAVED_VIEWS, JSONArray(values).toString()) } }
     val values = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
-    var menu by remember { mutableStateOf(false) }
-    // Saved views are niche: existing ones show as chips, but saving lives behind a quiet menu.
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box {
-            IconButton({ menu = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.MoreHoriz, "More view options", Modifier.size(18.dp)) }
-            DropdownMenu(menu, { menu = false }) { DropdownMenuItem({ Text("Save this view…") }, { menu = false; naming = true }) }
-        }
+    // Saved views are niche: saving lives in the sort menu; only existing views take a row.
+    if (values.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         values.forEach { item ->
             InputChip(false, { onRestore(item) }, { Text(item.optString("name", "Saved view")) }, trailingIcon = {
                 TextButton({ save(values.filterNot { it === item }) }) { Text("×", Modifier.semanticsLabel("Delete saved view ${item.optString("name")}")) }
             })
         }
     }
-    if (naming) AlertDialog(onDismissRequest = { naming = false }, title = { Text("Save library view") },
+    if (naming) AlertDialog(onDismissRequest = { onNaming(false) }, title = { Text("Save library view") },
         text = { OutlinedTextField(name, { name = it.take(60) }, label = { Text("Name") }, singleLine = true) },
-        confirmButton = { TextButton({ save((values.filterNot { it.optString("name").equals(name.trim(), true) } + JSONObject(current.toString()).put("name", name.trim())).takeLast(20)); naming = false; name = "" }, enabled = name.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } })
+        confirmButton = { TextButton({ save((values.filterNot { it.optString("name").equals(name.trim(), true) } + JSONObject(current.toString()).put("name", name.trim())).takeLast(20)); onNaming(false); name = "" }, enabled = name.isNotBlank()) { Text("Save") } },
+        dismissButton = { TextButton({ onNaming(false) }) { Text("Cancel") } })
 }
 
 internal fun ExamFilter.toUxJson() = JSONObject().apply {
