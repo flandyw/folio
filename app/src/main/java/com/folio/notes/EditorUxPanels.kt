@@ -20,7 +20,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
-@Composable internal fun EditorUxStatus(state: FolioState, model: FolioViewModel, notice: String?, onGuide: () -> Unit) {
+@Composable internal fun EditorUxStatus(state: FolioState, model: FolioViewModel, onGuide: () -> Unit) {
     val prefs = rememberPrefs()
     val hints by rememberPref(prefs, AppPrefs.UX_HINTS, AppPrefs.UX_EDITOR_HINT_DISMISSED) { it.getBoolean(AppPrefs.UX_HINTS, AppPrefs.DEFAULT_UX_HINTS) && !it.getBoolean(AppPrefs.UX_EDITOR_HINT_DISMISSED, false) }
     val quickShare by rememberPref(prefs, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
@@ -31,7 +31,6 @@ import java.util.UUID
                 TextButton(model::retrySave, enabled = !state.retryingSave) { Text(if (state.retryingSave) "Retrying…" else "Retry save") }
             }
         }
-        if (notice != null) Text(notice, Modifier.padding(horizontal = 16.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.labelMedium)
         if (hints) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             Text(if (quickShare == ShareShortcut.OFF) "Ctrl+K finds actions. Configure quick sharing and pencil double-tap in Settings." else "Ctrl+K finds actions. Hold Share: ${quickShare.label}. Configure pencil double-tap in Settings.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onGuide) { Text("Guide") }

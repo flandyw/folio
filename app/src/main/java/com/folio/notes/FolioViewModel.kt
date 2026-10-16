@@ -181,7 +181,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
         targetId: String, onDone: () -> Unit): Unit = runtime.moveDocumentSelection(noteId, selection, flattened, targetId, onDone)
     suspend fun pagesForMarking(): List<NotePage> = runtime.pagesForMarking()
     internal fun undoDescriptions(): List<String> = runtime.documentEngine.undoDescriptions()
-    internal fun nextUndoDescription(): String? = undoDescriptions().firstOrNull()
     internal fun pasteSnippet(selection: CanvasSelection, bytes: Map<String, ByteArray>): Unit = runtime.editorSelectionController.pasteSnippet(selection, bytes)
     fun undo(): Unit = runtime.undo()
     fun redo(): Unit = runtime.redo()

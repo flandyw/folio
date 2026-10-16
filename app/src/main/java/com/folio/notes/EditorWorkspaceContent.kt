@@ -127,7 +127,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val singlePage = preferences.singlePage
     val focusMode = preferences.focusMode && music == null
     val showPageBoundaries = !focusMode
-    var actionNotice by remember { mutableStateOf<String?>(null) }
     var commandPalette by remember { mutableStateOf(false) }
     var gestureGuide by remember { mutableStateOf(false) }
     var historyOpen by remember { mutableStateOf(false) }
@@ -138,9 +137,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val backPositions = remember(note.id) { mutableStateListOf<EditorVisit>() }
     var restoringVisit by remember(note.id) { mutableStateOf<EditorVisit?>(null) }
     val forwardPositions = remember(note.id) { mutableStateListOf<EditorVisit>() }
-    fun undoEditor() { editor.documentInput.cancelNativeContacts(); actionNotice = model.nextUndoDescription()?.let { "Undid $it" }; model.undo() }
-    fun redoEditor() { editor.documentInput.cancelNativeContacts(); actionNotice = "Redid the previous action"; model.redo() }
-    LaunchedEffect(actionNotice) { if (actionNotice != null) { delay(3000); actionNotice = null } }
+    fun undoEditor() { editor.documentInput.cancelNativeContacts(); model.undo() }
+    fun redoEditor() { editor.documentInput.cancelNativeContacts(); model.redo() }
     val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
     val toolbarOptions by rememberPref(appPrefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var tool by editor.tools.tool
@@ -960,7 +958,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             else -> false
         } else false
     }) {
-        EditorUxStatus(state, model, actionNotice, onGuide = { gestureGuide = true })
+        EditorUxStatus(state, model, onGuide = { gestureGuide = true })
         if (editor.overlays.searchMatches.value.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             val matches = editor.overlays.searchMatches.value
             val match = editor.overlays.searchMatch.intValue.coerceIn(0, matches.lastIndex)
