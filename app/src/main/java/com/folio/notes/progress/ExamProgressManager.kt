@@ -11,8 +11,7 @@ import com.folio.notes.mistakes.isoTime
 import com.folio.notes.mistakes.mistakeSyncError
 import com.folio.notes.sync.SupabaseSyncRemote
 import com.folio.notes.sync.SyncProtocol
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.status.SessionStatus
+import com.folio.notes.mistakes.FocalAccountStatus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,7 +50,7 @@ class ExamProgressManager(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val auth = ExamTrackAuthRepository(app)
     private val client = FocalSupabaseConnection.of(app).client
-    private val remote = SupabaseSyncRemote(client)
+    private val remote = SupabaseSyncRemote(client, auth.lifecycle)
     private val device = focalSyncDeviceId(app)
     private val lock = Mutex()
     private val _state = MutableStateFlow(ProgressState())
@@ -68,13 +67,13 @@ class ExamProgressManager(context: Context) {
             catch (_: Exception) { _state.update { it.copy(catalogError = "Could not load the offline VCAA catalogue.") } }
         }
         scope.launch {
-            auth.awaitRestoration()
-            switchAccount(auth.restoredUser?.id)
-            client.auth.sessionStatus.collect { status ->
-                when (status) {
-                    is SessionStatus.Authenticated -> { switchAccount(status.session.user?.id); sync() }
-                    is SessionStatus.NotAuthenticated -> switchAccount(null)
-                    else -> Unit // A refresh failure retains the saved account and its offline work.
+            auth.account.collect { account ->
+                if (account.status != FocalAccountStatus.RESTORING) switchAccount(account.user?.id)
+                when (account.status) {
+                    FocalAccountStatus.CONNECTED -> sync()
+                    FocalAccountStatus.RECONNECTING, FocalAccountStatus.SIGN_IN_REQUIRED ->
+                        _state.update { it.copy(error = account.message) }
+                    else -> Unit
                 }
             }
         }

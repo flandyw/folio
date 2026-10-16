@@ -36,7 +36,8 @@ class FocalSupabaseConnection(context: Context) {
             codeVerifierCache = MemoryCodeVerifierCache()
             sessionManager = sessions
             autoLoadFromStorage = false
-            alwaysAutoRefresh = true
+            autoSaveToStorage = false // The lifecycle commits rotated tokens before reporting recovery.
+            alwaysAutoRefresh = false // ExamTrackSessionLifecycle owns refresh and retry classification.
             enableLifecycleCallbacks = false // Keep the account and cache usable while offline or backgrounded.
         }
         install(Postgrest)

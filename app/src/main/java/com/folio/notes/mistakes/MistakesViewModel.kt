@@ -7,7 +7,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.folio.notes.focalSyncDeviceId
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
@@ -25,12 +24,15 @@ import kotlinx.coroutines.flow.update
 
 data class MistakesState(val userId: String? = null, val email: String? = null,
     val cache: MistakeCache = MistakeCache(), val status: String = "Not connected",
-    val busy: Boolean = false, val error: String? = null, val authMessage: String? = null)
+    val busy: Boolean = false, val error: String? = null, val authMessage: String? = null,
+    val accountStatus: FocalAccountStatus = FocalAccountStatus.RESTORING) {
+    val needsSignIn get() = accountStatus == FocalAccountStatus.SIGN_IN_REQUIRED
+}
 
 class MistakesViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = ExamTrackAuthRepository(application)
     private val repository = MistakeRepository(FileMistakeCacheStore(application),
-        ExamTrackSyncService(auth.client, focalSyncDeviceId(application)))
+        ExamTrackSyncService(auth.client, focalSyncDeviceId(application), auth.lifecycle))
     val attachments = MistakeAttachmentRepository(application, auth.client)
     private val _state = MutableStateFlow(MistakesState())
     val state = _state.asStateFlow()
@@ -39,7 +41,10 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     private var rerunSync = false
     private var lastRequest = 0L
     private val foreground = MutableStateFlow(false)
-    fun setForeground(value: Boolean) { foreground.value = value }
+    fun setForeground(value: Boolean) {
+        foreground.value = value
+        if (value) { auth.lifecycle.retry(); requestSync(force = true) }
+    }
     private val connectivity = application.getSystemService(ConnectivityManager::class.java)
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { viewModelScope.launch { requestSync() } }
@@ -47,29 +52,24 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     init {
         connectivity.registerDefaultNetworkCallback(callback)
         viewModelScope.launch {
-            combine(auth.client.auth.sessionStatus, foreground) { status, visible -> status to visible }
-                .collectLatest { (status, visible) ->
-                    val user = (status as? SessionStatus.Authenticated)?.session?.user?.id
+            combine(auth.account, foreground) { account, visible -> account to visible }
+                .collectLatest { (account, visible) ->
+                    val user = account.user?.id?.takeUnless { account.needsSignIn }
                     if (visible && user != null) watchRemoteChanges(user)
                 }
         }
         viewModelScope.launch {
-            // The SDK imports the saved identity before attempting any network refresh.
-            auth.awaitRestoration()
-            auth.restoredUser?.let { acceptUser(it.id, it.email) }
-            auth.client.auth.sessionStatus.collect { status ->
+            auth.account.collect { account ->
                 if (signingOut) return@collect
-                when (status) {
-                    is SessionStatus.Authenticated -> {
-                        status.session.user?.let { acceptUser(it.id, it.email) }
-                        requestSync(force = true)
-                    }
-                    is SessionStatus.NotAuthenticated -> {
-                        syncJob?.cancel()
-                        _state.value = MistakesState(status = if (status.isSignOut) "Not connected" else "Sign in to connect Focal")
-                    }
-                    is SessionStatus.RefreshFailure -> _state.update { it.copy(status = "Offline · session refresh will retry") }
-                    else -> Unit
+                account.user?.let { acceptUser(it.id, it.email) }
+                if (account.status == FocalAccountStatus.SIGNED_OUT) {
+                    syncJob?.cancel()
+                    _state.value = MistakesState(status = account.message, accountStatus = account.status)
+                } else {
+                    _state.update { it.copy(accountStatus = account.status,
+                        status = if (account.status == FocalAccountStatus.CONNECTED) it.status else account.message) }
+                    if (account.needsSignIn) syncJob?.cancel()
+                    else if (account.status == FocalAccountStatus.CONNECTED) requestSync(force = true)
                 }
             }
         }
@@ -154,12 +154,18 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         rerunSync = false
         _state.value = MistakesState(busy = true) // Hide outgoing data before any asynchronous work.
         viewModelScope.launch {
+            var error: String? = null
             try {
                 syncJob?.cancelAndJoin()
                 auth.signOut()
-            } finally {
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { error = "Could not sign out. Try again." }
+            finally {
                 signingOut = false
-                _state.value = MistakesState()
+                val account = auth.account.value
+                _state.value = MistakesState(userId = account.user?.id, email = account.user?.email,
+                    status = account.message, accountStatus = account.status, error = error)
+                account.user?.let { reload(it.id) }
             }
         }
     }
@@ -167,6 +173,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     fun dismissStatus() { _state.update { it.copy(status = "") } }
 
     fun requestSync(force: Boolean = false) {
+        if (_state.value.needsSignIn) return
         val user = _state.value.userId ?: return
         if (syncJob?.isActive == true) { rerunSync = true; return }
         val now = System.currentTimeMillis()
@@ -178,10 +185,10 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
             _state.update { it.copy(status = "Syncing…", error = null) }
             try {
                 val result = repository.sync(user)
-                if (_state.value.userId == user) _state.update { it.copy(status = result.toString()) }
+                if (_state.value.userId == user && !_state.value.needsSignIn) _state.update { it.copy(status = result.toString()) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (_state.value.userId == user) _state.update { it.copy(status = mistakeSyncError(e)) }
+                if (_state.value.userId == user && !_state.value.needsSignIn) _state.update { it.copy(status = mistakeSyncError(e)) }
             } finally {
                 withContext(NonCancellable) { reload(user) }
             }

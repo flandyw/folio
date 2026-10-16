@@ -42,7 +42,7 @@ internal fun FocalLoginCard(
     onClearFeedback: () -> Unit,
 ) {
     var step by rememberSaveable { mutableStateOf(LoginStep.SIGN_IN) }
-    var email by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf(state.email.orEmpty()) }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     val passwordFocus = remember { FocusRequester() }
@@ -74,8 +74,8 @@ internal fun FocalLoginCard(
         }
     }
     // Keep the password for a failed attempt, but discard it after success or a session change.
-    LaunchedEffect(state.userId, state.authMessage) {
-        if (state.userId != null || state.authMessage != null) {
+    LaunchedEffect(state.userId, state.needsSignIn, state.authMessage) {
+        if (state.userId != null && !state.needsSignIn || state.authMessage != null) {
             password = ""
             showPassword = false
         }
@@ -102,10 +102,12 @@ internal fun FocalLoginCard(
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text(step.title, style = MaterialTheme.typography.headlineSmall)
+                Text(if (state.needsSignIn && step == LoginStep.SIGN_IN) "Sign in to Focal again" else step.title,
+                    style = MaterialTheme.typography.headlineSmall)
                 Text(
                     when (step) {
-                        LoginStep.SIGN_IN -> "Your study sessions and mistake review, together. Sign in with your Focal account."
+                        LoginStep.SIGN_IN -> if (state.needsSignIn) state.status else
+                            "Your study sessions and mistake review, together. Sign in with your Focal account."
                         LoginStep.CREATE_ACCOUNT -> "One account for study sessions and mistake review in Folio and Focal."
                         LoginStep.RESET_PASSWORD -> "Enter your Focal email. We’ll send you a link to choose a new password."
                     },

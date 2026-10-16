@@ -365,7 +365,9 @@ internal fun FocalStudyContent(
                             else -> Icons.Rounded.CloudDone
                         }, null, Modifier.size(20.dp))
                         Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        if ((state.userId != null && (state.pendingCount > 0 || state.error != null || state.syncing)) ||
+                        if (state.needsSignIn) {
+                            TextButton(onAccount) { Text("Sign in again") }
+                        } else if ((state.userId != null && (state.pendingCount > 0 || state.error != null || state.syncing)) ||
                             state.localSaveFailed) {
                             TextButton({ manager.retry() }, enabled = !state.syncing) {
                                 Text(if (state.syncing) "Retrying…" else "Retry")

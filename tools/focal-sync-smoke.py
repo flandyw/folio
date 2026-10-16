@@ -69,7 +69,8 @@ with tempfile.TemporaryDirectory(prefix="folio-sync-") as work:
                     "-classpath", runtime_cp, "-d", str(temp / "classes"),
                     str(sources / "mistakes/MistakeModels.kt"), str(sources / "sync/SyncProtocol.kt"),
                     str(sources / "sync/SyncRemote.kt"), str(sources / "mistakes/ExamTrackSyncError.kt"),
+                    str(sources / "mistakes/ExamTrackSessionLifecycle.kt"),
                     str(root / "tools/FocalSyncSmoke.kt")], check=True)
     subprocess.run([java, "--add-modules", "jdk.httpserver", "-cp",
                     os.pathsep.join([str(temp / "classes"), runtime_cp]),
-                    "com.folio.notes.sync.FocalSyncSmokeKt"], check=True, timeout=45)
+                    "com.folio.notes.sync.FocalSyncSmokeKt"], check=True, timeout=90)

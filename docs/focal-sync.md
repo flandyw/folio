@@ -1,5 +1,50 @@
 # Focal session-check reliability
 
+## Account recovery hardening (16 October 2026)
+
+Focal's ordinary sign-out used Supabase's default **global** scope, revoking other
+sessions, including Folio's. It now uses `scope: "local"`. Focal also restores the
+account through Auth session events instead of racing them with a network-only
+`getUser` call. Its UI distinguishes restoration, reconnection and a rejected
+login; expired credentials offer sign-in directly while account-owned outboxes
+remain intact. Both outbox lanes pin the account before RPCs, refresh once on a
+401, and keep auth failures on hold without spending write retries.
+
+Folio now owns one serialized refresh loop in `ExamTrackSessionLifecycle`, with
+the SDK's automatic loading/saving/refreshing disabled. SDK 3.0.3 treats every
+non-5xx refresh response as a reason to delete the session, including temporary
+408/429 refusals. Folio retries transport, rate-limit and server failures with
+bounded backoff, and requests sign-in for refresh HTTP 400/401/422. RPCs and
+attachment downloads share that owner and retry a 401 once after refresh. A
+second rejection is shown as a sync error without repeated token exchanges.
+
+The lifecycle serializes token rotation with sign-in/sign-out. It commits rotated
+tokens independently of screen cancellation, and if storage fails, retries saving
+the same new token before allowing sync to continue. The encrypted file path,
+Keystore alias and file format stay unchanged. Reads accept unknown JSON fields;
+an unreadable file is kept, and a temporary read error retries restoration instead
+of silently deleting the login.
+
+Study, Mistakes, Progress and the shared account panel consume the same account
+state. A revoked session retains its cached owner for offline work but is shown
+as **Sign in again**, with a badged account button and a direct login form. A
+transient refresh failure shows **Reconnecting**, and recovery resumes sync.
+Explicit sign-out hides the account and keeps its durable caches/outboxes.
+
+The loopback check now covers restart/update restoration, rate-limited refresh,
+concurrent 401s sharing an exchange, failed storage of a rotated token, revoked
+credentials, reauthentication, temporary/unreadable storage, and sign-out during
+an in-flight refresh. The earlier investigation below records the previous design.
+
+Verification on 16 October: `python3 tools/focal-sync-smoke.py` and
+`node tools/focal-study-smoke.cjs` passed after `:app:prepareBackupSmoke`.
+`./build.sh -p` built, signature-verified and published **4.4.9-exp.2**
+(version code 4490002). Focal's `bun run check`, web build and desktop frontend
+build passed, with five existing lint warnings. A local browser check using a
+dummy endpoint confirmed that the expired-session notice opens the account login
+form. No Android device was attached; real account/update/sleep/reconnect checks
+remain manual.
+
 Investigated 11 October 2026 after repeated “Checking Focal for session changes failed”
 messages, with the generic server/account advice, recovering after sign-out/sign-in.
 

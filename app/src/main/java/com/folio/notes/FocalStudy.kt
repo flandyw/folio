@@ -5,8 +5,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.AtomicFile
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.builtin.Email
-import io.github.jan.supabase.auth.status.SessionStatus
+import com.folio.notes.mistakes.FocalAccountStatus
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.PostgresAction
@@ -694,6 +693,8 @@ data class FocalStudyState(
     val subjects: List<FocalSubject> = FocalSubjects.builtIn,
     val userId: String? = null,
     val email: String? = null,
+    val needsSignIn: Boolean = false,
+    val reconnecting: Boolean = false,
     val busy: Boolean = false,
     val syncing: Boolean = false,
     val syncDetail: String? = null,
@@ -715,6 +716,8 @@ data class FocalStudyState(
     val hasActiveSession get() = focus != null || entries.any { it.active && (it.userId == null || it.userId == userId) }
     val canStartFocus get() = focus == null
     val syncStatus get() = when {
+        needsSignIn -> "Sign in to Focal again · saved work is kept on this device"
+        reconnecting -> "Reconnecting to Focal · saved work will sync automatically"
         syncing -> syncDetail ?: "Connecting to Focal…"
         error != null -> "Focal sync needs attention"
         userId == null || !configured -> "Saved on this device"
@@ -943,10 +946,9 @@ class FocalStudyManager(context: Context) {
     private val gate = Mutex()
     // Study sessions and mistake review share one Supabase client and one account.
     private val connection = FocalSupabaseConnection.of(context)
-    private val sessions = connection.sessions
     private val client = connection.client
     private val lifecycle = connection.lifecycle
-    private val syncRemote = SupabaseSyncRemote(client)
+    private val syncRemote = SupabaseSyncRemote(client, lifecycle)
     private val deviceId = focalSyncDeviceId(context)
     private val _state = MutableStateFlow(load())
     val state = _state.asStateFlow()
@@ -976,6 +978,7 @@ class FocalStudyManager(context: Context) {
 
     fun setForeground(value: Boolean) {
         foreground.value = value
+        if (value) lifecycle.retry()
         // Android may kill a stopped process before the next periodic heartbeat. Background
         // study keeps running in memory, but its recoverable copy is saved right now.
         if (!value) persist()
@@ -995,30 +998,21 @@ class FocalStudyManager(context: Context) {
         // worker's RPC or receipt handling. Bursts of realtime wakeups share one pull.
         scope.launch { for (request in syncRequests) sync() }
         scope.launch {
-            lifecycle.awaitRestoration()
-            lifecycle.restoredUser?.let { user ->
-                detachFocusForAccount(user.id)
-                _state.update { it.copy(userId = user.id, email = user.email) }
-            }
-            client.auth.sessionStatus.collect { status ->
-                when (status) {
-                        is SessionStatus.Authenticated -> {
-                            status.session.user?.let { user ->
-                                detachFocusForAccount(user.id)
-                                if (_state.value.userId != user.id) { remoteNoticeReadyUser = null; clearSyncMemory() }
-                                _state.update { it.copy(userId = user.id, email = user.email,
-                                    error = if (it.userId == user.id) it.error else null,
-                                    subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
-                                requestSync()
-                            }
-                        }
-                        is SessionStatus.NotAuthenticated -> {
-                            detachFocusForAccount(null)
-                            remoteNoticeReadyUser = null
-                            clearSyncMemory()
-                            _state.update { it.copy(userId = null, email = null) }
-                        }
-                        else -> Unit
+            lifecycle.state.collect { account ->
+                account.user?.let { user ->
+                    detachFocusForAccount(user.id)
+                    if (_state.value.userId != user.id) { remoteNoticeReadyUser = null; clearSyncMemory() }
+                    _state.update { it.copy(userId = user.id, email = user.email,
+                        needsSignIn = account.needsSignIn, reconnecting = account.status == FocalAccountStatus.RECONNECTING,
+                        error = if (it.userId == user.id) it.error else null,
+                        subjects = if (it.remoteSubjectsUser == user.id) it.subjects else FocalSubjects.builtIn) }
+                    if (account.status == FocalAccountStatus.CONNECTED) requestSync()
+                }
+                if (account.status == FocalAccountStatus.SIGNED_OUT) {
+                    detachFocusForAccount(null)
+                    remoteNoticeReadyUser = null
+                    clearSyncMemory()
+                    _state.update { it.copy(userId = null, email = null, needsSignIn = false, reconnecting = false) }
                 }
             }
         }
@@ -1580,6 +1574,8 @@ class FocalStudyManager(context: Context) {
         if (persist()) scope.launch { publishEntry(entry) }
     }
     fun retry() {
+        if (_state.value.needsSignIn) return
+        lifecycle.retry()
         if (_state.value.syncing) return
         _state.update { it.copy(syncing = true, syncDetail = if (it.localSaveFailed)
             "Saving sessions on this device…" else "Waiting to connect to Focal…") }
@@ -1606,9 +1602,7 @@ class FocalStudyManager(context: Context) {
         _state.update { it.copy(busy = true, error = null, authMessage = null) }
         scope.launch {
             try {
-                lifecycle.awaitRestoration()
-                lifecycle.cancelRestoration()
-                client.auth.signInWith(Email) { this.email = email.trim(); this.password = password }
+                lifecycle.signIn(email.trim(), password)
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _state.update { it.copy(error = "Could not sign in. Check your email, password and connection.") } }
             finally { _state.update { it.copy(busy = false) } }
@@ -1619,9 +1613,7 @@ class FocalStudyManager(context: Context) {
         _state.update { it.copy(busy = true, error = null, authMessage = null) }
         scope.launch {
             try {
-                lifecycle.awaitRestoration()
-                lifecycle.cancelRestoration()
-                client.auth.signUpWith(Email) { this.email = email.trim(); this.password = password }
+                lifecycle.signUp(email.trim(), password)
                 _state.update { it.copy(authMessage = "Account created. If asked, confirm your email, then sign in.") }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _state.update { it.copy(error = "Could not create the account. Check your details and connection.") } }
@@ -1643,11 +1635,9 @@ class FocalStudyManager(context: Context) {
     }
     fun signOut() {
         scope.launch {
-            lifecycle.cancelRestoration()
             gate.withLock {
                 detachFocusForAccount(null)
-                client.auth.clearSession()
-                sessions.deleteSession()
+                lifecycle.signOut()
                 remoteNoticeReadyUser = null
                 clearSyncMemory()
                 _state.update { it.copy(userId = null, email = null, subjects = FocalSubjects.builtIn,
@@ -1658,6 +1648,7 @@ class FocalStudyManager(context: Context) {
     }
 
     private suspend fun sync() = gate.withLock {
+        if (_state.value.needsSignIn) return@withLock
         val user = _state.value.userId ?: run {
             _state.update { it.copy(syncing = false, syncDetail = null) }
             return@withLock

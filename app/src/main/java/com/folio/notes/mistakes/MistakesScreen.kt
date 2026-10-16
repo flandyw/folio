@@ -767,13 +767,20 @@ internal fun FocalAccountContent(
     val state by model.state.collectAsStateWithLifecycle()
     var confirmSignOut by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-        if (state.userId == null) {
+        if (state.accountStatus == FocalAccountStatus.RESTORING ||
+            state.accountStatus == FocalAccountStatus.RECONNECTING && state.userId == null) {
+            Text(if (state.accountStatus == FocalAccountStatus.RESTORING) "Restoring Focal account…" else state.status,
+                style = MaterialTheme.typography.bodyMedium)
+            LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+        } else if (state.userId == null || state.needsSignIn) {
             FocalLoginCard(state, model::signIn, model::signUp, model::resetPassword, model::clearAuthFeedback)
             extra()
         } else {
             AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
-                inlineSync) { model.requestSync(force = true) }
+                inlineSync, state.accountStatus == FocalAccountStatus.RECONNECTING) { model.requestSync(force = true) }
             extra()
+        }
+        if (state.userId != null) {
             OutlinedButton(onClick = { confirmSignOut = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .4f))) {
@@ -817,7 +824,7 @@ private fun OfflineNoteCard() {
 @Composable
 private fun AccountCard(
     email: String?, status: String, lastSyncedAt: String?, pending: Int,
-    syncing: Boolean, inlineSync: Boolean, onSync: () -> Unit,
+    syncing: Boolean, inlineSync: Boolean, reconnecting: Boolean, onSync: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Surface(shape = FolioShapes.panel, color = Color.Transparent, contentColor = scheme.onPrimaryContainer) {
@@ -839,7 +846,7 @@ private fun AccountCard(
                         }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                        Text("Signed in to Focal", style = MaterialTheme.typography.labelLarge,
+                        Text(if (reconnecting) "Reconnecting to Focal" else "Signed in to Focal", style = MaterialTheme.typography.labelLarge,
                             color = scheme.onPrimaryContainer.copy(alpha = .75f))
                         Text(email ?: "Focal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -886,7 +893,7 @@ internal fun FocalSyncButton(syncing: Boolean, onSync: () -> Unit) {
 @Composable
 internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
-    if (state.userId != null) FocalSyncButton(state.status == "Syncing…") { model.requestSync(force = true) }
+    if (state.userId != null && !state.needsSignIn) FocalSyncButton(state.status == "Syncing…") { model.requestSync(force = true) }
 }
 
 @Composable

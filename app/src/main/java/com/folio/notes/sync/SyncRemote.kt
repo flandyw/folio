@@ -1,6 +1,7 @@
 package com.folio.notes.sync
 
 import io.github.jan.supabase.SupabaseClient
+import com.folio.notes.mistakes.ExamTrackSessionLifecycle
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.exceptions.HttpRequestException
@@ -55,14 +56,21 @@ interface SyncRemote {
  * Publishing and reading go through the log's RPCs, which force the caller's identity, so a
  * client cannot write on someone else's behalf and cannot read a row that is not theirs.
  */
-class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
+class SupabaseSyncRemote(
+    private val client: SupabaseClient,
+    private val lifecycle: ExamTrackSessionLifecycle? = null,
+) : SyncRemote {
+    private suspend fun rpc(accountId: String, name: String, params: Map<String, JsonElement>): PostgrestResult {
+        if (lifecycle != null) return lifecycle.withSession(accountId) { client.postgrest.rpc(name, params) }
+        awaitFocalSyncSession(client, accountId)
+        return client.postgrest.rpc(name, params)
+    }
     override suspend fun apply(
         accountId: String,
         changes: List<SyncProtocol.QueuedChange>,
         clientId: String
     ): ApplyResult {
-        awaitFocalSyncSession(client, accountId)
-        val result = rpcObject(client.postgrest.rpc("sync_apply_changes", applyParams(accountId, changes, clientId)))
+        val result = rpcObject(rpc(accountId, "sync_apply_changes", applyParams(accountId, changes, clientId)))
         val receipts = result.optJSONArray("receipts") ?: JSONArray()
         val applied = (0 until receipts.length()).mapNotNull { index ->
             val receipt = receipts.optJSONObject(index) ?: return@mapNotNull null
@@ -84,9 +92,8 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
         var attempt = 0
         var response: PostgrestResult
         while (true) {
-            awaitFocalSyncSession(client, accountId)
             try {
-                response = client.postgrest.rpc("sync_read_changes", readParams(accountId, cursor, limit))
+                response = rpc(accountId, "sync_read_changes", readParams(accountId, cursor, limit))
                 break
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -108,13 +115,11 @@ class SupabaseSyncRemote(private val client: SupabaseClient) : SyncRemote {
     }
 
     override suspend fun mutateStudySession(accountId: String, command: JSONObject): JSONObject {
-        awaitFocalSyncSession(client, accountId)
-        return rpcObject(client.postgrest.rpc("study_session_mutate", mutateParams(accountId, command)))
+        return rpcObject(rpc(accountId, "study_session_mutate", mutateParams(accountId, command)))
     }
 
     override suspend fun mergeStudySessions(accountId: String, command: JSONObject, sources: JSONArray): JSONObject {
-        awaitFocalSyncSession(client, accountId)
-        return rpcObject(client.postgrest.rpc("study_session_merge", mergeParams(accountId, command, sources)))
+        return rpcObject(rpc(accountId, "study_session_merge", mergeParams(accountId, command, sources)))
     }
 }
 
@@ -138,6 +143,7 @@ internal class FocalSessionRequiredException : IllegalStateException("Sign in to
 
 internal fun focalReadCanRetry(error: Throwable): Boolean {
     val causes = generateSequence(error) { it.cause }.take(12).toList()
+    if (causes.any { it is FocalSessionRefreshingException || it is FocalSessionRequiredException }) return false
     val response = causes.filterIsInstance<RestException>().firstOrNull()
     if (response != null) return response.statusCode == 408 || response.statusCode == 429 || response.statusCode in 500..599
     return causes.any { it is IOException || it is HttpRequestException || it is HttpRequestTimeoutException }

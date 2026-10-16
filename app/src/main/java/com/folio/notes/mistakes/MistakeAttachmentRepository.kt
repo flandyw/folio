@@ -2,7 +2,7 @@ package com.folio.notes.mistakes
 
 import android.content.Context
 import android.util.AtomicFile
-import com.folio.notes.sync.awaitFocalSyncSession
+import com.folio.notes.FocalSupabaseConnection
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +12,7 @@ import java.security.MessageDigest
 
 class MistakeAttachmentRepository(context: Context, private val client: SupabaseClient) {
     private val root = File(context.filesDir, "examtrack-images")
+    private val lifecycle = FocalSupabaseConnection.of(context).lifecycle
     suspend fun get(user: String, attachment: MistakeAttachment): File = withContext(Dispatchers.IO) {
         require(attachment.type in setOf("image/jpeg", "image/png", "image/webp", "image/gif"))
         require(attachment.size in 0..5L * 1024 * 1024)
@@ -20,10 +21,9 @@ class MistakeAttachmentRepository(context: Context, private val client: Supabase
         val hash = MessageDigest.getInstance("SHA-256").digest(attachment.storagePath.toByteArray()).joinToString("") { "%02x".format(it) }
         val file = AtomicFile(File(root, "$user/$hash"))
         if (file.baseFile.exists()) return@withContext file.baseFile
-        awaitFocalSyncSession(client, user)
-        val bytes = client.storage.from("mistake-attachments").downloadAuthenticated(attachment.storagePath)
+        val bytes = lifecycle.withSession(user) { client.storage.from("mistake-attachments").downloadAuthenticated(attachment.storagePath) }
         require(bytes.size <= 5 * 1024 * 1024)
-        awaitFocalSyncSession(client, user)
+        lifecycle.awaitSession(user)
         file.baseFile.parentFile!!.mkdirs()
         val output = file.startWrite()
         try { output.write(bytes); file.finishWrite(output) }

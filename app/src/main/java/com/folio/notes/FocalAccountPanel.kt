@@ -17,13 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /** The one way into Focal account settings, shared by every Focal screen's top bar. */
 @Composable
 fun FocalAccountButton(onClick: () -> Unit, trouble: Boolean = false) {
+    val context = LocalContext.current
+    val account by remember(context) { FocalSupabaseConnection.of(context).lifecycle.state }.collectAsStateWithLifecycle()
+    val attention = trouble || account.needsSignIn
     IconButton(onClick, shapes = IconButtonDefaults.shapes()) {
-        BadgedBox(badge = { if (trouble) Badge() }) {
-            Icon(Icons.Rounded.ManageAccounts, if (trouble) "Focal account, sync needs attention" else "Focal account")
+        BadgedBox(badge = { if (attention) Badge() }) {
+            Icon(Icons.Rounded.ManageAccounts, if (account.needsSignIn) "Focal account, sign in again" else if (attention) "Focal account, sync needs attention" else "Focal account")
         }
     }
 }

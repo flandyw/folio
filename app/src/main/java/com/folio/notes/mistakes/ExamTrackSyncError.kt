@@ -30,7 +30,7 @@ internal fun focalSyncError(error: Throwable): String {
         causes.any { it is FocalSessionRefreshingException } -> "$SYNC_FOCAL login is reconnecting · sync will retry"
         causes.any { it is FocalSessionRequiredException } -> "$SYNC_FOCAL session ended or the account changed · sign in again"
         response != null -> when (response.statusCode) {
-            401 -> "$SYNC_FOCAL session expired or rejected · sign out and sign in again"
+            401 -> "$SYNC_FOCAL rejected the refreshed login · retry from Account and sync"
             403 -> "$SYNC_FOCAL access denied · check the account and database permissions"
             404 -> "$SYNC_FOCAL sync tables unavailable · check the backend configuration"
             429 -> "$SYNC_FOCAL is limiting requests · sync will retry"
