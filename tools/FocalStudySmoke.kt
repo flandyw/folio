@@ -329,5 +329,11 @@ fun main() {
     check(mergedMetadata.getJSONObject("reflection").getString("notes") == "Chain rule\n\nProduct rule")
     check(mergedMetadata.getJSONArray("topics").length() == 2 && mergedMetadata.getJSONArray("merge_sources").length() == 3)
 
-    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation, website planned sessions and manual merges passed.")
+    // Starting a planned session early with a stale revision rebases; a running timeline's boundary does not.
+    val timedStart = org.json.JSONObject().put("action", "start").put("occurred_at", "2026-10-16T08:00:00Z")
+        .put("elapsed_since_previous_ms", 0L)
+    check(!focalRebaseTimingConflict(timedStart, "planned"))
+    check(focalRebaseTimingConflict(timedStart, "running"))
+
+    println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation, website planned sessions, early planned starts and manual merges passed.")
 }

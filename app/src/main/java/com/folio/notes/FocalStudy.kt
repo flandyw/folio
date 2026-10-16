@@ -1924,7 +1924,7 @@ class FocalStudyManager(context: Context) {
                 if (terminal || !(focalMutationCanRebase(action, state) || blockEdit)) {
                     return FocalPublishAck(false, canonical, mutationIds)
                 }
-                if ((!command.isNull("occurred_at")) || command.has("elapsed_since_previous_ms"))
+                if (focalRebaseTimingConflict(command, state))
                     error("This session's timed boundary conflicts with a newer server timeline")
                 if (rebases++ >= 2) error("Study session changed repeatedly; retry sync to rebase the command")
                 command = JSONObject(command.toString())
@@ -2146,6 +2146,13 @@ internal fun focalMutationCanRebase(action: String, state: String?): Boolean = w
     "cancel" -> state in setOf("planned", "running", "paused", "completed")
     else -> false
 }
+
+/**
+ * A timed boundary cannot be moved onto a newer server timeline. A scheduled session has no timeline
+ * yet (its segments are the planned slot), so starting it early, even with a stale revision, rebases.
+ */
+internal fun focalRebaseTimingConflict(command: JSONObject, state: String?): Boolean =
+    state != "planned" && (!command.isNull("occurred_at") || command.has("elapsed_since_previous_ms"))
 
 internal fun focalMutationSatisfied(action: String, state: String?, phase: String?, requestedPhase: String? = null): Boolean = when (action) {
     "create" -> state != null
