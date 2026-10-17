@@ -1113,8 +1113,9 @@ object InkGeometry {
     }
 
     /**
-     * Neutral position multipliers: stroke ends keep the same width as the middle at equal
-     * pressure. Retained for the shared live, saved, and selection rendering geometry.
+     * Position multipliers: neutral (stroke ends keep the same width as the middle at equal
+     * pressure) unless the user has turned on ink taper, see [InkTaper]. Shared by the live, saved
+     * and selection rendering geometry.
      */
     fun taperScales(points: List<InkPoint>): List<Float> {
         val scales = taperScalesArray(points)
@@ -1126,9 +1127,7 @@ object InkGeometry {
      * every frame of a stroke in progress, so handing it primitives keeps that pass allocation-free
      * instead of churning a boxed Float per point per frame.
      */
-    fun taperScalesArray(points: List<InkPoint>): FloatArray {
-        return FloatArray(points.size) { 1f }
-    }
+    fun taperScalesArray(points: List<InkPoint>): FloatArray = InkTaper.scales(points)
 
     // ---- Scribble-to-erase + eraser pressure -------------------------------------------------
 

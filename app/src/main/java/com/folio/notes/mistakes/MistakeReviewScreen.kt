@@ -2,11 +2,15 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -113,108 +117,145 @@ import com.folio.notes.*
         },
         topBar = {
             TopAppBar(
+                // The card's own name is the heading of the question pane, so the bar only
+                // carries progress: one quiet line instead of a repeated title and subtitle.
                 title = {
-                    Column {
-                        Text(m.question, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            when {
-                                state.saveFailed -> "Save failed · retry before rating"
-                                state.saving -> "Saving your ink…"
-                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize · +$sessionXP XP"
-                                dueLeft > 1 -> "${dueLeft - 1} more due after this"
-                                else -> "Practise at your own pace"
-                            },
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        when {
+                            state.saveFailed -> "Save failed · retry before rating"
+                            state.saving -> "Saving your ink…"
+                            queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize · +$sessionXP XP"
+                            dueLeft > 1 -> "${dueLeft - 1} more due after this"
+                            else -> "Practise at your own pace"
+                        },
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
+                        color = if (state.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 },
                 navigationIcon = { IconButton(onBack, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
                 actions = {
                     if (previousAttempts.isNotEmpty()) {
                         IconButton({ showPrevious = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.History, "Compare with your last attempt (${previousAttempts.size})")
+                            BadgedBox({ Badge { Text("${previousAttempts.size}") } }) {
+                                Icon(Icons.Rounded.History, "Compare with your last attempt (${previousAttempts.size} kept, read-only)")
+                            }
                         }
                     }
-                    IconButton(onToggleShuffle, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
-                        Icon(
-                            Icons.Rounded.Shuffle, if (shuffle) "Shuffled order · tap for due order" else "Due order · tap to shuffle",
-                            tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // Before the reveal the bottom bar already offers Skip, so the top one only
+                    // appears once that row has turned into ratings.
+                    if (revealed && canSkip) {
+                        IconButton({ confirmDoubleTap("skipTop", onSkip) }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card",
+                                tint = if (pendingAction == "skipTop") MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                        }
                     }
-                    IconButton({ confirmDoubleTap("skipTop", onSkip) }, enabled = canSkip && !busy, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card")
-                    }
-                    IconButton({ showDelete = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.DeleteOutline, "Delete this card")
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton({ menu = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "More review options") }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (shuffle) "Shuffled · use due order" else "Due order · shuffle") },
+                                leadingIcon = { Icon(Icons.Rounded.Shuffle, null) },
+                                onClick = { menu = false; onToggleShuffle() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Question display") },
+                                leadingIcon = { Icon(Icons.Rounded.Tune, null) },
+                                onClick = { menu = false; adjustLayout = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete card", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { menu = false; showDelete = true }
+                            )
+                        }
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            Surface(tonalElevation = 2.dp) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    Text("Recall strength · ${MistakePracticeProgress.strength(m)}/3 spaced recalls${if (MistakePracticeProgress.rematch(m)) " · Rematch" else ""}", style = MaterialTheme.typography.labelSmall)
-                    LinearProgressIndicator(progress = { MistakePracticeProgress.strength(m) / 3f }, modifier = Modifier.fillMaxWidth())
+            // One slim strip. Before the reveal: recall strength and the optional confidence
+            // call on the left, Skip and Compare on the right. After: just the four ratings.
+            // Explanations live in labels and content descriptions, not in permanent captions.
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                BoxWithConstraints(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
+                    val roomy = maxWidth >= 640.dp
+                    val strength = MistakePracticeProgress.strength(m)
+                    val rematch = MistakePracticeProgress.rematch(m)
                     if (!revealed) {
-                        Text("Before you reveal: how confident are you? (optional)", style = MaterialTheme.typography.labelMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val recall: @Composable () -> Unit = {
+                            RecallStrength(strength, rematch)
+                            Text("Confidence", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             listOf("low" to "Guessing", "medium" to "Unsure", "high" to "Confident").forEach { (value, label) ->
-                                FilterChip(selected = confidence == value, onClick = { confidence = value }, enabled = !busy, label = { Text(label) })
+                                FilterChip(selected = confidence == value, onClick = { confidence = if (confidence == value) null else value }, enabled = !busy, label = { Text(label) })
                             }
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                            Button({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-                                Icon(Icons.Rounded.Visibility, null)
-                                Spacer(Modifier.width(FolioSpacing.dp8))
-                                Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
-                            }
+                        val actions: @Composable () -> Unit = {
                             if (canSkip) {
-                                OutlinedButton({ confirmDoubleTap("skipBottom", onSkip) }, enabled = !busy, modifier = Modifier.heightIn(min = 52.dp), shapes = ButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.SkipNext, "Skip this card for now")
-                                    Spacer(Modifier.width(FolioSpacing.dp6))
+                                TextButton({ confirmDoubleTap("skipBottom", onSkip) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(FolioSpacing.dp4))
                                     Text(if (pendingAction == "skipBottom") "Tap again" else "Skip")
                                 }
                             }
+                            FilledTonalButton({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp8))
+                                Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
+                            }
                         }
-                        Text(if (!confirmReview) "Tap Compare answer or Skip. Keyboard: Space reveal, S skip, 1–4 rate." else if (pendingAction == "skipTop") "Activate Skip again to confirm." else "Activate Compare answer or Skip twice to confirm. Change this in Settings › Mistakes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        if (roomy) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            recall()
+                            Spacer(Modifier.weight(1f))
+                            actions()
+                        } else Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) { recall() }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) { actions() }
+                        }
                     } else {
                         val now = remember(revealed) { isoTime() }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            ReviewRating.entries.forEach { rating ->
-                                val preview = remember(m, rating, reviewPreferences, mistakesState.cache.mistakes, now) {
-                                    runCatching { MistakeScheduler.previewMistakeReview(m, rating, now, reviewPreferences, mistakesState.cache.mistakes.values.toList()) }.getOrNull()
-                                }
-                                val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000), rating) } ?: ""
-                                // Autosave runs after each stroke. Rating waits for it in the
-                                // handler, so drawing must not pulse the buttons' enabled state.
-                                val canRate = !busy && !state.saveFailed
-                                val modifier = Modifier.weight(1f)
-                                val labelText = label
-                                val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
-                                @Composable fun RatingContent() {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(ratingName, style = MaterialTheme.typography.labelLarge)
-                                        if (labelText.isNotBlank()) Text(labelText, style = MaterialTheme.typography.labelSmall)
+                        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            val note = when {
+                                pendingAction == "skipTop" -> "Tap the Skip button above again to confirm."
+                                state.saveFailed -> "Save failed — retry from the editor status, then rate."
+                                busy -> "Saving your review…"
+                                else -> null
+                            }
+                            if (note != null) Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                if (roomy) Box(Modifier.padding(end = FolioSpacing.dp8)) { RecallStrength(strength, rematch) }
+                                ReviewRating.entries.forEach { rating ->
+                                    val preview = remember(m, rating, reviewPreferences, mistakesState.cache.mistakes, now) {
+                                        runCatching { MistakeScheduler.previewMistakeReview(m, rating, now, reviewPreferences, mistakesState.cache.mistakes.values.toList()) }.getOrNull()
                                     }
-                                }
-                                when (rating) {
-                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
-                                    ReviewRating.GOOD -> Button({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = FolioSpacing.dp8)) { RatingContent() }
-                                    else -> FilledTonalButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
+                                    val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000), rating) } ?: ""
+                                    // Autosave runs after each stroke. Rating waits for it in the
+                                    // handler, so drawing must not pulse the buttons' enabled state.
+                                    val canRate = !busy && !state.saveFailed
+                                    val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
+                                    val meaning = when (rating) {
+                                        ReviewRating.AGAIN -> "missed it"
+                                        ReviewRating.HARD -> "needed help"
+                                        ReviewRating.GOOD -> "recalled it"
+                                        else -> "confident"
+                                    }
+                                    val modifier = Modifier.weight(1f).semantics { contentDescription = "$ratingName, $meaning${if (label.isNotBlank()) ", next review $label" else ""}" }
+                                    val content: @Composable RowScope.() -> Unit = {
+                                        Text(ratingName, style = MaterialTheme.typography.labelLarge)
+                                        if (label.isNotBlank()) {
+                                            Spacer(Modifier.width(FolioSpacing.dp6))
+                                            Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(.75f))
+                                        }
+                                    }
+                                    when (rating) {
+                                        ReviewRating.AGAIN -> OutlinedButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        ReviewRating.GOOD -> Button({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        else -> FilledTonalButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                    }
                                 }
                             }
                         }
-                        Text(
-                            when {
-                                pendingAction == "skipTop" -> "Tap the top Skip button again to confirm."
-                                state.saveFailed -> "Save failed — retry from the editor status, then rate."
-                                busy -> "Saving your review…"
-                                else -> "Again: missed it · Hard: needed help · Good: recalled it · Easy: confident"
-                            },
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
             }
@@ -254,9 +295,13 @@ import com.folio.notes.*
             @Composable fun ReferencePane(modifier: Modifier) {
                 Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (revealed) "Compare & reflect" else "Read the question", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            IconButton({ adjustLayout = !adjustLayout }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Adjust question panel and text size") }
+                        Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                            // A collapsed portrait panel has no heading of its own, so it names the card.
+                            Text(
+                                if (!wide && !questionExpanded) m.question else if (revealed) "Compare & reflect" else "Question",
+                                Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             ShareTextButton(
                                 onShare = { questionOnly ->
                                     val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))
@@ -272,7 +317,9 @@ import com.folio.notes.*
                                     }
                                 },
                             )
-                            if (!wide) TextButton({ questionExpanded = !questionExpanded }, shapes = ButtonDefaults.shapes()) { Text(if (questionExpanded) "Collapse" else "Expand") }
+                            if (!wide) IconButton({ questionExpanded = !questionExpanded }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(if (questionExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (questionExpanded) "Collapse question" else "Expand question")
+                            }
                         }
                         if (adjustLayout) {
                             AlertDialog(
@@ -296,30 +343,6 @@ import com.folio.notes.*
                         }
                         if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             QuestionContent(m, context, attempt.userId, model.attachments, textScale)
-                            if (previousAttempts.isNotEmpty()) {
-                                Surface(
-                                    onClick = { showPrevious = true },
-                                    shape = FolioShapes.large,
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                ) {
-                                    Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                                        Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                "Stuck? Compare with your last attempt",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            )
-                                            Text(
-                                                "${previousAttempts.size} earlier attempt${if (previousAttempts.size == 1) "" else "s"} kept · read-only, your current ink stays",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            )
-                                        }
-                                        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                }
-                            }
                             androidx.compose.animation.AnimatedVisibility(visible = revealed,
                                 enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(if (reviewPreferences.practiceEffects) 180 else 0)),
                                 exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(0))) {
@@ -384,6 +407,20 @@ import com.folio.notes.*
                 ) { Text("Delete card") }
             },
         )
+    }
+}
+
+/** Three dots instead of a labelled bar: one per day of spaced recall, with a quiet "Rematch" tag. */
+@Composable private fun RecallStrength(strength: Int, rematch: Boolean) {
+    Row(
+        Modifier.semantics { contentDescription = "Recall strength $strength of 3 spaced recalls${if (rematch) ", rematch" else ""}" },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)
+    ) {
+        repeat(3) { i ->
+            Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(
+                if (i < strength) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant))
+        }
+        Text(if (rematch) "Rematch" else "Recall", Modifier.padding(start = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

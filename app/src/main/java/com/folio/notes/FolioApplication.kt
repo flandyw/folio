@@ -19,8 +19,17 @@ class FolioApplication : Application() {
     val focalStudy by lazy { FocalStudyManager(this) }
     val focalProgress by lazy { com.folio.notes.progress.ExamProgressManager(this) }
 
+    /** Held for the process lifetime: SharedPreferences keeps its listeners weakly. */
+    private val inkLookListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == null || key == AppPrefs.INK_TAPER) InkTaper.configure(AppPrefs.inkTaper(prefs.getFloat(AppPrefs.INK_TAPER, 0f)))
+    }
+
     override fun onCreate() {
         super.onCreate()
+        getSharedPreferences("preferences", 0).let {
+            InkTaper.configure(AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)))
+            it.registerOnSharedPreferenceChangeListener(inkLookListener)
+        }
         LibraryAutoBackup.ensureScheduled(this)
     }
 }

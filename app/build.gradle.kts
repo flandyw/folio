@@ -216,6 +216,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    // Predicts where the stylus is about to be (platform model on Android 13+, a Kalman filter before) to hide ink latency.
+    implementation("androidx.input:input-motionprediction:1.0.0")
+    // Front-buffered canvas rendering for the optional low-latency ink overlay (API 29+, guarded at the call sites).
+    implementation("androidx.graphics:graphics-core:1.0.4")
     // Delivers baseline profiles to devices so the library/editor path is AOT-compiled on install.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // PDF text extraction for in-app search (Apache 2.0). Rendering stays on the framework PdfRenderer.

@@ -64,7 +64,11 @@ class InkView(context: Context) : View(context) {
     var pressureSensitivity = 1f
     var pressureVariation = 1f
     var penSmoothing = AppPrefs.DEFAULT_PEN_SMOOTHING
+    /** How the raw pressure reading is bent before it sets the width; 1 is the reading itself. */
+    var pressureCurve = 1f
     private var penFilter: PenSmoothing? = null
+    /** Set for a pen stroke when Settings asks for thinner ink at speed; null otherwise. */
+    private var speedWidth: PenPressure.SpeedWidth? = null
     var eraserPressureEnabled = true
     var scribbleToErase = true
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
@@ -689,6 +693,19 @@ class InkView(context: Context) : View(context) {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
     }
     private val predicted = FloatArray(2)
+    /** The platform/Kalman model of where the stylus is heading; created with the first pen stroke. */
+    private var motionPredictor: androidx.input.motionprediction.MotionEventPredictor? = null
+    /** The optional front-buffered layer drawing this view's pen stroke ahead of the page, and how much of the stroke it has. */
+    private var lowLatency: LowLatencyInk? = null
+    private var lowLatencySent = 0
+    private val lowLatencyClip = RectF()
+    private val visibleScratch = android.graphics.Rect()
+    /** Predicted pen path as page-unit x/y pairs: first the drawn tip, then up to a few frames ahead. */
+    private val predictedTail = FloatArray(2 * PREDICTED_POINTS)
+    private val predictedRaw = FloatArray(2 * PREDICTED_POINTS)
+    private var predictedCount = 0
+    /** True while the motion predictor has nothing to offer, so the simple two-sample guess keeps the tip responsive. */
+    private var predictorIdle = true
     private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
     /** The answer-area box takes the app's accent, so it reads as part of the theme rather than as ink. */
     var answerAreaColor = 0xFF387C83.toInt()
@@ -1539,6 +1556,7 @@ class InkView(context: Context) : View(context) {
      * UI thread only; bounded and pruned to the live page so undo generations never pin memory.
      */
     private val renderCache = IdentityCache<Stroke, InkRenderer.RenderedStroke>(MAX_CACHED_STROKES)
+    private var taperVersion = InkTaper.version
     private val boundsCache = IdentityCache<Stroke, FloatArray>(MAX_CACHED_STROKES)
     private fun renderedOf(stroke: Stroke): InkRenderer.RenderedStroke =
         renderCache.getOrPut(stroke) { InkRenderer.rendered(stroke) }
@@ -1682,6 +1700,11 @@ class InkView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (taperVersion != InkTaper.version) {
+            // The stroke-end look changed in Settings: everything drawn under the old look is rebuilt.
+            taperVersion = InkTaper.version
+            renderCache.clear(); clearInkLayers(); InkRasterStore.clear()
+        }
         followTextEditor()
         reportShapeMeasurement()
         canvas.drawColor(canvasBackgroundColor)
@@ -1969,7 +1992,7 @@ class InkView(context: Context) : View(context) {
             if (live != null) {
                 InkRenderer.drawRendered(canvas, draftStroke, live)
                 // Stylus only: a finger is slow and its tail would read as lag the other way.
-                if (stylus && draftStroke.tool == Tool.PEN &&
+                if (stylus && draftStroke.tool == Tool.PEN && !drawPredictedTail(canvas, draftStroke) && predictorIdle &&
                     StrokePrediction.predict(draftStroke.points, scale, predicted)) {
                     val tip = draftStroke.points.last()
                     predictionPaint.color = draftStroke.color
@@ -1999,7 +2022,7 @@ class InkView(context: Context) : View(context) {
         }
         // Tight margin: stroke width + small spline overshoot + eraser ring. The old
         // 64px×scale margin dirtied half the screen per tip move.
-        val margin = inkWidth * scale + 16f * scale.coerceAtMost(2f) + 12f + StrokePrediction.MAX_TAIL_PX
+        val margin = maxOf(inkWidth, draft?.width ?: 0f) * scale + 16f * scale.coerceAtMost(2f) + 12f + StrokePrediction.MAX_TAIL_PX
         val l = (originX + minX * scale - margin).toInt()
         val t = (originY + minY * scale - margin).toInt()
         val r = (originX + maxX * scale + margin).toInt()
@@ -2022,7 +2045,12 @@ class InkView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean = inputRouter.touch(event) { admitted ->
         selectionSnapBypassed = (admitted.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
+        val predicting = tool == Tool.PEN && !readOnly && (0 until admitted.pointerCount).any { isStylus(admitted, it) }
+        if (predicting) recordForPrediction(admitted)
         val handled = handleTouchEvent(admitted)
+        if (predicting) refreshPrediction(admitted) else clearPrediction()
+        // A held pause turned the stroke into a shape the page draws; the freehand preview must not linger over it.
+        if (heldShape != null) lowLatency?.let { it.cancel(); lowLatency = null }
         onLiveInk(draft?.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }, isWritingGesture)
         handled
     }
@@ -2455,6 +2483,7 @@ class InkView(context: Context) : View(context) {
                                 // Drafts own their mutable samples until pen-up. Neither the list
                                 // nor the Stroke needs allocating again for each input event.
                                 (current.points as ArrayList<InkPoint>).addAll(accepted)
+                                streamLowLatency()
                                 current
                             }
                             else -> {
@@ -2570,8 +2599,16 @@ class InkView(context: Context) : View(context) {
         }
         draft = if (current.tool in FREEHAND_TOOLS) {
             (current.points as ArrayList<InkPoint>).addAll(accepted)
+            streamLowLatency()
             current
         } else current.copy(points = listOf(current.points.first(), end))
+    }
+    /** [stroke] with redundant samples thinned (see [StrokeRefit]); the same instance when nothing changes or it's switched off. */
+    private fun refitted(stroke: Stroke): Stroke {
+        if (stroke.tool != Tool.PEN || !context.getSharedPreferences("preferences", 0)
+                .getBoolean(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES)) return stroke
+        val thin = StrokeRefit.simplify(stroke.points)
+        return if (thin === stroke.points) stroke else stroke.copy(points = thin)
     }
     private fun finishGesture() {
         noteTarget?.let { id -> finishNoteStroke(page.texts.find { it.id == id && it.isSticky }); return }
@@ -2587,19 +2624,23 @@ class InkView(context: Context) : View(context) {
         }
         // Only a completed pen-down hold authorises tidy-up; lifting alone always keeps freehand.
         val tidied = heldShape
-        val strokes = scribbleErased ?: (tidied ?: drawn?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
+        // What is stored is the drawn stroke with its redundant samples thinned, so notebooks stay small.
+        val stored = drawn?.let(::refitted)
+        val strokes = scribbleErased ?: (tidied ?: stored?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
             // Shapes tidied or generated from the drag are new strokes; they join the layer being drawn on.
             ?.map { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
             ?.let { page.strokes + it } ?: erasing
         if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null) {
             followCompletedStroke(drawn, recognise = tidied == null)
         }
-        val appendedStroke = drawn?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
+        val appendedStroke = stored?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
         val beforeStrokes = page.strokes
         val changed = strokes != null && (appendedStroke != null || strokes != beforeStrokes)
         if (changed) {
-            if (drawn != null && drawn.tool in FREEHAND_TOOLS && scribbleErased == null && tidied == null) {
+            if (drawn != null && stored === drawn && drawn.tool in FREEHAND_TOOLS && scribbleErased == null && tidied == null &&
+                (drawn.tool != Tool.PEN || InkTaper.amount == 0f)) {
                 // Hand the final live geometry to the retained layer; pen-up need not smooth it again.
+                // Not when the ends are tapered: the live pass can't know where the stroke ends.
                 val geometry = draftGeometry(draft!!)
                 renderCache.getOrPut(drawn) {
                     // Detach from the live builder so cached ink does not retain its scratch buffers.
@@ -3156,7 +3197,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -3812,8 +3853,16 @@ class InkView(context: Context) : View(context) {
             if (tool == Tool.PEN && rulerEdge == 0) {
                 penFilter = PenSmoothing(penSmoothing, scale).also { it.sample(start, event.eventTime) }
             }
-            draft = Stroke(tool, inkColor, inkWidth, arrayListOf(start), inkOpacity,
+            val feel = context.getSharedPreferences("preferences", 0)
+            speedWidth = if (tool == Tool.PEN && feel.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH))
+                PenPressure.SpeedWidth(scale).also { it.factor(start.x, start.y, event.eventTime) } else null
+            // A highlighter has one width per stroke, so a tilted pen lays its broad edge down once, at contact.
+            val strokeWidth = if (tool == Tool.HIGHLIGHTER && isStylus(event, index) &&
+                feel.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT))
+                inkWidth * PenPressure.tiltScale(event.getAxisValue(MotionEvent.AXIS_TILT, index)) else inkWidth
+            draft = Stroke(tool, inkColor, strokeWidth, arrayListOf(start), inkOpacity,
                 style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID, layer = activeLayer)
+            startLowLatency(note == null)
             clearShapeHold()
             trackShapeHold(event, index)
             if (tool in FREEHAND_TOOLS || tool in ShapePickerTools) {
@@ -3823,13 +3872,99 @@ class InkView(context: Context) : View(context) {
             onPenInput(true)
         }
     }
+
+
+    /** Starts the optional low-latency layer for a plain opaque pen stroke on the page, when it is on and ready. */
+    private fun startLowLatency(onPage: Boolean) {
+        lowLatency = null; lowLatencySent = 0
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        if (!context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK)) {
+            LowLatencyInk.dispose(this); return
+        }
+        if (tool != Tool.PEN || !stylus || !onPage || inkOpacity < .99f || rulerEdge != 0 || readOnly) return
+        val layer = LowLatencyInk.obtain(this)?.takeIf { it.ready } ?: return
+        layer.begin()
+        lowLatency = layer
+        streamLowLatency()
+    }
+
+    /** Sends the samples added to the draft since the last call to the low-latency layer. */
+    private fun streamLowLatency() {
+        val layer = lowLatency ?: return
+        val stroke = draft ?: return
+        if (stroke.tool != Tool.PEN || heldShape != null || stroke.points.size <= lowLatencySent) return
+        getLocalVisibleRect(visibleScratch)
+        lowLatencyClip.set(visibleScratch)
+        if (!page.infinite) lowLatencyClip.intersect(originX, originY, originX + page.width * scale, originY + page.height * scale)
+        layer.append(this, originX, originY, scale, lowLatencyClip, stroke.color, stroke.width, stroke.points, lowLatencySent)
+        lowLatencySent = stroke.points.size
+    }
+
+    private fun endLowLatency() { lowLatency?.end(); lowLatency = null; lowLatencySent = 0 }
+
+    /** Feeds the stylus stream to the motion predictor. Creating it lazily keeps finger-only use free of it. */
+    private fun recordForPrediction(event: MotionEvent) {
+        val predictor = motionPredictor ?: androidx.input.motionprediction.MotionEventPredictor.newInstance(this)
+            .also { motionPredictor = it }
+        predictor.record(event)
+    }
+
+    private fun clearPrediction() { predictedCount = 0; predictorIdle = true }
+
+    /**
+     * After a move is applied, asks the predictor where the pen goes next and shifts that path to start at
+     * the tip actually drawn (the pen filter can hold the drawn tip a pixel behind the real pen). The result
+     * is a throwaway tail drawn past the last sample; it never enters the stroke.
+     */
+    private fun refreshPrediction(event: MotionEvent) {
+        val current = draft
+        if (event.actionMasked != MotionEvent.ACTION_MOVE || current == null || current.tool != Tool.PEN ||
+            !stylus || offPage || heldShape != null || documentSpanning) { clearPrediction(); return }
+        val index = event.findPointerIndex(pointerId)
+        val tip = current.points.lastOrNull()
+        if (index < 0 || tip == null) { clearPrediction(); return }
+        val ahead = motionPredictor?.predict()
+        if (ahead == null) { predictedCount = 0; predictorIdle = true; return }
+        predictorIdle = false
+        val at = ahead.findPointerIndex(ahead.getPointerId(0)).coerceAtLeast(0)
+        var count = 0
+        for (h in 0 until ahead.historySize) {
+            if (count >= PREDICTED_POINTS) break
+            predictedRaw[2 * count] = (ahead.getHistoricalX(at, h) - originX) / scale
+            predictedRaw[2 * count + 1] = (ahead.getHistoricalY(at, h) - originY) / scale
+            count++
+        }
+        if (count < PREDICTED_POINTS) {
+            predictedRaw[2 * count] = (ahead.getX(at) - originX) / scale
+            predictedRaw[2 * count + 1] = (ahead.getY(at) - originY) / scale
+            count++
+        }
+        val rawX = (event.getX(index) - originX) / scale
+        val rawY = (event.getY(index) - originY) / scale
+        predictedCount = StrokePrediction.clip(predictedRaw, count, tip.x, tip.y, tip.x - rawX, tip.y - rawY,
+            scale, StrokePrediction.MAX_TAIL_PX, predictedTail)
+    }
+
+    /** Draws the predicted tail for [stroke] past its tip; false when there is none and the caller may fall back. */
+    private fun drawPredictedTail(canvas: Canvas, stroke: Stroke): Boolean {
+        if (predictedCount < 2) return false
+        val tip = stroke.points.last()
+        predictionPaint.color = stroke.color
+        predictionPaint.alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255)
+        predictionPaint.strokeWidth = stroke.width * InkRenderer.penPressureScale(tip.pressure)
+        for (i in 1 until predictedCount) {
+            canvas.drawLine(predictedTail[2 * i - 2], predictedTail[2 * i - 1], predictedTail[2 * i], predictedTail[2 * i + 1], predictionPaint)
+        }
+        return true
+    }
+
     private fun isStylus(event: MotionEvent, index: Int) = isStylusPointer(event, index)
-    private fun point(e: MotionEvent, i: Int, history: Int? = null): InkPoint {
+    private fun point(e: MotionEvent, i: Int, history: Int? = null, speed: Float = 1f): InkPoint {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)
         val rawPressure = if (history == null) e.getPressure(i) else e.getHistoricalPressure(i, history)
         val pressure = when (tool) {
-            Tool.PEN -> PenPressure.sample(rawPressure, stylus && pressureEnabled, pressureSensitivity, pressureVariation)
+            Tool.PEN -> PenPressure.sample(rawPressure, stylus && pressureEnabled, pressureSensitivity, pressureVariation, pressureCurve, speed)
             Tool.ERASER -> if (!stylus || !eraserPressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
             else -> if (!stylus || !pressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
         }
@@ -3909,11 +4044,16 @@ class InkView(context: Context) : View(context) {
     private fun samples(event: MotionEvent, index: Int, finishing: Boolean = false): ArrayList<InkPoint> {
         val points = ArrayList<InkPoint>(event.historySize + 1)
         val filter = penFilter.takeIf { draft?.tool == Tool.PEN && rulerEdge == 0 }
+        val thinning = speedWidth.takeIf { draft?.tool == Tool.PEN }
         for (history in 0 until event.historySize) {
-            val raw = point(event, index, history)
-            points += filter?.sample(raw, event.getHistoricalEventTime(history)) ?: raw
+            val time = event.getHistoricalEventTime(history)
+            val speed = thinning?.factor((event.getHistoricalX(index, history) - originX) / scale,
+                (event.getHistoricalY(index, history) - originY) / scale, time) ?: 1f
+            val raw = point(event, index, history, speed)
+            points += filter?.sample(raw, time) ?: raw
         }
-        val raw = point(event, index)
+        val speed = thinning?.factor((event.getX(index) - originX) / scale, (event.getY(index) - originY) / scale, event.eventTime) ?: 1f
+        val raw = point(event, index, speed = speed)
         points += filter?.sample(raw, event.eventTime, final = finishing) ?: raw
         return points
     }
@@ -3925,6 +4065,8 @@ class InkView(context: Context) : View(context) {
         val MEASURE_TOOLS = ShapePickerTools
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
         const val EDGE_TOLERANCE = 24f
+        /** Most predicted points kept; the platform model rarely returns more than a handful. */
+        const val PREDICTED_POINTS = 24
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */
         const val LINK_SLOP = 12f
         const val SCRIBBLE_RADIUS = 14f

@@ -201,6 +201,10 @@ object InkRenderer {
         private var cleanMaxX = -Float.MAX_VALUE; private var cleanMaxY = -Float.MAX_VALUE
         private var cached: RenderedStroke? = null
         private var widthBuffer = FloatArray(16)
+        /** Distance along the centreline to each point, kept only while the start of the stroke is tapered. */
+        private var along = FloatArray(16)
+        /** Fixed for the stroke, so a setting changed mid-stroke cannot make its start inconsistent. */
+        private val taperLength = InkTaper.length()
         private var stableWidthCount = 0
         private var nextStableWidthCount = 0
 
@@ -245,9 +249,16 @@ object InkRenderer {
                 var capacity = widthBuffer.size
                 while (capacity < centreline.size) capacity *= 2
                 widthBuffer = widthBuffer.copyOf(capacity)
+                along = along.copyOf(capacity)
             }
             for (i in stableWidthCount.coerceAtMost(centreline.size) until centreline.size) {
                 widthBuffer[i] = penPressureScale(centreline[i].pressure)
+                // The tip is still moving, so only the start can be thinned live; the end joins on pen-up.
+                if (taperLength > 0f) {
+                    along[i] = if (i == 0) 0f
+                        else along[i - 1] + hypot(centreline[i].x - centreline[i - 1].x, centreline[i].y - centreline[i - 1].y)
+                    widthBuffer[i] *= InkTaper.scaleAt(along[i], taperLength)
+                }
             }
             stableWidthCount = nextStableWidthCount
             val widths = if (centreline.size >= 2) widthBuffer else null

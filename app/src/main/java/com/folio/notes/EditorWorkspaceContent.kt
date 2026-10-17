@@ -382,6 +382,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val searchQuery = rememberSaveable(note.id) { mutableStateOf("") }
     var layersPopover by remember { mutableStateOf(false) }
     var tidyPicked by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
+    var tidyWriting by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     var conversionDraft by remember { mutableStateOf<InkConversionDraft?>(null) }
     var inkConverting by remember { mutableStateOf(false) }
     // The straightedge is a toolbar switch for this visit. It sits on the current page: a page that
@@ -1056,7 +1057,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     onConvertText = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() } || inkConverting) null
                         else ({ convertSelectionToText(page.id, selected) }),
                     onTidyShapes = if (selected.strokes.isEmpty() && selected.texts.none { it.stickyInk.isNotEmpty() }) null
-                        else ({ tidyPicked = page.id to selected })
+                        else ({ tidyPicked = page.id to selected }),
+                    onTidyHandwriting = if (selected.strokes.count { it.tool == Tool.PEN } < 4) null
+                        else ({ tidyWriting = page.id to selected })
                 )
             }
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
@@ -1754,6 +1757,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() })
     tidyPicked?.let { (pageId, picked) ->
         ShapeCleanupPanel(note, model, mapOf(pageId to picked), onDismiss = { tidyPicked = null }, onApplied = {
+            activeInkView?.clearSelection(); selection = null
+        })
+    }
+    tidyWriting?.let { (pageId, picked) ->
+        HandwritingTidyPanel(note, model, mapOf(pageId to picked), onDismiss = { tidyWriting = null }, onApplied = {
             activeInkView?.clearSelection(); selection = null
         })
     }

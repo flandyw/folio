@@ -13,6 +13,11 @@ Cancellation discards the filter with the draft. Filtered positions are ordinary
 so live rendering, saved ink, thumbnails and exports share the result without a format change.
 Existing curve interpolation still applies when input smoothing is off.
 
+Sharp turns are protected: two legs of at least three screen pixels turning by more than about 55°, or a
+pen braking hard from writing speed, raise the cutoff and shrink the lag budget for a few samples so letters
+keep their corners (tremor on shorter legs is not a corner). The apex sample itself is emitted before the
+turn can be seen, so it keeps the normal lag bound; the legs leaving it recover in a sample or two. See `pen-feel.md`.
+
 Run `node tools/pen-smoothing-smoke.cjs` after the Kotlin compiler cache is populated by a build.
 It checks jitter reduction, exact endpoints/pressure, zoom invariance, bounded lag, long strokes,
 disabled smoothing and timestamp resets.

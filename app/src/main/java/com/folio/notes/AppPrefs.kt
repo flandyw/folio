@@ -101,6 +101,21 @@ object AppPrefs {
     const val PEN_SMOOTHING = "input.penSmoothing"
     const val DEFAULT_PEN_SMOOTHING = PenSmoothing.DEFAULT
     fun penSmoothing(value: Float): Float = PenSmoothing.strength(value)
+    /** Fast pen strokes lay down thinner ink, as with a real pen. Off by default. */
+    const val PEN_SPEED_WIDTH = "input.penSpeedWidth"
+    const val DEFAULT_PEN_SPEED_WIDTH = false
+    /** A tilted stylus lays a broader highlighter stroke. Off by default. */
+    const val HIGHLIGHTER_TILT = "input.highlighterTilt"
+    const val DEFAULT_HIGHLIGHTER_TILT = false
+    /** Draw the pen stroke in progress through a front-buffered layer (API 29+). Experimental; off by default. */
+    const val LOW_LATENCY_INK = "input.lowLatencyInk"
+    const val DEFAULT_LOW_LATENCY_INK = false
+    /** Soft pen stroke ends (render-time only, 0 = off). */
+    const val INK_TAPER = "input.inkTaper"
+    fun inkTaper(value: Float): Float = InkTaper.normalize(value)
+    /** Thin redundant samples when a pen stroke is finished: same drawing, smaller notebooks. */
+    const val REFIT_STROKES = "input.refitStrokes"
+    const val DEFAULT_REFIT_STROKES = true
     /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
     const val SHAPE_ASSIST_OPTIONS = "input.shapeAssistOptions"
     const val SHAPE_HOLD_MS = "input.shapeHoldMs"

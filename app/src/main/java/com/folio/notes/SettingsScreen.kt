@@ -335,6 +335,7 @@ private object SettingsIndex {
         e(SettingsCategory.APPEARANCE, "Sidebar", "navigation rail bottom bar tabs destinations hide show mistakes study progress music vcaa exams menu items"),
         e(SettingsCategory.WRITING, "Draw with a finger", "touch palm scroll"),
         e(SettingsCategory.WRITING, "Tidy up shapes", "shape assist recognition hold delay speed pause stylus line arrow circle oval square rectangle triangle diamond pentagon hexagon star tidy lasso cleanup preview practice perfect equal polygon highlighter underline"),
+        e(SettingsCategory.WRITING, "Pen feel", "thinner fast speed width taper soft stroke ends tilt highlighter marker pressure curve light firm prediction latency smooth keep notebooks small refit"),
         e(SettingsCategory.WRITING, "Live shape measurements", "length angle width height"),
         e(SettingsCategory.WRITING, "Snap to grid and 15°", "math maths angle graph"),
         e(SettingsCategory.WRITING, "Toolbar style", "goodnotes folio tabs pills layout editor bar"),

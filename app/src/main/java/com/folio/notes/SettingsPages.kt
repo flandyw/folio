@@ -172,6 +172,28 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
     }
+    val taper by rememberPref(p, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
+    SettingsGroup("Pen feel", footer = "Pressure response and per-tool pen settings are in the pen's tool options in the editor. Soft ends change how every pen stroke is drawn, old and new; the rest apply to new strokes.") {
+        SettingsPrefSwitch(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH, "Thinner when fast",
+            "Quick strokes lay down thinner ink and slow ones fuller, like a real pen. Works with or without pressure.")
+        SettingsDivider()
+        SettingsSliderRow("Soft stroke ends", if (taper == 0f) "Off" else "${(taper * 100).roundToInt()}%", taper, 0f..1f,
+            { p.write { putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)) } },
+            subtitle = "Thins the first and last few millimetres of each pen stroke so writing looks inked rather than plotted. Dots and short ticks are left as drawn.",
+            lowLabel = "Off", highLabel = "Softer",
+            onReset = if (taper != 0f) ({ p.write { putFloat(AppPrefs.INK_TAPER, 0f) } }) else null)
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT, "Tilt widens the highlighter",
+            "Lay the stylus over and the highlighter lays down a broader stroke, like the side of a marker. The width is set when the pen touches down.")
+        SettingsDivider()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink (experimental)",
+                "Draws the pen's newest ink through a direct display layer so it follows the tip more closely. The page still draws the stroke underneath. Opaque pen ink only; turn it off if ink looks heavier while writing or flickers when you lift.")
+            SettingsDivider()
+        }
+        SettingsPrefSwitch(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES, "Keep notebooks small",
+            "When a pen stroke ends, samples that add nothing to its shape are dropped. The writing looks the same and the notebook takes less space.")
+    }
     SettingsGroup("Tidy up shapes") {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { ShapeAssistSettings() }
     }

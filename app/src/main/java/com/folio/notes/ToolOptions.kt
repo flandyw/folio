@@ -29,13 +29,15 @@ import kotlin.math.roundToInt
 data class ToolOptions(
     val color: Int, val width: Float, val opacity: Float, val pressure: Boolean,
     val pressureSensitivity: Float = 1f, val pressureVariation: Float = 1f,
-    val style: StrokeStyle = StrokeStyle.SOLID
+    val style: StrokeStyle = StrokeStyle.SOLID,
+    val pressureCurve: Float = 1f
 ) {
     fun save(prefs: SharedPreferences, tool: Tool) {
         prefs.edit().putInt("${tool.name}.color", color).putFloat("${tool.name}.width", width)
             .putFloat("${tool.name}.opacity", opacity).putBoolean("${tool.name}.pressure", pressure)
             .putFloat("${tool.name}.pressureSensitivity", PenPressure.sensitivity(pressureSensitivity))
             .putFloat("${tool.name}.pressureVariation", PenPressure.variation(pressureVariation))
+            .putFloat("${tool.name}.pressureCurve", PenPressure.curve(pressureCurve))
             .putString("${tool.name}.style", style.name).apply()
     }
     companion object {
@@ -52,7 +54,8 @@ data class ToolOptions(
                 prefs.getFloat("${tool.name}.opacity", d.opacity), prefs.getBoolean("${tool.name}.pressure", d.pressure),
                 PenPressure.sensitivity(prefs.getFloat("${tool.name}.pressureSensitivity", 1f)),
                 PenPressure.variation(prefs.getFloat("${tool.name}.pressureVariation", 1f)),
-                try { StrokeStyle.valueOf(prefs.getString("${tool.name}.style", "SOLID") ?: "SOLID") } catch (_: Exception) { StrokeStyle.SOLID })
+                try { StrokeStyle.valueOf(prefs.getString("${tool.name}.style", "SOLID") ?: "SOLID") } catch (_: Exception) { StrokeStyle.SOLID },
+                PenPressure.curve(prefs.getFloat("${tool.name}.pressureCurve", 1f)))
         }
     }
 }
@@ -143,14 +146,33 @@ object EditorQuickPrefs {
                     TextButton({ prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING).apply() },
                         shapes = ButtonDefaults.shapes()) { Text("Reset smoothing") }
                 }
+                if (tool == Tool.PEN) PopoverSection("Speed") {
+                    val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
+                    SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() },
+                        hint = "Quick strokes lay down thinner ink, like a real pen. Applies to new pen strokes.")
+                }
+                if (tool == Tool.HIGHLIGHTER) PopoverSection("Tilt") {
+                    val tilt by rememberPref(prefs, AppPrefs.HIGHLIGHTER_TILT) { it.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT) }
+                    SwitchRow("Tilt widens the highlighter", tilt, { prefs.edit().putBoolean(AppPrefs.HIGHLIGHTER_TILT, it).apply() },
+                        hint = "Lay the stylus over for a broader stroke. The width is set when the pen touches down.")
+                }
                 if (tool == Tool.PEN) PopoverSection("Pressure") {
                     SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
                     PopoverSlider("Sensitivity", String.format(Locale.ROOT, "%.2f×", options.pressureSensitivity), PenPressure.sensitivity(options.pressureSensitivity),
                         PenPressure.sensitivityRange, { onChange(options.copy(pressureSensitivity = it)) }, enabled = options.pressure, description = "Pen pressure sensitivity")
                     PopoverSlider("Width variation", "${(options.pressureVariation * 100).roundToInt()}%", PenPressure.variation(options.pressureVariation),
                         PenPressure.variationRange, { onChange(options.copy(pressureVariation = it)) }, enabled = options.pressure, description = "Pen pressure width variation")
-                    Text("Higher sensitivity needs less pressure for thicker ink. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f)) }, shapes = ButtonDefaults.shapes()) { Text("Reset pen pressure") }
+                    PopoverSlider("Response curve", String.format(Locale.ROOT, "%.2f", options.pressureCurve), PenPressure.curve(options.pressureCurve),
+                        PenPressure.curveRange, { onChange(options.copy(pressureCurve = it)) }, enabled = options.pressure, description = "Pen pressure response curve")
+                    Text("Feel", style = MaterialTheme.typography.labelLarge)
+                    FolioButtonGroup {
+                        PenPressure.Feel.entries.forEach { feel ->
+                            toggleableItem(PenPressure.Feel.matching(options.pressureCurve, options.pressureSensitivity) == feel, feel.label,
+                                { onChange(options.copy(pressure = true, pressureCurve = feel.curve, pressureSensitivity = feel.sensitivity)) })
+                        }
+                    }
+                    Text("Light and Firm bend how pressure is read: a light pen reaches full width sooner, a firm one needs a harder press. Higher sensitivity needs less pressure for thicker ink. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f, pressureCurve = 1f)) }, shapes = ButtonDefaults.shapes()) { Text("Reset pen pressure") }
                 }
                 if (tool in ShapePickerTools) {
                     PopoverSection("Line style", initiallyOpen = true) {

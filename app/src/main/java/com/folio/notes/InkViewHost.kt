@@ -123,6 +123,7 @@ import androidx.compose.ui.viewinterop.AndroidView
                 view.zoomWritingPane = zoomWritingPane
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
+                view.pressureCurve = options.pressureCurve
                 view.penSmoothing = penSmoothing
                 view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
                 view.shapeRecognition = shapeRecognition

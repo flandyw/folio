@@ -55,6 +55,37 @@ fun main() {
         check(hypot(point.x - result.x, point.y - result.y) * 2f <= 1.401f)
     }
 
+    // A sharp turn between long legs keeps its apex far closer to the pen than the plain filter would.
+    fun apexError(amount: Float): Float {
+        val smoother = PenSmoothing(amount, 1f)
+        var time = 0L
+        var worst = 0f
+        // Down the stroke of a "V" at about 1 px/ms, then straight back up. Lag along the path doesn't change the
+        // shape; what matters is how far the smoothed points stray from the second leg's line.
+        for (i in 0..20) { smoother.sample(InkPoint(i * 3f, i * 6f), time); time += 8 }
+        val apex = InkPoint(20 * 3f + 3f, 20 * 6f + 6f)
+        val length = hypot(3f, -6f)
+        repeat(12) { i ->
+            val point = if (i == 0) apex else InkPoint(apex.x + i * 3f, apex.y - i * 6f)
+            val result = smoother.sample(point, time); time += 8
+            val off = abs((result.x - apex.x) * (-6f) - (result.y - apex.y) * 3f) / length
+            if (i in 1..4) worst = maxOf(worst, off)
+        }
+        return worst
+    }
+    check(apexError(1f) <= .35f) { "corner off-line ${apexError(1f)}" }
+    // Straight writing is unaffected by corner handling: the same jitter still loses most of its amplitude.
+    check(jitter(.35f) < .6f)
+    // Tremor on short legs is not a corner.
+    val tremor = PenSmoothing(1f, 1f)
+    tremor.sample(InkPoint(0f, 0f), 0)
+    var tremorOut = 0f
+    repeat(80) { i ->
+        val r = tremor.sample(InkPoint(if (i % 2 == 0) 1.2f else -1.2f, 0f), (i + 1) * 8L)
+        if (i > 20) tremorOut += abs(r.x)
+    }
+    check(tremorOut / 59f < .8f) { "tremor survived: ${tremorOut / 59f}" }
+
     // Timestamp resets/gaps re-arm the filter instead of smearing across the discontinuity.
     check(filter.sample(start, 1000) === start)
     check(filter.sample(end, 1000) === end)
@@ -62,5 +93,5 @@ fun main() {
     check(PenSmoothing.strength(Float.NaN) == PenSmoothing.DEFAULT)
     check(PenSmoothing.strength(Float.POSITIVE_INFINITY) == PenSmoothing.DEFAULT)
     check(PenSmoothing.strength(-1f) == 0f && PenSmoothing.strength(2f) == 1f)
-    println("Pen smoothing smoke passed: jitter, endpoints, pressure, zoom, lag and resets")
+    println("Pen smoothing smoke passed: jitter, corners, endpoints, pressure, zoom, lag and resets")
 }
