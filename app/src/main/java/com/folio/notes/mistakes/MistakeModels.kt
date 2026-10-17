@@ -17,7 +17,8 @@ enum class ReviewState { NEW, LEARNING, REVIEW, RELEARNING;
     val wire get() = name.lowercase()
 }
 data class MistakeReview(val id: String, val completedAt: String, val result: ReviewRating,
-    val intervalDays: Double?, val easeFactor: Double?)
+    val intervalDays: Double?, val easeFactor: Double?, val confidence: String? = null,
+    val challengeWeek: String? = null, val challengeSize: Int? = null)
 data class MistakeAttachment(val id: String, val name: String, val type: String, val size: Long, val storagePath: String)
 /** Immutable original JSON is the write base; parsing never drops forward-compatible fields. */
 data class ExamTrackMistake(

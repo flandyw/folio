@@ -63,12 +63,13 @@ import kotlin.math.*
         FilterChip(options.lines, { onChange(options.copy(lines = !options.lines)) }, label = { Text("Lines") })
         FilterChip(options.arrows, { onChange(options.copy(arrows = !options.arrows)) }, label = { Text("Arrows") })
         FilterChip(options.closed, { onChange(options.copy(closed = !options.closed)) }, label = { Text("Closed shapes") })
+        FilterChip(options.curves, { onChange(options.copy(curves = !options.curves)) }, label = { Text("Curves & brackets") })
     }
-    Text("Closed shapes include circles, ovals, triangles, boxes, pentagons, hexagons and stars.",
+    Text("Closed shapes include circles, ovals, boxes, rounded boxes, triangles, polygons of up to eight sides, stars and hearts. Arrows can have a curved shaft. Curves & brackets are arcs, square brackets and curly braces.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     ShapeAssistSwitch("Perfect circles & squares", "Make nearly round ovals and nearly square boxes exact. Keep long ovals and rectangles.",
         options.perfect, options.closed) { onChange(options.copy(perfect = it)) }
-    ShapeAssistSwitch("Equal-sided polygons", "Regular triangles, pentagons, hexagons and stars, at the angle you drew them.",
+    ShapeAssistSwitch("Equal-sided polygons", "Regular triangles, pentagons, hexagons, octagons, stars and pentagrams, at the angle you drew them.",
         options.regular, options.closed) { onChange(options.copy(regular = it)) }
     ShapeAssistSwitch("Straighten highlighter", "Hold an underline steady to straighten it. Keeps its colour, width and transparency.",
         options.highlighter, options.lines) { onChange(options.copy(highlighter = it)) }

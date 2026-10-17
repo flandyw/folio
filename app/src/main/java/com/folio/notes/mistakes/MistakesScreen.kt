@@ -124,7 +124,13 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var destination by rememberSaveable { mutableStateOf("Today") }
     var showPacing by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
-    var sessionLimit by rememberSaveable { mutableIntStateOf(10) }
+    var sessionLimit by rememberSaveable { mutableIntStateOf(state.cache.reviewPreferences.practiceTarget) }
+    LaunchedEffect(state.cache.reviewPreferences.practiceTarget) { sessionLimit = state.cache.reviewPreferences.practiceTarget }
+    var sessionWeek by rememberSaveable { mutableStateOf<String?>(null) }
+    var sessionChallengeSize by rememberSaveable { mutableIntStateOf(0) }
+    var sessionInitialXP by rememberSaveable { mutableIntStateOf(0) }
+    var celebration by rememberSaveable { mutableIntStateOf(0) }
+    val practiceView = androidx.compose.ui.platform.LocalView.current
     var newestDueFirst by rememberSaveable { mutableStateOf(false) }
     var focusSubject by rememberSaveable { mutableStateOf("") }
     var sessionTotal by rememberSaveable { mutableIntStateOf(0) }
@@ -150,6 +156,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         } },
     )
     val mistakes = remember(state.cache.mistakes) { state.cache.mistakes.values.toList() }
+    val practiceProgress = remember(mistakes, clockNow) { MistakePracticeProgress.get(mistakes, maxOf(clockNow, System.currentTimeMillis())) }
     val due = remember(mistakes, clockNow) { MistakeScheduler.getDueMistakes(mistakes, clockNow) }
     val schedules = remember(mistakes) { mistakes.associate { it.id to MistakeScheduler.getMistakeSchedule(it) } }
     val orderedDue = remember(due, newestDueFirst) { if (newestDueFirst) due.asReversed() else due }
@@ -262,10 +269,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         if (working) return
         if (reviewQueue.isEmpty() || mistake.id !in reviewQueue) {
             reviewQueue = listOf(mistake.id)
-            sessionTotal = 1; sessionCompleted = 0
+            sessionTotal = 1; sessionCompleted = 0; sessionWeek = null; sessionInitialXP = practiceProgress.xp
         }
         showSummary = false
-        actionMessage = null
+        if (sessionCompleted == 0) actionMessage = null
         working = true
         scope.launch {
             try {
@@ -282,10 +289,13 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
-    fun startSession(candidates: List<ExamTrackMistake>) {
+    fun startSession(candidates: List<ExamTrackMistake>, weekly: Boolean = false, limit: Int = sessionLimit) {
         if (candidates.isEmpty() || working) return
-        val ids = (if (shuffle) candidates.shuffled() else candidates).take(sessionLimit).map { it.id }
+        val ids = (if (shuffle) candidates.shuffled() else candidates).take(limit).map { it.id }
         sessionTotal = ids.size; sessionCompleted = 0
+        sessionInitialXP = practiceProgress.xp
+        sessionWeek = if (weekly) practiceProgress.week else null
+        sessionChallengeSize = if (weekly) practiceProgress.weeklyTarget else 0
         reviewQueue = ids
         ids.firstOrNull()?.let { id -> candidates.find { it.id == id }?.let(::start) }
     }
@@ -378,7 +388,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             shuffle = shuffle, onToggleShuffle = ::toggleShuffle,
             canSkip = reviewQueue.size > 1, onSkip = ::skipCurrent, actionMessage = actionMessage,
             onDelete = ::deleteCurrentCard,
-            onRate = onRate@{ rating ->
+            celebration = celebration,
+            sessionXP = maxOf(0, practiceProgress.xp - sessionInitialXP),
+            onRate = onRate@{ rating, confidence ->
             if (working || currentFrame == null || folio.state.value.saveFailed) return@onRate
             actionMessage = null
             working = true
@@ -391,18 +403,20 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     val saved = folio.state.first { !it.saving || it.saveFailed }
                     check(!saved.saveFailed) { "Save the handwriting before rating" }
                     val finishedId = active.mistakeId
-                    val completed = model.rate(active, rating)
+                    val completed = model.rate(active, rating, confidence, sessionWeek, sessionChallengeSize.takeIf { sessionWeek != null })
                     folio.completeMistakePractice(completed)
                     sessionCompleted++
                     val remainingIds = reviewQueue.filterNot { it == finishedId }
-                    showTransient(
-                        when (rating) {
-                            ReviewRating.AGAIN -> "Saved · this card returns in about 10 minutes"
-                            ReviewRating.HARD -> "Saved · next review soon"
-                            ReviewRating.GOOD -> "Saved · nicely done"
-                            ReviewRating.EASY -> "Saved · pushed further out"
+                    showTransient(MistakePracticeProgress.feedback(card, rating, confidence))
+                    if (haptics) practiceView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                    if (state.cache.reviewPreferences.practiceSound) {
+                        val tone = runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 12) }.getOrNull()
+                        tone?.let { player ->
+                            runCatching { player.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 100) }
+                            scope.launch { try { kotlinx.coroutines.delay(180) } finally { player.release() } }
                         }
-                    )
+                    }
+                    if (remainingIds.isEmpty() || MistakePracticeProgress.rematch(card) && rating in listOf(ReviewRating.GOOD, ReviewRating.EASY)) celebration++
                     val fresh = model.state.value.cache.mistakes
                     val validNext = remainingIds.mapNotNull { fresh[it] }.filterNot { it.suspended }
                     working = false
@@ -476,7 +490,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             val idx = note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0)
                             folio.openAt(note.id, idx)
                             reviewQueue = listOf(attempt.mistakeId)
-                            sessionTotal = 1; sessionCompleted = 0; showSummary = false
+                            sessionTotal = 1; sessionCompleted = 0; showSummary = false; sessionWeek = null; sessionInitialXP = practiceProgress.xp
                             detail = null
                             activeReview = attempt.reviewId
                         } catch (e: CancellationException) { throw e }
@@ -536,7 +550,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     }) else null,
                 ) {
                     if (state.userId != null && detail == null) IconButton({ showPacing = true }) {
-                        Icon(Icons.Rounded.Tune, "Review pacing")
+                        Icon(Icons.Rounded.Tune, "Practice routine & pacing")
                     }
                     FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
                 }
@@ -550,6 +564,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         MistakesTodayView(
                             content = TodayContent(
                                 stats = todayStats,
+                                mistakes = mistakes,
+                                preferences = state.cache.reviewPreferences,
+                                sessionXP = maxOf(0, practiceProgress.xp - sessionInitialXP),
+                                feedback = actionMessage,
+                                celebration = celebration,
                                 totalCards = mistakes.size,
                                 allDue = due.size,
                                 overdue = focusedOverdue,
@@ -565,10 +584,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 schedules = schedules,
                                 attempts = attemptCountMap,
                                 working = working,
-                                now = clockNow,
+                                now = maxOf(clockNow, System.currentTimeMillis()),
                             ),
                             actions = TodayActions(
                                 onStart = { startSession(focusedDue) },
+                                onMission = { cards, weekly -> startSession(cards, weekly, cards.size) },
+                                onRoutine = { showPacing = true },
+                                onPreferences = { preferences -> scope.launch {
+                                    if (!working) {
+                                        working = true
+                                        try { model.saveReviewPreferences(preferences) }
+                                        catch (e: CancellationException) { throw e }
+                                        catch (_: Exception) { snackbar.showSnackbar("Could not save practice settings. Try again.") }
+                                        finally { working = false }
+                                    }
+                                } },
                                 onBrowse = { destination = "Library" },
                                 onFocus = { focusSubject = it },
                                 onLimit = { sessionLimit = it },

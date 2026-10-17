@@ -212,11 +212,11 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
             requestSync(force = true)
         }
     }
-    suspend fun rate(attempt: LocalMistakeReviewAttempt, rating: ReviewRating): LocalMistakeReviewAttempt {
+    suspend fun rate(attempt: LocalMistakeReviewAttempt, rating: ReviewRating, confidence: String? = null, challengeWeek: String? = null, challengeSize: Int? = null): LocalMistakeReviewAttempt {
         check(_state.value.userId == attempt.userId)
         // A local save has priority over a slow network request.
         syncJob?.cancelAndJoin()
-        val result = repository.rate(attempt.userId, attempt, rating, isoTime())
+        val result = repository.rate(attempt.userId, attempt, rating, isoTime(), confidence, challengeWeek, challengeSize)
         reload(attempt.userId)
         requestSync(force = true)
         return result

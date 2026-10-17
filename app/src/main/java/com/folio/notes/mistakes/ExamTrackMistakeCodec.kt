@@ -17,7 +17,10 @@ object ExamTrackMistakeCodec {
         val reviews = o.optJSONArray("reviewHistory").objects().map { r ->
             val result = requireNotNull(ReviewRating.parse(r.getString("result")))
             val completed = r.getString("completedAt").also { timestamp(it) }
-            MistakeReview(r.getString("id"), completed, result, r.finite("intervalDays"), r.finite("easeFactor"))
+            MistakeReview(r.getString("id"), completed, result, r.finite("intervalDays"), r.finite("easeFactor"),
+                (r.opt("confidence") as? String)?.takeIf { it in listOf("low", "medium", "high") },
+                (r.opt("challengeWeek") as? String)?.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess },
+                (r.opt("challengeSize") as? Number)?.toDouble()?.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in 1.0..5.0 }?.toInt())
         }
         val attachments = o.optJSONArray("attachments").objects().map { a ->
             MistakeAttachment(a.getString("id"), a.getString("name"), a.getString("type"),

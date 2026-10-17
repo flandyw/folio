@@ -26,18 +26,20 @@ internal object ShapeCleanup {
         // Individually straight strokes are the parts of multi-stroke boxes and arrows, even
         // when single lines are switched off.
         val lines = HashMap<Int, Pair<InkPoint, InkPoint>>()
-        val singles = HashMap<Int, List<Stroke>?>()
+        val singles = HashMap<Int, Tidied?>()
         for (i in strokes.indices) {
             val s = strokes[i]
             if (s.points.any { !it.x.isFinite() || !it.y.isFinite() }) continue
             when (s.tool) {
                 Tool.LINE -> if (s.points.size == 2) lines[i] = s.points[0] to s.points[1]
                 Tool.PEN -> {
-                    val fit = ShapeRecognition.tidy(s, options.copy(lines = true, closed = true, arrows = true))
-                    fit?.singleOrNull()?.takeIf { it.tool == Tool.LINE }?.let { lines[i] = it.points[0] to it.points[1] }
+                    // Handwriting is never tidied, and a stroke that small is too short to be a part of a box or arrow.
+                    if (writing[i]) continue
+                    val fit = ShapeRecognition.recognise(s, options.copy(lines = true, closed = true, arrows = true, curves = true))
+                    fit?.strokes?.singleOrNull()?.takeIf { it.tool == Tool.LINE }?.let { lines[i] = it.points[0] to it.points[1] }
                     singles[i] = fit
                 }
-                Tool.HIGHLIGHTER -> singles[i] = ShapeRecognition.tidy(s, options.copy(lines = true))
+                Tool.HIGHLIGHTER -> singles[i] = ShapeRecognition.recognise(s, options.copy(lines = true))
                 else -> {}
             }
         }
@@ -66,13 +68,13 @@ internal object ShapeCleanup {
             }
             // Outlines drawn in pieces (two halves of a circle, a box as two L shapes): the
             // pieces meet end to end and are recognised as one stroke.
-            val pieces = singles.keys.filter { free(it) && !writing[it] && strokes[it].tool == Tool.PEN && singles[it]?.let(::closedShape) != true }.sorted()
+            val pieces = singles.keys.filter { free(it) && !writing[it] && strokes[it].tool == Tool.PEN && singles[it]?.kind?.closed != true }.sorted()
             for (cycle in cycles(pieces, { a, b -> sameInk(a, b) }) { a, b -> endJoin(strokes[a], boxes[a], strokes[b], boxes[b]) }) {
                 if (cycle.members.any { !free(it) }) continue
                 val points = ArrayList<InkPoint>()
                 cycle.members.forEachIndexed { k, i -> points += if (cycle.reversed[k]) strokes[i].points.asReversed() else strokes[i].points }
                 val joined = strokes[cycle.members.first()].copy(points = points)
-                val shape = ShapeRecognition.tidy(joined, options)?.takeIf(::closedShape) ?: continue
+                val shape = ShapeRecognition.recognise(joined, options)?.takeIf { it.kind.closed }?.strokes ?: continue
                 if (size(box(points)) >= WRITING_SIZE) take(cycle.members, shape)
             }
         }
@@ -81,7 +83,7 @@ internal object ShapeCleanup {
 
         for ((i, fit) in singles) {
             if (!free(i) || fit == null || writing[i]) continue
-            val shape = fit.takeIf { allowed(it, options) }?.let(::level) ?: continue
+            val shape = fit.takeIf { options.allows(it.kind) }?.strokes?.let(::level) ?: continue
             if (!same(strokes[i], shape)) replaced[i] = shape
         }
         if (replaced.isEmpty()) return Result(strokes, 0)
@@ -223,18 +225,6 @@ internal object ShapeCleanup {
     private fun inside(a: FloatArray, b: FloatArray): Boolean {
         val cx = (a[0] + a[2]) / 2; val cy = (a[1] + a[3]) / 2
         return cx > b[0] && cx < b[2] && cy > b[1] && cy < b[3]
-    }
-
-    private fun allowed(shape: List<Stroke>, options: ShapeAssistOptions) = when {
-        shape.singleOrNull()?.let { it.tool == Tool.LINE || it.tool == Tool.HIGHLIGHTER && it.points.size == 2 } == true -> options.lines
-        closedShape(shape) -> options.closed
-        else -> options.arrows
-    }
-
-    private fun closedShape(shape: List<Stroke>): Boolean {
-        val single = shape.singleOrNull()
-        if (single != null) return single.tool == Tool.RECTANGLE || single.tool == Tool.ELLIPSE || single.tool == Tool.PEN
-        return shape.size >= 3 && shape.last().points.last() == shape.first().points.first()
     }
 
     /** A nearly level or upright line is made exactly so, about its middle. */

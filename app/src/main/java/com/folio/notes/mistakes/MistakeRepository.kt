@@ -61,13 +61,13 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         val kept = c.attempts.filterNot { it.practiceNotebookId in notebookIds }
         if (kept.size != c.attempts.size) store.save(user, c.copy(attempts = kept))
     }
-    suspend fun rate(user: String, attempt: LocalMistakeReviewAttempt, rating: ReviewRating, at: String): LocalMistakeReviewAttempt = lock.withLock {
+    suspend fun rate(user: String, attempt: LocalMistakeReviewAttempt, rating: ReviewRating, at: String, confidence: String? = null, challengeWeek: String? = null, challengeSize: Int? = null): LocalMistakeReviewAttempt = lock.withLock {
         require(attempt.userId == user)
         val c = store.load(user)
         val m = requireNotNull(c.mistakes[attempt.mistakeId]) { "This mistake was removed. Your handwriting is saved." }
         val completed = attempt.copy(completedAt = at, rating = rating.wire)
         // A retry after process interruption must not add the same logical review twice.
-        val next = if (m.reviewHistory.any { it.id == attempt.reviewId }) m else MistakeScheduler.recordMistakeReview(m, rating, at, attempt.reviewId, c.reviewPreferences, c.mistakes.values.toList())
+        val next = if (m.reviewHistory.any { it.id == attempt.reviewId }) m else MistakeScheduler.recordMistakeReview(m, rating, at, attempt.reviewId, c.reviewPreferences, c.mistakes.values.toList(), confidence, challengeWeek, challengeSize)
         val change = queuedMistakeChange(m.id, "put", JSONObject(next.originalJson), c.rowSequences[m.id], at)
         store.save(user, c.copy(mistakes = c.mistakes + (m.id to next), pending = c.pending + m.id,
             attempts = c.attempts.filterNot { it.reviewId == attempt.reviewId } + completed,
@@ -348,11 +348,25 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
             output.put("updatedAt", maxOf(source.getString("updatedAt"), output.optString("updatedAt", "")))
             return requireNotNull(ExamTrackMistakeCodec.decode(output.toString()))
         }
-        // Folio only edits scheduling. Keep the latest remote question, attachments and future fields.
-        listOf("reviewHistory", "reviewState", "intervalDays", "easeFactor", "repetitions", "lapses",
-            "lastReviewedAt", "resolved", "dueAt", "updatedAt").forEach { key ->
-            if (source.has(key)) output.put(key, source.get(key))
+        // Preserve both devices' reviews, including confidence and challenge metadata.
+        val reviews = linkedMapOf<String, JSONObject>()
+        for (json in listOf(output, source)) {
+            val history = json.optJSONArray("reviewHistory") ?: continue
+            for (i in 0 until history.length()) {
+                val review = history.getJSONObject(i)
+                reviews[review.getString("id")] = review
+            }
         }
+        val localReviewedAt = local.lastReviewedAt?.let { timestamp(it) } ?: 0L
+        val remoteReviewedAt = (output.opt("lastReviewedAt") as? String)?.let { runCatching { timestamp(it) }.getOrDefault(0L) } ?: 0L
+        // ponytail: concurrent ratings keep the newest schedule; replaying the scheduler over the union would require versioned scheduling rules.
+        val schedule = if (localReviewedAt >= remoteReviewedAt) source else output
+        listOf("reviewState", "intervalDays", "easeFactor", "repetitions", "lapses",
+            "lastReviewedAt", "resolved", "dueAt").forEach { key ->
+            if (schedule.has(key)) output.put(key, schedule.get(key))
+        }
+        output.put("reviewHistory", JSONArray(reviews.values.sortedWith(compareBy<JSONObject> { timestamp(it.getString("completedAt")) }.thenBy { it.getString("id") })))
+        output.put("updatedAt", maxOf(source.getString("updatedAt"), output.optString("updatedAt", "")))
         return requireNotNull(ExamTrackMistakeCodec.decode(output.toString()))
     }
 }

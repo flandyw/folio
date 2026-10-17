@@ -38,7 +38,9 @@ import com.folio.notes.*
     shuffle: Boolean = false, onToggleShuffle: () -> Unit = {},
     canSkip: Boolean = false, onSkip: () -> Unit = {},
     actionMessage: String? = null,
-    onRate: (ReviewRating) -> Unit,
+    celebration: Int = 0,
+    sessionXP: Int = 0,
+    onRate: (ReviewRating, String?) -> Unit,
     onDelete: () -> Unit = {}) {
     val mistakesState by model.state.collectAsStateWithLifecycle()
     val reviewPreferences = mistakesState.cache.reviewPreferences
@@ -48,6 +50,7 @@ import com.folio.notes.*
     val confirmReview by rememberPref(preferences, AppPrefs.UX_REVIEW_CONFIRM) { it.getBoolean(AppPrefs.UX_REVIEW_CONFIRM, AppPrefs.DEFAULT_UX_REVIEW_CONFIRM) }
     val rootView = LocalView.current
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
+    var confidence by rememberSaveable(attempt.reviewId) { mutableStateOf<String?>(null) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
     var adjustLayout by rememberSaveable { mutableStateOf(false) }
     // The question/editor split is remembered across cards and sessions: a wide question needs
@@ -86,7 +89,7 @@ import com.folio.notes.*
         }
     }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(actionMessage) { actionMessage?.let { snackbar.showSnackbar(it) } }
+    LaunchedEffect(actionMessage, attempt.reviewId) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
         if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry from the page status before rating.", duration = SnackbarDuration.Long)
     }
@@ -99,7 +102,7 @@ import com.folio.notes.*
                 Key.Spacebar -> { if (!revealed) { revealed = true; questionExpanded = true; true } else false }
                 Key.S -> { if (canSkip) { confirmDoubleTap("skipTop", onSkip); true } else false }
                 Key.One, Key.Two, Key.Three, Key.Four -> {
-                    if (revealed && !state.saveFailed) { val index = listOf(Key.One, Key.Two, Key.Three, Key.Four).indexOf(event.key); ReviewRating.entries.getOrNull(index)?.let(onRate); true } else false
+                    if (revealed && !state.saveFailed) { val index = listOf(Key.One, Key.Two, Key.Three, Key.Four).indexOf(event.key); ReviewRating.entries.getOrNull(index)?.let { onRate(it, confidence) }; true } else false
                 }
                 else -> false
             }
@@ -117,7 +120,7 @@ import com.folio.notes.*
                             when {
                                 state.saveFailed -> "Save failed · retry before rating"
                                 state.saving -> "Saving your ink…"
-                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize"
+                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize · +$sessionXP XP"
                                 dueLeft > 1 -> "${dueLeft - 1} more due after this"
                                 else -> "Practise at your own pace"
                             },
@@ -151,7 +154,15 @@ import com.folio.notes.*
         bottomBar = {
             Surface(tonalElevation = 2.dp) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                    Text("Recall strength · ${MistakePracticeProgress.strength(m)}/3 spaced recalls${if (MistakePracticeProgress.rematch(m)) " · Rematch" else ""}", style = MaterialTheme.typography.labelSmall)
+                    LinearProgressIndicator(progress = { MistakePracticeProgress.strength(m) / 3f }, modifier = Modifier.fillMaxWidth())
                     if (!revealed) {
+                        Text("Before you reveal: how confident are you? (optional)", style = MaterialTheme.typography.labelMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("low" to "Guessing", "medium" to "Unsure", "high" to "Confident").forEach { (value, label) ->
+                                FilterChip(selected = confidence == value, onClick = { confidence = value }, enabled = !busy, label = { Text(label) })
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                             Button({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                                 Icon(Icons.Rounded.Visibility, null)
@@ -188,9 +199,9 @@ import com.folio.notes.*
                                     }
                                 }
                                 when (rating) {
-                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
-                                    ReviewRating.GOOD -> Button({ onRate(rating) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = FolioSpacing.dp8)) { RatingContent() }
-                                    else -> FilledTonalButton({ onRate(rating) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
+                                    ReviewRating.AGAIN -> OutlinedButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
+                                    ReviewRating.GOOD -> Button({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), contentPadding = PaddingValues(vertical = FolioSpacing.dp8)) { RatingContent() }
+                                    else -> FilledTonalButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, contentPadding = PaddingValues(vertical = FolioSpacing.dp8), shapes = ButtonDefaults.shapes()) { RatingContent() }
                                 }
                             }
                         }
@@ -309,12 +320,16 @@ import com.folio.notes.*
                                     }
                                 }
                             }
-                            if (revealed) {
+                            androidx.compose.animation.AnimatedVisibility(visible = revealed,
+                                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(if (reviewPreferences.practiceEffects) 180 else 0)),
+                                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(0))) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 HorizontalDivider()
                                 Text("Correction", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                                 RichText(m.correction.ifBlank { "No correction saved in Focal." }, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
                                 Text("What went wrong", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                                 RichText(m.explanation.ifBlank { "No explanation saved in Focal." }, style = MaterialTheme.typography.bodyMedium.scaledBy(textScale))
+                                }
                             }
                         }
                     }
@@ -347,6 +362,7 @@ import com.folio.notes.*
                 )
                 Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress) }
             }
+            PracticeConfetti(celebration, reviewPreferences.practiceEffects, reviewPreferences.practiceFinish, Modifier.matchParentSize())
         }
     }
     if (showPrevious && previousAttempts.isNotEmpty()) {

@@ -5,6 +5,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
+// `--accuracy [-v]` runs the synthetic hand-drawn accuracy report instead of the regression checks.
+const accuracy = process.argv.includes('--accuracy');
+const passthrough = process.argv.slice(2).filter(a => a !== '--accuracy');
 const cache = path.join(process.env.GRADLE_USER_HOME || path.join(os.homedir(), '.gradle'), 'caches/modules-2/files-2.1');
 const version = fs.readFileSync(path.join(root, 'build.gradle.kts'), 'utf8')
   .match(/id\("org\.jetbrains\.kotlin\.plugin\.compose"\) version "([^"]+)"/)[1];
@@ -53,9 +56,9 @@ try {
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['ShapeRecognition.kt', 'ShapeHold.kt', 'ShapeAssist.kt', 'ShapeCleanup.kt', 'ShapeAdjustment.kt'].map(file => path.join(source, file)),
-    primitive, path.join(__dirname, 'ShapeSmoke.kt')]);
-  run(['-cp', [classes, stdlib].join(path.delimiter), 'com.folio.notes.ShapeSmokeKt']);
+    ...['ShapeFit.kt', 'ShapeRecognition.kt', 'ShapeHold.kt', 'ShapeAssist.kt', 'ShapeCleanup.kt', 'ShapeAdjustment.kt'].map(file => path.join(source, file)),
+    primitive, path.join(__dirname, accuracy ? 'ShapeAccuracy.kt' : 'ShapeSmoke.kt')]);
+  run(['-cp', [classes, stdlib].join(path.delimiter), accuracy ? 'com.folio.notes.ShapeAccuracyKt' : 'com.folio.notes.ShapeSmokeKt', ...passthrough]);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

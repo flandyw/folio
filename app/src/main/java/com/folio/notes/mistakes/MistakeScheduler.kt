@@ -75,12 +75,17 @@ object MistakeScheduler {
         return MistakeSchedule(state, pacedDueAt(m.id, isoTime(timestamp(completedAt) + (interval * DAY).toLong()), settings, mistakes, timestamp(completedAt)),
             interval, round(ease * 100) / 100, repetitions, lapses, state == ReviewState.REVIEW && interval >= 21)
     }
-    fun recordMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String, reviewId: String, preferences: MistakeReviewPreferences = MistakeReviewPreferences(), mistakes: List<ExamTrackMistake> = emptyList()): ExamTrackMistake {
+    fun recordMistakeReview(m: ExamTrackMistake, rating: ReviewRating, completedAt: String, reviewId: String, preferences: MistakeReviewPreferences = MistakeReviewPreferences(), mistakes: List<ExamTrackMistake> = emptyList(), confidence: String? = null, challengeWeek: String? = null, challengeSize: Int? = null): ExamTrackMistake {
         val next = previewMistakeReview(m, rating, completedAt, preferences, mistakes)
         val o = JSONObject(m.originalJson)
         val history = o.optJSONArray("reviewHistory") ?: JSONArray()
         history.put(JSONObject().put("id", reviewId).put("completedAt", completedAt).put("result", rating.wire)
-            .put("intervalDays", next.intervalDays).put("easeFactor", next.easeFactor))
+            .put("intervalDays", next.intervalDays).put("easeFactor", next.easeFactor)
+            .apply {
+                confidence?.takeIf { it in listOf("low", "medium", "high") }?.let { put("confidence", it) }
+                challengeWeek?.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }?.let { put("challengeWeek", it) }
+                challengeSize?.takeIf { it in 1..5 }?.let { put("challengeSize", it) }
+            })
         o.put("reviewHistory", history).put("reviewState", next.state.wire).put("intervalDays", next.intervalDays)
             .put("easeFactor", next.easeFactor).put("repetitions", next.repetitions).put("lapses", next.lapses)
             .put("lastReviewedAt", completedAt).put("resolved", next.resolved).put("dueAt", next.dueAt).put("updatedAt", completedAt)

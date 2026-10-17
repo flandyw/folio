@@ -87,9 +87,9 @@ fun main() {
     val defaults = ShapeAssistOptions()
     check(ShapeAssistOptions.decode(null) == defaults)
     check(ShapeAssistOptions.decode("invalid") == defaults)
-    for (mask in 0..63) {
+    for (mask in 0..127) {
         val config = ShapeAssistOptions((mask and 1) != 0, (mask and 2) != 0, (mask and 4) != 0,
-            (mask and 8) != 0, (mask and 16) != 0, (mask and 32) != 0)
+            (mask and 8) != 0, (mask and 16) != 0, (mask and 32) != 0, (mask and 64) != 0)
         check(ShapeAssistOptions.decode(config.encode()) == config)
     }
     check(ShapeRecognition.tidy(stroke(line), defaults.copy(lines = false)) == null)
@@ -264,5 +264,125 @@ fun main() {
     val highlightAdjustment = ShapeAdjustment(listOf(underline), underline.points.last())
     check(highlightAdjustment.update(InkPoint(300f, 80f), 0f).single().tool == Tool.HIGHLIGHTER)
 
-    println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")
+    // More shapes. They are fitted, not corner-counted, so wobble and spare corners do not matter.
+    fun kindOf(points: List<InkPoint>, name: String, options: ShapeAssistOptions = ShapeAssistOptions()): Tidied {
+        val original = stroke(points)
+        val result = checkNotNull(ShapeRecognition.recognise(original, options)) { "Failed to recognise $name" }
+        check(result.strokes.all { it.color == original.color && it.width == original.width && it.opacity == original.opacity && it.layer == 2 }) { "Lost ink style: $name" }
+        check(result.strokes.all { s -> s.points.all { it.x.isFinite() && it.y.isFinite() } }) { "Non-finite $name" }
+        return result
+    }
+    for (n in listOf(7, 8)) for (angle in listOf(-.5 * PI, .27)) for (reverse in listOf(false, true)) {
+        val ring = path(regular(n, angle), wobble = 1f).let { if (reverse) it.reversed() else it }
+        val result = kindOf(ring, "$n-gon")
+        check(result.kind == ShapeKind.POLYGON && result.sides == n && result.strokes.size == n) { "$n-gon became ${result.kind}/${result.sides}" }
+    }
+    for (corners in listOf(8, 12)) for (angle in listOf(-.5 * PI, .27)) {
+        val result = kindOf(path(regular(corners, angle, star = true)), "${corners / 2}-point star")
+        check(result.kind == ShapeKind.STAR && result.sides == corners) { "${corners / 2}-point star became ${result.kind}/${result.sides}" }
+    }
+    val points5 = regular(5, .3)
+    val pentagram = kindOf(path(listOf(points5[0], points5[2], points5[4], points5[1], points5[3])), "pentagram")
+    check(pentagram.kind == ShapeKind.PENTAGRAM && pentagram.strokes.size == 5)
+    check(kindOf(path(listOf(points5[0], points5[2], points5[4], points5[1], points5[3])).reversed(), "reversed pentagram").kind == ShapeKind.PENTAGRAM)
+    val regularPentagram = kindOf(path(listOf(points5[0], points5[2], points5[4], points5[1], points5[3]).mapIndexed { i, v -> if (i == 2) p(v.x + 7f, v.y - 4f) else v }),
+        "uneven pentagram", defaults.copy(regular = true))
+    val sides = regularPentagram.strokes.map { hypot(it.points[1].x - it.points[0].x, it.points[1].y - it.points[0].y) }
+    check(sides.max() - sides.min() < .01f) { "Regular pentagram lost equal sides" }
+    // A pentagon is not a pentagram, and a cloud-like scalloped loop is not a star.
+    check(kindOf(path(regular(5, .3)), "pentagon").kind == ShapeKind.POLYGON)
+    check(ShapeRecognition.recognise(stroke((0..240).map { val t = it * 2 * PI / 240; val k = 1 + .25 * sin(6 * t); p(200f + 120f * k.toFloat() * cos(t).toFloat(), 200f + 90f * k.toFloat() * sin(t).toFloat()) })) == null) { "Cloud became a shape" }
+
+    fun heart(width: Float, tilt: Double = 0.0) = rotate((0..200).map {
+        val t = it * 2 * PI / 200
+        p(width * (16 * sin(t).pow(3)).toFloat() / 32f, -width * (13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t)).toFloat() / 32f)
+    }, tilt).map { p(it.x + 200f, it.y + 200f) }
+    for (tilt in listOf(0.0, .3, -.3)) {
+        check(kindOf(heart(220f, tilt), "heart").kind == ShapeKind.HEART)
+        check(kindOf(heart(220f, tilt).reversed(), "reversed heart").kind == ShapeKind.HEART)
+    }
+    val hearts = kindOf(heart(220f), "heart").strokes.single()
+    check(hearts.tool == Tool.PEN && hearts.points.first() == hearts.points.last() && hearts.points.all { it.pressure == 1f })
+
+    fun arcOf(radius: Float, degrees: Double, turn: Double = 0.0) = rotate((0..120).map {
+        val a = (-degrees / 2 + degrees * it / 120) * PI / 180
+        p(radius * cos(a).toFloat(), radius * sin(a).toFloat())
+    }, turn).map { p(it.x + 300f, it.y + 300f) }
+    for (turn in listOf(0.0, 1.0, 3.5)) for (degrees in listOf(70.0, 120.0, 190.0)) {
+        check(kindOf(arcOf(150f, degrees, turn), "$degrees° arc").kind == ShapeKind.ARC)
+    }
+    check(ShapeRecognition.recognise(stroke(arcOf(150f, 280.0))) == null) { "A nearly closed C became an arc" }
+    check(ShapeRecognition.recognise(stroke(arcOf(14f, 120.0))) == null) { "A small bracket-like mark is handwriting" }
+    val bracket = listOf(p(120f, 0f), p(0f, 0f), p(0f, 260f), p(120f, 260f))
+    for (turn in listOf(0.0, PI / 2, 2.0)) check(kindOf(path(rotate(bracket, turn), false), "bracket").kind == ShapeKind.BRACKET)
+    fun brace(height: Float, depth: Float): List<InkPoint> {
+        val r = depth / 2; val out = ArrayList<InkPoint>()
+        fun corner(cx: Float, cy: Float, from: Double, to: Double) { for (k in 0..10) { val a = (from + (to - from) * k / 10) * PI / 180; out += p(cx + r * cos(a).toFloat(), cy + r * sin(a).toFloat()) } }
+        corner(depth, r, -90.0, -180.0); corner(0f, height / 2 - r, 0.0, 90.0); corner(0f, height / 2 + r, -90.0, 0.0); corner(depth, height - r, 180.0, 90.0)
+        return out
+    }
+    for (turn in listOf(0.0, PI / 2, 4.0)) check(kindOf(rotate(brace(300f, 70f), turn), "brace").kind == ShapeKind.BRACE)
+    check(ShapeRecognition.recognise(stroke(path(listOf(p(0f, 0f), p(0f, 120f), p(90f, 120f)), false))) == null) { "An L became a bracket" }
+
+    fun rounded(width: Float, height: Float, radius: Float, turn: Double = 0.0): List<InkPoint> {
+        val out = ArrayList<InkPoint>()
+        fun corner(cx: Float, cy: Float, from: Double) { for (k in 0..10) { val a = (from + 90.0 * k / 10) * PI / 180; out += p(cx + radius * cos(a).toFloat(), cy + radius * sin(a).toFloat()) } }
+        corner(width - radius, radius, -90.0); corner(width - radius, height - radius, 0.0); corner(radius, height - radius, 90.0); corner(radius, radius, 180.0)
+        return path(rotate(out, turn).map { p(it.x + 100f, it.y + 100f) })
+    }
+    check(kindOf(rounded(260f, 140f, 50f), "rounded box").kind == ShapeKind.ROUNDED)
+    check(kindOf(rounded(300f, 110f, 55f, .4), "pill").kind == ShapeKind.ROUNDED)
+    // A slightly rounded corner is still the editable rectangle, and a circle is still a circle.
+    check(kindOf(rounded(260f, 140f, 12f), "soft box").kind == ShapeKind.RECTANGLE)
+    check(kindOf(oval(100f, 100f), "circle").kind == ShapeKind.ELLIPSE)
+    val pill = kindOf(rounded(300f, 110f, 55f), "pill").strokes.single()
+    check(pill.points.first() == pill.points.last() && pill.points.size in 40..200)
+
+    // A curved shaft with a head is one arrow: a true arc and two wings that follow its end.
+    fun curvedArrow(radius: Float, turn: Double = 0.0): List<InkPoint> {
+        val shaft = (0..90).map { val a = (-35 + 70.0 * it / 90) * PI / 180; p(radius * cos(a).toFloat(), radius * sin(a).toFloat()) }
+        val tip = shaft.last(); val before = shaft[shaft.size - 6]
+        val length = hypot(tip.x - before.x, tip.y - before.y); val ux = (tip.x - before.x) / length; val uy = (tip.y - before.y) / length
+        fun wing(sign: Float) = p(tip.x - 38f * (ux * .85f - sign * uy * .5f), tip.y - 38f * (uy * .85f + sign * ux * .5f))
+        return rotate(shaft + path(listOf(tip, wing(1f), tip, wing(-1f)), false), turn).map { p(it.x + 300f, it.y + 300f) }
+    }
+    for (turn in listOf(0.0, 1.7)) {
+        val arrowOfArc = kindOf(curvedArrow(260f, turn), "curved arrow")
+        check(arrowOfArc.kind == ShapeKind.ARROW && arrowOfArc.strokes.size == 3 && arrowOfArc.strokes[0].tool == Tool.PEN && arrowOfArc.strokes.drop(1).all { it.tool == Tool.LINE })
+        check(kindOf(curvedArrow(260f, turn).reversed(), "curved arrow drawn from the head").kind == ShapeKind.ARROW)
+    }
+    // Straight arrows keep three straight strokes.
+    check(kindOf(path(arrow, false), "straight arrow").strokes.all { it.tool == Tool.LINE })
+
+    // Each family switches off independently; the new shapes belong to the family they look like.
+    check(ShapeRecognition.recognise(stroke(arcOf(150f, 120.0)), defaults.copy(curves = false)) == null)
+    check(ShapeRecognition.recognise(stroke(arcOf(150f, 120.0)), defaults.copy(closed = false, lines = false, arrows = false)) != null)
+    check(ShapeRecognition.recognise(stroke(heart(220f)), defaults.copy(closed = false)) == null)
+    check(ShapeRecognition.recognise(stroke(heart(220f)), defaults.copy(curves = false)) != null)
+    check(ShapeRecognition.recognise(stroke(curvedArrow(260f)), defaults.copy(arrows = false)) == null)
+    check(ShapeRecognition.recognise(stroke(rounded(300f, 110f, 55f)), defaults.copy(closed = false)) == null)
+    check(ShapeAssistOptions.decode("1,1,1,0,0,1").curves) // preferences saved before curves existed keep it on
+
+    // Lasso cleanup handles them too, and tidied ink is left alone the second time.
+    for ((name, points) in listOf("heart" to heart(220f), "arc" to arcOf(150f, 120.0), "brace" to brace(300f, 70f),
+        "bracket" to path(bracket, false), "pill" to rounded(300f, 110f, 55f), "curved arrow" to curvedArrow(260f), "pentagram" to path(listOf(points5[0], points5[2], points5[4], points5[1], points5[3])))) {
+        val once = ShapeCleanup.strokes(listOf(stroke(points)), defaults)
+        check(once.changed == 1 && once.shapes == 1) { "Cleanup missed $name" }
+        check(ShapeCleanup.strokes(once.strokes, defaults).changed == 0) { "Cleanup of tidied $name changed it again" }
+    }
+    val wholeHeart = heart(220f)
+    val halves = ShapeCleanup.strokes(listOf(stroke(wholeHeart.subList(0, 101)), stroke(wholeHeart.subList(100, wholeHeart.size))), defaults)
+    check(halves.shapes == 1 && halves.strokes.single().points.size > 50) { "Heart in two halves: ${halves.strokes.map { it.tool }}" }
+    check(ShapeCleanup.strokes(listOf(stroke(arcOf(150f, 120.0))), defaults.copy(curves = false)).changed == 0)
+
+    // A tidied curve, heart or rounded box still resizes and turns about its centre, with finite points.
+    for (shape in listOf(kindOf(heart(220f), "heart").strokes, kindOf(arcOf(150f, 120.0), "arc").strokes,
+        kindOf(rounded(300f, 110f, 55f), "pill").strokes, kindOf(curvedArrow(260f), "curved arrow").strokes)) {
+        val contact = shape.flatMap { it.points }.maxBy { it.x }
+        val adjusted = ShapeAdjustment(shape, contact).update(p(contact.x + 80f, contact.y + 50f), 5f)
+        check(adjusted.size == shape.size && adjusted.all { s -> s.points.all { it.x.isFinite() && it.y.isFinite() } })
+        check(adjusted.flatMap { it.points } != shape.flatMap { it.points })
+    }
+
+    println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, hearts, arcs, brackets, braces, rounded boxes, straight and curved arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")
 }
