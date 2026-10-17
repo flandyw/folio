@@ -71,6 +71,12 @@ class InkView(context: Context) : View(context) {
     private var speedWidth: PenPressure.SpeedWidth? = null
     var eraserPressureEnabled = true
     var scribbleToErase = true
+        set(value) {
+            if (field == value) return
+            field = value
+            recognitionEpoch++
+            if (value && isAttachedToWindow) InkGestureRecognizer.prepare(InkGestureRecognizer.Model.GESTURES)
+        }
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
     var eraserWholeStroke = false
     private var inputRouter = StylusInputRouter(pinchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
@@ -169,9 +175,9 @@ class InkView(context: Context) : View(context) {
         }
         return current.generated(if (drag.tool == Tool.GRAPH) GraphAxes.strokes(drag, graphStyle) else listOf(drag))
     }
-    private fun localContent(current: DocumentInkCapture, finishing: Boolean): PageContent {
+    private fun localContent(current: DocumentInkCapture): PageContent {
         val options = DocumentToolEdits.Options(current.template.tool == Tool.ERASER, eraserWholeStroke, eraserPressureEnabled && stylus,
-            finishing && scribbleToErase && heldShape == null && current.template.tool in FREEHAND_TOOLS, scribbleSensitivity)
+            false, scribbleSensitivity)
         val strokes = current.strokes()[page.id].orEmpty(); val notes = current.noteStrokes()[page.id].orEmpty()
         return if (options.erasing) localEraser.content(page, strokes, notes, options) else DocumentToolEdits.content(page, strokes, notes, options)
     }
@@ -185,7 +191,7 @@ class InkView(context: Context) : View(context) {
             if (local.spanning || routed.spanning) {
                 documentSpanning = true
                 if (!routed.blocked) {
-                    val content = localContent(routed, false)
+                    val content = localContent(routed)
                     val erasing = local.template.tool == Tool.ERASER
                     documentInkPreview = if (erasing) emptyList() else routed.strokes()[page.id].orEmpty()
                     documentContentPreview = page.copy(strokes = if (erasing) content.strokes else page.strokes, texts = content.texts)
@@ -203,8 +209,8 @@ class InkView(context: Context) : View(context) {
                 if (routed.blocked) onLayerBlocked()
                 else {
                     val options = DocumentToolEdits.Options(local.template.tool == Tool.ERASER, eraserWholeStroke,
-                        eraserPressureEnabled && stylus, scribbleToErase && heldShape == null && local.template.tool in FREEHAND_TOOLS, scribbleSensitivity)
-                    val steps = if (options.erasing) listOf(localContent(routed, true)) else DocumentToolEdits.contentSteps(
+                        eraserPressureEnabled && stylus, false, scribbleSensitivity)
+                    val steps = if (options.erasing) listOf(localContent(routed)) else DocumentToolEdits.contentSteps(
                         page, routed.strokes()[page.id].orEmpty(), routed.noteStrokes()[page.id].orEmpty(), options)
                     for (content in steps) if (content != page.content()) {
                         page = page.copy(strokes = content.strokes, texts = content.texts)
@@ -242,7 +248,13 @@ class InkView(context: Context) : View(context) {
     var onContentChanged: (List<Stroke>, List<TextBox>, List<PageImage>) -> Unit = { _, _, _ -> }
     /** Pause at the end of a pen drawing to preview a clean shape before lifting. */
     var shapeRecognition = false
-        set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
+        set(value) {
+            if (field == value) return
+            field = value
+            clearShapeHold()
+            if (value && isAttachedToWindow) InkGestureRecognizer.prepare(InkGestureRecognizer.Model.SHAPES)
+            invalidate()
+        }
     internal var shapeAssistOptions = ShapeAssistOptions()
         set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
     internal var onShapeAssistPreview: (Boolean) -> Unit = {}
@@ -401,6 +413,8 @@ class InkView(context: Context) : View(context) {
     private var zoneFromY = 0f
     private var zoneOffered = false
     private var lastZoneOfferAt = 0L
+    private var recognitionEpoch = 0L
+    private var shapeRequest = 0L
     private var draft: Stroke? = null
     private val shapeHintBackground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xED202624.toInt() }
     private val shapeHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
@@ -417,18 +431,33 @@ class InkView(context: Context) : View(context) {
                 shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
                 return@Runnable
             }
-            heldShape = draft?.let { ShapeRecognition.tidy(ShapeHold.drawing(it, shapeFitPointCount), shapeAssistOptions) }?.let(::snapShapes)
-            if (heldShape != null) {
-                shapeAdjustment = ShapeAdjustment(heldShape!!, shapeContact ?: draft!!.points.last())
+            val source = draft ?: return@Runnable
+            val drawing = ShapeHold.drawing(source.copy(points = source.points.toList()), shapeFitPointCount)
+            val request = ++shapeRequest
+            val pageId = page.id
+            val revision = page.revision
+            val options = shapeAssistOptions
+            val layer = activeLayer
+            fun show(fitted: Tidied) {
+                if (request != shapeRequest || draft == null || page.id != pageId || !isAttachedToWindow ||
+                    !shapeRecognition || readOnly || inputBlocked || navigating ||
+                    page.revision != revision || activeLayer != layer || shapeAssistOptions != options || tool != source.tool ||
+                    !PageLayers.editable(page.layers, activeLayer)) return
+                heldShape = snapShapes(fitted.strokes)
+                shapeAdjustment = ShapeAdjustment(heldShape!!, shapeContact ?: drawing.points.last())
                 removeCallbacks(longPressRunnable)
                 onShapeAssistPreview(true)
                 performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                 if (documentGesture) documentSamples(emptyList())
                 invalidate()
             }
+            InkGestureRecognizer.shape(drawing, options) { fitted ->
+                if (fitted != null) show(fitted)
+            }
         }
     }
     private fun clearShapeHold() {
+        shapeRequest++
         removeCallbacks(shapeHoldRunnable)
         shapeHold.reset()
         heldShape = null
@@ -453,7 +482,7 @@ class InkView(context: Context) : View(context) {
                 event.getHistoricalEventTime(h), slop) || moved
         }
         moved = shapeHold.sample(event.getX(index), event.getY(index), event.eventTime, slop) || moved
-        if (moved) shapeFitPointCount = draft!!.points.size
+        if (moved) { shapeRequest++; shapeFitPointCount = draft!!.points.size }
         removeCallbacks(shapeHoldRunnable)
         shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
         return moved
@@ -1666,6 +1695,8 @@ class InkView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (scribbleToErase) InkGestureRecognizer.prepare(InkGestureRecognizer.Model.GESTURES)
+        if (shapeRecognition) InkGestureRecognizer.prepare(InkGestureRecognizer.Model.SHAPES)
         previousFollowVisible.setEmpty()
         viewTreeObserver.addOnPreDrawListener(followViewportListener)
         (rootView as? ViewGroup)?.let(TextMathBitmaps::attach)
@@ -2096,6 +2127,7 @@ class InkView(context: Context) : View(context) {
 
     /** Receives admitted pointers only; a pen is pointer zero in its own complete DOWN..UP stream. */
     private fun handleTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) recognitionEpoch++
         // Cancellation must precede blocked input and every early-return tool path.
         if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
             windowDrag = null; windowDragStart = null
@@ -2525,7 +2557,7 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_POINTER_UP -> {
                 if (event.getPointerId(event.actionIndex) == pointerId && stylus) {
                     if (lassoActive()) { documentSamples(listOf(point(event, event.actionIndex))); finishLasso() }
-                    else { finishStrokeSamples(event, event.actionIndex); if (finishDocument()) cancelGesture() else finishGesture() }
+                    else { finishStrokeSamples(event, event.actionIndex); finishInkGesture() }
                 }
                 else if (!stylus && !ignored) {
                     if (event.getPointerId(event.actionIndex) == pointerId) {
@@ -2577,7 +2609,7 @@ class InkView(context: Context) : View(context) {
                 else {
                     // Follow the tracked pointer, which may be a stylus that took over from a finger.
                     finishStrokeSamples(event, event.findPointerIndex(pointerId).coerceAtLeast(0))
-                    if (finishDocument()) cancelGesture() else finishGesture()
+                    finishInkGesture()
                 }
                 }
                 performClick()
@@ -2627,6 +2659,52 @@ class InkView(context: Context) : View(context) {
         // The live geometry already folded the old sample; start it again (cheap: the stroke is two samples long).
         resetDraftGeometry()
     }
+    /** Physical movement, rather than touch sample count, gates expensive recognition. */
+    internal fun canClassifyScribble(stroke: Stroke): Boolean =
+        InkGeometry.isScribble(stroke.points, scribbleSensitivity) &&
+            ShapeMath.length(stroke.points) * scale >= 48f * resources.displayMetrics.density &&
+            ShapeMath.span(stroke.points) * scale >= 16f * resources.displayMetrics.density
+
+    /** Commit visible ink immediately; a model-approved erasure is a separate, guarded undo step. */
+    private fun finishInkGesture() {
+        val drawing = draft
+        // Spanning document gestures are interpreted by DocumentInputCoordinator instead.
+        val external = documentGesture && localCapture == null && documentSpanning
+        if (drawing == null || !scribbleToErase || heldShape != null || drawing.tool !in FREEHAND_TOOLS ||
+            external || !canClassifyScribble(drawing)) {
+            if (finishDocument()) cancelGesture() else finishGesture()
+            return
+        }
+        val before = page
+        val drawn = drawing.copy(points = drawing.points.toList())
+        val local = localCapture?.let(::routedLocal)
+        val paths = local?.strokes()?.get(before.id)?.map { it.copy(points = it.points.toList()) }
+            ?: if (noteTarget == null) listOf(drawn) else emptyList()
+        val notes = local?.noteStrokes()?.get(before.id)?.mapValues { (_, ink) -> ink.map { it.copy(points = it.points.toList()) } }
+            ?: noteTarget?.let { id -> before.texts.find { it.id == id }?.let { box ->
+                mapOf(id to listOf(StickyNotes.toNote(box, drawn)))
+            } }.orEmpty()
+        val sensitivity = scribbleSensitivity
+        if (finishDocument()) cancelGesture() else finishGesture()
+        val expected = page.content()
+        if (expected == before.content()) return
+        val guard = InkRecognitionSnapshot(page, before.revision + 1)
+        val epoch = recognitionEpoch
+        InkGestureRecognizer.scribble(drawn, before, paths, notes, sensitivity) { after ->
+            if (after == null || epoch != recognitionEpoch || !isAttachedToWindow || !guard.matches(page) ||
+                !scribbleToErase || readOnly || inputBlocked) return@scribble
+            val strokesChanged = page.strokes != after.strokes
+            val textsChanged = page.texts != after.texts
+            page = page.copy(strokes = after.strokes, texts = after.texts)
+            when {
+                strokesChanged && textsChanged -> onContentChanged(after.strokes, after.texts, after.images)
+                strokesChanged -> onStrokesChanged(after.strokes)
+                textsChanged -> onTextsChanged(after.texts)
+            }
+            invalidate()
+        }
+    }
+
     private fun finishGesture() {
         noteTarget?.let { id -> finishNoteStroke(page.texts.find { it.id == id && it.isSticky }); return }
         // Captured before cancelGesture clears it: the note ink the eraser left behind.
@@ -2634,27 +2712,22 @@ class InkView(context: Context) : View(context) {
         val wasErasing = erasing != null
         val byFinger = !stylus
         val drawn = draft?.let { it.copy(points = it.points.toList()) }
-        var scribbleErased: List<Stroke>? = null
-        if (heldShape == null && drawn != null && scribbleToErase && (drawn.tool == Tool.PEN || drawn.tool == Tool.HIGHLIGHTER)) {
-            val scrubbed = InkGeometry.scribbleErase(page.strokes, drawn, SCRIBBLE_RADIUS, scribbleSensitivity, ::boundsOf, ::erasable)
-            if (scrubbed !== page.strokes) scribbleErased = scrubbed
-        }
         // Only a completed pen-down hold authorises tidy-up; lifting alone always keeps freehand.
         val tidied = heldShape
         // What is stored is the drawn stroke with its redundant samples thinned, so notebooks stay small.
         val stored = drawn?.let(::refitted)
-        val strokes = scribbleErased ?: (tidied ?: stored?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
+        val strokes = (tidied ?: stored?.let { if (it.tool == Tool.GRAPH) GraphAxes.strokes(it, graphStyle) else listOf(it) })
             // Shapes tidied or generated from the drag are new strokes; they join the layer being drawn on.
             ?.map { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
             ?.let { page.strokes + it } ?: erasing
-        if (canFollow && drawn?.tool == Tool.PEN && scribbleErased == null) {
+        if (canFollow && drawn?.tool == Tool.PEN) {
             followCompletedStroke(drawn, recognise = tidied == null)
         }
-        val appendedStroke = stored?.takeIf { scribbleErased == null && tidied == null && it.tool != Tool.GRAPH }
+        val appendedStroke = stored?.takeIf { tidied == null && it.tool != Tool.GRAPH }
         val beforeStrokes = page.strokes
         val changed = strokes != null && (appendedStroke != null || strokes != beforeStrokes)
         if (changed) {
-            if (drawn != null && stored === drawn && drawn.tool in FREEHAND_TOOLS && scribbleErased == null && tidied == null &&
+            if (drawn != null && stored === drawn && drawn.tool in FREEHAND_TOOLS && tidied == null &&
                 (drawn.tool != Tool.PEN || InkTaper.amount == 0f)) {
                 // Hand the final live geometry to the retained layer; pen-up need not smooth it again.
                 // Not when the ends are tapered: the live pass can't know where the stroke ends.
@@ -2670,9 +2743,8 @@ class InkView(context: Context) : View(context) {
         val shouldNotifyEraser = wasErasing && tool == Tool.ERASER
         cancelGesture()
         if (changed) {
-            if ((tidied != null || scribbleErased != null) && drawn != null) {
-                // Save the drawing first, then its interpretation. One undo restores intentional
-                // scribbles (and the ink they erased), just as it restores a shape's freehand source.
+            if (tidied != null && drawn != null) {
+                // Save the drawing first so Undo can restore the shape's freehand source.
                 val original = drawn.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }
                 val withOriginal = beforeStrokes + original
                 if (onStrokeAppended != null) onStrokeAppended!!.invoke(beforeStrokes, original, withOriginal)
@@ -2703,15 +2775,6 @@ class InkView(context: Context) : View(context) {
         val tidied = heldShape
         cancelGesture()
         if (note == null || drawn == null) { invalidate(); return }
-        if (tidied == null && scribbleToErase && drawn.tool in FREEHAND_TOOLS) {
-            val scrubbed = InkGeometry.scribbleErase(note.stickyInk, StickyNotes.toNote(note, drawn), SCRIBBLE_RADIUS, scribbleSensitivity)
-            if (scrubbed !== note.stickyInk) {
-                val original = StickyNotes.toNote(note, drawn.copy(layer = 0))
-                commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = it.stickyInk + original) else it })
-                commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = scrubbed) else it })
-                return
-            }
-        }
         val added = (tidied ?: if (drawn.tool == Tool.GRAPH) GraphAxes.strokes(drawn, graphStyle) else listOf(drawn))
             .map { StickyNotes.toNote(note, it.copy(layer = 0)) }
         commitTexts(page.texts.map { if (it.id == note.id) it.copy(stickyInk = it.stickyInk + added) else it })
@@ -3214,7 +3277,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { recognitionEpoch++; if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -4086,7 +4149,6 @@ class InkView(context: Context) : View(context) {
         const val PREDICTED_POINTS = 24
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */
         const val LINK_SLOP = 12f
-        const val SCRIBBLE_RADIUS = 14f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
         /**

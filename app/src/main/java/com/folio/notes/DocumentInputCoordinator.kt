@@ -8,6 +8,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     private var seam = 0f
     private var pageById = emptyMap<String, NotePage>()
     private var capture: DocumentInkCapture? = null
+    private var recognitionEpoch = 0L
     private var eraserSession = DocumentToolEdits.EraserSession()
     private var frameDrifted = false
     private var lasso = false
@@ -46,6 +47,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             if (stroke.tool == Tool.MARK_AREA) frame.copy(notes = emptyList()) else frame
         }
         if (pages.none { it.frame.pageId == sourceId }) return false
+        recognitionEpoch++
         clearSelection()
         eraserSession = DocumentToolEdits.EraserSession()
         frameDrifted = false
@@ -69,24 +71,24 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         }
         return current.generated(if (drag.tool == Tool.GRAPH) GraphAxes.strokes(drag, view?.graphStyle ?: GraphStyle.DEFAULT) else listOf(drag))
     }
-    private fun toolOptions(current: DocumentInkCapture, finishing: Boolean): DocumentToolEdits.Options {
+    private fun toolOptions(current: DocumentInkCapture): DocumentToolEdits.Options {
         val view = surfaces.find(EditorSurfaceRole.MAIN, current.sourceId)
         return DocumentToolEdits.Options(current.template.tool == Tool.ERASER, view?.eraserWholeStroke == true,
             view?.eraserPressureEnabled == true && view.hasDocumentStylusContact,
-            finishing && view?.scribbleToErase == true && view.documentHeldShape == null && current.template.tool in setOf(Tool.PEN, Tool.HIGHLIGHTER),
+            false,
             view?.scribbleSensitivity ?: ScribbleSensitivity.DEFAULT)
     }
-    private fun contentAfter(current: DocumentInkCapture, finishing: Boolean = false): Map<String, PageContent> {
+    private fun contentAfter(current: DocumentInkCapture): Map<String, PageContent> {
         val strokes = current.strokes(); val notes = current.noteStrokes()
-        val options = toolOptions(current, finishing)
+        val options = toolOptions(current)
         return (strokes.keys + notes.keys).associateWith { id ->
             if (options.erasing) eraserSession.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
             else DocumentToolEdits.content(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
         }
     }
     private fun commitContents(current: DocumentInkCapture): List<Map<String, PageContent>> {
-        val options = toolOptions(current, finishing = true)
-        if (options.erasing) return listOf(contentAfter(current, finishing = true))
+        val options = toolOptions(current)
+        if (options.erasing) return listOf(contentAfter(current))
         val strokes = current.strokes(); val notes = current.noteStrokes()
         val steps = (strokes.keys + notes.keys).associateWith { id ->
             DocumentToolEdits.contentSteps(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
@@ -198,6 +200,14 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         } else {
             val routed = routed(current)
             if (routed.blocked) { model.reportError("A crossed surface is locked or unavailable; draw again"); return true }
+            val originalPages = pageById
+            val source = surfaces.find(EditorSurfaceRole.MAIN, sourceId)
+            val drawn = if (source?.scribbleToErase == true && source.documentHeldShape == null &&
+                    current.template.tool in setOf(Tool.PEN, Tool.HIGHLIGHTER))
+                current.dragStroke().let { it.copy(points = it.points.toList()) } else null
+            val scribble = drawn != null && source!!.canClassifyScribble(drawn)
+            val paths = if (scribble) routed.strokes().mapValues { (_, ink) -> ink.map { it.copy(points = it.points.toList()) } } else emptyMap()
+            val notes = if (scribble) routed.noteStrokes().mapValues { (_, boxes) -> boxes.mapValues { (_, ink) -> ink.map { it.copy(points = it.points.toList()) } } } else emptyMap()
             var before = pageById
             var expectedRevisions = revisions
             for (contents in commitContents(routed)) {
@@ -215,13 +225,37 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
                 before = committed
                 expectedRevisions = committed.mapValues { it.value.revision }
             }
+            val ids = paths.keys + notes.keys
+            val expected = model.state.value.active?.takeIf { it.id == note.id }?.pages
+                ?.filter { it.id in ids }?.associateBy { it.id }.orEmpty()
+            // Only classify successfully committed gestures; never reinterpret a refused transaction.
+            if (scribble && drawn != null && ids.all { id -> expected[id]?.revision == revisions.getValue(id) + 1 }) {
+                val epoch = recognitionEpoch
+                val guards = expected.mapValues { InkRecognitionSnapshot(it.value) }
+                InkGestureRecognizer.scribbleDocument(drawn, originalPages.filterKeys { it in ids }, paths, notes,
+                    source!!.scribbleSensitivity) { contents ->
+                    val active = model.state.value.active
+                    if (epoch != recognitionEpoch || active?.id != note.id ||
+                        !source.scribbleToErase || source.readOnly || source.inputBlocked || !source.isAttachedToWindow ||
+                        ids.any { id -> !guards.getValue(id).matches(active.pages.find { it.id == id }) }) return@scribbleDocument
+                    val edits = contents.mapNotNull { (id, content) ->
+                        PageJournal.diff(expected.getValue(id).content(), content)?.let { id to it }
+                    }.toMap()
+                    if (edits.isNotEmpty() && model.commitDocumentEdits(note.id, edits,
+                            edits.keys.associateWith { expected.getValue(it).revision })) {
+                        val committed = model.state.value.active?.pages?.associateBy { it.id }.orEmpty()
+                        surfaces.mainSurfaces().forEach { view -> if (view.page.id in edits)
+                            committed[view.page.id]?.let { view.bind(it, view.background, view.imageBitmaps) } }
+                    }
+                }
+            }
         }
         if (current.template.tool == Tool.ERASER) surfaces.find(EditorSurfaceRole.MAIN, sourceId)?.let { if (it.tool == Tool.ERASER) it.onEraserFinished?.invoke() }
         return true
     }
     fun isHistoryBusy(): Boolean = model?.state?.value?.documentHistoryBusy == true
     fun cancelNativeContacts() { surfaces.editingSurfaces().forEach { it.cancelExternalGesture() }; cancel() }
-    fun cancel() { capture = null; surfaces.mainSurfaces().forEach { it.finishDocumentLaser() }; clearPreviews() }
+    fun cancel() { recognitionEpoch++; capture = null; surfaces.mainSurfaces().forEach { it.finishDocumentLaser() }; clearPreviews() }
     private fun clearPreviews() { surfaces.mainSurfaces().forEach { it.documentMarkRegionPreview = null; it.documentContentPreview = null; it.documentInkPreview = emptyList(); it.documentPreviewLiveStroke = null; it.documentLassoPreview = emptyList() } }
     fun selectionOn(id: String): CanvasSelection? = interaction.documentSelection.value[id]
     fun selectedOn(id: String): Boolean = interaction.documentSelection.value[id]?.isNotEmpty() == true

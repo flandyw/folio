@@ -300,20 +300,14 @@ private fun ends() {
     line[0] = InkPoint(0f, 0f, 1.8f); line[40] = InkPoint(40f, 0f, 1.8f)
     val settled = StrokeEnds.settle(line, 2.2f)
     check(settled.first().pressure == .6f && settled.last().pressure == .6f)
-    // A lift skid (a short turn back) is dropped; the stroke keeps its real end.
-    val skid = (0..40).map { InkPoint(it * 1f, 0f, .6f) } + listOf(InkPoint(40.6f, -.8f, .3f), InkPoint(40.8f, -1.6f, .3f))
-    val noSkid = StrokeEnds.settle(skid, 2.2f)
-    check(noSkid.size == 41 && noSkid.last().x == 40f) { "skid kept: ${noSkid.takeLast(3)}" }
-    // So is a landing skid at the start.
-    val landing = listOf(InkPoint(-.5f, 1.4f, .3f), InkPoint(-.2f, .6f, .3f)) + (0..40).map { InkPoint(it * 1f, 0f, .6f) }
-    check(StrokeEnds.settle(landing, 2.2f).first().let { it.x == 0f && it.y == 0f })
-    // Real writing survives: a deliberate hook longer than the limit, a straight end, and short strokes.
-    val hook = (0..40).map { InkPoint(it * 1f, 0f, .6f) } + (1..6).map { InkPoint(40f, -it * 1f, .6f) }
-    check(StrokeEnds.settle(hook, 2.2f).size == hook.size) { "a written hook was trimmed" }
+    // Positions are never trimmed: the close of a small "o" and short final turns stay exactly as written.
+    val o = (0..60).map { val t = it / 60f * 2.2f * PI.toFloat(); InkPoint(4f * cos(t), 4f * sin(t), .6f) }
+    val keptO = StrokeEnds.settle(o, 2.2f)
+    check(keptO.size == o.size && keptO.indices.all { keptO[it].x == o[it].x && keptO[it].y == o[it].y }) { "an o was cut short" }
+    val skid = (0..40).map { InkPoint(it * 1f, 0f, .6f) } + listOf(InkPoint(40.6f, -.8f, .6f), InkPoint(40.8f, -1.6f, .6f))
+    check(StrokeEnds.settle(skid, 2.2f) === skid)
     val plain = (0..40).map { InkPoint(it * 1f, 0f, .6f) }
     check(StrokeEnds.settle(plain, 2.2f) === plain)
-    val tick = listOf(InkPoint(0f, 0f, .6f), InkPoint(1f, 1f, .6f), InkPoint(1.5f, -.5f, .6f), InkPoint(2f, -2f, .6f))
-    check(StrokeEnds.settle(tick, 2.2f).size == tick.size)
     val dot = listOf(InkPoint(0f, 0f, 1f), InkPoint(.1f, 0f, .5f))
     check(StrokeEnds.settle(dot, 2.2f) === dot)
 }

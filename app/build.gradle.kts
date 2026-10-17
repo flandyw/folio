@@ -226,6 +226,7 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Bundled Latin OCR: available offline on first use, including scanned exam papers.
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

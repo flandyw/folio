@@ -6,8 +6,9 @@ import kotlin.math.*
 internal class ShapeAdjustment(private val shapes: List<Stroke>, private val contact: InkPoint) {
     var tip: InkPoint = contact; private set
     private val line = shapes.singleOrNull()?.takeIf { it.tool == Tool.LINE || it.tool == Tool.HIGHLIGHTER }
-    private val arrow = shapes.size == 3 && shapes.all { it.tool == Tool.LINE } &&
-        shapes.last().points.last() != shapes.first().points.first()
+    private val arrow = shapes.size == 3 && shapes.first().tool in setOf(Tool.LINE, Tool.PEN) &&
+        shapes.drop(1).all { it.tool == Tool.LINE && it.points.size == 2 &&
+            ShapeMath.distance(it.points.first(), shapes.first().points.last()) < .001f }
     private val points = shapes.flatMap { it.points }
     private val pivot = when {
         line != null || arrow -> shapes.first().points.first()
@@ -37,6 +38,17 @@ internal class ShapeAdjustment(private val shapes: List<Stroke>, private val con
             val x = p.x - pivot.x; val y = p.y - pivot.y
             return p.copy(x = pivot.x + (x * c - y * s) * scale,
                 y = pivot.y + (x * s + y * c) * scale)
+        }
+        if (arrow) {
+            val shaft = shapes.first()
+            val oldTip = shaft.points.last()
+            val newTip = transform(oldTip)
+            // The shaft stretches; the head only follows its tip and turns with its direction.
+            val head = shapes.drop(1).map { stroke -> stroke.copy(points = stroke.points.map { p ->
+                val x = p.x - oldTip.x; val y = p.y - oldTip.y
+                p.copy(x = newTip.x + x * c - y * s, y = newTip.y + x * s + y * c)
+            }) }
+            return listOf(shaft.copy(points = shaft.points.map(::transform))) + head
         }
         return shapes.flatMap { stroke ->
             when (stroke.tool) {

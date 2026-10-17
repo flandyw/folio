@@ -29,6 +29,68 @@ internal object ShapeRecognition {
     /** Within about 4° of level or upright, a box or oval is made exactly so. */
     private const val ALIGN = .07f
 
+    /** Null for families absent from Google's four-class shape model. */
+    fun modelLabel(shape: Tidied): String? = when (shape.kind) {
+        ShapeKind.RECTANGLE -> "RECTANGLE"
+        ShapeKind.ELLIPSE -> "ELLIPSE"
+        ShapeKind.ARROW -> "ARROW"
+        ShapeKind.POLYGON -> if (shape.sides == 3) "TRIANGLE" else null
+        else -> null
+    }
+
+    /** Fit the model's chosen family; ML supplies a label, never ideal coordinates. */
+    fun fitClassified(stroke: Stroke, label: String, options: ShapeAssistOptions): Tidied? {
+        if (stroke.tool != Tool.PEN || stroke.points.size < 5 ||
+            stroke.points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
+        val size = span(stroke.points)
+        val travel = length(stroke.points)
+        if (!size.isFinite() || !travel.isFinite() || size < 26f || travel < 40f) return null
+        if (label == "ARROW") return recognise(stroke, options)?.takeIf { it.kind == ShapeKind.ARROW }
+        if (!options.closed || travel < size * 1.6f || travel > size * 5.2f) return null
+        val points = resample(stroke.points, travel / 192f)
+        val closed = closure(points, size) ?: return null
+        val ring = resample(closed, length(closed) / 120f)
+        if (label == "ELLIPSE") {
+            val fit = ShapeFit.ellipse(ring)?.takeIf { roundEnough(it, ring, size) } ?: return null
+            return Tidied(ShapeKind.ELLIPSE, listOf(ellipse(stroke, fit, options.perfect)))
+        }
+        if (label == "TRIANGLE") return triangle(stroke, ring, size, options)
+        val sides = when (label) { "RECTANGLE" -> 4; else -> return null }
+        val peaks = ShapeFit.corners(ring)
+        val loop = ShapeFit.loops(ring, sides, peaks.take(3).ifEmpty { listOf(0) })[sides] ?: return null
+        val corners = ShapeFit.refine(ring, loop.vertices, size)
+        if (ShapeFit.outlineError(ring, corners) > size * .045f ||
+            ShapeFit.supported(ring, corners, peaks) < sides) return null
+        val fitted = shapeOf(stroke, corners, options) ?: return null
+        return fitted.takeIf { modelLabel(it) == label }
+    }
+
+    /** A triangle can have a shallow obtuse corner or a side much shorter than its other two. */
+    private fun triangle(stroke: Stroke, ring: List<InkPoint>, size: Float, options: ShapeAssistOptions): Tidied? {
+        val peaks = ShapeFit.corners(ring, minTurn = .08)
+        if (peaks.size < 3) return null
+        val loop = ShapeFit.loops(ring, 3, peaks.take(3))[3] ?: return null
+        val corners = ShapeFit.refine(ring, loop.vertices, size)
+        if (!triangleCorners(corners, size)) return null
+        val height = triangleHeight(corners)
+        // Across a thin triangle use its height, so a bowed line or flat retrace cannot qualify.
+        if (ShapeFit.outlineError(ring, corners) > min(size * .03f, height * .18f) ||
+            ShapeFit.supported(ring, corners, peaks) < 3) return null
+        return shapeOf(stroke, corners, options)
+    }
+
+    private fun triangleHeight(corners: List<InkPoint>): Float {
+        val a = corners[0]; val b = corners[1]; val c = corners[2]
+        val area = abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x))
+        val longest = corners.indices.maxOf { distance(corners[it], corners[(it + 1) % 3]) }
+        return area / longest.coerceAtLeast(.001f)
+    }
+
+    private fun triangleCorners(corners: List<InkPoint>, size: Float): Boolean = corners.size == 3 &&
+        corners.all { it.x.isFinite() && it.y.isFinite() } &&
+        corners.indices.all { distance(corners[it], corners[(it + 1) % 3]) >= max(3f, size * .02f) } &&
+        triangleHeight(corners) >= max(3f, size * .025f)
+
     fun tidy(stroke: Stroke, options: ShapeAssistOptions = ShapeAssistOptions()): List<Stroke>? = recognise(stroke, options)?.strokes
 
     fun recognise(stroke: Stroke, options: ShapeAssistOptions = ShapeAssistOptions()): Tidied? {
@@ -83,12 +145,13 @@ internal object ShapeRecognition {
     // ---- Open strokes -----------------------------------------------------------------------
 
     private fun open(stroke: Stroke, points: List<InkPoint>, span: Float): Tidied? {
-        if (straight(points, span)) return Tidied(ShapeKind.LINE, listOf(edge(stroke, points.first(), points.last())))
         // An arrow is a shaft and a head: four straight runs through five corners, drawn from either end.
         for (path in listOf(points, points.asReversed())) {
-            val chain = ShapeFit.cornerChain(path, 4, max(1.5f, span * .012f)) ?: continue
+            val chain = ShapeFit.cornerChain(path, 4, max(1.5f, min(3f, span * .012f))) ?: continue
             arrow(stroke, chain.map { path[it] }, span)?.let { return Tidied(ShapeKind.ARROW, it) }
         }
+        // A small head must win over the line fit, even on a very long shaft.
+        if (straight(points, span)) return Tidied(ShapeKind.LINE, listOf(edge(stroke, points.first(), points.last())))
         if (span < SYMBOL_MIN) return null
         curvedArrow(stroke, points, span)?.let { return Tidied(ShapeKind.ARROW, it) }
         return null
@@ -132,6 +195,7 @@ internal object ShapeRecognition {
         val peaks = ShapeFit.corners(ring)
         // No sharp turns and a very good fit: a plain round outline, with nothing else worth testing.
         if (round != null && peaks.size <= 1 && round.error <= span * .008) return Tidied(ShapeKind.ELLIPSE, listOf(ellipse(stroke, round, options.perfect)))
+        triangle(stroke, ring, span, options)?.let { return it }
         var pick: Candidate? = null
         if (peaks.size >= 3) {
             val loops = ShapeFit.loops(ring, min(12, max(5, peaks.size + 2)), peaks.take(3))
@@ -187,7 +251,8 @@ internal object ShapeRecognition {
     /** Whether [corners] (in drawing order) outline a convex polygon, a star, or a one-stroke pentagram. */
     private fun classify(corners: List<InkPoint>, span: Float): ShapeKind? {
         val n = corners.size
-        if (n !in 3..12) return null
+        if (n == 3) return if (triangleCorners(corners, span)) ShapeKind.POLYGON else null
+        if (n !in 4..12) return null
         val turns = corners.indices.map { turn(corners, it) }
         val sameSign = turns.all { it > 0f } || turns.all { it < 0f }
         val sum = abs(turns.sum())
@@ -365,7 +430,7 @@ internal object ShapeRecognition {
         if (corners.size != 5) return null
         val start = corners[0]; val first = corners[2]
         // The pen comes back to the tip between the wings, in either order.
-        val reach = span * .12f
+        val reach = min(span * .12f, 20f)
         val (again, second) = when {
             distance(corners[3], corners[1]) < reach && distance(corners[3], corners[1]) <= distance(corners[4], corners[1]) -> corners[3] to corners[4]
             distance(corners[4], corners[1]) < reach -> corners[4] to corners[3]
@@ -386,8 +451,8 @@ internal object ShapeRecognition {
         fun back(p: InkPoint) = (tip.x - p.x) * ux + (tip.y - p.y) * uy
         fun side(p: InkPoint) = (p.x - tip.x) * -uy + (p.y - tip.y) * ux
         val b1 = back(first); val b2 = back(second); val h1 = side(first); val h2 = side(second)
-        if (b1 !in length * .06f..length * .55f || b2 !in length * .06f..length * .55f ||
-            h1 * h2 >= 0f || min(abs(h1), abs(h2)) < length * .05f ||
+        if (b1 !in 3f..length * .55f || b2 !in 3f..length * .55f ||
+            h1 * h2 >= 0f || min(abs(h1), abs(h2)) < 3f ||
             max(b1, b2) > min(b1, b2) * 2.5f || max(abs(h1), abs(h2)) > min(abs(h1), abs(h2)) * 2.5f) return null
         val back = (b1 + b2) / 2; val half = (abs(h1) + abs(h2)) / 2
         fun wing(sign: Float) = InkPoint(tip.x - back * ux - sign * half * uy, tip.y - back * uy + sign * half * ux)
@@ -397,10 +462,10 @@ internal object ShapeRecognition {
     /** An arrow whose shaft is a curve: an arc, then a head. The shaft becomes a true arc and the head follows its end. */
     private fun curvedArrow(stroke: Stroke, points: List<InkPoint>, span: Float): List<Stroke>? {
         for (path in listOf(points, points.asReversed())) for (shaftSides in 2..3) {
-            val chain = ShapeFit.cornerChain(path, shaftSides + 3, max(1.5f, span * .012f)) ?: continue
+            val chain = ShapeFit.cornerChain(path, shaftSides + 3, max(1.5f, min(3f, span * .012f))) ?: continue
             val tipAt = chain[shaftSides]
             val first = path[chain[shaftSides + 1]]; val again = path[chain[shaftSides + 2]]; val second = path[chain.last()]
-            if (distance(again, path[tipAt]) >= span * .12f) continue
+            if (distance(again, path[tipAt]) >= min(span * .12f, 20f)) continue
             val shaft = path.subList(0, tipAt + 1)
             val shaftSpan = span(shaft)
             if (shaftSpan < span * .5f) continue

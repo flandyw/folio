@@ -50,9 +50,9 @@ longer darkens where runs overlapped. Discs are added only at the ends and where
 width; an even-width stroke is still drawn as one round-capped line, which is the same shape.
 
 `StrokeEnds.settle` runs when a pen stroke is stored: the pen-down and lift samples take their neighbours'
-pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke), and a
-skid shorter than 1.5 pen widths (max 3 units) that turns more than ~57° off the stroke is dropped. The live
-stroke fixes its first sample's pressure as soon as the second arrives.
+pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke). Positions
+are never trimmed: an earlier version dropped short sharp turns at the ends as pen skids, which cut the close
+off an "o" and broke cursive joins. The live stroke fixes its first sample's pressure as soon as the second arrives.
 
 ## Stored strokes
 

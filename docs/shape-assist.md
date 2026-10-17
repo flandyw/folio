@@ -8,6 +8,8 @@ Writing → Tidy up shapes share the same controls:
 - Independent recognition of lines, arrows, closed shapes, and curves & brackets.
 - Optional exact circles/squares for nearly round/square drawings (short/long side ratio ≥ 0.8).
   Deliberately elongated rectangles and ovals keep their proportions.
+- Irregular triangles (scalene, right-angled, acute or obtuse) retain their drawn sides, angles
+  and orientation, including a short side or shallow corner. Nearly flat retracing stays ink.
 - Optional equal-sided triangles, pentagons, hexagons, heptagons, octagons, four-, five- and
   six-point outline stars, and pentagrams. Orientation and centre follow the original drawing;
   quadrilaterals retain their own geometry.
@@ -30,6 +32,22 @@ existing codec, eraser and selection tool already understands them. Rounded boxe
 `PEN` outlines because the editor has no rounded-rectangle tool.
 
 ## How it decides
+
+Live draw-and-hold uses Google's on-device ML Kit Digital Ink Recognition 19.0.0 `SHAPES`
+classifier for rectangles, ellipses, triangles and arrows. `InkGestureRecognizer` shares one
+client and downloaded model across editor and practice surfaces. Settings show model download
+status and offer Retry; these four families stay freehand while the model is unavailable.
+The model chooses the family; `ShapeRecognition.fitClassified` and `ShapeFit` fit ordinary ink
+with the original style and layer. Lines/highlighter underlines and Folio's extra families
+(rounded boxes, other polygons, stars, hearts, arcs and brackets) retain deterministic recognition,
+as Google's model has no labels for them. Lasso cleanup keeps its existing deterministic,
+explicit preview workflow, including shapes drawn in multiple strokes.
+
+Fitting and inference run off the input thread. Only a deliberate pen-down hold can request a
+snap. Lifting, cancellation, a restarted hold, page/revision changes, detachment, tool/layer or
+option changes discard pending results; a late classifier never converts committed handwriting.
+ML Kit scores are not treated as probabilities, and no uncalibrated numeric threshold is used.
+Real-device classifier accuracy still needs checking against maths handwriting.
 
 Recognition fits models instead of counting corners, so a wobbling pen cannot add or remove one
 (`ShapeFit.kt`, `ShapeRecognition.kt`):
@@ -70,7 +88,10 @@ sustained movement restarts the delay; brief wobbles returning inside the radius
 original timer. Recognition averages the settling tail instead of treating repeated tremor
 as extra drawn corners; the saved freehand source retains every original sample. After recognition the shape stays latched: moving the pen adjusts a line's
 endpoint with its start fixed, resizes/rotates an arrow about its shaft start, or resizes/rotates
-a closed shape about its centre. A continuous 5 dp adjustment dead zone absorbs tip tremor.
+a closed shape about its centre. Straight and curved arrows keep the fitted arrowhead's original
+size while their shaft length changes; the head moves with the tip and rotates with its direction.
+Head recognition uses the head's own dimensions, so a small head can finish a long shaft.
+Graph-tool axis arrowheads also keep a fixed size as the graph frame grows. A continuous 5 dp adjustment dead zone absorbs tip tremor.
 Every update derives from the original fit, preserving proportions, angles, line width and
 style without cumulative drift. Adjustment movement is excluded from the original freehand
 samples and document capture, so Undo never restores a dragging tail. Lifting without a completed hold keeps the drawing. Cancellation, tool changes,
@@ -167,3 +188,14 @@ On a device:
    Write a page of ordinary handwriting with the hold speed on Quick: nothing should tidy unless held.
 9. Check the controls and previews in light/dark themes, portrait/landscape, narrow split panes
    and larger text settings; repeat live hold on a music sheet and on an infinite canvas.
+
+ML Kit device checks (the JVM checks exercise fitting and history, not Google's downloaded models):
+
+- Enable recognition, observe the download status, retry a failed download, then test in airplane mode.
+- Draw and hold rotated boxes, ovals, triangles and arrows; check their style, adjustment and Undo.
+- Lift or move away while recognition is pending; switch page/tool/layer or Undo and verify no late snap.
+- Scribble over paper, a sticky note and across page boundaries. Undo restores both the ink and scribble;
+  another Undo removes the scribble. Repeat with hidden/locked layers and with a missing model.
+- Write maths (`≋`, equals signs, x, 0/O), hatch graphs, and write normal text/Chinese characters over
+  existing ink. Check that these stay as ink. Calibrate score thresholds only from real device samples;
+  model scores are not probabilities, and this implementation relies on label agreement plus geometry.

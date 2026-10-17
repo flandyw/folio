@@ -1,7 +1,11 @@
 package com.folio.notes
 
 import android.content.Intent
+import android.hardware.display.DisplayManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Display
 import android.view.MotionEvent
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -28,6 +32,17 @@ class MainActivity : ComponentActivity() {
     private var stylusSeen = true
     private val model: FolioViewModel by viewModels()
     private var shortcutRequest by mutableIntStateOf(0)
+    private val displayManager by lazy { getSystemService(DisplayManager::class.java) }
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = refreshDisplayRequest()
+        override fun onDisplayRemoved(displayId: Int) = refreshDisplayRequest()
+        override fun onDisplayChanged(displayId: Int) = refreshDisplayRequest()
+    }
+
+    private fun refreshDisplayRequest() {
+        cachedDisplayMode = null
+        requestHighRefreshRate()
+    }
     /** Page rasters kept for pages scrolled away and cached text layouts are the first thing to give back. */
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
@@ -96,18 +111,20 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
+        displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         (application as FolioApplication).focalStudy.setForeground(true)
     }
     override fun onResume() {
         super.onResume()
         // A mode can change while the app is in the background (another app, a power profile), so the
         // request is re-checked on every return rather than assumed to have stuck.
-        requestHighRefreshRate()
+        refreshDisplayRequest()
         // A session may have been finished in Focal while Android deferred our background poll.
         // Pull as soon as the user returns so its timer stops on the remote terminal change.
         (application as FolioApplication).focalStudy.retry()
     }
     override fun onStop() {
+        displayManager.unregisterDisplayListener(displayListener)
         // The exam clock only runs while the user is looking at the pages: backgrounding the app
         // or turning the screen off parks it, and parked time never counts. Rotation also stops
         // the activity, so it is skipped — the timer keeps running across a rotate.
@@ -121,26 +138,29 @@ class MainActivity : ComponentActivity() {
         // The bars slide back after dialogs, the keyboard and app switches, so they are re-hidden here.
         if (hasFocus) { hideSystemBars(); requestHighRefreshRate() }
     }
-    // Cached after the first lookup: supportedModes + relayout on every focus change janked
-    // dialogs, keyboard and app switches.
-    private var cachedRefreshRate: Float? = null
+    // Reuse the mode across focus changes (dialogs/keyboard), but invalidate on display events
+    // and resume. A cached rate alone can outlive a resolution change or move to another display.
+    private var cachedDisplayMode: Display.Mode? = null
+    private var cachedDisplayId = -1
     private fun requestHighRefreshRate() {
-        cachedRefreshRate?.let { rate ->
-            val attributes = window.attributes
-            if (attributes.preferredRefreshRate != rate) {
-                attributes.preferredRefreshRate = rate
-                window.attributes = attributes
-            }
-            return
-        }
         val screen = window.decorView.display ?: return
         val current = screen.mode
-        val fastest = screen.supportedModes.filter {
+        val fastest = cachedDisplayMode?.takeIf {
+            cachedDisplayId == screen.displayId &&
+                it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        } ?: screen.supportedModes.asSequence().filter {
             it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
-        }.maxByOrNull { it.refreshRate } ?: return
-        cachedRefreshRate = fastest.refreshRate
+        }.maxByOrNull { it.refreshRate }?.also {
+            cachedDisplayId = screen.displayId
+            cachedDisplayMode = it
+        } ?: return
         val attributes = window.attributes
-        if (attributes.preferredRefreshRate != fastest.refreshRate) {
+        // Request the actual fastest mode (144 Hz on a panel exposing it), keeping resolution.
+        // Android/OEM power and thermal policy still has the final say. Avoid redundant relayouts,
+        // including the display-change notification caused by our own mode request.
+        if (attributes.preferredDisplayModeId != fastest.modeId ||
+            attributes.preferredRefreshRate != fastest.refreshRate) {
+            attributes.preferredDisplayModeId = fastest.modeId
             attributes.preferredRefreshRate = fastest.refreshRate
             window.attributes = attributes
         }

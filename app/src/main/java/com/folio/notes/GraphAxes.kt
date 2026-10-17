@@ -16,8 +16,9 @@ object GraphAxes {
 
     /** Digits smaller than this are unreadable, so labels are dropped rather than smudged. */
     const val MIN_GLYPH = 7f
-    /** Fractions of the frame's shorter side used for arrowheads and ticks. */
-    const val ARROW = .04f
+    /** Arrowhead depth in page units, independent of the frame and axis lengths. */
+    const val ARROW = 10f
+    /** Ticks use a fraction of the frame's shorter side. */
     const val TICK = .022f
     /** Labels sit this far off the axis, as a multiple of their own height. */
     const val LABEL_GAP = .28f
@@ -42,7 +43,7 @@ object GraphAxes {
         val halfX = frame.halfX(style); val halfY = frame.halfY(style)
         val xBoth = style.origin.xBoth; val yBoth = style.origin.yBoth
         val short = min(frame.width, frame.height)
-        val head = (short * ARROW).coerceAtMost(10f)
+        val head = ARROW
         val wing = head * .5f
         fun line(vararg points: InkPoint) = draft.copy(tool = Tool.LINE, points = points.toList())
         // The grid is a backdrop: thinner and fainter than the axes it sits behind.

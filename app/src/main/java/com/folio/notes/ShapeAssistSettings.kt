@@ -34,6 +34,7 @@ import kotlin.math.*
             }
             Switch(enabled, { prefs.edit().putBoolean("shapeRecognition", it).apply() }, modifier = Modifier.semanticsLabel("Tidy up shapes"))
         }
+        InkRecognitionModelStatus(InkGestureRecognizer.Model.SHAPES, enabled)
         ShapeAssistExample()
         Text("Pause gently to tidy a shape; small wobbles are fine. Then move the pen to resize or rotate it, and lift to keep it. Undo brings your drawing back.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -65,7 +66,7 @@ import kotlin.math.*
         FilterChip(options.closed, { onChange(options.copy(closed = !options.closed)) }, label = { Text("Closed shapes") })
         FilterChip(options.curves, { onChange(options.copy(curves = !options.curves)) }, label = { Text("Curves & brackets") })
     }
-    Text("Closed shapes include circles, ovals, boxes, rounded boxes, triangles, polygons of up to eight sides, stars and hearts. Arrows can have a curved shaft. Curves & brackets are arcs, square brackets and curly braces.",
+    Text("Closed shapes include circles, ovals, boxes, rounded boxes, irregular triangles, polygons of up to eight sides, stars and hearts. Arrows can have a curved shaft. Curves & brackets are arcs, square brackets and curly braces.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     ShapeAssistSwitch("Perfect circles & squares", "Make nearly round ovals and nearly square boxes exact. Keep long ovals and rectangles.",
         options.perfect, options.closed) { onChange(options.copy(perfect = it)) }

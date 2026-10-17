@@ -256,6 +256,40 @@ fun main() {
     check(adjustedArrow.first().points.first() == fittedArrow.first().points.first())
     check(adjustedArrow[1].points.first() == adjustedArrow[0].points.last())
     check(adjustedArrow[2].points.first() == adjustedArrow[0].points.last())
+    fun checkFixedHead(shapes: List<Stroke>) {
+        val originalTip = shapes.first().points.last()
+        val contact = originalTip
+        val adjustment = ShapeAdjustment(shapes, contact)
+        val start = shapes.first().points.first()
+        val dx = contact.x - start.x; val dy = contact.y - start.y
+        for ((factor, angle) in listOf(.3f to .0f, 3f to .0f, 1.8f to .9f, .5f to -1.3f)) {
+            val target = p(start.x + factor * (dx * cos(angle) - dy * sin(angle)),
+                start.y + factor * (dx * sin(angle) + dy * cos(angle)))
+            val updated = adjustment.update(target, 0f)
+            val tip = updated.first().points.last()
+            check(ShapeMath.distance(updated.first().points.first(), start) < .001f)
+            check(ShapeMath.distance(tip, target) < .001f)
+            for (i in 1..2) {
+                check(ShapeMath.distance(updated[i].points.first(), tip) < .001f)
+                check(abs(ShapeMath.length(updated[i].points) - ShapeMath.length(shapes[i].points)) < .001f) { "Arrowhead scaled with shaft" }
+                check(updated[i].width == shapes[i].width && updated[i].color == shapes[i].color && updated[i].layer == shapes[i].layer)
+            }
+            check(abs(ShapeMath.distance(updated[1].points.last(), updated[2].points.last()) -
+                ShapeMath.distance(shapes[1].points.last(), shapes[2].points.last())) < .001f)
+            check(adjustment.update(target, 0f) == ShapeAdjustment(shapes, contact).update(target, 0f))
+        }
+    }
+    checkFixedHead(fittedArrow)
+    // The same small drawn head is accepted on both short and long shafts.
+    for (length in listOf(100f, 400f, 1000f)) {
+        val tip = p(length, 0f)
+        val fitted = checkNotNull(ShapeRecognition.arrow(stroke(emptyList()), p(0f, 0f), tip,
+            p(length - 25f, -15f), p(length - 25f, 15f))) { "Small head rejected on $length shaft" }
+        check(abs(ShapeMath.length(fitted[1].points) - hypot(25f, 15f)) < .001f)
+        checkFixedHead(fitted)
+        check(ShapeRecognition.recognise(stroke(path(listOf(p(0f, 0f), tip, p(length - 25f, -15f), tip,
+            p(length - 25f, 15f)), false)))?.kind == ShapeKind.ARROW) { "Arrow with a small head was not recognised at length $length" }
+    }
     // Thousands of updates must equal a fresh update at the same tip, with no accumulated drift.
     repeat(1000) { adjustment.update(p(210f + it % 30, 40f + it % 10), 5f) }
     check(adjustment.update(p(260f, 30f), 5f) == extended.let { listOf(it) })
@@ -350,6 +384,7 @@ fun main() {
         val arrowOfArc = kindOf(curvedArrow(260f, turn), "curved arrow")
         check(arrowOfArc.kind == ShapeKind.ARROW && arrowOfArc.strokes.size == 3 && arrowOfArc.strokes[0].tool == Tool.PEN && arrowOfArc.strokes.drop(1).all { it.tool == Tool.LINE })
         check(kindOf(curvedArrow(260f, turn).reversed(), "curved arrow drawn from the head").kind == ShapeKind.ARROW)
+        checkFixedHead(arrowOfArc.strokes)
     }
     // Straight arrows keep three straight strokes.
     check(kindOf(path(arrow, false), "straight arrow").strokes.all { it.tool == Tool.LINE })
@@ -382,6 +417,47 @@ fun main() {
         val adjusted = ShapeAdjustment(shape, contact).update(p(contact.x + 80f, contact.y + 50f), 5f)
         check(adjusted.size == shape.size && adjusted.all { s -> s.points.all { it.x.isFinite() && it.y.isFinite() } })
         check(adjusted.flatMap { it.points } != shape.flatMap { it.points })
+    }
+
+    // Google's labels select a family; fitting still rejects incompatible paths and preserves style.
+    for ((label, points) in listOf("RECTANGLE" to path(box), "TRIANGLE" to path(regular(3)),
+        "ELLIPSE" to oval(150f, 80f), "ARROW" to path(arrow, false))) {
+        val original = stroke(points)
+        val fitted = checkNotNull(ShapeRecognition.fitClassified(original, label, defaults)) { "Cannot fit ML $label" }
+        check(ShapeRecognition.modelLabel(fitted) == label)
+        check(fitted.strokes.all { it.color == original.color && it.width == original.width && it.opacity == original.opacity && it.layer == original.layer })
+        check(ShapeRecognition.fitClassified(original, "writing", defaults) == null)
+    }
+    check(ShapeRecognition.fitClassified(stroke(line), "RECTANGLE", defaults) == null)
+    check(ShapeRecognition.fitClassified(stroke(path(box)), "ELLIPSE", defaults) == null)
+    check(ShapeRecognition.fitClassified(stroke(oval(100f, 100f)), "TRIANGLE", defaults) == null)
+    check(ShapeRecognition.fitClassified(stroke(path(box)), "RECTANGLE", defaults.copy(closed = false)) == null)
+    check(ShapeRecognition.fitClassified(stroke(path(arrow, false)), "ARROW", defaults.copy(arrows = false)) == null)
+    check(ShapeRecognition.fitClassified(stroke(listOf(p(Float.NaN, 0f))), "RECTANGLE", defaults) == null)
+
+    // Irregular maths triangles keep their three drawn corners, including shallow obtuse turns
+    // and a short side that the general polygon heuristics used to discard.
+    val irregularTriangles = listOf(
+        "scalene" to listOf(p(10f, 20f), p(240f, 40f), p(65f, 155f)),
+        "right" to listOf(p(0f, 0f), p(250f, 0f), p(0f, 95f)),
+        "obtuse" to listOf(p(0f, 0f), p(280f, 0f), p(90f, 15f)),
+        "short-side" to listOf(p(0f, 0f), p(300f, 0f), p(5f, 18f)),
+    )
+    for ((name, vertices) in irregularTriangles) for (angle in listOf(0.0, .7)) for (reverse in listOf(false, true)) {
+        val corners = rotate(vertices, angle)
+        val points = path(corners).let { if (reverse) it.reversed() else it }
+        val original = stroke(points)
+        val fitted = checkNotNull(ShapeRecognition.fitClassified(original, "TRIANGLE", defaults)) { "ML missed irregular $name triangle" }
+        check(fitted.sides == 3 && fitted.strokes.size == 3)
+        val actual = fitted.strokes.map { it.points.first() }
+        check(corners.all { corner -> actual.minOf { ShapeMath.distance(corner, it) } < max(4f, ShapeMath.span(corners) * .035f) }) { "Changed irregular $name proportions: $actual" }
+        val tidied = checkNotNull(ShapeRecognition.recognise(original, defaults)) { "Cleanup missed irregular $name triangle" }
+        check(ShapeRecognition.modelLabel(tidied) == "TRIANGLE") { "Irregular $name became ${tidied.kind}" }
+        check(fitted.strokes.all { it.color == original.color && it.width == original.width && it.layer == original.layer })
+    }
+    for (vertices in listOf(listOf(p(0f, 0f), p(300f, 0f), p(120f, 2f)),
+        listOf(p(0f, 0f), p(150f, 0f), p(300f, 0f)))) {
+        check(ShapeRecognition.fitClassified(stroke(path(vertices, wobble = 0f)), "TRIANGLE", defaults) == null) { "Flat retracing became a triangle" }
     }
 
     println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, hearts, arcs, brackets, braces, rounded boxes, straight and curved arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")

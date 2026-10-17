@@ -24,6 +24,12 @@ fun main() {
         check(pts.isNotEmpty(), "$origin $name draws")
         check(pts.all { it.x >= -5f && it.x <= 305f && it.y >= -5f && it.y <= 205f }, "$origin $name inside frame (arrow wings and ticks may straddle an edge axis)")
     }
+    val headSizes = listOf(80f, 200f, 1000f).map { size ->
+        val graph = GraphAxes.strokes(draft.copy(points = listOf(InkPoint(0f, 0f), InkPoint(size, size))))
+        val head = graph.first { it.points.size == 3 }.points
+        kotlin.math.hypot(head[0].x - head[1].x, head[0].y - head[1].y)
+    }
+    check(headSizes.all { kotlin.math.abs(it - headSizes.first()) < .001f }, "arrowheads keep their size as the graph grows")
     check(GraphAxes.strokes(draft).size == 6, "default is two axes + four arrowheads")
     check(GraphAxes.strokes(draft, GraphStyle(origin = GraphOrigin.CORNER)).size == 4, "corner origin has two arrowheads")
     check(GraphAxes.strokes(draft, GraphStyle(origin = GraphOrigin.BOTTOM)).size == 5, "bottom origin has three arrowheads")

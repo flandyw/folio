@@ -47,6 +47,7 @@ import kotlin.math.roundToInt
                 prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it).apply()
             }, modifier = Modifier.semanticsLabel("Scribble to erase"))
         }
+        InkRecognitionModelStatus(InkGestureRecognizer.Model.GESTURES, enabled)
         Text("Scrub back and forth over ink with the pen or highlighter. Applies to all notebooks.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Sensitivity: ${(sensitivity * 100).roundToInt()}%")
@@ -56,7 +57,7 @@ import kotlin.math.roundToInt
             Text("More deliberate", style = MaterialTheme.typography.labelSmall)
             Text("Easier to trigger", style = MaterialTheme.typography.labelSmall)
         }
-        Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires repeated contact with existing ink.",
+        Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires Google’s scribble recognition and repeated contact with existing ink. Until the model is ready, scribbles stay as ink.",
             style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             TextButton({ setSensitivity(ScribbleSensitivity.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset sensitivity") }
