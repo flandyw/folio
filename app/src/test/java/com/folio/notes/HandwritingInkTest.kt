@@ -74,4 +74,23 @@ class HandwritingInkTest {
         assertEquals(0, result.moved)
         assertEquals(page.content(), result.content)
     }
+
+    @Test fun taperedEndsNarrowSmoothlyAndTheBodyIsUntouched() {
+        val points = (0..200).map { InkPoint(10f + it * .8f, 40f + 3f * sin(it * .05f), .8f) }
+        val stroke = Stroke(Tool.PEN, 0xFF2255FF.toInt(), 2.2f, points, 1f)
+        val plain = InkRenderer.rendered(stroke).widths!!
+        InkTaper.configure(.6f)
+        try {
+            val tapered = InkRenderer.rendered(stroke).widths!!
+            val n = InkRenderer.rendered(stroke).centre.size
+            val mid = tapered[n / 2]
+            assertEquals("the body keeps its width", plain[n / 2], mid, 1e-4f)
+            assertTrue("first point is thin: ${tapered[0]} vs $mid", tapered[0] < mid * .4f)
+            assertTrue("last point is thin: ${tapered[n - 1]} vs $mid", tapered[n - 1] < mid * .4f)
+            // No flat nub: from the tip inward the width never drops, and it takes several points to get there.
+            val rise = (0 until 40).map { tapered[it] }
+            assertTrue("start widens steadily: $rise", rise.zipWithNext().all { (a, b) -> b >= a - 1e-5f })
+            assertTrue("start takes several points to widen", tapered[3] < mid * .95f)
+        } finally { InkTaper.configure(0f) }
+    }
 }

@@ -2482,7 +2482,10 @@ class InkView(context: Context) : View(context) {
                             current.tool in FREEHAND_TOOLS -> {
                                 // Drafts own their mutable samples until pen-up. Neither the list
                                 // nor the Stroke needs allocating again for each input event.
-                                (current.points as ArrayList<InkPoint>).addAll(accepted)
+                                val growing = current.points as ArrayList<InkPoint>
+                                val before = growing.size
+                                growing.addAll(accepted)
+                                settleLiveStart(growing, before)
                                 streamLowLatency()
                                 current
                             }
@@ -2605,10 +2608,24 @@ class InkView(context: Context) : View(context) {
     }
     /** [stroke] with redundant samples thinned (see [StrokeRefit]); the same instance when nothing changes or it's switched off. */
     private fun refitted(stroke: Stroke): Stroke {
-        if (stroke.tool != Tool.PEN || !context.getSharedPreferences("preferences", 0)
-                .getBoolean(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES)) return stroke
-        val thin = StrokeRefit.simplify(stroke.points)
+        if (stroke.tool != Tool.PEN) return stroke
+        // Pen-down/lift pressure readings and skids are cleaned first, so no blob or hook is stored.
+        val settled = StrokeEnds.settle(stroke.points, stroke.width)
+        val thin = if (context.getSharedPreferences("preferences", 0)
+                .getBoolean(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES)) StrokeRefit.simplify(settled) else settled
         return if (thin === stroke.points) stroke else stroke.copy(points = thin)
+    }
+    /**
+     * The pen-down sample's pressure is often unlike the samples after it (a full reading at the tip), which
+     * shows as a blob at the start of the live stroke. Once the second sample arrives the first takes its pressure.
+     */
+    private fun settleLiveStart(points: ArrayList<InkPoint>, before: Int) {
+        if (before != 1 || points.size < 2 || draft?.tool != Tool.PEN) return
+        val first = points[0]; val next = points[1]
+        if (first.pressure == next.pressure) return
+        points[0] = InkPoint(first.x, first.y, next.pressure)
+        // The live geometry already folded the old sample; start it again (cheap: the stroke is two samples long).
+        resetDraftGeometry()
     }
     private fun finishGesture() {
         noteTarget?.let { id -> finishNoteStroke(page.texts.find { it.id == id && it.isSticky }); return }

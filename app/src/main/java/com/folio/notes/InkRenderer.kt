@@ -102,7 +102,6 @@ object InkRenderer {
     private const val MICRO_STROKE_SPAN = 36f
     private const val MICRO_TURN_COS = 0.94f
     private const val NORMAL_TURN_COS = 0.82f
-    private const val MIN_VISIBLE_TAPER = 0.68f
 
     /**
      * Smooths handwriting in sections, splitting at tight turns and sparse/fast samples. Each split
@@ -378,7 +377,7 @@ object InkRenderer {
     internal fun widthMultipliers(centre: List<InkPoint>, taper: FloatArray?): FloatArray? {
         if (centre.size < 2 || taper == null || taper.size != centre.size) return null
         return FloatArray(centre.size) { i ->
-            penPressureScale(centre[i].pressure) * taper[i].coerceAtLeast(MIN_VISIBLE_TAPER)
+            penPressureScale(centre[i].pressure) * taper[i]
         }
     }
 
@@ -502,12 +501,8 @@ object InkRenderer {
     }
 
     /**
-     * Pressure- and taper-varying ink, batched into width runs. The old loop paid one native
-     * `drawLine` per spline segment (100+ calls for a long stroke); adjacent segments share
-     * nearly the same width, so contiguous segments quantized to the same 0.5px bucket draw
-     * as one `drawPath` — typically 3–8 calls per stroke instead of 100+. Width multipliers
-     * come precomputed from [RenderedStroke.widths] (one sqrt per point, once), so frames pay
-     * only adds and multiplies. Written as indexed loops to stay allocation-free per frame.
+     * Pressure- and taper-varying ink as one filled outline ([InkOutline]): one `drawPath` per stroke.
+     * Width multipliers come precomputed from [RenderedStroke.widths] (one sqrt per point, once).
      */
     private fun drawTaperedLines(
         canvas: Canvas,
@@ -524,44 +519,40 @@ object InkRenderer {
             // segment), then the same bucketed runs below.
             val t = if (taper != null && taper.size == centre.size) taper else null
             FloatArray(centre.size) { i ->
-                penPressureScale(centre[i].pressure) * (t?.get(i)?.coerceAtLeast(MIN_VISIBLE_TAPER) ?: 1f)
+                penPressureScale(centre[i].pressure) * (t?.get(i) ?: 1f)
             }
         }
-        var runStart = 0
-        var runBucket = ((width * (mults[0] + mults[1]) / 2f) * 2f).roundToInt()
-        for (seg in 1 until centre.size - 1) {
-            val bucket = ((width * (mults[seg] + mults[seg + 1]) / 2f) * 2f).roundToInt()
-            if (bucket != runBucket) {
-                drawTaperedRun(canvas, paint, centre, runStart, seg - 1, runBucket / 2f)
-                runStart = seg
-                runBucket = bucket
-            }
-        }
-        drawTaperedRun(canvas, paint, centre, runStart, centre.size - 2, runBucket / 2f)
-    }
-
-    /** One width run: a lone segment draws directly, longer runs share a single path. */
-    private fun drawTaperedRun(
-        canvas: Canvas,
-        paint: Paint,
-        centre: List<InkPoint>,
-        firstSeg: Int,
-        lastSeg: Int,
-        strokeWidth: Float
-    ) {
-        paint.strokeWidth = strokeWidth
-        if (firstSeg >= lastSeg) {
-            val a = centre[firstSeg]
-            val b = centre[firstSeg + 1]
-            canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+        var low = mults[0]; var high = mults[0]
+        for (i in 1 until centre.size) { val m = mults[i]; if (m < low) low = m; if (m > high) high = m }
+        if ((high - low) * width < EVEN_WIDTH) {
+            // An even width swept by a round nib is exactly a round-capped, round-joined line: one cheap stroke.
+            paint.strokeWidth = width * (low + high) / 2f
+            canvas.drawPath(polylinePath(centre), paint)
             return
         }
+        // One filled outline: the width follows every sample exactly, so pressure and soft ends change
+        // smoothly rather than in stepped runs, and translucent ink never darkens where runs overlap.
         val path = strokePathPool.get()!!
         path.reset()
-        path.moveTo(centre[firstSeg].x, centre[firstSeg].y)
-        for (i in firstSeg + 1..lastSeg + 1) path.lineTo(centre[i].x, centre[i].y)
+        path.fillType = Path.FillType.WINDING
+        val sink = pathSinkPool.get()!!.also { it.path = path }
+        InkOutline.build(centre, { i -> width * mults[i] / 2f }, sink)
+        val style = paint.style
+        paint.style = Paint.Style.FILL
         canvas.drawPath(path, paint)
+        paint.style = style
     }
+
+    /** Feeds [InkOutline] straight into a pooled [Path], so building an outline allocates nothing. */
+    private class PathSink : InkOutline.Sink {
+        var path: Path? = null
+        override fun moveTo(x: Float, y: Float) { path!!.moveTo(x, y) }
+        override fun lineTo(x: Float, y: Float) { path!!.lineTo(x, y) }
+        override fun close() { path!!.close() }
+    }
+    private val pathSinkPool = ThreadLocal.withInitial { PathSink() }
+    /** Width spread (page units) below which a pen stroke draws as a plain line rather than an outline. */
+    private const val EVEN_WIDTH = .02f
 
     /**
      * Selection halo for one stroke, drawn from its cached centreline so a drag never

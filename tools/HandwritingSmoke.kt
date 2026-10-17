@@ -102,7 +102,7 @@ private fun taper() {
     close(scales[50], 1f)
     check((0..5).map { scales[it] }.zipWithNext().all { (a, b) -> b >= a }) { "start should widen" }
     check((0 until 100).all { abs(scales[it] - scales[100 - it]) < 1e-4f }) { "symmetric" }
-    check(scales.min() >= .4f - 1e-4f)
+    check(scales.min() >= .25f - 1e-4f)
     // Dots, ticks and short dashes stay neutral; a short stroke's ends never overlap.
     check(InkTaper.scales(listOf(InkPoint(0f, 0f), InkPoint(.1f, 0f), InkPoint(.2f, 0f)), 6f).all { it == 1f })
     val dash = InkTaper.scales((0..10).map { InkPoint(it * .5f, 0f) }, 8f)
@@ -237,7 +237,88 @@ private fun handwritingTidy() {
     check(!HandwritingTidy.tidy(listOf(listOf(InkPoint(Float.NaN, 0f)), emptyList())).changed)
 }
 
+private class Polygons : InkOutline.Sink {
+    val shapes = ArrayList<ArrayList<Pair<Float, Float>>>()
+    override fun moveTo(x: Float, y: Float) { shapes += arrayListOf(x to y) }
+    override fun lineTo(x: Float, y: Float) { shapes.last() += x to y }
+    override fun close() {}
+    fun area(shape: List<Pair<Float, Float>>): Float {
+        var a = 0f
+        for (i in shape.indices) { val p = shape[i]; val q = shape[(i + 1) % shape.size]; a += p.first * q.second - q.first * p.second }
+        return a / 2f
+    }
+    /** Non-zero winding of every polygon at ([x], [y]). */
+    fun winding(x: Float, y: Float): Int {
+        var w = 0
+        for (shape in shapes) for (i in shape.indices) {
+            val (x0, y0) = shape[i]; val (x1, y1) = shape[(i + 1) % shape.size]
+            if (y0 <= y) { if (y1 > y && (x1 - x0) * (y - y0) - (x - x0) * (y1 - y0) > 0) w++ }
+            else if (y1 <= y && (x1 - x0) * (y - y0) - (x - x0) * (y1 - y0) < 0) w--
+        }
+        return w
+    }
+}
+
+private fun outline() {
+    // A wavy stroke whose width swells and tapers to a point at both ends, like a pressure ramp.
+    val centre = (0..200).map { InkPoint(it * .5f, 8f * sin(it * .06f)) }
+    val radius = { i: Int -> .2f + 2f * sin(PI.toFloat() * i / 200f) }
+    val polygons = Polygons()
+    InkOutline.build(centre, radius, polygons)
+    // Every piece is wound the same way, so a non-zero fill paints the union exactly once.
+    check(polygons.shapes.all { polygons.area(it) > 0f }) { "a piece is wound backwards" }
+    // Coverage matches the swept nib: inside every disc is filled, and well outside all of them is not.
+    val probe = java.util.Random(3)
+    repeat(4000) {
+        val x = probe.nextFloat() * 110f - 5f; val y = probe.nextFloat() * 24f - 12f
+        var inside = false; var near = false
+        for (i in centre.indices) {
+            val d = hypot(x - centre[i].x, y - centre[i].y)
+            if (d < radius(i) - .02f) inside = true
+            if (d < radius(i) + .35f) near = true
+        }
+        // Between samples the hull also covers the gap, so only "inside a disc" and "far from all" are certain.
+        if (inside) check(polygons.winding(x, y) != 0) { "hole at $x,$y" }
+        if (!near) check(polygons.winding(x, y) == 0) { "spill at $x,$y" }
+    }
+    // At most one hull and one disc per sample; a straight, even run needs no joint discs at all.
+    check(polygons.shapes.size <= 2 * centre.size + 2) { "too many pieces: ${polygons.shapes.size}" }
+    val straight = Polygons()
+    InkOutline.build((0..100).map { InkPoint(it * .5f, 0f) }, { 1f }, straight)
+    check(straight.shapes.size == 100 + 2) { "straight run pieces: ${straight.shapes.size}" }
+    // Degenerate input: a lone point is a disc, coincident points don't crash, zero radius emits nothing.
+    val dot = Polygons(); InkOutline.build(listOf(InkPoint(1f, 1f)), { 1f }, dot); check(dot.shapes.size == 1)
+    val same = Polygons(); InkOutline.build(listOf(InkPoint(1f, 1f), InkPoint(1f, 1f), InkPoint(2f, 1f)), { 1f }, same)
+    check(same.shapes.all { same.area(it) > 0f })
+    val sharp = Polygons(); InkOutline.build(listOf(InkPoint(0f, 0f), InkPoint(10f, 0f), InkPoint(0f, 1f)), { 1.5f }, sharp)
+    check(sharp.winding(10.9f, 0f) != 0) { "a sharp corner must stay round and filled" }
+}
+
+private fun ends() {
+    // Pen-down and lift pressures unlike their neighbours take the neighbours' values.
+    val line = (0..40).map { InkPoint(it * 1f, 0f, .6f) }.toMutableList()
+    line[0] = InkPoint(0f, 0f, 1.8f); line[40] = InkPoint(40f, 0f, 1.8f)
+    val settled = StrokeEnds.settle(line, 2.2f)
+    check(settled.first().pressure == .6f && settled.last().pressure == .6f)
+    // A lift skid (a short turn back) is dropped; the stroke keeps its real end.
+    val skid = (0..40).map { InkPoint(it * 1f, 0f, .6f) } + listOf(InkPoint(40.6f, -.8f, .3f), InkPoint(40.8f, -1.6f, .3f))
+    val noSkid = StrokeEnds.settle(skid, 2.2f)
+    check(noSkid.size == 41 && noSkid.last().x == 40f) { "skid kept: ${noSkid.takeLast(3)}" }
+    // So is a landing skid at the start.
+    val landing = listOf(InkPoint(-.5f, 1.4f, .3f), InkPoint(-.2f, .6f, .3f)) + (0..40).map { InkPoint(it * 1f, 0f, .6f) }
+    check(StrokeEnds.settle(landing, 2.2f).first().let { it.x == 0f && it.y == 0f })
+    // Real writing survives: a deliberate hook longer than the limit, a straight end, and short strokes.
+    val hook = (0..40).map { InkPoint(it * 1f, 0f, .6f) } + (1..6).map { InkPoint(40f, -it * 1f, .6f) }
+    check(StrokeEnds.settle(hook, 2.2f).size == hook.size) { "a written hook was trimmed" }
+    val plain = (0..40).map { InkPoint(it * 1f, 0f, .6f) }
+    check(StrokeEnds.settle(plain, 2.2f) === plain)
+    val tick = listOf(InkPoint(0f, 0f, .6f), InkPoint(1f, 1f, .6f), InkPoint(1.5f, -.5f, .6f), InkPoint(2f, -2f, .6f))
+    check(StrokeEnds.settle(tick, 2.2f).size == tick.size)
+    val dot = listOf(InkPoint(0f, 0f, 1f), InkPoint(.1f, 0f, .5f))
+    check(StrokeEnds.settle(dot, 2.2f) === dot)
+}
+
 fun main() {
-    pressure(); prediction(); taper(); refit(); handwritingTidy()
-    println("Handwriting smoke passed: pressure, speed, tilt, prediction tail, taper, refit and tidy")
+    pressure(); prediction(); taper(); refit(); handwritingTidy(); outline(); ends()
+    println("Handwriting smoke passed: pressure, speed, tilt, prediction tail, taper, refit, tidy, outline and ends")
 }

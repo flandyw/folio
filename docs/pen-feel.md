@@ -20,10 +20,11 @@ choosing the numbers that were always stored.
 
 ## Smoothing
 
-`PenSmoothing` (see `pen-smoothing.md`) also reads the **turn** at each sample: two legs of 3+ screen pixels
-turning by more than ~55°, or a pen that has fallen below 55% of its recent speed at writing speed, shrink the
-lag budget and raise the cutoff for a few samples, so t-bars, e-loops and a's keep their points at high
-smoothing. Tremor on short legs is not a corner.
+`PenSmoothing` (see `pen-smoothing.md`) also reads the **turn** at each sample: two legs of 4+ screen pixels
+turning by more than ~55° shrink the lag budget and raise the cutoff for a few samples, so t-bars, e-loops and
+a's keep their points at high smoothing. Tremor on short legs is not a corner, and the first ten samples of a
+stroke never count (pen-down wobble must be smoothed, not passed through). An earlier version also relaxed
+smoothing when the pen braked; that let pen-lift jitter through as a hook at stroke ends and was removed.
 
 ## Width
 
@@ -34,10 +35,24 @@ smoothing. Tremor on short legs is not a corner.
   pressure width. It is baked into each sample's stored pressure.
 - **Tilt widens the highlighter** (`input.highlighterTilt`). A highlighter has one width per stroke, so the
   tilt (`AXIS_TILT`) at pen-down sets the stroke width (`PenPressure.tiltScale`). There is no pencil tool yet.
-- **Soft stroke ends** (`input.inkTaper`, 0 = off). `InkTaper` thins the first and last few page units. It is
+- **Soft stroke ends** (`input.inkTaper`, 0 = off). `InkTaper` thins the first and last 3–14 page units down to a quarter of the width. The renderer normally groups widths into half-unit runs; with taper on `drawTaperedLines` uses tenth-unit runs so the end narrows smoothly (coarse runs drew blunt, stepped nubs, and an old 0.68 floor clamp hid most of the taper). It is
   render-only, so it restyles old ink too; `InkTaper.version` makes every `InkView` drop geometry and rasters
   built under the old look. The live stroke only thins its start (the end is unknown until pen-up), and the
   live-geometry hand-off to the cache is skipped when taper is on.
+
+## Drawing the stroke
+
+Pen ink of varying width is one filled outline (`InkOutline`, pure): the union of a disc at each centreline
+point and the tangent hulls between neighbours, all wound the same way so a non-zero fill paints it once.
+Width follows every sample, so pressure ramps and soft ends are smooth (the old renderer drew width
+*runs* snapped to half-unit steps, which showed as nubs and necks at stroke ends), and translucent ink no
+longer darkens where runs overlapped. Discs are added only at the ends and where the stroke turns or changes
+width; an even-width stroke is still drawn as one round-capped line, which is the same shape.
+
+`StrokeEnds.settle` runs when a pen stroke is stored: the pen-down and lift samples take their neighbours'
+pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke), and a
+skid shorter than 1.5 pen widths (max 3 units) that turns more than ~57° off the stroke is dropped. The live
+stroke fixes its first sample's pressure as soon as the second arrives.
 
 ## Stored strokes
 

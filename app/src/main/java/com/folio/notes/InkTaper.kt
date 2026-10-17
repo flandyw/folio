@@ -10,9 +10,9 @@ import kotlin.math.min
  * goes below [FLOOR] of the width, so a stroke can't vanish and dots stay dots.
  */
 internal object InkTaper {
-    private const val FLOOR = .4f
-    private const val MIN_LENGTH = 2f
-    private const val MAX_LENGTH = 10f
+    private const val FLOOR = .25f
+    private const val MIN_LENGTH = 3f
+    private const val MAX_LENGTH = 14f
     /** Strokes shorter than this (page units) are left alone: a tick, dot or short dash is not a pen flick. */
     private const val MIN_STROKE = 4f
 

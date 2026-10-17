@@ -50,7 +50,7 @@ try {
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['PenPressure.kt', 'StrokePrediction.kt', 'InkTaper.kt', 'StrokeRefit.kt', 'HandwritingTidy.kt'].map(file => path.join(source, file)),
+    ...['PenPressure.kt', 'StrokePrediction.kt', 'InkTaper.kt', 'StrokeRefit.kt', 'HandwritingTidy.kt', 'InkOutline.kt', 'StrokeEnds.kt'].map(file => path.join(source, file)),
     primitive, path.join(__dirname, 'HandwritingSmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), 'com.folio.notes.HandwritingSmokeKt']);
 } finally {

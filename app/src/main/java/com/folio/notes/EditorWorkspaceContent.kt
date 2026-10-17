@@ -306,7 +306,22 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         val effect = StylusShortcuts.effect(action, tool, previousTool)
         if (effect != StylusShortcutEffect.None) penHaptics?.pulse()
         when (effect) {
-            is StylusShortcutEffect.SwitchTool -> selectTool(effect.tool)
+            is StylusShortcutEffect.SwitchTool -> if (selectTool(effect.tool)) {
+                // The pencil's double-tap arrives as a broadcast, not as input, so Compose may not draw a frame
+                // (and so may not hand the pages their new tool) until the pen next touches down. A page that
+                // then changes tool mid-stroke cancels it: the first stroke would neither erase nor ink, and the
+                // toolbar would only catch up then. Apply the tool to the pages now and ask for the frame.
+                if (!zoomPaneOpen && temporaryTool == null && music?.performance != true) {
+                    val chosen = editor.tools.options.value
+                    editor.surfaces.mainSurfaces().forEach { view ->
+                        view.tool = effect.tool
+                        view.inkColor = chosen.color; view.inkWidth = chosen.width; view.inkOpacity = chosen.opacity
+                        view.pressureEnabled = chosen.pressure; view.pressureSensitivity = chosen.pressureSensitivity
+                        view.pressureVariation = chosen.pressureVariation; view.pressureCurve = chosen.pressureCurve
+                    }
+                }
+                androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            }
             StylusShortcutEffect.OpenPalette -> palette = true
             StylusShortcutEffect.Undo -> undoEditor()
             StylusShortcutEffect.NextLine -> {

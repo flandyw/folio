@@ -86,6 +86,17 @@ fun main() {
     }
     check(tremorOut / 59f < .8f) { "tremor survived: ${tremorOut / 59f}" }
 
+    // Pen-down is not a corner: a wobbling first few samples are smoothed as fully as any other jitter,
+    // however large the wobble, so no stray hook or blob is drawn at the start of a stroke.
+    val down = PenSmoothing(1f, 1f)
+    down.sample(InkPoint(0f, 0f), 0)
+    var wobble = 0f
+    for (i in 1..9) {
+        val r = down.sample(InkPoint(i * .2f, if (i % 2 == 0) 3f else -3f), i * 4L)
+        if (i >= 2) wobble = maxOf(wobble, abs(r.y))
+    }
+    check(wobble < 1.6f) { "pen-down wobble passed through: $wobble" }
+
     // Timestamp resets/gaps re-arm the filter instead of smearing across the discontinuity.
     check(filter.sample(start, 1000) === start)
     check(filter.sample(end, 1000) === end)
