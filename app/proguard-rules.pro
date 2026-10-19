@@ -36,3 +36,7 @@
 # ML Kit's component registrars are listed in the manifest and built reflectively; without
 # their constructors OCR and ink recognition fail with "Invalid component registrar".
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+# R8 class merging folds ML Kit's Random subclasses into one class whose setSeed throws while
+# java.util.Random's constructor runs ("Setting the seed on the shared Random object is not
+# permitted"), crashing the editor the first time ink recognition loads. Keep them separate.
+-keep,allowobfuscation class * extends java.util.Random { *; }
