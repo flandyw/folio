@@ -1,6 +1,8 @@
 package com.folio.notes
 
 import com.folio.notes.mistakes.MistakeTypedResponse
+import com.folio.notes.mistakes.TypedEdit
+import com.folio.notes.mistakes.TypingBar
 import com.folio.notes.mistakes.isPracticePageEmpty
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
@@ -38,5 +40,35 @@ class MistakeTypedResponseTest {
         assertEquals("write", AppPrefs.mistakeResponseMode("unknown"))
         assertEquals("write", AppPrefs.mistakeResponseMode(null))
         assertEquals("type", AppPrefs.mistakeResponseMode("type"))
+    }
+
+    @Test fun typingKeysInsertMathsWhereTheCaretIs() {
+        val sqrt = TypingBar.snippets.first { it.description == "Square root" }
+        val pi = TypingBar.snippets.first { it.description == "Pi" }
+        val power = TypingBar.snippets.first { it.description == "Power" }
+        // Outside maths a structure is wrapped in $…$ with the caret inside it.
+        assertEquals(TypedEdit("Area \$\\sqrt{}\$", 12), TypingBar.insert(TypedEdit("Area ", 5), sqrt))
+        // Symbols stay plain text outside maths and become LaTeX inside it.
+        assertEquals(TypedEdit("2π", 2), TypingBar.insert(TypedEdit("2", 1), pi))
+        assertEquals(TypedEdit("\$2\\pi \$", 6), TypingBar.insert(TypedEdit("\$2\$", 2), pi))
+        // x² takes the word before the caret as its base.
+        assertEquals(TypedEdit("so \$x^{}\$", 7), TypingBar.insert(TypedEdit("so x", 4), power))
+        // A selection is wrapped, and the Maths key steps out of maths from inside.
+        assertEquals(TypedEdit("\$a+b\$", 4), TypingBar.insert(TypedEdit("a+b", 0, 3), TypingBar.MATHS))
+        assertEquals(TypedEdit("\$a\$ then", 3), TypingBar.insert(TypedEdit("\$a\$ then", 2), TypingBar.MATHS))
+        assertTrue(TypingBar.insideMath("\$\$x", 3))
+        assertFalse(TypingBar.insideMath("costs \\\$5", 9))
+    }
+
+    @Test fun listsContinueAndEndOnEnter() {
+        val before = TypedEdit("- one", 5)
+        assertEquals(TypedEdit("- one\n- ", 8), TypingBar.continueList(before, TypedEdit("- one\n", 6)))
+        assertEquals(TypedEdit("1. a\n2. ", 8), TypingBar.continueList(TypedEdit("1. a", 4), TypedEdit("1. a\n", 5)))
+        // Enter on an empty item ends the list instead of adding another.
+        assertEquals(TypedEdit("- one\n", 6), TypingBar.continueList(TypedEdit("- one\n- ", 8), TypedEdit("- one\n- \n", 9)))
+        assertEquals(TypedEdit("plain\n", 6), TypingBar.continueList(TypedEdit("plain", 5), TypedEdit("plain\n", 6)))
+        assertEquals(TypedEdit("- x", 3), TypingBar.toggleList(TypedEdit("x", 1)))
+        assertEquals(TypedEdit("x", 1), TypingBar.toggleList(TypedEdit("- x", 3)))
+        assertEquals(3, MistakeTypedResponse.words(" one two\nthree "))
     }
 }

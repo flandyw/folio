@@ -390,6 +390,8 @@ import com.folio.notes.*
                     }
                 }
             }
+            val hasInk = practicePage?.let { it.strokes.isNotEmpty() || it.images.isNotEmpty() } == true
+            val hasTyped = practicePage?.let { MistakeTypedResponse.find(it, attempt.reviewId)?.text?.isNotBlank() } == true
             @Composable fun ResponsePane(modifier: Modifier) {
                 Column(modifier) {
                     if (!compactTyping) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12),
@@ -411,12 +413,21 @@ import com.folio.notes.*
                                     enabled = !busy,
                                     shape = SegmentedButtonDefaults.itemShape(index, 2),
                                     icon = { Icon(if (mode == "type") Icons.Rounded.Keyboard else Icons.Rounded.Edit, null, Modifier.size(18.dp)) },
-                                ) { Text(label) }
+                                ) {
+                                    // A dot on the other mode says working is waiting there, so switching never feels like losing it.
+                                    val waiting = responseMode != mode && if (mode == "write") hasInk else hasTyped
+                                    Row(Modifier.semantics { if (waiting) contentDescription = "$label, has working" },
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        Text(label)
+                                        if (waiting) Badge(Modifier.padding(start = FolioSpacing.dp6), containerColor = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                             }
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (typing) MistakeTypingPane(practicePage, attempt.reviewId, state, folio, busy, typeFocusRequest, compactTyping,
+                            revealed = revealed, onCompare = if (revealed) null else ::revealAnswer, onDone = ::finishTyping,
                             onFocusChanged = { typingFocused = it })
                         else EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress)
                     }

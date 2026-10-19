@@ -26,3 +26,13 @@
 -keep class kotlin.jvm.internal.** { *; }
 -keep class kotlin.coroutines.Continuation
 -dontwarn kotlin.reflect.jvm.internal.**
+
+# ML Kit pulls in WorkManager 2.7 / Room 2.2, whose consumer rules predate R8 full mode and
+# keep classes without their constructors. R8 then strips WorkDatabase_Impl.<init>() and the
+# app dies at launch ("Failed to create an instance of androidx.work.impl.WorkDatabase").
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class * extends androidx.work.ListenableWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }
+-keep class * extends androidx.work.InputMerger { <init>(); }
+# ML Kit's component registrars are listed in the manifest and built reflectively; without
+# their constructors OCR and ink recognition fail with "Invalid component registrar".
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
