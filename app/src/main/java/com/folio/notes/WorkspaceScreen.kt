@@ -89,7 +89,7 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.Backslash) { toggleSplit(); true } else false
     }) {
         val stacked = maxWidth < 600.dp
-        val divider = FolioTouch.target
+        val divider = 12.dp
         val availablePx = with(LocalDensity.current) { ((if (stacked) maxHeight else maxWidth) - divider).toPx() }
         val editorFirst = !state.editorOnRight
         val fraction = SplitPanes.coerce(dragging ?: state.splitFraction)
@@ -139,6 +139,7 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
                         }
                     },
                     onDoubleTap = { model.setSplitFraction(SplitPanes.EQUAL) },
+                    thickness = divider, touch = 28.dp,
                     contentDescription = "Split view divider. Drag to resize the panes, or to an edge to close one. Double-tap for an equal split.",
                 )
             },

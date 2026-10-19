@@ -43,6 +43,8 @@ fun SplitDivider(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     thickness: Dp = FolioTouch.target,
+    /** How wide the grab area is; it may exceed [thickness] and overlap the panes. */
+    touch: Dp = FolioTouch.target,
 ) {
     val drag = rememberDraggableState(onDrag)
     // A slim divider reserves less space, but its gesture target still extends over the
@@ -54,7 +56,7 @@ fun SplitDivider(
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = (if (vertical) Modifier.requiredWidth(FolioTouch.target).fillMaxHeight() else Modifier.requiredHeight(FolioTouch.target).fillMaxWidth())
+            modifier = (if (vertical) Modifier.requiredWidth(touch).fillMaxHeight() else Modifier.requiredHeight(touch).fillMaxWidth())
             .combinedClickable(
                 onClick = onClick ?: {},
                 onDoubleClick = onDoubleTap,
@@ -64,7 +66,7 @@ fun SplitDivider(
             .semantics { this.contentDescription = contentDescription }
             .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, onDragStopped = { onRelease() })
         ) {
-            val grip = if (thickness < FolioTouch.target) 2.dp else 4.dp
+            val grip = if (thickness < FolioTouch.target) 3.dp else 4.dp
             Box(
                 Modifier.then(if (vertical) Modifier.width(grip).height(48.dp) else Modifier.height(grip).width(48.dp))
                     .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
