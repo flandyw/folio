@@ -164,6 +164,52 @@ fun main() {
     val rotatedOval = tidy(rotate(oval(150f, 80f), .55), "rotated oval")
     check(ShapeCleanup.strokes(rotatedOval, defaults).changed == 0) { "Tidied ink counted again" }
 
+    val startHold = PenStartHold()
+    check(startHold.remaining(0) == null)
+    startHold.begin(100f, 200f, 100)
+    check(!startHold.attempt(599))
+    startHold.sample(103f, 202f, 8f)
+    check(startHold.attempt(600)) // Fires without a MOVE, despite harmless settling samples.
+    check(!startHold.attempt(900)) // One switch per contact.
+    startHold.begin(100f, 200f, 1000)
+    startHold.sample(109f, 200f, 8f)
+    startHold.sample(100f, 200f, 8f) // Returning to the start cannot re-arm it.
+    check(!startHold.attempt(2000))
+    startHold.sample(300f, 200f, 8f) // Nor can a pause at the end of a pen stroke.
+    check(!startHold.attempt(3000))
+    startHold.begin(0f, 0f, 4000)
+    startHold.sample(7f, 0f, 8f)
+    startHold.sample(14f, 0f, 8f) // Slow drift is measured from pen-down, not the previous sample.
+    check(!startHold.attempt(4500))
+    startHold.begin(0f, 0f, 5000)
+    startHold.reset() // Lift/cancel, tool change, navigation or detachment.
+    check(!startHold.attempt(6000))
+    startHold.begin(0f, 0f, 7000)
+    startHold.sample(Float.NaN, 0f, 8f)
+    check(!startHold.attempt(7500))
+    startHold.begin(Float.POSITIVE_INFINITY, 0f, 8000)
+    check(!startHold.attempt(8500))
+    // Screen-space tolerance scales with density; page zoom never enters the rule.
+    startHold.begin(0f, 0f, 9000)
+    startHold.sample(15f, 0f, PenStartHold.SLOP_DP * 2f)
+    check(startHold.attempt(9500))
+
+    // A borrowed highlighter gets an independent end hold, retaining its style and adjustment.
+    startHold.begin(0f, 0f, 10_000)
+    check(startHold.attempt(10_500))
+    val highlightHold = ShapeHold()
+    highlightHold.sample(0f, 0f, 10_500, 14f)
+    highlightHold.sample(200f, 25f, 10_800, 14f)
+    check(!highlightHold.attempt(11_449, 650))
+    check(highlightHold.attempt(11_450, 650))
+    val borrowedHighlight = highlight.copy(color = 0xFFCC00, width = 18f, opacity = .28f)
+    val heldHighlight = checkNotNull(ShapeRecognition.tidy(borrowedHighlight))
+    val adjustedHighlight = ShapeAdjustment(heldHighlight, line.last()).update(p(250f, 40f), 5f).single()
+    check(adjustedHighlight.tool == Tool.HIGHLIGHTER && adjustedHighlight.color == borrowedHighlight.color &&
+        adjustedHighlight.width == borrowedHighlight.width && adjustedHighlight.opacity == borrowedHighlight.opacity &&
+        adjustedHighlight.layer == borrowedHighlight.layer)
+    check(!startHold.attempt(12_000)) // The end hold does not switch tools again.
+
     val hold = ShapeHold()
     check(hold.remaining(0, 650) == null)
     check(hold.sample(0f, 0f, 100, 8f))
@@ -460,5 +506,5 @@ fun main() {
         check(ShapeRecognition.fitClassified(stroke(path(vertices, wobble = 0f)), "TRIANGLE", defaults) == null) { "Flat retracing became a triangle" }
     }
 
-    println("Shape tidy checks passed: hold timing, cancellation, speed, rotated geometry, polygons, stars, hearts, arcs, brackets, braces, rounded boxes, straight and curved arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")
+    println("Shape tidy checks passed: pen-start switching, independent highlighter end hold, hold timing, cancellation, speed, rotated geometry, polygons, stars, hearts, arcs, brackets, braces, rounded boxes, straight and curved arrows, rejected writing, option round trips, exact geometry, highlighter, ordered cleanup, forgiving holds and live adjustment")
 }

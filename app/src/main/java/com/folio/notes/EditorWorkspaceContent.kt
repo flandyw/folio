@@ -878,6 +878,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val inputTool = if (temporaryTool != null) Tool.HAND else tool
     val sharedSurface = InkSurfaceConfig(tool = inputTool,
         options = options,
+        toolOptionsFor = editor.tools::optionsFor,
         finger = finger,
         snapEnabled = snapEnabled,
         shapeRecognition = shapeRecognition,

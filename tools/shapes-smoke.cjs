@@ -56,7 +56,7 @@ try {
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['ShapeFit.kt', 'ShapeRecognition.kt', 'ShapeHold.kt', 'ShapeAssist.kt', 'ShapeCleanup.kt', 'ShapeAdjustment.kt'].map(file => path.join(source, file)),
+    ...['ShapeFit.kt', 'ShapeRecognition.kt', 'ShapeHold.kt', 'PenStartHold.kt', 'ShapeAssist.kt', 'ShapeCleanup.kt', 'ShapeAdjustment.kt'].map(file => path.join(source, file)),
     primitive, path.join(__dirname, accuracy ? 'ShapeAccuracy.kt' : 'ShapeSmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), accuracy ? 'com.folio.notes.ShapeAccuracyKt' : 'com.folio.notes.ShapeSmokeKt', ...passthrough]);
 } finally {

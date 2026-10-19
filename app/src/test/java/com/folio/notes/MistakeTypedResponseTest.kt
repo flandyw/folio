@@ -9,6 +9,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MistakeTypedResponseTest {
+    @Test fun practicePageReaderLoadsAndUpdatesAnswersWhileShellStaysMetadataOnly() {
+        val summary = NotePage(id = "practice", infinite = true, loaded = false)
+        val store = DocumentStateStore(FolioState(notes = listOf(
+            Notebook(id = "notebook", title = "Practice", pages = listOf(summary)),
+        )))
+        val reader = store.observePage("notebook", summary.id)
+        assertFalse(reader.value!!.page.loaded)
+
+        val blank = summary.copy(loaded = true)
+        val answer = MistakeTypedResponse.box(blank, "review").copy(text = "Saved answer")
+        val restored = blank.copy(texts = listOf(answer))
+        fun publish(page: NotePage) = store.update { state ->
+            state.copy(notes = state.notes.replaceNotebook(state.notes.notebook("notebook")!!.withPage(page)))
+        }
+        publish(restored)
+        assertTrue(reader.value!!.page.loaded)
+        assertEquals(answer, MistakeTypedResponse.find(reader.value!!.page, "review"))
+        assertNull(MistakeTypedResponse.find(reader.value!!.page, "next-review"))
+
+        val edited = answer.copy(text = "Edited answer")
+        publish(restored.copy(revision = 1, texts = listOf(edited)))
+        assertEquals(edited, MistakeTypedResponse.find(reader.value!!.page, "review"))
+        val shellPage = store.shellState.value.notes.notebook("notebook")!!.pages.page(summary.id)!!
+        assertFalse(shellPage.loaded)
+        assertTrue(shellPage.texts.isEmpty())
+    }
+
     @Test fun mixedWorkingSurvivesSnapshotAndResponseUndo() {
         val ink = Stroke(Tool.PEN, 0xff123456.toInt(), 2f, listOf(InkPoint(50f, 10f), InkPoint(300f, 90f)))
         val sticky = TextBox(id = "sticky", x = 40f, y = 30f, text = "Keep this", stickyHeight = 160f)

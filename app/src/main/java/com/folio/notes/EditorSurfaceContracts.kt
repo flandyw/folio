@@ -11,6 +11,7 @@ internal data class InkSurfaceConfig(
     val finger: Boolean,
     val snapEnabled: Boolean,
     val shapeRecognition: Boolean,
+    val toolOptionsFor: ((Tool) -> ToolOptions)? = null,
     val eraserPressureEnabled: Boolean = true,
     val scribbleToErase: Boolean = true,
     val scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT,

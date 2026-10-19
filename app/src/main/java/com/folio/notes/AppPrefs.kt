@@ -111,6 +111,13 @@ object AppPrefs {
     /** A tilted stylus lays a broader highlighter stroke. Off by default. */
     const val HIGHLIGHTER_TILT = "input.highlighterTilt"
     const val DEFAULT_HIGHLIGHTER_TILT = false
+    /** Holding the stylus still at pen-down borrows this tool until lift. */
+    const val PEN_START_HOLD = "input.penStartHold"
+    const val DEFAULT_PEN_START_HOLD = "highlighter"
+    fun penStartHold(raw: String?): String = when (raw) {
+        "eraser", "off" -> raw
+        else -> DEFAULT_PEN_START_HOLD
+    }
     /** Draw the pen stroke in progress through a front-buffered layer (API 29+). Experimental; off by default. */
     const val LOW_LATENCY_INK = "input.lowLatencyInk"
     const val DEFAULT_LOW_LATENCY_INK = false

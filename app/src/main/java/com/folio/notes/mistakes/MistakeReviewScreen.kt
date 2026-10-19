@@ -60,7 +60,13 @@ import com.folio.notes.*
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val practicePage = state.notes.find { it.id == attempt.practiceNotebookId }?.pages?.find { it.id == attempt.practicePageId }
+    // The shell only carries metadata: its pages stay unloaded even after the editor
+    // loads them. Observe this review's content in both Write and Type modes.
+    val practiceSnapshot by remember(folio, attempt.practiceNotebookId, attempt.practicePageId) {
+        folio.documents.observePage(attempt.practiceNotebookId, attempt.practicePageId)
+    }.collectAsStateWithLifecycle()
+    val practicePage = practiceSnapshot?.page?.takeIf { it.id == attempt.practicePageId }
+    LaunchedEffect(attempt.practiceNotebookId, attempt.practicePageId) { folio.loadPage(attempt.practicePageId) }
     var responseMode by rememberSaveable(attempt.reviewId) {
         mutableStateOf(if (practicePage?.let { MistakeTypedResponse.find(it, attempt.reviewId) } != null) "type"
             else AppPrefs.mistakeResponseMode(preferences.getString(AppPrefs.MISTAKE_RESPONSE_MODE, null)))
@@ -336,10 +342,10 @@ import com.folio.notes.*
                             )
                             ShareTextButton(typed = typing,
                                 onShare = { questionOnly ->
-                                    val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))
+                                    val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(practicePage))
                                     if (questionOnly || typing && practicePage?.strokes.isNullOrEmpty() && practicePage?.images.isNullOrEmpty()) shareText(androidContext, text)
                                     else shareScope.launch {
-                                        val png = runCatching { renderWorkingPng(androidContext, folio, state, attempt, preferences) }.getOrNull()
+                                        val png = runCatching { renderWorkingPng(androidContext, folio, state, attempt, practicePage, preferences) }.getOrNull()
                                         if (png == null) shareText(androidContext, text)
                                         else {
                                             copyText(androidContext, text)
@@ -503,9 +509,8 @@ import com.folio.notes.*
 }
 
 /** Typed working on the practice page, top to bottom. Handwriting has no text to share. */
-private fun workingTexts(state: FolioState, attempt: LocalMistakeReviewAttempt): List<String> =
-    state.notes.find { it.id == attempt.practiceNotebookId }?.pages?.find { it.id == attempt.practicePageId }
-        ?.texts?.sortedWith(compareBy({ it.y }, { it.x }))?.map { it.text.trim() }?.filter(String::isNotEmpty) ?: emptyList()
+private fun workingTexts(page: NotePage?): List<String> =
+    page?.texts?.sortedWith(compareBy({ it.y }, { it.x }))?.map { it.text.trim() }?.filter(String::isNotEmpty) ?: emptyList()
 
 /** The question as raw text, followed by [working] when there is any. */
 private fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String = buildString {
@@ -516,10 +521,11 @@ private fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String
 
 /** The practice page as a PNG in the share cache, or null when it holds nothing to draw. */
 private suspend fun renderWorkingPng(context: android.content.Context, folio: FolioViewModel, state: FolioState,
-    attempt: LocalMistakeReviewAttempt, preferences: android.content.SharedPreferences): java.io.File? {
-    val note = state.notes.find { it.id == attempt.practiceNotebookId } ?: return null
+    attempt: LocalMistakeReviewAttempt, page: NotePage?, preferences: android.content.SharedPreferences): java.io.File? {
+    if (page == null || !page.loaded || !pageHasAnnotations(page)) return null
+    val note = state.notes.find { it.id == attempt.practiceNotebookId }?.withPage(page) ?: return null
     val index = note.pages.indexOfFirst { it.id == attempt.practicePageId }
-    if (index < 0 || !pageHasAnnotations(note.pages[index])) return null
+    if (index < 0) return null
     val scale = AppPrefs.pngScale(preferences.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { preferences.contains(AppPrefs.EXPORT_PNG_SCALE) })
     return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val dir = exportCacheDir(context.cacheDir)

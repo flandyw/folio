@@ -28,6 +28,7 @@ internal class EditorToolState(private val prefs: SharedPreferences, initial: To
         override fun component2(): (Tool) -> Unit = { value = it }
     }
     fun changeOptions(value: ToolOptions) { options.value = value; value.save(prefs, tool.value) }
+    fun optionsFor(value: Tool): ToolOptions = if (value == tool.value) options.value else ToolOptions.load(prefs, value)
     fun select(value: Tool, singleStroke: Boolean): Boolean {
         if (value == tool.value) return false
         if (value == Tool.ERASER && singleStroke) eraserReturn.value = tool.value

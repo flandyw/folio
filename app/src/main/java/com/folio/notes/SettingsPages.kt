@@ -160,6 +160,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
     val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
+    val startHold by rememberPref(p, AppPrefs.PEN_START_HOLD) { AppPrefs.penStartHold(it.getString(AppPrefs.PEN_START_HOLD, null)) }
     SettingsGroup("Input") {
         SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
         SettingsDivider()
@@ -171,6 +172,10 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
                 ({ p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING) } }) else null)
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
+    }
+    SettingsGroup("Hold at stroke start", footer = "With the pen selected, hold the stylus still for half a second before drawing to use this tool for one stroke. It uses that tool's saved settings; lift to return to the pen. With Tidy up shapes and Straighten highlighter enabled, hold again at the end to straighten the highlight.") {
+        SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
+            { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } })
     }
     val taper by rememberPref(p, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
     SettingsGroup("Pen feel", footer = "Pressure response and per-tool pen settings are in the pen's tool options in the editor. Soft ends change how every pen stroke is drawn, old and new; the rest apply to new strokes.") {

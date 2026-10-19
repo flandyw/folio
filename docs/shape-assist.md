@@ -142,6 +142,11 @@ rejects small marks, open loops, scribbles and multiply traced shapes. Highlight
 accepts only straight lines, never closed shapes. Existing grid/15° snapping still applies to
 held lines (ruler-constrained lines keep their ruler angle); lasso cleanup retains the original diagram placement without grid snapping.
 
+Settings › Writing › **Hold at stroke start** can borrow the highlighter for one pen contact.
+Its end hold uses this same recognition and adjustment path, with an independent timer and the
+highlighter's saved styling. The toolbar keeps the pen selected; validation follows the live draft's
+tool so the borrowed highlighter's recognition result can still be shown. See `docs/pen-feel.md`.
+
 ## Checks
 
 - `node tools/shapes-smoke.cjs`: hold timing/drift/grace/cancellation, live adjustment and both winding directions,

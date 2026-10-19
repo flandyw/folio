@@ -81,7 +81,7 @@ class PageThumbnailCache(private val context: Context, private val repository: N
                 heightPx = (FULL_MAX_PIXELS / width).coerceAtLeast(1)
             }
             val bitmap = Bitmap.createBitmap(width, heightPx, Bitmap.Config.ARGB_8888)
-            val background = if (content.pdfIndex != null) repository.pdfBackground(noteId, content, width) else null
+            val background = if (content.pdfIndex != null) repository.cachedPdfBackground(noteId, content, width) else null
             currentCoroutineContext().ensureActive()
             val images = repository.loadImages(noteId, content)
             try {
@@ -93,7 +93,7 @@ class PageThumbnailCache(private val context: Context, private val repository: N
                 canvas.translate(dx, dy)
                 canvas.scale(scale, scale)
                 InkRenderer.page(canvas, content, background, images = images)
-            } finally { background?.recycle(); images.values.forEach { it.recycle() } }
+            } finally { images.values.forEach { it.recycle() } }
             bitmap
         } catch (_: Exception) { null }
     }
@@ -108,14 +108,14 @@ class PageThumbnailCache(private val context: Context, private val repository: N
             // Clamp height so an infinite canvas with huge bounds cannot allocate a 6MB+ bitmap.
             val heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, 2048)
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-            val background = if (content.pdfIndex != null) repository.pdfBackground(noteId, content, widthPx) else null
+            val background = if (content.pdfIndex != null) repository.cachedPdfBackground(noteId, content, widthPx) else null
             currentCoroutineContext().ensureActive()
             val images = repository.loadImages(noteId, content)
             try {
                 val canvas = Canvas(bitmap)
                 canvas.scale(widthPx / content.width, heightPx / content.height)
                 InkRenderer.page(canvas, content, background, images = images)
-            } finally { background?.recycle(); images.values.forEach { it.recycle() } }
+            } finally { images.values.forEach { it.recycle() } }
             bitmap
         } catch (_: Exception) { null }
     }

@@ -26,6 +26,22 @@ a's keep their points at high smoothing. Tremor on short legs is not a corner, a
 stroke never count (pen-down wobble must be smoothed, not passed through). An earlier version also relaxed
 smoothing when the pen braked; that let pen-lift jitter through as a hook at stroke ends and was removed.
 
+## Hold at stroke start
+
+Settings › Writing › **Hold at stroke start** chooses Highlighter (default), Eraser or Off
+(`AppPrefs.PEN_START_HOLD`). With the pen selected, keep the stylus within 8 dp of its landing point
+for 500 ms to borrow that tool until lift; a haptic tick confirms the switch. Finger ink, the
+hardware eraser and the stylus eraser button retain their usual behavior. Moving beyond the radius,
+including a historical sample, disarms switching for the whole contact, so an ordinary end hold
+still recognises pen shapes. `PenStartHold` keeps this rule independent of Android.
+
+The borrowed tool uses its saved options, including notebook-local options. Conversion replaces the
+uncommitted pen draft and restarts document capture with the new tool; no pen dot or extra undo step
+is saved. The eraser uses its own diameter, pressure and whole-stroke settings, including over sticky
+notes and across pages. The highlighter keeps its colour, opacity, width and optional contact tilt;
+with **Tidy up shapes** and **Straighten highlighter** enabled, a separate end hold straightens it
+and supports the usual adjustment and undo. Lift, cancellation and tool changes clear the borrowed tool.
+
 ## Width
 
 - **Response curve + Light / Normal / Firm** (pen tool options › Pressure). `PenPressure.sample` raises the raw
@@ -71,7 +87,7 @@ previews it and commits through `commitDocumentEdits` with the same revision che
 
 ## Checks
 
-- `node tools/pen-smoothing-smoke.cjs`, `node tools/handwriting-smoke.cjs` (pure maths; need a prior build for the Kotlin compiler cache).
+- `node tools/pen-smoothing-smoke.cjs`, `node tools/handwriting-smoke.cjs`, `node tools/shapes-smoke.cjs` (pure maths; need a prior build for the Kotlin compiler cache).
 - `./gradlew :app:testDebugUnitTest --tests '*HandwritingInkTest*'` (refit vs. the real renderer, tidy through the journal).
 
 On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke tests:
@@ -85,3 +101,4 @@ On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke t
 7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the option off.
 8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
 9. **Low-latency ink:** with it on, write on a finite page, a canvas, in split view and with a floating toolbar; look for flicker or a ghost at pen-up, a double-heavy edge while writing, anything left behind after undo, and rotation/multi-window behaviour. Turn it off again and confirm the overlay is gone. This path has not been run on a device.
+10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.

@@ -12,8 +12,10 @@ Preview renders formatted text and offline maths through the same rich-text rend
 
 There is no notebook or sync format change. Each review's answer is an ordinary `TextBox` on its existing practice page, identified by `mistake-response-<reviewId>`. A new response sits to the right of existing working and uses an editable layer; existing placement, style and layers are preserved. Drafts and completed working stay on this device and travel in notebook backups, just like handwriting. Only ratings use the existing Focal review sync.
 
+The review observes its practice page through `DocumentReader.observePage` and requests loading independently of the Write editor. The shell's page metadata always has `loaded = false` and no content; it must not drive Type's loading state, response restoration, working indicators or sharing.
+
 ## Verification
 
-`MistakeTypedResponseTest` checks the typing keys, list continuation, mixed ink/text snapshot round-trip and undo, independent review identities, canvas edits, layer choice, and retention of typed-only attempts. Existing scheduling and writer tests cover rating persistence and save failures.
+`MistakeTypedResponseTest` checks the practice-page reader's loading and answer updates while shell metadata stays unloaded, typing keys, list continuation, mixed ink/text snapshot round-trip and undo, independent review identities, canvas edits, layer choice, and retention of typed-only attempts. Existing scheduling and writer tests cover rating persistence and save failures.
 
 On a device, test a narrow portrait window, landscape with a software keyboard, a wide tablet and split screen. Type several paragraphs, move the caret, paste, compose accented text, and scroll to the last line. Type spaces, S and 1–4 before and after revealing: they must stay in the answer. Switch Write → Type → Write, skip and resume, leave and return, rotate, restart, then rate immediately after an edit. Confirm both kinds of working survive in previous attempts and a backup round-trip. Check math preview, typed and mixed sharing, and Retry save after a storage failure. Test large system fonts and TalkBack, including the response switch and answer field.

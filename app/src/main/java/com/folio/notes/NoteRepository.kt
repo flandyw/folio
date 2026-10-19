@@ -108,10 +108,8 @@ class NoteRepository(private val context: Context) {
     private val pendingCompaction = ConcurrentHashMap.newKeySet<String>()
     /** Where a marked page's current content and undo stacks are read from when it is folded. */
     private val compactionSources = ConcurrentHashMap<String, () -> PageCheckpoint?>()
-    /** A single `PdfRenderer` is not safe to use from two threads at once, so renders are serialized. */
-    private val pdfLock = Mutex()
-    private var pdfNoteId: String? = null
-    private var pdfSession: PdfBackgrounds? = null
+    /** Whole-document PDFBox scans must never hold the editor's native rendering queue. */
+    private val pdfMetadataLock = Mutex()
     /** Extracted PDF text by notebook, so a search never reparses the document. */
     private val pdfTextCache = mutableMapOf<String, List<PdfPageText>>()
     /** Tappable PDF links and bookmarks by notebook, so navigation never reparses either. */
@@ -536,7 +534,7 @@ class NoteRepository(private val context: Context) {
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         closePdf(id)
-        pdfLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfMarkZoneCache.remove(id); pdfOutlineCache.remove(id) }
+        pdfMetadataLock.withLock { pdfTextCache.remove(id); pdfLinkCache.remove(id); pdfMarkZoneCache.remove(id); pdfOutlineCache.remove(id) }
         lock.withLock {
             val dir = storedDirectory(id)
             if (!dir.exists()) return@withLock
@@ -677,7 +675,7 @@ class NoteRepository(private val context: Context) {
                     NotePage(width = 840f, height = 840f * it.height / it.width, paper = Paper.PLAIN, pdfIndex = index)
                 } }
             }
-            val exam = requestedExam ?: pdfLock.withLock {
+            val exam = requestedExam ?: pdfMetadataLock.withLock {
                 detectImportedExam(title) {
                     ensurePdfBox()
                     PDDocument.load(pdf, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)
@@ -1190,7 +1188,7 @@ class NoteRepository(private val context: Context) {
     }
 
     suspend fun pdfPageLabels(noteId: String): Map<Int, String> = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
+        pdfMetadataLock.withLock {
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyMap()
             ensurePdfBox()
@@ -1201,7 +1199,7 @@ class NoteRepository(private val context: Context) {
     }
 
     suspend fun pdfPageTexts(noteId: String): List<PdfPageText> = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
+        pdfMetadataLock.withLock {
             pdfTextCache[noteId]?.let { return@withLock it }
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyList()
@@ -1256,7 +1254,7 @@ class NoteRepository(private val context: Context) {
      * the rendered background — and unsafe targets never become links at all.
      */
     suspend fun pdfPageLinks(noteId: String, pages: List<NotePage>): List<PdfLink> = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
+        pdfMetadataLock.withLock {
             pdfLinkCache[noteId]?.let { return@withLock it }
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyList()
@@ -1283,7 +1281,7 @@ class NoteRepository(private val context: Context) {
      * like links, since their text space no longer lines up with the rendered background.
      */
     private suspend fun pdfTextMarkZones(noteId: String, pages: List<NotePage>): List<MarkZone> = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
+        pdfMetadataLock.withLock {
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyList()
             val dims = pages.filter { it.pdfIndex != null }.associate { it.pdfIndex!! to (it.width to it.height) }
@@ -1447,7 +1445,7 @@ class NoteRepository(private val context: Context) {
      * A missing outline simply yields no entries, which the contents panel reports as such.
      */
     suspend fun pdfOutline(noteId: String): List<PdfOutlineEntry> = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
+        pdfMetadataLock.withLock {
             pdfOutlineCache[noteId]?.let { return@withLock it }
             val file = File(storedDirectory(noteId), "source.pdf")
             if (!file.exists()) return@withLock emptyList()
@@ -1497,13 +1495,20 @@ class NoteRepository(private val context: Context) {
         /** The page's white background at roughly [targetWidth] px wide, or null for a native page. */
         fun render(page: NotePage, targetWidth: Int): Bitmap? {
             val index = page.pdfIndex ?: return null
+            return render(index, targetWidth)
+        }
+
+        internal fun render(index: Int, targetWidth: Int): Bitmap {
             return renderer.openPage(index).use { pdfPage ->
                 // Bound both dimensions for unusually tall or wide imported documents.
                 val scale = minOf(targetWidth.toFloat() / pdfPage.width, 2800f / pdfPage.height)
-                Bitmap.createBitmap((pdfPage.width * scale).toInt().coerceAtLeast(1),
-                    (pdfPage.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also {
-                    it.eraseColor(Color.WHITE); pdfPage.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                }
+                val bitmap = Bitmap.createBitmap((pdfPage.width * scale).toInt().coerceAtLeast(1),
+                    (pdfPage.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                try {
+                    bitmap.eraseColor(Color.WHITE)
+                    pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    bitmap
+                } catch (error: Throwable) { bitmap.recycle(); throw error }
             }
         }
         override fun close() { renderer.close(); descriptor.close() }
@@ -1518,49 +1523,29 @@ class NoteRepository(private val context: Context) {
         catch (e: Exception) { descriptor.close(); throw e }
     }
 
-    /**
-     * The renderer kept open for the notebook on screen, so scrolling through a PDF notebook does not
-     * reparse the document for every page. Only reachable through [pdfBackground], which holds the
-     * lock that makes one serialized renderer safe.
-     */
-    private fun sharedPdf(noteId: String): PdfBackgrounds? {
-        pdfSession?.let { if (pdfNoteId == noteId) return it }
-        pdfSession?.close(); pdfSession = null; pdfNoteId = null
-        val session = openPdf(noteId) ?: return null
-        pdfSession = session; pdfNoteId = noteId
-        return session
-    }
+    // Keep the editor, split/reference pane and a recently used notebook parsed. The bounded image
+    // cache is independent of metadata scans and cached hits bypass even an in-progress page render.
+    private val pdfRenders = PdfRenderCache<PdfBackgrounds, Bitmap>(
+        maxBytes = (Runtime.getRuntime().maxMemory() / 8)
+            .coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt(),
+        open = ::openPdf,
+        draw = { document, index, width -> document.render(index, width) },
+        sizeOf = { it.allocationByteCount },
+    )
 
-    /** Drops the open renderer, for the notebook named or for whichever one is open. */
-    suspend fun closePdf(noteId: String? = null) = withContext(Dispatchers.IO) {
-        pdfLock.withLock {
-            if (noteId == null || pdfNoteId == noteId) { pdfSession?.close(); pdfSession = null; pdfNoteId = null }
-        }
-    }
+    /** Drops the named document and its backgrounds, or all recent documents when unnamed. */
+    suspend fun closePdf(noteId: String? = null) = withContext(Dispatchers.IO) { pdfRenders.close(noteId) }
 
-    private data class PdfCacheKey(val noteId: String, val index: Int, val width: Int)
-    // Shared immutable bitmaps: eviction drops ownership, never recycles a bitmap a View may use.
-    private val pdfBitmapCache = object : android.util.LruCache<PdfCacheKey, Bitmap>(
-        (Runtime.getRuntime().maxMemory() / 8).coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt()
-    ) {
-        override fun sizeOf(key: PdfCacheKey, value: Bitmap) = value.allocationByteCount
-    }
-
+    /** Shared immutable background, possibly sharper than requested; callers must not recycle it. */
     suspend fun cachedPdfBackground(noteId: String, page: NotePage, targetWidth: Int = 1400): Bitmap? = withContext(Dispatchers.IO) {
         val index = page.pdfIndex ?: return@withContext null
-        val key = PdfCacheKey(noteId, index, targetWidth)
-        pdfLock.withLock {
-            pdfBitmapCache.get(key) ?: sharedPdf(noteId)?.render(page, targetWidth)?.also {
-                it.prepareToDraw()
-                pdfBitmapCache.put(key, it)
-            }
-        }
+        pdfRenders.get(noteId, index, targetWidth)?.also { it.prepareToDraw() }
     }
 
-    /** The page's white background, reusing the open renderer and serializing actual renders. */
+    /** Fresh caller-owned background for paths that recycle their bitmaps, sharing parsed documents. */
     suspend fun pdfBackground(noteId: String, page: NotePage, targetWidth: Int = 1400): Bitmap? = withContext(Dispatchers.IO) {
-        if (page.pdfIndex == null) return@withContext null
-        pdfLock.withLock { sharedPdf(noteId)?.render(page, targetWidth) }
+        val index = page.pdfIndex ?: return@withContext null
+        pdfRenders.render(noteId, index, targetWidth)
     }
 
     private fun atomicWrite(file: File, value: String) {

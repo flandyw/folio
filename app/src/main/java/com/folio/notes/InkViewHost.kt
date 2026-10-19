@@ -120,6 +120,7 @@ import androidx.compose.ui.viewinterop.AndroidView
             val pictures = assets.pictures
             val writingGuides = assets.guides
                 view.inputStylusActivity = inputStylusActivity
+                view.penStartOptionsFor = surface.toolOptionsFor
                 view.zoomWritingPane = zoomWritingPane
                 view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
                 view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation

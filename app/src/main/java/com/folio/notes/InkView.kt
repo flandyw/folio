@@ -32,7 +32,8 @@ class InkView(context: Context) : View(context) {
     var tool = Tool.PEN
         set(value) {
             if (field == value) return
-            if (documentGesture) { inputRouter.reset(::handleTouchEvent); cancelGesture() }
+            if (documentGesture || penStartTool != null) { inputRouter.reset(::handleTouchEvent); cancelGesture() }
+            clearPenStartHold()
             clearShapeHold()
             stickyNotes.reset()
             endObjectLift()
@@ -416,6 +417,95 @@ class InkView(context: Context) : View(context) {
     private var recognitionEpoch = 0L
     private var shapeRequest = 0L
     private var draft: Stroke? = null
+    private val penStartHold = PenStartHold()
+    private var penStartTarget: Tool? = null
+    private var penStartTool: Tool? = null
+    private var penStartOptions: ToolOptions? = null
+    internal var penStartOptionsFor: ((Tool) -> ToolOptions)? = null
+    private var penStartContact = InkPoint(0f, 0f)
+    private var penStartPressure = 1f
+    private var penStartTilt = 0f
+    private val contactTool get() = penStartTool ?: tool
+    private val contactWidth get() = penStartOptions?.width ?: inkWidth
+    private val contactPressureEnabled get() = penStartOptions?.pressure ?: pressureEnabled
+    private fun penStartPreference(): Tool? = when (AppPrefs.penStartHold(
+        context.getSharedPreferences("preferences", 0).getString(AppPrefs.PEN_START_HOLD, null))) {
+        "highlighter" -> Tool.HIGHLIGHTER
+        "eraser" -> Tool.ERASER
+        else -> null
+    }
+    private val penStartHoldRunnable: Runnable = Runnable {
+        val target = penStartTarget ?: return@Runnable
+        if (!isAttachedToWindow || readOnly || inputBlocked || navigationOnly || navigating || ignored || !stylus ||
+            tool != Tool.PEN || draft?.tool != Tool.PEN || offPage || penStartPreference() != target ||
+            !editableLayer(noteTarget?.let { id -> page.texts.find { it.id == id }?.layer } ?: activeLayer)) {
+            clearPenStartHold()
+            return@Runnable
+        }
+        val now = SystemClock.uptimeMillis()
+        if (!penStartHold.attempt(now)) {
+            penStartHold.remaining(now)?.let { postDelayed(penStartHoldRunnable, it) }
+            return@Runnable
+        }
+        clearPenStartHold()
+        convertPenStart(target)
+    }
+    private fun clearPenStartHold() {
+        removeCallbacks(penStartHoldRunnable)
+        penStartHold.reset()
+        penStartTarget = null
+    }
+    private fun trackPenStartHold(event: MotionEvent, index: Int) {
+        if (penStartTarget == null) return
+        val slop = PenStartHold.SLOP_DP * resources.displayMetrics.density
+        for (h in 0 until event.historySize) {
+            penStartHold.sample(event.getHistoricalX(index, h), event.getHistoricalY(index, h), slop)
+        }
+        penStartHold.sample(event.getX(index), event.getY(index), slop)
+        if (penStartHold.remaining(event.eventTime) == null) { clearPenStartHold(); return }
+        penStartContact = point(event, index)
+        penStartPressure = event.getPressure(index)
+    }
+    /** Restart the uncommitted capture, so every page/note receives the borrowed tool and its width. */
+    private fun convertPenStart(target: Tool) {
+        val source = draft ?: return
+        if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke()
+        localCapture = null; documentGesture = false; documentSpanning = false
+        documentContentPreview = null; documentInkPreview = emptyList()
+        onDocumentGesturePresence(false)
+        clearShapeHold(); clearPrediction(); lowLatency?.cancel(); endLowLatency(); resetDraftGeometry()
+        penFilter = null; speedWidth = null
+        penStartTool = target
+        val prefs = context.getSharedPreferences("preferences", 0)
+        val options = penStartOptionsFor?.invoke(target)
+            ?: ToolOptions.load(context.getSharedPreferences("ink-tools", 0), target)
+        penStartOptions = options
+        val pressure = if ((target == Tool.ERASER && eraserPressureEnabled) || (target == Tool.HIGHLIGHTER && options.pressure))
+            penStartPressure.coerceIn(.25f, 1.8f) else 1f
+        val start = source.points.first().copy(pressure = pressure)
+        val contact = penStartContact.copy(pressure = pressure)
+        if (target == Tool.ERASER) {
+            draft = null; noteTarget = null; rulerEdge = 0
+            beginErasing(contact)
+        } else {
+            val width = if (prefs.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT))
+                options.width * PenPressure.tiltScale(penStartTilt) else options.width
+            draft = Stroke(target, options.color, width, arrayListOf(start, snapToRuler(contact)), options.opacity,
+                layer = source.layer)
+            documentGesture = beginDocument(draft!!, false)
+            if (documentGesture) { onDocumentGesturePresence(true); documentSamples(emptyList()) }
+            // The end hold starts afresh on this highlighter, independently of the start hold.
+            shapeContact = snapToRuler(contact)
+            shapeFitPointCount = draft!!.points.size
+            shapeHold.sample(originX + contact.x * scale, originY + contact.y * scale,
+                SystemClock.uptimeMillis(), ShapeHold.SLOP_DP * resources.displayMetrics.density)
+            if (shapeRecognition) postDelayed(shapeHoldRunnable, shapeHoldMs)
+        }
+        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        if (target != Tool.ERASER) onPenInput(false)
+        onLiveInk(draft, isWritingGesture)
+        invalidate()
+    }
     private val shapeHintBackground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xED202624.toInt() }
     private val shapeHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val shapeHold = ShapeHold()
@@ -425,7 +515,7 @@ class InkView(context: Context) : View(context) {
     private var shapeFitPointCount = 0
     internal val documentHeldShape get() = heldShape
     private val shapeHoldRunnable: Runnable = Runnable {
-        if (shapeRecognition && tool in FREEHAND_TOOLS && !readOnly && !inputBlocked && !navigating &&
+        if (shapeRecognition && draft?.tool in FREEHAND_TOOLS && !readOnly && !inputBlocked && !navigating &&
             PageLayers.editable(page.layers, activeLayer)) {
             if (!shapeHold.attempt(SystemClock.uptimeMillis(), shapeHoldMs)) {
                 shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
@@ -441,7 +531,7 @@ class InkView(context: Context) : View(context) {
             fun show(fitted: Tidied) {
                 if (request != shapeRequest || draft == null || page.id != pageId || !isAttachedToWindow ||
                     !shapeRecognition || readOnly || inputBlocked || navigating ||
-                    page.revision != revision || activeLayer != layer || shapeAssistOptions != options || tool != source.tool ||
+                    page.revision != revision || activeLayer != layer || shapeAssistOptions != options || draft?.tool != source.tool ||
                     !PageLayers.editable(page.layers, activeLayer)) return
                 heldShape = snapShapes(fitted.strokes)
                 shapeAdjustment = ShapeAdjustment(heldShape!!, shapeContact ?: drawing.points.last())
@@ -1722,6 +1812,7 @@ class InkView(context: Context) : View(context) {
         removeCallbacks(reportMeasurement)
         removeCallbacks(reportTextFrame)
         removeCallbacks(longPressRunnable)
+        clearPenStartHold()
         clearShapeHold()
         if (eraserMark != null) eraserMark = null
         clearInkLayers(); renderCache.clear(); boundsCache.clear(); restCache = null; restCacheKeyPage = null
@@ -2053,7 +2144,7 @@ class InkView(context: Context) : View(context) {
         }
         // Tight margin: stroke width + small spline overshoot + eraser ring. The old
         // 64px×scale margin dirtied half the screen per tip move.
-        val margin = maxOf(inkWidth, draft?.width ?: 0f) * scale + 16f * scale.coerceAtMost(2f) + 12f + StrokePrediction.MAX_TAIL_PX
+        val margin = maxOf(contactWidth, draft?.width ?: 0f) * scale + 16f * scale.coerceAtMost(2f) + 12f + StrokePrediction.MAX_TAIL_PX
         val l = (originX + minX * scale - margin).toInt()
         val t = (originY + minY * scale - margin).toInt()
         val r = (originX + maxX * scale + margin).toInt()
@@ -2065,7 +2156,7 @@ class InkView(context: Context) : View(context) {
 
     /** Tight dirty rect for a shape drag re-derived from its two corners. */
     private fun invalidateForShape(start: InkPoint, end: InkPoint) {
-        val margin = max(inkWidth, 14f) * scale + 16f
+        val margin = max(contactWidth, 14f) * scale + 16f
         val l = (originX + min(start.x, end.x) * scale - margin).toInt()
         val t = (originY + min(start.y, end.y) * scale - margin).toInt()
         val r = (originX + max(start.x, end.x) * scale + margin).toInt()
@@ -2436,6 +2527,7 @@ class InkView(context: Context) : View(context) {
                     }
                     lastX = x; lastY = y
                 } else {
+                    trackPenStartHold(event, index)
                     val points = samples(event, index)
                     // The eraser cuts out the samples it touches and leaves the rest of the stroke behind.
                     // One pass applies all of this frame's samples: re-walking every stroke once per
@@ -2462,7 +2554,7 @@ class InkView(context: Context) : View(context) {
                         }
                         erasing = if (eraserWholeStroke) {
                             val maxR = if (eraserPressureEnabled && stylus)
-                                centers.maxOf { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) } else inkWidth / 2f
+                                centers.maxOf { contactWidth / 2f * InkGeometry.eraserScale(it.pressure) } else contactWidth / 2f
                             // Copy-on-write: most MOVEs remove nothing, so keep the same list
                             // instead of allocating a fresh 4k-entry copy per input event.
                             var removedAt = -1
@@ -2474,7 +2566,7 @@ class InkView(context: Context) : View(context) {
                                 if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
                                     b[3] + reach < cMinY || b[1] - reach > cMaxY) continue
                                 val hit = centers.any { c ->
-                                    val r = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(c.pressure) else inkWidth / 2f
+                                    val r = if (eraserPressureEnabled && stylus) contactWidth / 2f * InkGeometry.eraserScale(c.pressure) else contactWidth / 2f
                                     InkGeometry.hits(hitStroke, c, r)
                                 }
                                 if (hit) { removedAt = i; break }
@@ -2487,18 +2579,18 @@ class InkView(context: Context) : View(context) {
                                 if (b[2] + reach < cMinX || b[0] - reach > cMaxX ||
                                     b[3] + reach < cMinY || b[1] - reach > cMaxY) return@filterNot false
                                 centers.any { c ->
-                                    val r = if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(c.pressure) else inkWidth / 2f
+                                    val r = if (eraserPressureEnabled && stylus) contactWidth / 2f * InkGeometry.eraserScale(c.pressure) else contactWidth / 2f
                                     InkGeometry.hits(hitStroke, c, r)
                                 }
                             }
                         } else if (eraserPressureEnabled && stylus) {
-                            val radii = centers.map { inkWidth / 2f * InkGeometry.eraserScale(it.pressure) }
+                            val radii = centers.map { contactWidth / 2f * InkGeometry.eraserScale(it.pressure) }
                             val maxR = radii.max()
                             eraseCopyOnWrite(cutting, cMinX, cMinY, cMaxX, cMaxY, maxR) { stroke ->
                                 InkGeometry.erase(stroke, centers, radii)
                             }
                         } else {
-                            val radius = inkWidth / 2f
+                            val radius = contactWidth / 2f
                             eraseCopyOnWrite(cutting, cMinX, cMinY, cMaxX, cMaxY, radius) { stroke ->
                                 InkGeometry.erase(stroke, centers, radius)
                             }
@@ -2621,6 +2713,7 @@ class InkView(context: Context) : View(context) {
         return true
     }
     private fun finishStrokeSamples(event: MotionEvent, index: Int) {
+        clearPenStartHold()
         if (erasing != null) { documentSamples(samples(event, index, finishing = true)); return }
         val current = draft ?: return
         trackShapeHold(event, index)
@@ -3277,7 +3370,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { recognitionEpoch++; if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { recognitionEpoch++; clearPenStartHold(); penStartTool = null; penStartOptions = null; if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -3878,6 +3971,7 @@ class InkView(context: Context) : View(context) {
 
     /** Begins a stroke for [index] unless the touch started outside the page, which pans instead. */
     private fun beginStroke(event: MotionEvent, index: Int) {
+        clearPenStartHold()
         penFilter = null
         // onTouchEvent already stopped follow on contact and retained finishing-mark intent.
         // Cancelling again here would clear that intent before a dot/crossbar can resume it.
@@ -3897,35 +3991,7 @@ class InkView(context: Context) : View(context) {
             start = InkGeometry.snapToGrid(start, page.paper.gridSpacing)
         }
         if (erases) {
-            val radius = eraserRadiusAt(start)
-            // Over a note the eraser works on the note's ink, never the page ink hidden beneath it.
-            noteErasing = null
-            erasing = if (eraseNotes(listOf(start)).isEmpty()) page.strokes
-            else if (eraserWholeStroke) {
-                val hitAt = page.strokes.indexOfFirst {
-                    if (!erasable(it)) return@indexOfFirst false
-                    val b = boundsOf(it)
-                    val reach = radius + it.width / 2f
-                    if (start.x < b[0] - reach || start.x > b[2] + reach ||
-                        start.y < b[1] - reach || start.y > b[3] + reach) return@indexOfFirst false
-                    InkGeometry.hits(it, start, radius)
-                }
-                if (hitAt < 0) page.strokes
-                else page.strokes.filterNot {
-                    if (!erasable(it)) return@filterNot false
-                    val b = boundsOf(it)
-                    val reach = radius + it.width / 2f
-                    if (start.x < b[0] - reach || start.x > b[2] + reach ||
-                        start.y < b[1] - reach || start.y > b[3] + reach) return@filterNot false
-                    InkGeometry.hits(it, start, radius)
-                }
-            } else eraseCopyOnWrite(page.strokes, start.x, start.y, start.x, start.y, radius) {
-                InkGeometry.erase(it, start, radius)
-            }
-            documentGesture = beginDocument(Stroke(Tool.ERASER, inkColor, inkWidth, listOf(start), layer = activeLayer), false)
-            if (documentGesture) { onDocumentGesturePresence(true); documentSamples(emptyList()) }
-            eraserMark = start
-            onPenInput(false)
+            beginErasing(start)
         } else {
             // A note is written on whatever layer is active: it carries its own ink on its own layer.
             if (note == null && !PageLayers.editable(page.layers, activeLayer)) { ignored = true; onLayerBlocked(); return }
@@ -3949,10 +4015,52 @@ class InkView(context: Context) : View(context) {
                 documentGesture = beginDocument(draft!!, false)
                 if (documentGesture) { onDocumentGesturePresence(true); documentSamples(emptyList()) }
             }
+            if (tool == Tool.PEN && stylus) {
+                penStartTarget = penStartPreference()
+                if (penStartTarget != null) {
+                    penStartContact = raw
+                    penStartPressure = event.getPressure(index)
+                    penStartTilt = event.getAxisValue(MotionEvent.AXIS_TILT, index)
+                    penStartHold.begin(event.getX(index), event.getY(index), event.eventTime)
+                    penStartHold.remaining(SystemClock.uptimeMillis())?.let { postDelayed(penStartHoldRunnable, it) }
+                }
+            }
             onPenInput(true)
         }
     }
 
+
+    private fun beginErasing(start: InkPoint) {
+        val radius = eraserRadiusAt(start)
+        // Over a note the eraser works on the note's ink, never the page ink hidden beneath it.
+        noteErasing = null
+        erasing = if (eraseNotes(listOf(start)).isEmpty()) page.strokes
+        else if (eraserWholeStroke) {
+            val hitAt = page.strokes.indexOfFirst {
+                if (!erasable(it)) return@indexOfFirst false
+                val b = boundsOf(it)
+                val reach = radius + it.width / 2f
+                if (start.x < b[0] - reach || start.x > b[2] + reach ||
+                    start.y < b[1] - reach || start.y > b[3] + reach) return@indexOfFirst false
+                InkGeometry.hits(it, start, radius)
+            }
+            if (hitAt < 0) page.strokes
+            else page.strokes.filterNot {
+                if (!erasable(it)) return@filterNot false
+                val b = boundsOf(it)
+                val reach = radius + it.width / 2f
+                if (start.x < b[0] - reach || start.x > b[2] + reach ||
+                    start.y < b[1] - reach || start.y > b[3] + reach) return@filterNot false
+                InkGeometry.hits(it, start, radius)
+            }
+        } else eraseCopyOnWrite(page.strokes, start.x, start.y, start.x, start.y, radius) {
+            InkGeometry.erase(it, start, radius)
+        }
+        documentGesture = beginDocument(Stroke(Tool.ERASER, inkColor, contactWidth, listOf(start), layer = activeLayer), false)
+        if (documentGesture) { onDocumentGesturePresence(true); documentSamples(emptyList()) }
+        eraserMark = start
+        onPenInput(false)
+    }
 
     /** Starts the optional low-latency layer for a plain opaque pen stroke on the page, when it is on and ready. */
     private fun startLowLatency(onPage: Boolean) {
@@ -4043,10 +4151,10 @@ class InkView(context: Context) : View(context) {
         val x = if (history == null) e.getX(i) else e.getHistoricalX(i, history)
         val y = if (history == null) e.getY(i) else e.getHistoricalY(i, history)
         val rawPressure = if (history == null) e.getPressure(i) else e.getHistoricalPressure(i, history)
-        val pressure = when (tool) {
+        val pressure = when (contactTool) {
             Tool.PEN -> PenPressure.sample(rawPressure, stylus && pressureEnabled, pressureSensitivity, pressureVariation, pressureCurve, speed)
             Tool.ERASER -> if (!stylus || !eraserPressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
-            else -> if (!stylus || !pressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
+            else -> if (!stylus || !contactPressureEnabled) 1f else rawPressure.coerceIn(.25f, 1.8f)
         }
         return InkPoint((x - originX) / scale, (y - originY) / scale, pressure)
     }
@@ -4071,7 +4179,7 @@ class InkView(context: Context) : View(context) {
         return accepted
     }
     private fun eraserRadiusAt(p: InkPoint) =
-        if (eraserPressureEnabled && stylus) inkWidth / 2f * InkGeometry.eraserScale(p.pressure) else inkWidth / 2f
+        if (eraserPressureEnabled && stylus) contactWidth / 2f * InkGeometry.eraserScale(p.pressure) else contactWidth / 2f
     /**
      * Applies eraser samples that land on a note to that note's ink (held in [noteErasing] until the
      * eraser lifts) and returns the samples clear of every note, which are the page's to erase.
