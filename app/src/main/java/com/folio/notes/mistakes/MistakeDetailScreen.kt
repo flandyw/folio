@@ -62,7 +62,7 @@ internal fun MistakeDetailCard(
             if (working) LoadingIndicator(Modifier.size(20.dp))
             else Icon(Icons.Rounded.Edit, null)
             Spacer(Modifier.width(FolioSpacing.dp8))
-            Text(if (mistake.suspended) "Unsuspend in Focal to practise" else if (attempts.any { it.second.completedAt == null }) "Continue handwritten review" else "Practise this question")
+            Text(if (mistake.suspended) "Unsuspend in Focal to practise" else if (attempts.any { it.second.completedAt == null }) "Continue review" else "Practise this question")
         }
         TextButton({ showDelete = true }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
             Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
@@ -102,7 +102,7 @@ internal fun MistakeDetailCard(
                 RichText(mistake.explanation.ifBlank { "No explanation saved in Focal." }, style = MaterialTheme.typography.bodyLarge)
             }
             2 -> {
-                Text("Your handwritten attempts", style = MaterialTheme.typography.titleMedium)
+                Text("Your attempts", style = MaterialTheme.typography.titleMedium)
                 if (attempts.isEmpty()) Text("Work through the question once and your page will appear here. Every attempt is kept.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 attempts.sortedByDescending { it.second.completedAt ?: "9999" }.forEach { (note, attempt) ->
                     val done = attempt.completedAt != null
@@ -111,9 +111,9 @@ internal fun MistakeDetailCard(
                             Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions, null)
                             Column(Modifier.weight(1f)) {
                                 Text(if (done) attempt.rating?.replaceFirstChar(Char::uppercase) ?: "Reviewed" else "Ready to continue", style = MaterialTheme.typography.titleSmall)
-                                Text(attempt.completedAt?.take(10) ?: "Unfinished · your ink is saved", style = MaterialTheme.typography.bodySmall)
+                                Text(attempt.completedAt?.take(10) ?: "Unfinished · your response is saved", style = MaterialTheme.typography.bodySmall)
                             }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, if (done) "Open handwriting" else "Continue review")
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, if (done) "Open response" else "Continue review")
                         }
                     }
                 }
@@ -125,7 +125,7 @@ internal fun MistakeDetailCard(
             onDismissRequest = { if (!working) showDelete = false },
             icon = { Icon(Icons.Rounded.DeleteOutline, null) },
             title = { Text("Delete this card?") },
-            text = { Text("“${mistake.question}” leaves your review list on all devices. Your handwriting on this device is kept.") },
+            text = { Text("“${mistake.question}” leaves your review list on all devices. Your responses on this device are kept.") },
             dismissButton = { TextButton({ showDelete = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(

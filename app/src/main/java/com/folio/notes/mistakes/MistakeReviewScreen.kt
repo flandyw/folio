@@ -1,5 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
 import androidx.compose.foundation.background
@@ -23,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -53,6 +56,24 @@ import com.folio.notes.*
     val preferences = remember(androidContext) { androidContext.getSharedPreferences("preferences", 0) }
     val confirmReview by rememberPref(preferences, AppPrefs.UX_REVIEW_CONFIRM) { it.getBoolean(AppPrefs.UX_REVIEW_CONFIRM, AppPrefs.DEFAULT_UX_REVIEW_CONFIRM) }
     val rootView = LocalView.current
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val practicePage = state.notes.find { it.id == attempt.practiceNotebookId }?.pages?.find { it.id == attempt.practicePageId }
+    var responseMode by rememberSaveable(attempt.reviewId) {
+        mutableStateOf(if (practicePage?.let { MistakeTypedResponse.find(it, attempt.reviewId) } != null) "type"
+            else AppPrefs.mistakeResponseMode(preferences.getString(AppPrefs.MISTAKE_RESPONSE_MODE, null)))
+    }
+    var modeChosen by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
+    LaunchedEffect(attempt.reviewId, practicePage?.loaded) {
+        if (!modeChosen && practicePage?.loaded == true && MistakeTypedResponse.find(practicePage, attempt.reviewId) != null) responseMode = "type"
+    }
+    val typing = responseMode == "type"
+    var typingFocused by remember(attempt.reviewId) { mutableStateOf(false) }
+    var typeFocusRequest by remember(attempt.reviewId) { mutableIntStateOf(0) }
+    fun finishTyping() { keyboard?.hide(); focusManager.clearFocus(); typingFocused = false }
+    fun skipReview() { finishTyping(); onSkip() }
     var revealed by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var confidence by rememberSaveable(attempt.reviewId) { mutableStateOf<String?>(null) }
     var questionExpanded by rememberSaveable(attempt.reviewId) { mutableStateOf(true) }
@@ -67,7 +88,7 @@ import com.folio.notes.*
     }
     var showPrevious by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
     var showDelete by rememberSaveable(attempt.reviewId) { mutableStateOf(false) }
-    // Earlier handwriting for the same question, newest first. The current page is excluded
+    // Earlier working for the same question, newest first. The current page is excluded
     // so "compare" always means looking back, never at the page being written now.
     val previousAttempts = remember(state.notes, attempt.userId, m.id, attempt.reviewId) {
         previousPracticeAttempts(state.notes, attempt.userId, m.id, attempt.reviewId)
@@ -92,19 +113,20 @@ import com.folio.notes.*
             firstTapAt = now
         }
     }
+    fun revealAnswer() { finishTyping(); revealed = true; questionExpanded = true }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage, attempt.reviewId) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
-        if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry from the page status before rating.", duration = SnackbarDuration.Long)
+        if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry saving your response before rating.", duration = SnackbarDuration.Long)
     }
     Scaffold(
         // Keep the editor mounted while the next page is prepared, but do not let
         // a stray stroke or tap edit a notebook during the handoff.
-        modifier = Modifier.onKeyEvent { event ->
-            if (event.type != KeyEventType.KeyDown || busy || rootView.findFocus() is android.widget.EditText || event.nativeKeyEvent.repeatCount != 0) false
+        modifier = Modifier.then(if (typing) Modifier.imePadding() else Modifier).onKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown || busy || typingFocused || rootView.findFocus() is android.widget.EditText || event.nativeKeyEvent.repeatCount != 0) false
             else when (event.key) {
-                Key.Spacebar -> { if (!revealed) { revealed = true; questionExpanded = true; true } else false }
-                Key.S -> { if (canSkip) { confirmDoubleTap("skipTop", onSkip); true } else false }
+                Key.Spacebar -> { if (!revealed) { revealAnswer(); true } else false }
+                Key.S -> { if (canSkip) { confirmDoubleTap("skipTop", ::skipReview); true } else false }
                 Key.One, Key.Two, Key.Three, Key.Four -> {
                     if (revealed && !state.saveFailed) { val index = listOf(Key.One, Key.Two, Key.Three, Key.Four).indexOf(event.key); ReviewRating.entries.getOrNull(index)?.let { onRate(it, confidence) }; true } else false
                 }
@@ -123,7 +145,8 @@ import com.folio.notes.*
                     Text(
                         when {
                             state.saveFailed -> "Save failed · retry before rating"
-                            state.saving -> "Saving your ink…"
+                            state.saving -> "Saving your response…"
+                            typing && imeVisible -> m.question
                             queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize · +$sessionXP XP"
                             dueLeft > 1 -> "${dueLeft - 1} more due after this"
                             else -> "Practise at your own pace"
@@ -132,10 +155,10 @@ import com.folio.notes.*
                         color = if (state.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                navigationIcon = { IconButton(onBack, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · handwriting is saved") } },
+                navigationIcon = { IconButton({ finishTyping(); onBack() }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · your response is saved") } },
                 actions = {
                     if (previousAttempts.isNotEmpty()) {
-                        IconButton({ showPrevious = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
+                        IconButton({ finishTyping(); showPrevious = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                             BadgedBox({ Badge { Text("${previousAttempts.size}") } }) {
                                 Icon(Icons.Rounded.History, "Compare with your last attempt (${previousAttempts.size} kept, read-only)")
                             }
@@ -144,7 +167,7 @@ import com.folio.notes.*
                     // Before the reveal the bottom bar already offers Skip, so the top one only
                     // appears once that row has turned into ratings.
                     if (revealed && canSkip) {
-                        IconButton({ confirmDoubleTap("skipTop", onSkip) }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
+                        IconButton({ confirmDoubleTap("skipTop", ::skipReview) }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card",
                                 tint = if (pendingAction == "skipTop") MaterialTheme.colorScheme.primary else LocalContentColor.current)
                         }
@@ -192,33 +215,40 @@ import com.folio.notes.*
                             }
                         }
                         val actions: @Composable () -> Unit = {
-                            if (canSkip) {
-                                TextButton({ confirmDoubleTap("skipBottom", onSkip) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                            if (canSkip && !(typing && imeVisible)) {
+                                TextButton({ confirmDoubleTap("skipBottom", ::skipReview) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                                     Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(FolioSpacing.dp4))
                                     Text(if (pendingAction == "skipBottom") "Tap again" else "Skip")
                                 }
                             }
-                            FilledTonalButton({ confirmDoubleTap("compare") { revealed = true; questionExpanded = true } }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                            if (typing && imeVisible) TextButton(::finishTyping, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                                Icon(Icons.Rounded.KeyboardHide, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp4))
+                                Text("Done typing")
+                            }
+                            FilledTonalButton({ confirmDoubleTap("compare", ::revealAnswer) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                                 Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
                             }
                         }
                         if (roomy) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            recall()
+                            if (!(typing && imeVisible)) recall()
                             Spacer(Modifier.weight(1f))
                             actions()
                         } else Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) { recall() }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) { actions() }
+                            if (!(typing && imeVisible)) FlowRow(Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                                itemVerticalAlignment = Alignment.CenterVertically) { recall() }
+                            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) { actions() }
                         }
                     } else {
                         val now = remember(revealed) { isoTime() }
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                             val note = when {
                                 pendingAction == "skipTop" -> "Tap the Skip button above again to confirm."
-                                state.saveFailed -> "Save failed — retry from the editor status, then rate."
+                                state.saveFailed -> "Save failed — retry saving your response, then rate."
                                 busy -> "Saving your review…"
                                 else -> null
                             }
@@ -230,7 +260,7 @@ import com.folio.notes.*
                                         runCatching { MistakeScheduler.previewMistakeReview(m, rating, now, reviewPreferences, mistakesState.cache.mistakes.values.toList()) }.getOrNull()
                                     }
                                     val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000), rating) } ?: ""
-                                    // Autosave runs after each stroke. Rating waits for it in the
+                                    // Autosave runs after each edit. Rating waits for it in the
                                     // handler, so drawing must not pulse the buttons' enabled state.
                                     val canRate = !busy && !state.saveFailed
                                     val ratingName = rating.wire.replaceFirstChar { it.uppercase() }
@@ -242,16 +272,15 @@ import com.folio.notes.*
                                     }
                                     val modifier = Modifier.weight(1f).semantics { contentDescription = "$ratingName, $meaning${if (label.isNotBlank()) ", next review $label" else ""}" }
                                     val content: @Composable RowScope.() -> Unit = {
-                                        Text(ratingName, style = MaterialTheme.typography.labelLarge)
-                                        if (label.isNotBlank()) {
-                                            Spacer(Modifier.width(FolioSpacing.dp6))
-                                            Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(.75f))
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(ratingName, style = MaterialTheme.typography.labelLarge)
+                                            if (label.isNotBlank()) Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(.75f))
                                         }
                                     }
                                     when (rating) {
-                                        ReviewRating.AGAIN -> OutlinedButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
-                                        ReviewRating.GOOD -> Button({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
-                                        else -> FilledTonalButton({ onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        ReviewRating.AGAIN -> OutlinedButton({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        ReviewRating.GOOD -> Button({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        else -> FilledTonalButton({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
                                     }
                                 }
                             }
@@ -262,7 +291,10 @@ import com.folio.notes.*
         }
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val wide = mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
+            // The IME must not turn a portrait tablet into a landscape split mid-sentence.
+            val wide = if (typing) maxWidth >= 840.dp else mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
+            val compactTyping = typing && imeVisible && maxHeight < 300.dp
+            val referenceExpanded = questionExpanded && !(typing && imeVisible && typingFocused && !wide)
             val referenceHeight = maxHeight * portraitShare
             val dividerThickness = 16.dp
             val density = LocalDensity.current
@@ -298,14 +330,14 @@ import com.folio.notes.*
                         Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                             // A collapsed portrait panel has no heading of its own, so it names the card.
                             Text(
-                                if (!wide && !questionExpanded) m.question else if (revealed) "Compare & reflect" else "Question",
+                                if (!wide && !referenceExpanded) m.question else if (revealed) "Compare & reflect" else "Question",
                                 Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            ShareTextButton(
+                            ShareTextButton(typed = typing,
                                 onShare = { questionOnly ->
                                     val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(state, attempt))
-                                    if (questionOnly) shareText(androidContext, text)
+                                    if (questionOnly || typing && practicePage?.strokes.isNullOrEmpty() && practicePage?.images.isNullOrEmpty()) shareText(androidContext, text)
                                     else shareScope.launch {
                                         val png = runCatching { renderWorkingPng(androidContext, folio, state, attempt, preferences) }.getOrNull()
                                         if (png == null) shareText(androidContext, text)
@@ -317,8 +349,8 @@ import com.folio.notes.*
                                     }
                                 },
                             )
-                            if (!wide) IconButton({ questionExpanded = !questionExpanded }, shapes = IconButtonDefaults.shapes()) {
-                                Icon(if (questionExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (questionExpanded) "Collapse question" else "Expand question")
+                            if (!wide) IconButton({ if (!referenceExpanded) { finishTyping(); questionExpanded = true } else questionExpanded = false }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(if (referenceExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (referenceExpanded) "Collapse question" else "Expand question")
                             }
                         }
                         if (adjustLayout) {
@@ -341,7 +373,7 @@ import com.folio.notes.*
                                 confirmButton = { TextButton({ adjustLayout = false }) { Text("Done") } }
                             )
                         }
-                        if (wide || questionExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                        if (wide || referenceExpanded) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             QuestionContent(m, context, attempt.userId, model.attachments, textScale)
                             androidx.compose.animation.AnimatedVisibility(visible = revealed,
                                 enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(if (reviewPreferences.practiceEffects) 180 else 0)),
@@ -358,6 +390,38 @@ import com.folio.notes.*
                     }
                 }
             }
+            @Composable fun ResponsePane(modifier: Modifier) {
+                Column(modifier) {
+                    if (!compactTyping) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp12),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Text("Your response", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        SingleChoiceSegmentedButtonRow(Modifier.padding(vertical = FolioSpacing.dp4)) {
+                            listOf("write" to "Write", "type" to "Type").forEachIndexed { index, (mode, label) ->
+                                SegmentedButton(
+                                    selected = responseMode == mode,
+                                    onClick = {
+                                        if (responseMode != mode) {
+                                            finishTyping()
+                                            modeChosen = true
+                                            responseMode = mode
+                                            preferences.edit().putString(AppPrefs.MISTAKE_RESPONSE_MODE, mode).apply()
+                                            if (mode == "type") typeFocusRequest++
+                                        }
+                                    },
+                                    enabled = !busy,
+                                    shape = SegmentedButtonDefaults.itemShape(index, 2),
+                                    icon = { Icon(if (mode == "type") Icons.Rounded.Keyboard else Icons.Rounded.Edit, null, Modifier.size(18.dp)) },
+                                ) { Text(label) }
+                            }
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (typing) MistakeTypingPane(practicePage, attempt.reviewId, state, folio, busy, typeFocusRequest, compactTyping,
+                            onFocusChanged = { typingFocused = it })
+                        else EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress)
+                    }
+                }
+            }
             if (wide) Row(Modifier.fillMaxSize()) {
                 ReferencePane(Modifier.weight(landscapeShare).fillMaxHeight())
                 SplitDivider(
@@ -368,22 +432,25 @@ import com.folio.notes.*
                     onDoubleTap = ::resetShare,
                     contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
                 )
-                Box(Modifier.weight(1f - landscapeShare).fillMaxHeight()) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress) }
+                ResponsePane(Modifier.weight(1f - landscapeShare).fillMaxHeight())
             } else Column(Modifier.fillMaxSize()) {
-                ReferencePane(Modifier.fillMaxWidth().height(if (questionExpanded) referenceHeight else 52.dp))
-                // A collapsed question panel is still a handle: any drag reopens and resizes it.
-                SplitDivider(
-                    vertical = false,
-                    thickness = dividerThickness,
-                    onDrag = { delta ->
-                        if (!questionExpanded) questionExpanded = true
-                        draggedShare(delta, splitHeightPx)
-                    },
-                    onRelease = ::releaseShare,
-                    onDoubleTap = ::resetShare,
-                    contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
-                )
-                Box(Modifier.weight(1f)) { EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress) }
+                if (!compactTyping) {
+                    ReferencePane(Modifier.fillMaxWidth().height(if (referenceExpanded) referenceHeight else 52.dp))
+                    // A collapsed question panel is still a handle: any drag reopens and resizes it.
+                    SplitDivider(
+                        vertical = false,
+                        thickness = dividerThickness,
+                        onDrag = { delta ->
+                            if (!referenceExpanded) finishTyping()
+                            if (!questionExpanded) questionExpanded = true
+                            draggedShare(delta, splitHeightPx)
+                        },
+                        onRelease = ::releaseShare,
+                        onDoubleTap = ::resetShare,
+                        contentDescription = "Split between the question and your working. Drag to resize. Double-tap for the default split.",
+                    )
+                }
+                ResponsePane(Modifier.weight(1f).fillMaxWidth())
             }
             PracticeConfetti(celebration, reviewPreferences.practiceEffects, reviewPreferences.practiceFinish, Modifier.matchParentSize())
         }
@@ -396,7 +463,7 @@ import com.folio.notes.*
             onDismissRequest = { if (!busy) showDelete = false },
             icon = { Icon(Icons.Rounded.DeleteOutline, null) },
             title = { Text("Delete this card?") },
-            text = { Text("“${m.question}” leaves your review list on all devices. Your handwriting on this device is kept.") },
+            text = { Text("“${m.question}” leaves your review list on all devices. Your responses on this device are kept.") },
             dismissButton = { TextButton({ showDelete = false }, enabled = !busy, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(
@@ -479,15 +546,15 @@ private fun shareText(context: android.content.Context, text: String?, image: ja
 
 /** Tap shares a picture of the working and copies the text; long-press shares the question text alone. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun ShareTextButton(onShare: (questionOnly: Boolean) -> Unit) {
+@Composable private fun ShareTextButton(typed: Boolean, onShare: (questionOnly: Boolean) -> Unit) {
     Box(
         Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).combinedClickable(
             role = androidx.compose.ui.semantics.Role.Button,
-            onClickLabel = "Share a picture of your working out and copy the text",
+            onClickLabel = if (typed) "Share your response" else "Share a picture of your working out and copy the text",
             onLongClickLabel = "Share question text only",
             onLongClick = { onShare(true) },
             onClick = { onShare(false) }
         ),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Rounded.IosShare, "Share working out as a picture and copy the text · hold to share the question text", Modifier.size(24.dp)) }
+    ) { Icon(Icons.Rounded.IosShare, if (typed) "Share your response · hold to share the question text" else "Share working out as a picture and copy the text · hold to share the question text", Modifier.size(24.dp)) }
 }

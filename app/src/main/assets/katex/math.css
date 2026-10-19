@@ -22,3 +22,8 @@ body { width: max-content; }
 .document code { font-family: monospace; font-size: .92em; }
 .document hr { border: 0; border-top: 1px solid currentColor; opacity: .4; }
 .document img.diagram { display: block; width: 100%; max-width: 480px; height: auto; margin: 6px 0; background: #fff; border-radius: 6px; }
+
+.document table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.document th, .document td { border: 1px solid currentColor; padding: 6px; overflow-wrap: anywhere; white-space: pre-wrap; vertical-align: top; }
+.document th { font-weight: 600; }
+.document td .math, .document th .math { max-width: 100%; }

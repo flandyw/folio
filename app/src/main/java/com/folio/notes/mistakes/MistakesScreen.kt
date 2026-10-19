@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -104,6 +105,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var activeReview by rememberSaveable { mutableStateOf<String?>(null) }
+    var viewingAttempt by remember { mutableStateOf<Pair<Notebook, LocalMistakeReviewAttempt>?>(null) }
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
@@ -347,7 +349,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 sessionTotal = maxOf(sessionCompleted, sessionTotal - 1)
                 if (detail == deletedId) detail = null
                 val remainingIds = reviewQueue.filterNot { it == deletedId }
-                showTransient("Card deleted · handwriting kept on this device.")
+                showTransient("Card deleted · responses kept on this device.")
                 val fresh = model.state.value.cache.mistakes
                 val validNext = remainingIds.mapNotNull { fresh[it] }.filterNot { it.suspended }
                 working = false
@@ -401,7 +403,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     // stroke is accepted rather than silently dropped. A save failure also
                     // ends this wait so the page stays open for retry.
                     val saved = folio.state.first { !it.saving || it.saveFailed }
-                    check(!saved.saveFailed) { "Save the handwriting before rating" }
+                    check(!saved.saveFailed) { "Save the response before rating" }
                     val finishedId = active.mistakeId
                     val completed = model.rate(active, rating, confidence, sessionWeek, sessionChallengeSize.takeIf { sessionWeek != null })
                     folio.completeMistakePractice(completed)
@@ -439,6 +441,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         )
         return
     }
+    viewingAttempt?.let { previous ->
+        PreviousAttemptDialog(listOf(previous), folio, closeLabel = "Back to question",
+            onOpenPage = { id -> viewingAttempt = null; folio.open(id); onBack() }) { viewingAttempt = null }
+    }
     fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
     /** Deletes one card from a list row's long-press menu — same flow as the detail screen. */
     fun deleteCard(id: String) {
@@ -449,7 +455,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 model.deleteMistake(id)
                 if (detail == id) detail = null
                 reviewQueue = reviewQueue.filterNot { it == id }
-                showTransient("Card deleted · handwriting kept on this device.")
+                showTransient("Card deleted · responses kept on this device.")
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { showTransient("Could not delete this card. Please try again.") }
             finally { working = false }
@@ -479,9 +485,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 onDelete = { deleteCard(selected.id) },
                 onOpenAttempt = { noteId, pageId, reviewId, completed ->
                     if (completed) {
-                        val idx = folioState.notes.find { it.id == noteId }
-                            ?.pages?.indexOfFirst { it.id == pageId }?.coerceAtLeast(0) ?: 0
-                        folio.openAt(noteId, idx); onBack()
+                        folioState.notes.find { it.id == noteId }?.let { note ->
+                            note.mistakeReviews.find { it.reviewId == reviewId }?.let { viewingAttempt = note to it }
+                        }
                     } else scope.launch {
                         try {
                             val note = folioState.notes.find { it.id == noteId } ?: return@launch
@@ -698,7 +704,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 Spacer(Modifier.height(FolioSpacing.dp16))
                                 Text("Room to work through it", style = MaterialTheme.typography.headlineSmall)
                                 Spacer(Modifier.height(FolioSpacing.dp8))
-                                Text("Choose a question to see its solution and handwritten attempts here.", style = MaterialTheme.typography.bodyLarge)
+                                Text("Choose a question to see its solution and previous attempts here.", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
                     }
@@ -759,7 +765,7 @@ private fun MistakesDestinationToolbar(
                         "Today" -> Icons.Rounded.Today
                         "Library" -> Icons.Rounded.GridView
                         "Connect" -> Icons.Rounded.CloudOff
-                        else -> Icons.Rounded.Draw
+                        else -> Icons.AutoMirrored.Rounded.TextSnippet
                     }
                     Surface(
                         modifier = Modifier.weight(1f).clip(CircleShape).selectable(
@@ -776,7 +782,7 @@ private fun MistakesDestinationToolbar(
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.CenterVertically),
                         ) {
                             Icon(icon, null, Modifier.size(24.dp))
-                            Text(title, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (title == "Handwriting") "Responses" else title, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

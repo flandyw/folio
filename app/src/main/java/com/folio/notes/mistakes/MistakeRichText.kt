@@ -20,6 +20,11 @@ sealed interface RichBlock {
     data class Code(val code: String) : RichBlock
     /** A ```svg fence: one <svg> element, drawn by the offline renderer as a sandboxed image. */
     data class Svg(val markup: String) : RichBlock
+    data class Table(
+        val header: List<List<RichInline>>,
+        val rows: List<List<List<RichInline>>>,
+        val alignments: List<String>,
+    ) : RichBlock
     data class DisplayMath(val latex: String) : RichBlock
     data object Divider : RichBlock
 }
@@ -64,6 +69,19 @@ object RichTextParser {
                     blocks += RichBlock.DisplayMath(trimmed.substring(2, trimmed.length - 2))
                     i++
                 }
+                tableAlignments(lines, i) != null -> {
+                    val alignments = tableAlignments(lines, i)!!
+                    val header = tableCells(line).map(::parseInlines)
+                    val rows = mutableListOf<List<List<RichInline>>>()
+                    i += 2
+                    while (i < lines.size && lines[i].isNotBlank()) {
+                        val cells = tableCells(lines[i])
+                        if (cells.size < 2) break
+                        rows += List(header.size) { column -> parseInlines(cells.getOrElse(column) { "" }) }
+                        i++
+                    }
+                    blocks += RichBlock.Table(header, rows, alignments)
+                }
                 trimmed == "---" || trimmed == "***" || trimmed == "___" -> { blocks += RichBlock.Divider; i++ }
                 trimmed.startsWith("#") && trimmed.dropWhile { it == '#' }.startsWith(" ") -> {
                     val level = trimmed.takeWhile { it == '#' }.length.coerceIn(1, 3)
@@ -99,7 +117,7 @@ object RichTextParser {
                     val buf = mutableListOf<String>()
                     while (i < lines.size) {
                         val t = lines[i].trim()
-                        if (t.isEmpty() || t.startsWith("```") || t == "$$" || t == "\\[" || isDisplayMathFence(t) ||
+                        if (tableAlignments(lines, i) != null || t.isEmpty() || t.startsWith("```") || t == "$$" || t == "\\[" || isDisplayMathFence(t) ||
                             (t.startsWith("#") && t.dropWhile { it == '#' }.startsWith(" ")) ||
                             t.startsWith(">") || isBullet(t) || isNumbered(t) ||
                             t == "---" || t == "***" || t == "___"
@@ -112,6 +130,57 @@ object RichTextParser {
             }
         }
         return blocks
+    }
+
+    private val tableSeparator = Regex(":?-+:?")
+
+    private fun tableAlignments(lines: List<String>, index: Int): List<String>? {
+        if (index + 1 >= lines.size) return null
+        val header = tableCells(lines[index])
+        if (header.size < 2) return null
+        val separators = tableCells(lines[index + 1])
+        if (separators.size != header.size || separators.any { !tableSeparator.matches(it) }) return null
+        return separators.map {
+            when {
+                it.startsWith(':') && it.endsWith(':') -> "center"
+                it.endsWith(':') -> "right"
+                else -> "left"
+            }
+        }
+    }
+
+    /** Pipes inside math or code are content; escaped pipes are literal too. */
+    private fun tableCells(line: String): List<String> {
+        val source = line.trim()
+        val cells = mutableListOf<String>()
+        var start = 0
+        var i = 0
+        while (i < source.length) {
+            if (isEscaped(source, i)) { i++; continue }
+            val open = when {
+                source[i] == '`' -> source.substring(i).takeWhile { it == '`' }
+                source.startsWith("\\(", i) -> "\\("
+                source.startsWith("\\[", i) -> "\\["
+                source.startsWith("$$", i) -> "$$"
+                source[i] == '$' -> "$"
+                else -> null
+            }
+            if (open != null) {
+                val close = when (open) { "\\(" -> "\\)"; "\\[" -> "\\]"; else -> open }
+                val end = if (open == "$") findClosingDollar(source, i + 1)
+                    else findClosing(source, close, i + open.length)
+                if (end >= 0) { i = end + close.length; continue }
+            }
+            if (source[i] == '|') {
+                cells += source.substring(start, i).trim()
+                start = i + 1
+            }
+            i++
+        }
+        cells += source.substring(start).trim()
+        if (source.startsWith('|')) cells.removeAt(0)
+        if (source.endsWith('|') && !isEscaped(source, source.lastIndex)) cells.removeAt(cells.lastIndex)
+        return cells
     }
 
     private const val MAX_SVG_CHARS = 100_000
@@ -143,7 +212,7 @@ object RichTextParser {
         var i = 0
         while (i < source.length) {
             // Markdown escapes and code take precedence over math delimiters.
-            if (source[i] == '\\' && i + 1 < source.length && source[i + 1] in "$\\*_`~") {
+            if (source[i] == '\\' && i + 1 < source.length && source[i + 1] in "$\\*_`~|") {
                 text.append(source[i + 1]); i += 2; continue
             }
             if (source[i] == '`') {
@@ -233,6 +302,9 @@ object RichTextParser {
                 is RichBlock.Quote -> block.inlines
                 is RichBlock.Bullets -> block.items.flatMap { it + RichInline.Break }
                 is RichBlock.Numbers -> block.items.flatMap { it + RichInline.Break }
+                is RichBlock.Table -> (listOf(block.header) + block.rows).flatMap { row ->
+                    row.flatMap { it + RichInline.Run(" | ") }.dropLast(1) + RichInline.Break
+                }
                 is RichBlock.Code -> listOf(RichInline.Run(block.code, code = true))
                 is RichBlock.Svg -> listOf(RichInline.Run("[Diagram]"))
                 is RichBlock.DisplayMath -> listOf(RichInline.Math(block.latex))
@@ -294,6 +366,13 @@ object RichTextParser {
                 is RichBlock.Bullets -> b.items.forEach { inlines(it); sb.append(' ') }
                 is RichBlock.Numbers -> b.items.forEach { inlines(it); sb.append(' ') }
                 is RichBlock.Quote -> inlines(b.inlines)
+                is RichBlock.Table -> (listOf(b.header) + b.rows).forEach { row ->
+                    row.forEachIndexed { index, cell ->
+                        if (index > 0) sb.append(" | ")
+                        inlines(cell)
+                    }
+                    sb.append(' ')
+                }
                 is RichBlock.Code -> sb.append(b.code)
                 is RichBlock.Svg -> sb.append("[Diagram]")
                 is RichBlock.DisplayMath -> sb.append(b.latex)
@@ -307,14 +386,14 @@ object RichTextParser {
     }
 
     fun containsMath(source: String): Boolean {
-        if (!source.contains('$') && !source.contains('\\')) return false
+        if (!source.contains('$') && !source.contains('\\') && !source.contains('|')) return false
         return runCatching { containsMath(parse(source)) }.getOrDefault(false)
     }
 
     internal fun containsMath(blocks: List<RichBlock>): Boolean = blocks.any { block ->
         when (block) {
-            // A diagram needs the WebView document path too, so it counts as rich content.
-            is RichBlock.DisplayMath, is RichBlock.Svg -> true
+            // Tables and diagrams need the WebView document path too, so it counts as rich content.
+            is RichBlock.DisplayMath, is RichBlock.Svg, is RichBlock.Table -> true
             is RichBlock.Para -> block.inlines.any { it is RichInline.Math }
             is RichBlock.Heading -> block.inlines.any { it is RichInline.Math }
             is RichBlock.Bullets -> block.items.any { items -> items.any { it is RichInline.Math } }

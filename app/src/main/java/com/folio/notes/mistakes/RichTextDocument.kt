@@ -14,6 +14,14 @@ internal object RichTextDocument {
                     is RichBlock.Quote -> { put("type", "quote"); put("inlines", inlines(block.inlines)) }
                     is RichBlock.Bullets -> { put("type", "bullets"); put("items", JSONArray().apply { block.items.forEach { put(inlines(it)) } }) }
                     is RichBlock.Numbers -> { put("type", "numbers"); put("items", JSONArray().apply { block.items.forEach { put(inlines(it)) } }) }
+                    is RichBlock.Table -> {
+                        put("type", "table")
+                        put("header", JSONArray().apply { block.header.forEach { put(inlines(it)) } })
+                        put("rows", JSONArray().apply { block.rows.forEach { row ->
+                            put(JSONArray().apply { row.forEach { put(inlines(it)) } })
+                        } })
+                        put("alignments", JSONArray(block.alignments))
+                    }
                     is RichBlock.Code -> { put("type", "code"); put("text", block.code) }
                     is RichBlock.Svg -> { put("type", "svg"); put("markup", block.markup) }
                     is RichBlock.DisplayMath -> { put("type", "math"); put("latex", block.latex) }

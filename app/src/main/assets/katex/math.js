@@ -82,6 +82,28 @@ function appendBlocks(target, blocks, color) {
             target.appendChild(mathNode(block.latex, true, color));
             continue;
         }
+        if (block.type === 'table') {
+            const table = document.createElement('table');
+            function appendRow(section, cells, header) {
+                const row = document.createElement('tr');
+                cells.forEach((items, index) => {
+                    const cell = document.createElement(header ? 'th' : 'td');
+                    if (header) cell.scope = 'col';
+                    cell.style.textAlign = block.alignments[index] || 'left';
+                    appendInlines(cell, items, color);
+                    row.appendChild(cell);
+                });
+                section.appendChild(row);
+            }
+            const head = document.createElement('thead');
+            appendRow(head, block.header, true);
+            table.appendChild(head);
+            const body = document.createElement('tbody');
+            for (const cells of block.rows) appendRow(body, cells, false);
+            table.appendChild(body);
+            target.appendChild(table);
+            continue;
+        }
         if (block.type === 'svg') {
             // An <img> never runs scripts or loads anything external, unlike inline SVG.
             const img = document.createElement('img');

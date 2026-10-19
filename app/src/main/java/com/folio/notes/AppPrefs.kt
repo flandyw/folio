@@ -89,6 +89,10 @@ object AppPrefs {
     const val DEFAULT_PAPER = "notebook.defaultPaper"
     /** Paper new mistake-practice pages start on; they are always infinite canvases. */
     const val MISTAKE_PAPER = "mistake.paper"
+    /** Last explicitly chosen response mode; existing stylus users keep handwriting by default. */
+    const val MISTAKE_RESPONSE_MODE = "mistake.responseMode"
+    const val DEFAULT_MISTAKE_RESPONSE_MODE = "write"
+    fun mistakeResponseMode(raw: String?): String = if (raw == "type") "type" else DEFAULT_MISTAKE_RESPONSE_MODE
     const val DEFAULT_COVER = "notebook.defaultCover"
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val QUICK_FOLDER = "notebook.quickFolder"

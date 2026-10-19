@@ -64,7 +64,7 @@ internal fun LazyGridScope.handwritingTab(
     if (notes.isEmpty()) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Text(
-                "Your first handwritten review will appear here. Untouched pages are never saved, so this list only holds work you started.",
+                "Your first written or typed response will appear here. Untouched pages are never saved, so this list only holds work you started.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -138,7 +138,7 @@ private fun HandwritingStorageCard(
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
             Text(
-                "Every practice page saved on this device, including unfinished reviews and pages from previous accounts. Untouched pages are never saved; empty ones are removed automatically.",
+                "Every practice response saved on this device, including unfinished reviews and pages from previous accounts. Untouched pages are never saved; empty ones are removed automatically.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -183,7 +183,7 @@ private fun HandwritingStorageCard(
             onDismissRequest = { if (!working) confirmEmpty = false },
             icon = { Icon(Icons.Rounded.DeleteSweep, null) },
             title = { Text("Delete empty practice pages?") },
-            text = { Text("$displayEmpty notebook${if (displayEmpty == 1) "" else "s"} with no handwriting will be removed. Pages with ink are kept.") },
+            text = { Text("$displayEmpty notebook${if (displayEmpty == 1) "" else "s"} with no working will be removed. Pages with writing or typed answers are kept.") },
             dismissButton = { TextButton({ confirmEmpty = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
             confirmButton = {
                 Button(
@@ -283,7 +283,7 @@ private fun HandwritingNotebookRow(
                 Column(Modifier.weight(1f)) {
                     Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (question != null) Text(question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else if (attempt != null) Text("Question removed from Focal · handwriting kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (attempt != null) Text("Question removed from Focal · response kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(hold.click { confirmDelete = true }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.DeleteOutline, "Delete ${note.title}")

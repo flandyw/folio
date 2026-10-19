@@ -86,3 +86,35 @@ async function checkShellRequestIsolation(oldFinishesFirst) {
 Promise.all([checkShellRequestIsolation(true), checkShellRequestIsolation(false)])
   .then(() => console.log('KaTeX shell: font wait, request isolation in both completion orders and rounded capture bounds passed.'))
   .catch(error => { console.error(error); process.exitCode = 1; });
+
+// Tables use the same safe inline renderer as prose, including formula cells.
+{
+  function element(tag) {
+    return { tag, children: [], style: {}, appendChild(child) { this.children.push(child); } };
+  }
+  const context = { window: {}, document: { createElement: element },
+    katex: { render(latex, target) { target.textContent = latex; } } };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(root, 'math.js'), 'utf8'), context);
+  const target = element('div');
+  context.target = target;
+  context.blocks = [{ type: 'table', alignments: ['left', 'right'],
+    header: [[{ type: 'text', text: 'B' }], [{ type: 'math', latex: 'C' }]],
+    rows: [[[{ type: 'text', text: '<script>literal</script>', bold: true }],
+      [{ type: 'math', latex: String.raw`B^2/4` }]]] }];
+  vm.runInContext('appendBlocks(target, blocks, "#222")', context);
+  const table = target.children[0];
+  assert.equal(table.tag, 'table');
+  assert.equal(table.children[0].tag, 'thead');
+  assert.equal(table.children[1].tag, 'tbody');
+  const header = table.children[0].children[0].children;
+  assert.equal(header[0].tag, 'th');
+  assert.equal(header[0].scope, 'col');
+  assert.equal(header[1].style.textAlign, 'right');
+  const cells = table.children[1].children[0].children;
+  assert.equal(cells[0].tag, 'td');
+  assert.equal(cells[0].children[0].textContent, '<script>literal</script>');
+  assert.equal(cells[0].children[0].style.fontWeight, '600');
+  assert.equal(cells[1].children[0].children[0].textContent, 'B^2/4');
+  console.log('Rich tables: semantic headers, alignment, literal text and inline math passed.');
+}

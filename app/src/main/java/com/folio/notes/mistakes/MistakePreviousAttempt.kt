@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -46,6 +47,8 @@ import com.folio.notes.Notebook
 internal fun PreviousAttemptDialog(
     attempts: List<Pair<Notebook, LocalMistakeReviewAttempt>>,
     folio: FolioViewModel,
+    closeLabel: String = "Back to this attempt",
+    onOpenPage: ((String) -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     var selected by remember(attempts) { mutableIntStateOf(0) }
@@ -59,7 +62,7 @@ internal fun PreviousAttemptDialog(
                     Column(Modifier.weight(1f)) {
                         Text("Your previous working", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "Read-only · your current page keeps saving underneath",
+                            "Read-only · working kept on this device",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -105,6 +108,7 @@ internal fun PreviousAttemptDialog(
                         note.pages.forEachIndexed { pageIndex, page ->
                             PreviousAttemptPage(
                                 noteId = note.id,
+                                reviewId = attempt.reviewId,
                                 page = page,
                                 pageIndex = pageIndex,
                                 totalPages = totalPages,
@@ -113,14 +117,15 @@ internal fun PreviousAttemptDialog(
                             )
                         }
                         Text(
-                            "Stuck? Copy the approach, not the answer — then close this and keep writing.",
+                            "Stuck? Copy the approach, not the answer — then close this and keep practising.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.Center) {
-                    FilledTonalButton(onClose, shapes = ButtonDefaults.shapes()) { Text("Back to this attempt") }
+                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.CenterHorizontally)) {
+                    if (onOpenPage != null && current != null) OutlinedButton({ onOpenPage(current.first.id) }, shapes = ButtonDefaults.shapes()) { Text("Open page") }
+                    FilledTonalButton(onClose, shapes = ButtonDefaults.shapes()) { Text(closeLabel) }
                 }
             }
         }
@@ -141,18 +146,52 @@ private fun attemptLabel(a: LocalMistakeReviewAttempt, note: Notebook): String {
     val date = a.completedAt?.take(10) ?: "Unfinished"
     val rating = a.rating?.replaceFirstChar(Char::uppercase)?.let { " · $it" } ?: ""
     val pages = "${note.pages.size} page${if (note.pages.size == 1) "" else "s"}"
-    return "$date$rating · $pages · read-only · tap a page to zoom"
+    return "$date$rating · $pages · read-only"
 }
 
 @Composable
 private fun PreviousAttemptPage(
     noteId: String,
+    reviewId: String,
     page: com.folio.notes.NotePage,
     pageIndex: Int,
     totalPages: Int,
     folio: FolioViewModel,
     onEnlarge: () -> Unit,
 ) {
+    var loaded by remember(noteId, page.id, page.revision) { mutableStateOf(page.takeIf { it.loaded }) }
+    var loadFailed by remember(noteId, page.id, page.revision) { mutableStateOf(false) }
+    var retryLoad by remember(noteId, page.id, page.revision) { mutableIntStateOf(0) }
+    LaunchedEffect(noteId, page.id, page.revision, retryLoad) {
+        try {
+            loaded = folio.repository.loadPage(noteId, page)
+            loadFailed = false
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { loadFailed = true }
+    }
+    val content = loaded
+    // Long typed answers stay readable and selectable, rather than shrinking into a thumbnail.
+    val response = content?.let { MistakeTypedResponse.find(it, reviewId) }
+    if (response != null) Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Text("Typed response", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            SelectionContainer { RichText(response.text, style = MaterialTheme.typography.bodyLarge) }
+        }
+    }
+    if (content == null) {
+        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            if (loadFailed) {
+                Text("Could not load this attempt.", Modifier.weight(1f))
+                TextButton({ retryLoad++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }
+            } else {
+                LoadingIndicator(Modifier.size(20.dp))
+                Text("Loading your response…")
+            }
+        }
+        return
+    }
+    if (response != null && content.strokes.isEmpty() && content.images.isEmpty() && content.texts.size == 1) return
     // Render at ~2x display width so full-width ink stays sharp on dense screens
     // and holds up to a first level of pinch zoom. The old 420px bucket stretched
     // 2-4x on modern phones/tablets, which is what looked pixelated.

@@ -280,7 +280,7 @@ private fun TodayQueueCard(
         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Review card") {
             FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
             FolioMenuItem(
-                { Text(if (resume) "Continue handwritten review" else "Practise this question") },
+                { Text(if (resume) "Continue review" else "Practise this question") },
                 { menu = false; onPractice() },
                 leadingIcon = { Icon(Icons.Rounded.Edit, null) },
             )
