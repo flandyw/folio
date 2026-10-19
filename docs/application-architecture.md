@@ -7,7 +7,7 @@ The application services have distinct working state:
 - `DocumentEngine`: page loading, page structure, content commits, revisions, compaction checkpoints, and merged local/group/structure undo. `DocumentReducer` plans ordinary/grouped content changes and grouped Undo/Redo without Android or storage. Replay validates ledger membership, loaded members and each top edit's group/action identity before any live history changes.
 - `NotebookCatalog`: folders, tags, metadata, organization and bulk library operations.
 - `NotebookWorkflowService`: notebook creation, response attempts, mistake-practice notebooks and hidden music notebooks. Music import and its shelf continue to use the independent music repository.
-- `WorkspaceManager`: tabs, remembered cameras and positions, split/reference panes and PDF navigation/search.
+- `WorkspaceManager`: tabs, remembered cameras and positions, split view (second pane, focus swap, parked splits) and PDF navigation/search.
 - `ExamSessionManager`: notebook sittings, timers, pen activity and Focal activity integration. Its timer flow has no notebook content.
 - `EditorTextController`, `EditorMediaController`, `EditorSelectionController`, `EditorLayerController` and `MarkingController`: editing workflows that use the same engine commits and writer. They never own notebook copies.
 - `BackupService`: import review, archive/export/backup workflows and progress. Storage barriers remain mandatory before copying or staging content.

@@ -46,8 +46,7 @@ data class FolioState(
     val editorOnRight: Boolean = false,
     val tabs: List<EditorTab> = emptyList(),
     val companion: EditorTab? = null,
-    val companionMode: CompanionMode = CompanionMode.SPLIT,
-    /** The notebook a reference pane was opened beside; opening any other notebook closes the pane. */
+    /** The notebook the split was opened beside; opening any other notebook parks the second pane. */
     val companionHostId: String? = null,
     /** Share of the split given to the editor pane (0.2..0.8); the companion takes the rest. */
     val splitFraction: Float = 0.5f,

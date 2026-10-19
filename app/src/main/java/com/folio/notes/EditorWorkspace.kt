@@ -23,8 +23,6 @@ data class WorkspaceViewport(
     val documentPageY: Float? = null
 )
 
-enum class CompanionMode { SPLIT, REFERENCE }
-
 /**
  * Draggable split proportions, free of Compose types so snapping stays
  * JVM-testable. The editor owns [FolioState.splitFraction]; the divider maps
@@ -49,12 +47,40 @@ object SplitPanes {
         return if (kotlin.math.abs(nearest - value) <= SNAP_THRESHOLD) nearest else value
     }
 
-    /** Applies a drag of [deltaPx] over [totalPx] to [fraction], for one axis. */
+    /**
+     * How far past the resize limits a drag may still travel. The pane keeps shrinking under the
+     * finger, so pulling it towards the edge reads as closing it, as in Android's own split screen.
+     */
+    const val LIVE_MIN = 0.06f
+    const val LIVE_MAX = 1f - LIVE_MIN
+    /** Released this close to an edge, the squeezed pane closes instead of settling at the limit. */
+    const val CLOSE_EDGE = 0.14f
+
+    /** Applies a drag of [deltaPx] over [totalPx] to [fraction], for one axis, while the finger is down. */
     fun dragged(fraction: Float, deltaPx: Float, totalPx: Float, invert: Boolean = false): Float {
-        if (!totalPx.isFinite() || totalPx <= 0f || !deltaPx.isFinite()) return coerce(fraction)
+        if (!fraction.isFinite()) return EQUAL
+        if (!totalPx.isFinite() || totalPx <= 0f || !deltaPx.isFinite()) return fraction.coerceIn(LIVE_MIN, LIVE_MAX)
         val delta = if (invert) -deltaPx else deltaPx
-        return coerce(fraction + delta / totalPx)
+        return (fraction + delta / totalPx).coerceIn(LIVE_MIN, LIVE_MAX)
     }
+
+    /** What letting go of the divider at the editor's share [fraction] does. */
+    fun release(fraction: Float): SplitRelease = when {
+        !fraction.isFinite() -> SplitRelease.Settle(EQUAL)
+        fraction <= CLOSE_EDGE -> SplitRelease.CloseEditor
+        fraction >= 1f - CLOSE_EDGE -> SplitRelease.CloseCompanion
+        else -> SplitRelease.Settle(snap(fraction))
+    }
+}
+
+/** The outcome of releasing the split divider. */
+sealed interface SplitRelease {
+    /** Both panes stay, at this editor share. */
+    data class Settle(val fraction: Float) : SplitRelease
+    /** The editor's pane was pushed off: the other document takes the whole screen as the editor. */
+    data object CloseEditor : SplitRelease
+    /** The other pane was pushed off: the editor carries on alone. */
+    data object CloseCompanion : SplitRelease
 }
 
 /**

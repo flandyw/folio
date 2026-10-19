@@ -585,7 +585,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsChipRow("Long-press action", ShareShortcut.entries.map { it to it.label }, shareShortcut,
             { p.write { putString(AppPrefs.SHARE_LONG_PRESS, it.name) } })
     }
-    SettingsGroup("Split view", footer = "Drag the divider any time; the last position is remembered.") {
+    SettingsGroup("Split view", footer = "Open split view with the split button in the editor's toolbar, or long-press a tab. Write or tap in either pane to work there. Drag the divider to resize, or all the way to an edge to close a pane; the last position is remembered.") {
         SettingsSliderRow(
             "Editor share", "${(split * 100).roundToInt()}%", split, SplitPanes.MIN_FRACTION..SplitPanes.MAX_FRACTION,
             { p.write { putFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.splitFraction(it)) } },

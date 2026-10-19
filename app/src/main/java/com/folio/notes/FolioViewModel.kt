@@ -27,7 +27,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
         viewModelScope.launch {
             state.distinctUntilChanged { a, b ->
                 a.activeId == b.activeId && a.pageIndex == b.pageIndex && a.folderId == b.folderId &&
-                    a.tabs == b.tabs && a.companion == b.companion && a.companionMode == b.companionMode &&
+                    a.tabs == b.tabs && a.companion == b.companion &&
                     a.splitFraction == b.splitFraction && a.companionLinked == b.companionLinked &&
                     a.companionHostId == b.companionHostId && a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
             }.collect { runtime.copySessionTo(savedState, it) }
@@ -71,13 +71,13 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun close(): Unit = runtime.close()
     fun closeTab(id: String): Unit = runtime.closeTab(id)
     fun closeOtherTabs(keepId: String): Unit = runtime.closeOtherTabs(keepId)
-    fun showCompanion(id: String, mode: CompanionMode): Unit = runtime.showCompanion(id, mode)
+    fun showCompanion(id: String, pageId: String? = null): Unit = runtime.showCompanion(id, pageId)
     fun dismissCompanion(): Unit = runtime.dismissCompanion()
+    fun closeEditorPane(): Unit = runtime.closeEditorPane()
     internal fun workspaceSnapshot(name: String): org.json.JSONObject? = runtime.workspaceManager.workspaceSnapshot(name)
     internal fun restoreWorkspace(item: org.json.JSONObject): Boolean = runtime.workspaceManager.restoreWorkspace(item)
     fun setSplitFraction(fraction: Float): Unit = runtime.setSplitFraction(fraction)
     fun setCompanionLinked(linked: Boolean): Unit = runtime.setCompanionLinked(linked)
-    fun setCompanionMode(mode: CompanionMode): Unit = runtime.setCompanionMode(mode)
     fun swapPaneSides(): Unit = runtime.swapPaneSides()
     fun setEditorOnRight(right: Boolean): Unit = runtime.setEditorOnRight(right)
     fun companionPage(index: Int): Unit = runtime.companionPage(index)

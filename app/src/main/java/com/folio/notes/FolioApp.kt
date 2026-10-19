@@ -56,7 +56,6 @@ import kotlinx.coroutines.withContext
     var showMusic by rememberSaveable { mutableStateOf(false) }
     // Keep the editor open while the Library temporarily chooses another workspace document.
     var workspaceLibraryPurpose by rememberSaveable { mutableStateOf<PickerPurpose?>(null) }
-    var workspaceLibraryMode by rememberSaveable { mutableStateOf(CompanionMode.SPLIT) }
     var focalAccountOpen by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner, mistakes) {
@@ -470,8 +469,7 @@ import kotlinx.coroutines.withContext
                             onSettings = { settings = true }, onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                             onShareLongPress = shareLongPress,
                             onChatGpt = { chatGptStartAccount = false; chatGptOpen = true },
-                            onBrowseLibrary = { purpose, mode ->
-                                workspaceLibraryMode = mode
+                            onBrowseLibrary = { purpose ->
                                 workspaceLibraryPurpose = purpose
                                 showMistakes = false
                             },
@@ -513,16 +511,14 @@ import kotlinx.coroutines.withContext
                             showMistakes = showMistakes,
                             onLibrary = { showStudy = false; showMistakes = false; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
-                                if (workspaceLibraryPurpose == PickerPurpose.COMPANION) model.showCompanion(id, workspaceLibraryMode)
-                                else model.open(id)
+                                model.open(id)
                                 workspaceLibraryPurpose = null
                             },
-                            selectionCaption = workspaceLibraryPurpose?.let { WorkspacePicker.libraryCaption(it, workspaceLibraryMode) },
+                            selectionCaption = workspaceLibraryPurpose?.let { WorkspacePicker.libraryCaption(it) },
                             onCancelSelection = { workspaceLibraryPurpose = null },
                             selectionControls = {
                                 workspaceLibraryPurpose?.let { purpose ->
-                                    WorkspaceLibraryControls(purpose, state, model, workspaceLibraryMode,
-                                        onModeChange = { workspaceLibraryMode = it },
+                                    WorkspaceLibraryControls(purpose, state, model,
                                         onOpenNotebook = { id -> model.open(id); workspaceLibraryPurpose = null })
                                 }
                             },

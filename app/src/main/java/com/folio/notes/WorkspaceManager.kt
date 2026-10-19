@@ -92,17 +92,27 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                 ?: rememberedTab(target)
                 ?: EditorTab(id, id, target.pages.first().id, target.title)
             selectNotebookTimer(id)
+            val before = _state.value
+            // A split belongs to the notebook it was opened beside (an unknown host, from an older
+            // session, is the notebook that was showing). Opening anything else parks it, and coming
+            // back to that notebook brings the other pane back as it was left.
+            val host = before.companionHostId ?: before.activeId ?: id
+            val keep = before.companion?.takeIf { host == id }
+            if (before.companion != null && keep == null) {
+                persistCompanionPosition()
+                parked = ParkedSplit(host, before.companion)
+            }
+            val restored = keep ?: parked?.takeIf { it.hostId == id && it.pane.notebookId.let { pane -> before.notes.notebook(pane) != null } }?.pane
+            if (restored != null && keep == null) parked = null
             _state.update { it.copy(activeId = id,
-                // A reference stays with the notebook it was opened beside (an unknown host, from an
-                // older session, is the notebook that was showing).
-                companion = it.companion?.takeUnless { _ ->
-                    it.companionMode == CompanionMode.REFERENCE && (it.companionHostId ?: it.activeId ?: id) != id
-                },
+                companion = restored,
+                companionHostId = if (restored != null) id else it.companionHostId,
                 tabs = it.tabs.withTab(tab),
                 pageIndex = target.pages.pageIndex(tab.currentPageId).coerceAtLeast(0),
                 pdfSearch = tab.search) }
             historyState()
             _state.value.page?.let { loadPage(it.id) }
+            _state.value.companion?.let { loadPage(it.currentPageId) }
             if (tab.search.query.isNotBlank() && (tab.search.searching || !tab.search.searched)) searchPdf(tab.search.query)
         }
     }
@@ -171,26 +181,45 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
-    fun showCompanion(id: String, mode: CompanionMode) {
+    /** A split put aside while another notebook is open, restored when its host opens again. */
+    private class ParkedSplit(val hostId: String, val pane: EditorTab)
+    private var parked: ParkedSplit? = null
+
+    /**
+     * Opens [id] in the second pane. The pane starts where it was last read, unless [pageId] asks for
+     * a page; the editor's own notebook opens on the page being edited, so two pages of one notebook
+     * are a single tap apart.
+     */
+    fun showCompanion(id: String, pageId: String? = null) {
         with(runtime) {
             captureTab()
             val note = _state.value.notes.notebook(id) ?: return
             persistCompanionPosition()
-            val source = (if (mode == CompanionMode.REFERENCE) rememberedTab(note, reference = true) else null)
+            val requested = pageId?.takeIf { note.pages.page(it) != null }
+                ?: _state.value.page?.id?.takeIf { id == _state.value.activeId }
+            val source = requested?.let { EditorTab(id, id, it, note.title) }
+                ?: rememberedTab(note, reference = true)
                 ?: _state.value.tabs.find { it.notebookId == id }
                 ?: rememberedTab(note)
                 ?: EditorTab(id, id, note.pages.first().id, note.title)
+            parked = null
             // The side the editor sits on is the user's, not the pane's: opening a companion leaves
             // it wherever they last put it.
-            _state.update { it.copy(companion = source.copy(id = "companion"), companionMode = mode, companionPdfSearch = PdfSearchState(),
-                companionHostId = it.activeId,
-                tabs = if (mode == CompanionMode.SPLIT) it.tabs.withTab(source) else it.tabs) }
+            _state.update { it.copy(companion = source.copy(id = "companion", search = PdfSearchState()), companionPdfSearch = PdfSearchState(),
+                companionHostId = it.activeId) }
             loadPage(source.currentPageId)
         }
     }
 
     fun dismissCompanion() {
-        with(runtime) { persistCompanionPosition(); _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
+        with(runtime) { persistCompanionPosition(); parked = null; _state.update { it.copy(companion = null, companionPdfSearch = PdfSearchState()) } }
+    }
+
+    /** The editor's pane was closed: the other document carries on alone, as the editor. */
+    fun closeEditorPane() {
+        if (runtime._state.value.companion == null) return
+        swapCompanion()
+        dismissCompanion()
     }
 
     fun workspaceSnapshot(name: String): org.json.JSONObject? = with(runtime) {
@@ -202,7 +231,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         fun position(tab: EditorTab) = NotebookPositionCodec.encode(NotebookPosition(tab.currentPageId, tab.viewport, tab.tool, tab.search.query))
         val offsetKey = AppPrefs.UX_LINK_OFFSET + ".${note.id}.${companion.notebookId}"
         org.json.JSONObject().put("name", name).put("editor", note.id).put("companion", companion.notebookId)
-            .put("editorPosition", position(editor)).put("companionPosition", position(companion)).put("mode", snapshot.companionMode.name)
+            .put("editorPosition", position(editor)).put("companionPosition", position(companion))
             .put("fraction", snapshot.splitFraction.toDouble()).put("right", snapshot.editorOnRight).put("linked", snapshot.companionLinked).put("offset", prefs.getInt(offsetKey, 0))
     }
     fun restoreWorkspace(item: org.json.JSONObject): Boolean = with(runtime) {
@@ -212,7 +241,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         val companionPosition = NotebookPositionCodec.decode(item.optString("companionPosition")) ?: return false
         captureTab()
         open(editorId)
-        showCompanion(companionId, CompanionMode.entries.find { it.name == item.optString("mode") } ?: CompanionMode.REFERENCE)
+        showCompanion(companionId)
         val current = _state.value
         val editorNote = current.notes.first { it.id == editorId }
         val referenceNote = current.notes.first { it.id == companionId }
@@ -245,16 +274,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
     fun setCompanionLinked(linked: Boolean) {
         with(runtime) {
             _state.update { if (it.companionLinked == linked) it else it.copy(companionLinked = linked) }
-        }
-    }
-
-    fun setCompanionMode(mode: CompanionMode) {
-        with(runtime) {
-            val current = _state.value
-            if (current.companionMode == mode) return
-            captureTab()
-            _state.update { it.copy(companionMode = mode,
-                tabs = if (mode == CompanionMode.SPLIT && it.companion != null) it.tabs.withTab(it.companion.copy(id = it.companion.notebookId)) else it.tabs) }
         }
     }
 
@@ -306,14 +325,20 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
+    /**
+     * Moves the editor into the other pane. The documents stay where they are on screen: the editor
+     * changes side and takes the other pane's share, so the divider does not move either.
+     */
     fun swapCompanion() {
         with(runtime) {
             persistCompanionPosition()
             captureTab()
             val pane = _state.value.companion ?: return
             val active = _state.value.tabs.find { it.notebookId == _state.value.activeId } ?: return
-            _state.update { it.copy(companion = active.copy(id = "companion"),
-                editorOnRight = !it.editorOnRight, companionHostId = pane.notebookId,
+            val share = SplitPanes.coerce(1f - _state.value.splitFraction)
+            prefs.edit().putFloat(AppPrefs.SPLIT_FRACTION, share).putBoolean(AppPrefs.EDITOR_ON_RIGHT, !_state.value.editorOnRight).apply()
+            _state.update { it.copy(companion = active.copy(id = "companion", search = PdfSearchState()), companionPdfSearch = PdfSearchState(),
+                editorOnRight = !it.editorOnRight, splitFraction = share, companionHostId = pane.notebookId,
                 tabs = it.tabs.withTab(pane.copy(id = pane.notebookId))) }
             // Avoid capturing the old active page over the destination (same-notebook split).
             selectNotebookTimer(null)
@@ -380,7 +405,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             state
                 .distinctUntilChanged { a, b ->
                     a.activeId == b.activeId && a.pageIndex == b.pageIndex && a.folderId == b.folderId &&
-                        a.tabs == b.tabs && a.companion == b.companion && a.companionMode == b.companionMode &&
+                        a.tabs == b.tabs && a.companion == b.companion &&
                         a.splitFraction == b.splitFraction && a.companionLinked == b.companionLinked && a.companionHostId == b.companionHostId &&
                         a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
                 }
@@ -394,12 +419,10 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             // SavedStateHandle covers recreation; preferences also cover a fresh app launch.
             prefs.edit()
                 .putString("workspaceCompanion", companionSession)
-                .putString("workspaceMode", it.companionMode.name)
                 .putBoolean("companionLinked", it.companionLinked)
                 .putString("companionHostId", it.companionHostId)
                 .apply()
             savedState["companionHostId"] = it.companionHostId
-            savedState["workspaceMode"] = it.companionMode.name
             savedState["splitFraction"] = it.splitFraction
             savedState["companionLinked"] = it.companionLinked
             savedState["editorOnRight"] = it.editorOnRight
@@ -416,7 +439,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             folderId = handle["folderId"], tabs = tabs,
             pdfSearch = tabs.find { tab -> tab.notebookId == handle.get<String>("activeId") }?.search ?: PdfSearchState(),
             companion = if (handle.contains("workspaceCompanion")) WorkspaceSessionCodec.decode(handle["workspaceCompanion"]).firstOrNull() else it.companion,
-            companionMode = handle.get<String>("workspaceMode")?.let { mode -> runCatching { CompanionMode.valueOf(mode) }.getOrNull() } ?: it.companionMode,
             companionHostId = if (handle.contains("companionHostId")) handle["companionHostId"] else it.companionHostId,
             splitFraction = AppPrefs.splitFraction(handle.get<Float>("splitFraction") ?: it.splitFraction),
             companionLinked = handle["companionLinked"] ?: it.companionLinked,
@@ -432,7 +454,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             if (tab.notebookId == state.activeId) tab.copy(currentPageId = state.page?.id ?: tab.currentPageId, search = state.pdfSearch) else tab
         })
         handle["workspaceCompanion"] = WorkspaceSessionCodec.encode(listOfNotNull(state.companion))
-        handle["workspaceMode"] = state.companionMode.name
         handle["companionHostId"] = state.companionHostId
         handle["splitFraction"] = state.splitFraction
         handle["companionLinked"] = state.companionLinked

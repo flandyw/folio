@@ -25,7 +25,7 @@ internal val editorShortcutHelp = listOf(
     "Ctrl + K" to "Find an action", "P / E / H / L / V / T" to "Default tool letters (customise in Settings › Writing)",
     "Hold Space" to "Temporarily use the hand", "Ctrl + C / X / V" to "Copy / cut / paste selection",
     "Ctrl + A / D" to "Select all / duplicate selection", "Delete" to "Delete selection",
-    "Ctrl + Tab / Ctrl + Shift + Tab" to "Next / previous notebook", "Ctrl + \\" to "Expand editor / restore split", "Page Up / Page Down" to "Previous / next page",
+    "Ctrl + Tab / Ctrl + Shift + Tab" to "Next / previous notebook", "Ctrl + \\" to "Open or close split view", "Page Up / Page Down" to "Previous / next page",
     "Ctrl + Home / End" to "First / last page", "Ctrl + N" to "New notebook",
     "Ctrl + Enter" to "Insert a page, or apply a text draft", "Ctrl + Shift + D" to "Duplicate page",
     "Ctrl + F" to "Find in document", "Ctrl + G" to "Go to a page", "Ctrl + 0" to "Reset zoom",

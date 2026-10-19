@@ -145,9 +145,8 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
             val index = note.pages.indexOfFirst { it.id in attempt.pageIds }
             if (index < 0) { reportError("This attempt's pages have been deleted"); return }
             if (beside) {
-                showCompanion(noteId, CompanionMode.REFERENCE)
+                showCompanion(noteId, note.pages[index].id)
                 setCompanionLinked(false)
-                companionPage(index)
             } else openAt(noteId, index)
         }
     }

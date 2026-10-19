@@ -133,7 +133,8 @@ private val PageChipWidth = 48.dp
         val timerNeed = timerWidth.value + FolioSpacing.dp6 * 2 + FolioSpacing.dp8 // surface padding (dp6 each side) + slack
         val toolsNeed = 400.dp
         val groupGaps = FolioSpacing.dp6 * 2
-        val shareButtons = 1 + if (onChatGpt != null) 1 else 0
+        val split = LocalSplitView.current
+        val shareButtons = 1 + (if (onChatGpt != null) 1 else 0) + (if (split != null) 1 else 0)
         val documentWidth = dockWidth(shareButtons + 1) + FolioSpacing.dp8
         val expandedNavWidth = dockWidth((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
         // Both side pills take the wider side's width so the tools and the ink bar below them
@@ -261,6 +262,7 @@ private val PageChipWidth = 48.dp
                         horizontalArrangement = Arrangement.spacedBy(DockGap)) {
                         if (dense) PageExtras()
                         onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
+                        split?.let { SplitViewButton(it) }
                         DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
                         Box {
                             DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
@@ -334,6 +336,7 @@ private val PageChipWidth = 48.dp
                     if (timerInline) Row(verticalAlignment = Alignment.CenterVertically) { timer() }
                     if (goodnotesDense) PageExtras()
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
+                    split?.let { SplitViewButton(it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
                     Box {
                         DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
@@ -403,6 +406,12 @@ private val PageChipWidth = 48.dp
 }
 
 /** Shared dock button; reserve the full Material touch width in the row budget. */
+/** Opens a second document beside this one, or closes the split; lit while the split is open. */
+@Composable private fun SplitViewButton(split: SplitViewControl) {
+    DockButton(Icons.Rounded.VerticalSplit, if (split.open) "Close split view" else "Split view — open a document beside",
+        split.toggle, tint = if (split.open) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+}
+
 @Composable private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = LocalContentColor.current, onLongClick: (() -> Unit)? = null, width: Dp = DockButtonWidth, enabled: Boolean = true) {
     val hold = rememberLongPressGuard()
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(),

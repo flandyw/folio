@@ -42,7 +42,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
             if (savedState.contains("workspaceCompanion")) savedState.get<String>("workspaceCompanion")
             else prefs.getString("workspaceCompanion", null)
         ).firstOrNull(),
-        companionMode = runCatching { CompanionMode.valueOf(savedState.get<String>("workspaceMode") ?: prefs.getString("workspaceMode", "SPLIT") ?: "SPLIT") }.getOrDefault(CompanionMode.SPLIT),
         splitFraction = (savedState.get<Float>("splitFraction")
             ?: prefs.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { prefs.contains(AppPrefs.SPLIT_FRACTION) }
             ?: AppPrefs.DEFAULT_SPLIT).let { AppPrefs.splitFraction(it) },
@@ -202,15 +201,15 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun closeOtherTabs(keepId: String): Unit = workspaceManager.closeOtherTabs(keepId)
 
-    fun showCompanion(id: String, mode: CompanionMode): Unit = workspaceManager.showCompanion(id, mode)
+    fun showCompanion(id: String, pageId: String? = null): Unit = workspaceManager.showCompanion(id, pageId)
 
     fun dismissCompanion(): Unit = workspaceManager.dismissCompanion()
+
+    fun closeEditorPane(): Unit = workspaceManager.closeEditorPane()
 
     fun setSplitFraction(fraction: Float): Unit = workspaceManager.setSplitFraction(fraction)
 
     fun setCompanionLinked(linked: Boolean): Unit = workspaceManager.setCompanionLinked(linked)
-
-    fun setCompanionMode(mode: CompanionMode): Unit = workspaceManager.setCompanionMode(mode)
 
     fun swapPaneSides(): Unit = workspaceManager.swapPaneSides()
 

@@ -1,7 +1,9 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -115,12 +117,20 @@ private val TabHeight = 28.dp
 
 @Composable private fun Tab(tab: EditorTabChip, active: Boolean, onSelect: (String) -> Unit, onClose: (String) -> Unit) {
     val title = tab.title.ifBlank { "Untitled" }
+    // Long-press opens the tab beside the editor, as dragging a tab does in other note apps.
+    val split = LocalSplitView.current
+    val shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
     Surface(
-        onClick = { onSelect(tab.id) },
-        shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius),
+        shape = shape,
         color = if (active) BarTones.container else Color.Transparent,
         contentColor = if (active) BarTones.content else BarTones.stripContent,
         modifier = Modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp)
+            .clip(shape)
+            .combinedClickable(
+                onClick = { onSelect(tab.id) },
+                onLongClick = split?.let { { it.openBeside(tab.id) } },
+                onLongClickLabel = if (split != null) "Open in split view" else null,
+            )
             .semantics { role = Role.Tab; selected = active },
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
