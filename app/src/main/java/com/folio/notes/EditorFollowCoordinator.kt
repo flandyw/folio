@@ -40,8 +40,9 @@ internal class EditorFollowCoordinator(private val prefs: SharedPreferences, pri
     val region = mutableStateOf(decode(prefs.getString(key, null)))
     val regions = mutableStateOf(prefs.getString("$key.areas", null)?.split(";")?.mapNotNull(::decode) ?: listOfNotNull(region.value))
     fun configure(view: InkView, infinite: Boolean, response: CanvasWritingSession?, preferences: FollowPreferences,
-        paused: Boolean, onStatus: (WritingFollowStatus) -> Unit) {
+        paused: Boolean, onResponse: (CanvasWritingSession) -> Unit, onStatus: (WritingFollowStatus) -> Unit) {
         view.canvasWritingSession = if (infinite) response else null
+        view.onCanvasWritingSession = onResponse
         view.followPreferences = preferences
         view.writingRegions = if (infinite) emptyList() else regions.value
         view.onWritingRegions = { lanes ->

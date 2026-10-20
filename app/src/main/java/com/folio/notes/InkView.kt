@@ -913,12 +913,20 @@ class InkView(context: Context) : View(context) {
     var canvasWritingSession: CanvasWritingSession? = null
         set(value) {
             if (field != value) {
-                suspendWritingFollow()
+                if (value?.continues(field) != true) suspendWritingFollow()
                 if (field?.column != value?.column || field?.direction != value?.direction) writingIndent = null
                 field = value; invalidate()
             }
         }
+    /** The response's first stroke places its column ([CanvasWritingSession.placedAt]). */
+    var onCanvasWritingSession: (CanvasWritingSession) -> Unit = {}
     private val canFollow get() = followEnabled && (!page.infinite || canvasWritingSession != null)
+    /** A response waiting for its first stroke has no line to move from yet. */
+    private fun responseUnplaced(): Boolean {
+        if (!page.infinite || canvasWritingSession?.placed != false) return false
+        reportFollowStatus(UNPLACED_RESPONSE, attention = true)
+        return true
+    }
     private val responseStart get() = if (page.infinite) canvasWritingSession?.startX else null
     private fun automaticFollowReturn(region: WritingLane): WritingAdvance? = writingFollow.returnFor(
         region, writingGuides, followPreferences, responseStart, writingIndent)
@@ -977,7 +985,7 @@ class InkView(context: Context) : View(context) {
         overrideStart = writingIndent != null)
 
     fun nextWritingLine(paragraph: Boolean = false) {
-        if (!canFollow || isWritingGesture || inputBlocked || readOnly || lineAdvance != null) return
+        if (!canFollow || isWritingGesture || inputBlocked || readOnly || lineAdvance != null || responseUnplaced()) return
         val region = followRegion()
         val baseline = writingFollow.state.baselineY ?: followLastPoint?.y
             ?: if (zoomWritingPane) {
@@ -994,7 +1002,7 @@ class InkView(context: Context) : View(context) {
         startLineAdvance(next, manual = true)
     }
     fun indentWritingLine(reset: Boolean = false) {
-        if (!canFollow || isWritingGesture || inputBlocked || readOnly) return
+        if (!canFollow || isWritingGesture || inputBlocked || readOnly || responseUnplaced()) return
         holdWritingFollow()
         val region = followRegion()
         val ltr = followPreferences.direction == WritingDirection.LTR
@@ -1008,7 +1016,7 @@ class InkView(context: Context) : View(context) {
     }
     /** Goes up one line, to correct or add to it; the opposite of [nextWritingLine]. */
     fun previousWritingLine() {
-        if (!canFollow || isWritingGesture || inputBlocked || readOnly || lineAdvance != null) return
+        if (!canFollow || isWritingGesture || inputBlocked || readOnly || lineAdvance != null || responseUnplaced()) return
         val region = followRegion()
         val baseline = writingFollow.state.baselineY ?: followLastPoint?.y
             ?: run { reportFollowStatus("Write a line first", attention = true); return }
@@ -1078,7 +1086,7 @@ class InkView(context: Context) : View(context) {
     fun resumeWritingFollow() {
         followManuallyPaused = false; followPaused = false
         writingFollow.state = writingFollow.state.copy(suspendedUntil = 0, candidateLane = null, candidateAt = null)
-        reportFollowStatus("Write to start following")
+        if (!responseUnplaced()) reportFollowStatus("Write to start following")
     }
     /**
      * Stops any movement but keeps the line being written: switching to the eraser or lasso and
@@ -1159,7 +1167,7 @@ class InkView(context: Context) : View(context) {
 
     /** Manual reveal and automatic following share the same movement history. */
     fun revealWritingAhead() {
-        if (!canFollow || isWritingGesture || inputBlocked || readOnly || !getLocalVisibleRect(followVisible)) return
+        if (!canFollow || isWritingGesture || inputBlocked || readOnly || !getLocalVisibleRect(followVisible) || responseUnplaced()) return
         val anchor = visibleWritingWindow()
         val shift = ZoomWriting.reveal(WritingLane(anchor.left, anchor.top, anchor.right, anchor.bottom),
             followRegion(), followPreferences.direction)
@@ -1974,16 +1982,19 @@ class InkView(context: Context) : View(context) {
         outlined?.takeIf { objectLift == null }?.let { if (cropImageId == null) drawImageSelection(canvas, it) }
         cropImageId?.let { id -> placed.images.find { it.id == id } }?.let { drawCropOverlay(canvas, it) }
         // Shown during See all working too, so the overview says where the response is.
-        if (page.infinite) canvasWritingSession?.column?.let { column ->
-            val unit = selectionUiUnit()
-            writingRegionPaint.color = answerAreaColor
-            writingRegionPaint.alpha = 0x80
-            writingRegionPaint.strokeWidth = unit
-            writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
-            val top = -originY / scale
+        // Margins run down from where the response began; an unplaced one has no margins yet.
+        if (page.infinite) canvasWritingSession?.takeIf { it.placed }?.column?.let { column ->
+            val top = maxOf(column.top, -originY / scale)
             val bottom = (height - originY) / scale
-            canvas.drawLine(column.left, top, column.left, bottom, writingRegionPaint)
-            canvas.drawLine(column.right, top, column.right, bottom, writingRegionPaint)
+            if (top < bottom) {
+                val unit = selectionUiUnit()
+                writingRegionPaint.color = answerAreaColor
+                writingRegionPaint.alpha = 0x80
+                writingRegionPaint.strokeWidth = unit
+                writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
+                canvas.drawLine(column.left, top, column.left, bottom, writingRegionPaint)
+                canvas.drawLine(column.right, top, column.right, bottom, writingRegionPaint)
+            }
         }
         val areas = (if (showAnswerAreas && followEnabled) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
         if (areas.isNotEmpty()) {
@@ -2894,6 +2905,11 @@ class InkView(context: Context) : View(context) {
 
     private fun followCompletedStroke(drawn: Stroke, recognise: Boolean = true) {
         val box = FollowNavigation.bounds(drawn.points) ?: return
+        canvasWritingSession?.takeIf { page.infinite && !it.placed }?.let { session ->
+            val placed = session.placedAt(box, followPreferences.spacing)
+            canvasWritingSession = placed; onCanvasWritingSession(placed)
+            reportFollowStatus("Response column set · keep writing")
+        }
         val now = SystemClock.uptimeMillis()
         followRhythm.lifted(now)
         val previousArea = if (writingRegion == null && writingFollow.state.baselineY != null && writingGuides.isNotEmpty())
@@ -4247,6 +4263,7 @@ class InkView(context: Context) : View(context) {
     }
     override fun performClick(): Boolean { super.performClick(); return true }
     private companion object {
+        const val UNPLACED_RESPONSE = "Start writing where your response begins"
         /** Freehand tools grow sample-by-sample; shapes re-derive from two corners. */
         val FREEHAND_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER)
         /** Shapes that show live measurements while drawn. */

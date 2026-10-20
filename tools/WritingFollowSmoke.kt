@@ -104,14 +104,34 @@ fun main() {
         rhythm.reset()
         check(rhythm.returnDelay(700) == 1200)
     }
-    scenario("Canvas prose starts manually regardless of global maths and automatic return settings") {
+    scenario("Canvas prose is always text and takes the writer's automatic return choice") {
         val global = prefs.copy(mode = FollowMode.MATH, automaticReturn = true, autoSwitchAreas = true)
         val response = CanvasWritingSession.start(WritingLane(-300f, -100f, 300f, 500f), global)!!
         val local = response.preferences(global)
-        check(local.mode == FollowMode.TEXT && !local.automaticReturn && !local.autoSwitchAreas)
-        check(response.copy(automaticReturn = true).preferences(global).automaticReturn)
-        check(!CanvasWritingSession.start(response.column, global)!!.automaticReturn)
+        check(local.mode == FollowMode.TEXT && local.automaticReturn && !local.autoSwitchAreas)
+        check(!response.copy(automaticReturn = false).preferences(global).automaticReturn)
+        check(!CanvasWritingSession.start(response.column, global.copy(automaticReturn = false))!!.automaticReturn)
         check(global.mode == FollowMode.MATH && global.automaticReturn)
+    }
+    scenario("A response's first stroke places its margin and top, keeping room to write") {
+        for (direction in WritingDirection.entries) {
+            val ltr = direction == WritingDirection.LTR
+            val response = CanvasWritingSession.start(WritingLane(0f, 0f, 1000f, 600f), prefs.copy(direction = direction))!!
+            check(!response.placed)
+            val word = if (ltr) WritingLane(400f, 300f, 440f, 320f) else WritingLane(560f, 300f, 600f, 320f)
+            val placed = response.placedAt(word, 32f)
+            check(placed.placed && placed.continues(response) && !response.continues(placed))
+            check(placed.startX == if (ltr) 400f else 600f)
+            check(placed.column.top == 284f && placed.placedAt(WritingLane(0f, 0f, 10f, 10f), 32f) == placed)
+            check(if (ltr) placed.column.right == response.column.right else placed.column.left == response.column.left)
+            // Begun right by the trailing margin, the column still keeps half its starting width.
+            val late = response.placedAt(if (ltr) WritingLane(900f, 300f, 920f, 320f) else WritingLane(80f, 300f, 100f, 320f), 32f)
+            check(late.column.width >= response.column.width * CanvasWritingSession.MIN_WIDTH - .01f)
+            check(FollowNavigation.next(316f, placed.column, emptyList(), 32f, placed.startX, direction)!!.to.y == 348f)
+            check(CanvasWritingSession.decode(placed.encode()) == placed && CanvasWritingSession.decode(response.encode()) == response)
+        }
+        // State saved by an older build has no placement flag; its column was final.
+        check(CanvasWritingSession.decode("0.0,-5.0,100.0,5.0,LTR,false")!!.placed)
     }
     scenario("Response columns survive changed viewports and keep their direction's return margin") {
         for (direction in WritingDirection.entries) {
@@ -164,7 +184,7 @@ fun main() {
                 .copy(automaticReturn = auto)
             check(CanvasWritingSession.decode(response.encode()) == response)
         }
-        for (raw in listOf(null, "", "1,2,3", "0,0,0,0,LTR,false", "NaN,0,5,0,LTR,true", "0,0,5,0,UP,true", "0,0,5,0,LTR,maybe"))
+        for (raw in listOf(null, "", "1,2,3", "0,0,0,0,LTR,false", "NaN,0,5,0,LTR,true", "0,0,5,0,UP,true", "0,0,5,0,LTR,maybe", "0,0,5,0,LTR,true,maybe", "0,0,5,0,LTR,true,true,1"))
             check(CanvasWritingSession.decode(raw) == null)
     }
     scenario("Back steps through several follow moves, newest first, and stays bounded") {

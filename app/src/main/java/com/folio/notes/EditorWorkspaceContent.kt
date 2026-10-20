@@ -362,6 +362,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     LaunchedEffect(tool) { followView?.holdWritingFollow() }
     fun configureFollow(view: InkView) {
         followCoordinator.configure(view, page.infinite, canvasResponse, effectiveFollowPreferences, writingFollowPaused,
+            onResponse = { placed -> if (placed.continues(canvasResponse)) canvasResponse = placed },
             onStatus = { if (view === activeInkView) followStatus = it })
     }
     fun configureOverview(view: InkView) {
@@ -1454,10 +1455,10 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                 { setWritingFollow(!writingFollowEnabled); followMenu = false },
                                 enabled = overviewReturn == null,
                                 leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
-                            Text("Use a response column for paragraphs. Leave it off for maths, short answers and diagrams.",
+                            Text("For paragraphs: your first stroke sets the column's margin. Leave it off for maths, short answers and diagrams.",
                                 Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                                 style = MaterialTheme.typography.bodySmall)
-                            if (canvasResponse != null) FolioMenuItem({ Text("Start a new column here") },
+                            if (canvasResponse != null) FolioMenuItem({ Text("Start a new column") },
                                 { setWritingFollow(true); followMenu = false }, enabled = overviewReturn == null)
                             FolioMenuItem({ Text(if (overviewReturn == null) "See all working" else "Return to working") },
                                 { fitAllContent(); followMenu = false })

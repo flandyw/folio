@@ -18,7 +18,7 @@ import kotlin.math.roundToInt
     val change: (FollowPreferences) -> Unit = { FollowPreferenceStore.write(p, it) }
     val text = f.mode == FollowMode.TEXT
 
-    SettingsGroup("Start here", footer = "The view stays still while your pen is down. Touch down during a glide to stop it. Infinite canvases only follow after you choose Write a response; each response starts with automatic return off.") {
+    SettingsGroup("Start here", footer = "The view stays still while your pen is down. Touch down during a glide to stop it. Infinite canvases only follow after you choose Write a response; its first stroke sets the column's margin.") {
         SettingsPrefSwitch("writingFollow", false, "Follow on pages", "Keep following enabled when writing on notebook and PDF pages.")
         SettingsDivider()
         SettingsSegmentedRow("What you write", listOf(FollowMode.TEXT to "Text", FollowMode.MATH to "Maths"), f.mode, { change(f.copy(mode = it)) })
