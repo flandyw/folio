@@ -5,6 +5,15 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.IntOffset
 import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
@@ -69,6 +78,12 @@ internal class ToolbarPortalContent(
 
 internal val LocalToolbarPortal = compositionLocalOf<MutableState<ToolbarPortalContent?>?> { null }
 
+/** A tab carried out of the strip: which notebook, and where the finger is (window pixels). */
+internal data class TabDrag(val id: String, val title: String, val window: androidx.compose.ui.geometry.Offset)
+
+/** Set by the tab strip while a tab is carried over the page; the workspace draws the chip and drop zone. */
+internal val LocalTabDrag = compositionLocalOf<MutableState<TabDrag?>?> { null }
+
 /** The bar's own height (tabs and tools, without the ink options under it), reported by [EditorBar]. */
 internal val LocalEditorBarHeight = compositionLocalOf<MutableIntState?> { null }
 
@@ -101,6 +116,8 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
     val sharedInk = remember { mutableStateOf<InkSurfaceConfig?>(null) }
     val portal = remember { mutableStateOf<ToolbarPortalContent?>(null) }
     val barHeight = remember { mutableIntStateOf(0) }
+    val tabDrag = remember { mutableStateOf<TabDrag?>(null) }
+    var rootInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     val companion = state.companion
     val note = state.notes.find { it.id == companion?.notebookId }
     val paired = companion != null && note != null
@@ -122,7 +139,7 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
             run = { model.setCompanionLinked(!state.companionLinked) }),
         EditorCommand("Saved workspaces", run = { savedWorkspaces = true }),
     )
-    Box(Modifier.fillMaxSize().onKeyEvent { event ->
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootInWindow = it.positionInWindow() }.onKeyEvent { event ->
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.Backslash) { toggleSplit(); true } else false
     }) {
         val barTop = with(LocalDensity.current) { barHeight.intValue.toDp() }
@@ -147,7 +164,7 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                     key(state.activeId, state.workspaceRestoreRequest) {
                         CompositionLocalProvider(LocalSplitView provides control, LocalWorkspaceCommands provides commands,
                             LocalTabOrder provides model::reorderTabs, LocalSharedInk provides sharedInk,
-                            LocalToolbarPortal provides portal, LocalEditorBarHeight provides barHeight) {
+                            LocalToolbarPortal provides portal, LocalEditorBarHeight provides barHeight, LocalTabDrag provides tabDrag) {
                             EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                                 onShareLongPress = onShareLongPress,
                                 onChatGpt = onChatGpt,
@@ -199,7 +216,10 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                     if (closing == SplitRelease.CloseCompanion) ReleaseToClose()
                 },
             )
+            // Where a carried tab will open: the other pane, or the half a new one would take.
+            if (tabDrag.value != null) SplitDropZone(stacked, editorFirst, if (paired) fraction else SplitPanes.EQUAL, divider)
         }
+        tabDrag.value?.let { drag -> TabDragChip(drag, state.notes.find { it.id == drag.id }, model, rootInWindow) }
         // One bar for both documents, across the whole screen; the ink options and the text bar
         // drop down over the panes rather than pushing them about.
         portal.value?.let { content ->
@@ -214,6 +234,69 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
     if (linkOffset && paired) FolioPanel(title = "Page link", onDismissRequest = { linkOffset = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24)) {
             LinkedPageOffset(state, model)
+        }
+    }
+}
+
+/** A dashed outline over the pane a dropped tab will fill. */
+@Composable private fun SplitDropZone(stacked: Boolean, editorFirst: Boolean, editorFraction: Float, divider: androidx.compose.ui.unit.Dp) {
+    val colors = MaterialTheme.colorScheme
+    val zone: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize().padding(FolioSpacing.dp12)
+            .background(colors.primary.copy(alpha = .08f), FolioShapes.large)
+            .drawBehind {
+                drawRoundRect(colors.primary, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12.dp.toPx(), 8.dp.toPx()))))
+            }, contentAlignment = Alignment.Center) {
+            Surface(shape = FolioShapes.large, color = colors.primaryContainer, contentColor = colors.onPrimaryContainer) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(18.dp))
+                    Text("Drop to open beside", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+    val editorWeight = editorFraction.coerceIn(.05f, .95f)
+    val content: @Composable (Modifier, Modifier) -> Unit = { editor, other ->
+        if (editorFirst) { Spacer(editor); Spacer(Modifier.size(divider)); Box(other) { zone() } }
+        else { Box(other) { zone() }; Spacer(Modifier.size(divider)); Spacer(editor) }
+    }
+    if (stacked) Column(Modifier.fillMaxSize()) { content(Modifier.weight(editorWeight), Modifier.weight(1f - editorWeight)) }
+    else Row(Modifier.fillMaxSize()) { content(Modifier.weight(editorWeight), Modifier.weight(1f - editorWeight)) }
+}
+
+/** The carried tab: a little card with the document's current page and its name, under the finger. */
+@Composable private fun TabDragChip(drag: TabDrag, note: Notebook?, model: FolioViewModel, rootInWindow: androidx.compose.ui.geometry.Offset) {
+    val density = LocalDensity.current
+    val widthPx = with(density) { 44.dp.roundToPx() }
+    val page = note?.let { n -> n.pages.find { it.id == model.state.value.tabs.find { t -> t.notebookId == n.id }?.currentPageId } ?: n.pages.firstOrNull() }
+    val preview by produceState<android.graphics.Bitmap?>(null, note?.id, page?.id, page?.revision) {
+        value = if (note == null || page == null) null else try { model.thumbnails.thumbnail(note.id, page, widthPx) } catch (_: Exception) { null }
+    }
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    Surface(
+        modifier = Modifier.zIndex(20f)
+            .onSizeChanged { size = it }
+            .offset { IntOffset((drag.window.x - rootInWindow.x - size.width / 2).roundToInt(), (drag.window.y - rootInWindow.y - size.height / 2).roundToInt()) }
+            .widthIn(max = 260.dp),
+        shape = FolioShapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shadowElevation = 12.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .6f)),
+    ) {
+        Row(Modifier.padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+            val ratio = page?.let { (it.width / it.height).coerceIn(.4f, 2f) } ?: .7f
+            Box(Modifier.width(44.dp).aspectRatio(ratio).clip(FolioShapes.small).background(androidx.compose.ui.graphics.Color.White)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.small)) {
+                preview?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds) }
+            }
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(drag.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                note?.let { Text("${it.pages.size} page${if (it.pages.size == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
         }
     }
 }
@@ -330,9 +413,10 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
 }
 
 /**
- * The other document: just its page and the same page navigator the editor has, with no bar of its
- * own. The shared toolbar's pen writes here directly; a finger scrolls, zooms and follows links, and
- * a tap (or a pen holding a tool only the editor can use) makes this pane the editor.
+ * The other document, laid out like the editor: a scrolling column of its pages (an infinite canvas
+ * stays a single canvas), with no bar of its own. The shared toolbar's pen writes here directly; a
+ * finger scrolls, flings and follows links, and a tap (or a pen holding a tool only the editor can
+ * use) makes this pane the editor.
  */
 @Composable private fun CompanionPane(model: FolioViewModel, pane: EditorTab, note: Notebook,
     sharedInk: InkSurfaceConfig?,
@@ -340,7 +424,7 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
     val index = note.pages.indexOfFirst { it.id == pane.currentPageId }.coerceAtLeast(0)
     val page = note.pages.getOrNull(index) ?: return
     val context = LocalContext.current
-    var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
+    val scope = rememberCoroutineScope()
     val pdfBacked = remember(note.id) { note.pages.any { it.pdfIndex != null } }
     var links by remember(note.id) { mutableStateOf(emptyList<PdfLink>()) }
     var linkFollowedAt by remember { mutableLongStateOf(0L) }
@@ -349,55 +433,83 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
     LaunchedEffect(note.id, pdfBacked) {
         links = if (pdfBacked) try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() } else emptyList()
     }
-    // Debounce viewport writes: pan frames must not spam the ViewModel + recompose the tree.
-    LaunchedEffect(viewport) {
-        kotlinx.coroutines.delay(200)
-        model.updateCompanionViewport(viewport)
-    }
     val handOptions = remember { ToolOptions.defaults(Tool.HAND) }
     // Both documents are editable at once: the pane borrows the editor's pen, eraser or shape.
     val writable = sharedInk != null && sharedInk.tool in PaneInkTools
+    val surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
+        else InkSurfaceConfig(tool = Tool.HAND, options = handOptions, finger = false, snapEnabled = false, shapeRecognition = false, multiTouchUndo = false)
+    fun openLink(link: PdfLink) {
+        linkFollowedAt = android.os.SystemClock.uptimeMillis()
+        when (val target = link.target) {
+            is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
+            is PdfLinkTarget.Url -> try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target.uri)))
+            } catch (_: Exception) { model.reportError("Couldn't open this link") }
+        }
+    }
+    val pages = rememberLazyListState(initialFirstVisibleItemIndex = index)
+    val motionDensity = LocalDensity.current.density
+    val motion = remember(pages, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
+    // The page mostly on screen is this pane's page: page links, undo and the saved position follow it.
+    val shownIndex by remember(pages) { derivedStateOf {
+        val info = pages.layoutInfo
+        info.visibleItemsInfo.maxByOrNull { item ->
+            minOf(item.offset + item.size, info.viewportEndOffset) - maxOf(item.offset, info.viewportStartOffset)
+        }?.index ?: pages.firstVisibleItemIndex
+    } }
+    LaunchedEffect(shownIndex) { if (shownIndex != index && !pages.isScrollInProgress) model.companionPage(shownIndex) }
+    LaunchedEffect(pages.isScrollInProgress) { if (!pages.isScrollInProgress && shownIndex != index) model.companionPage(shownIndex) }
+    // A linked page turn (or a PDF link) moves the column to the new page.
+    LaunchedEffect(index) { if (index != shownIndex) pages.animateScrollToItem(index) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
         Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, onFocus)) {
-            key(note.id, page.id) {
+            if (page.infinite) key(note.id, page.id) {
+                var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
+                LaunchedEffect(viewport) { kotlinx.coroutines.delay(200); model.updateCompanionViewport(viewport) }
                 val onCamera = remember(pane.notebookId, page.id) {
                     { vp: WorkspaceViewport -> viewport = viewport.copy(canvasX = vp.canvasX, canvasY = vp.canvasY, canvasZoom = vp.canvasZoom) }
                 }
-                val onLoad = remember(note.id, page.id) { { model.loadPage(page.id) } }
-                EditorPage(note.id, page, model,
-                    surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
-                    else InkSurfaceConfig(tool = Tool.HAND,
-                        options = handOptions,
-                        finger = false,
-                        snapEnabled = false,
-                        shapeRecognition = false,
-                        multiTouchUndo = false),
-                    presentation = PagePresentation(active = false,
-                        fullscreen = true,
-                        readOnly = !writable,
-                        initialViewport = pane.viewport,
-                        pdfLinks = links),
+                EditorPage(note.id, page, model, surface = surface,
+                    presentation = PagePresentation(active = false, fullscreen = true, initialViewport = pane.viewport, pdfLinks = links),
                     actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
-                        onPan = { _, _ -> },
-                        onPanEnd = {},
-                        onSelection = {},
-                        onTextEdit = {},
-                        onTextCreate = {},
-                        onLoad = onLoad,
-                        onCameraChanged = onCamera,
-                        onPdfLink = { link ->
-                            linkFollowedAt = android.os.SystemClock.uptimeMillis()
-                            when (val target = link.target) {
-                                is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
-                                is PdfLinkTarget.Url -> try {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target.uri)))
-                                } catch (_: Exception) { model.reportError("Couldn't open this link") }
+                        onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
+                        onLoad = { model.loadPage(page.id) }, onCameraChanged = onCamera, onPdfLink = ::openLink))
+            } else BoxWithConstraints(Modifier.fillMaxSize()) {
+                // Pages fill the pane's width with a margin, like the editor's column at its fitted zoom.
+                val paperWidth = (maxWidth - FolioSpacing.dp16 * 2).coerceIn(120.dp, 1100.dp)
+                LazyColumn(Modifier.fillMaxSize().graphicsLayer { translationY = motion.stretch },
+                    state = pages,
+                    contentPadding = PaddingValues(vertical = FolioSpacing.dp12),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    itemsIndexed(note.pages, key = { _, item -> item.id }) { itemIndex, item ->
+                        val mutations = remember(item.id) { model.pageMutations(item.id) }
+                        // Writing on a page makes it this pane's page, so Undo knows where to look.
+                        val paneMutations = remember(mutations, itemIndex) { object : EditorPageMutations by mutations {
+                            override fun appendStroke(before: List<Stroke>, stroke: Stroke, after: List<Stroke>) {
+                                if (model.state.value.companion?.currentPageId != item.id) model.companionPage(itemIndex)
+                                mutations.appendStroke(before, stroke, after)
                             }
-                        }))
+                        } }
+                        Box(Modifier.width(paperWidth)) {
+                            EditorPage(note.id, item, model, surface = surface,
+                                presentation = PagePresentation(active = false,
+                                    pageLabel = "Page ${itemIndex + 1} of ${note.pages.size}",
+                                    paperWidth = paperWidth,
+                                    pdfLinks = links),
+                                actions = EditorPageActions(mutations = paneMutations, onActive = {},
+                                    onPan = { _, dy -> motion.drag(dy) },
+                                    onPanEnd = motion::release,
+                                    onSelection = {}, onTextEdit = {}, onTextCreate = {},
+                                    onLoad = { model.loadPage(item.id) },
+                                    onPdfLink = ::openLink))
+                        }
+                    }
+                }
             }
         }
         if (note.pages.size > 1) PageNavigator(
-            index = index, count = note.pages.size, singlePage = true,
+            index = index, count = note.pages.size, singlePage = page.infinite,
             onTurn = { forward -> model.companionPage(index + if (forward) 1 else -1) },
             onJumpToEnd = { last -> model.companionPage(if (last) note.pages.lastIndex else 0) },
             onToggleView = onFocus, onBrowse = onFocus,

@@ -6,8 +6,11 @@ it, a chooser that appears in the new pane, and no modes to pick.
 ## How it works for the user
 
 - **Open:** the split button in the editor toolbar, *Split view…* in the notebook
-  menu, Ctrl + \ or the command palette, or in the tab strip drag a tab down onto the page (it turns
-  into *Open beside*) or hold it without moving. The screen splits at once
+  menu, Ctrl + \ or the command palette, or in the tab strip hold a tab and pull it down out of the
+  strip: it lifts off as a chip (the document's current page and name) under your finger, a dashed
+  *Drop to open beside* outline marks the pane it will fill, and letting go there opens it
+  (`TabDrag`/`LocalTabDrag`, drawn by `TabDragChip` and `SplitDropZone`). Dragging back up into the
+  strip cancels and returns to reordering. The screen splits at once
   and the new pane shows a chooser: search, **This notebook** (opens on the page being edited, so two pages
   of one notebook are one tap apart), **Open tabs**, then **Recent** notebooks.
 - **Tabs:** tap to switch; press, hold and drag sideways to reorder (like a browser). The order and the
@@ -21,7 +24,10 @@ it, a chooser that appears in the new pane, and no modes to pick.
 - **Write in both at once:** with a pen, highlighter, eraser, shape or laser selected, the pen writes
   straight into the other pane (`LocalSharedInk`). The toolbar's Undo/Redo takes back whichever pane's
   edit is newest (`DocumentEngine.undo` compares the other page's stack sequence).
-- **The other pane has no bar of its own:** just its page and the editor's floating page navigator.
+- **The other pane has no bar of its own:** a scrolling column of its pages, like the editor's (an
+  infinite canvas stays one canvas), with finger scroll and fling (`DocumentMotion`) and the editor's
+  floating page navigator. The page mostly on screen is the pane's page, so page links, Undo and the
+  saved position follow it; writing on a page makes it the pane's page.
   A finger tap, or a pen holding a tool only the editor can use (text, lasso, sticky notes, mark
   area…), makes it the editor; the documents stay put and only the toolbar's contents change. Page
   link, swap sides and saved workspaces are in the notebook menu and the command palette.

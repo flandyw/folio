@@ -14,6 +14,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -99,8 +101,8 @@ private val TabHeight = 28.dp
 
 /**
  * The neutral strip behind the tabs; the active tab shares the bar's colour so the two read as one.
- * Tabs behave like a browser's: tap to switch, press and drag sideways to reorder, and drag one down
- * onto the page to open it in split view.
+ * Tabs behave like a browser's: tap to switch, press and drag sideways to reorder, and pull one down
+ * out of the strip to carry it onto the page as a chip, which opens it in split view where it drops.
  */
 @Composable private fun TabStrip(
     tabs: List<EditorTabChip>,
@@ -112,6 +114,7 @@ private val TabHeight = 28.dp
 ) {
     val split = LocalSplitView.current
     val reorder = LocalTabOrder.current
+    val tabDrag = LocalTabDrag.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -156,14 +159,17 @@ private val TabHeight = 28.dp
             ) {
                 shown.forEach { tab -> key(tab.id) {
                     val held = dragged == tab.id
-                    val splitting = held && split != null && dragY > splitReach
-                    Tab(tab, tab.id == activeId, held, splitting, onClose,
+                    // Pulled down out of the strip, the tab leaves it and travels as a chip (drawn by the
+                    // workspace over the panes); its slot stays behind as a faint placeholder.
+                    val detached = held && split != null && dragY > splitReach
+                    var slotInWindow by remember { mutableStateOf(Offset.Zero) }
+                    Tab(tab, tab.id == activeId, held, onClose,
                         modifier = Modifier
-                            .onGloballyPositioned { bounds[tab.id] = it.positionInParent().x to it.size.width.toFloat() }
-                            .zIndex(if (held) 1f else 0f)
-                            .graphicsLayer {
-                                if (held) { translationX = dragX; translationY = dragY.coerceAtLeast(0f); shadowElevation = 6.dp.toPx(); alpha = if (splitting) .85f else 1f }
+                            .onGloballyPositioned {
+                                bounds[tab.id] = it.positionInParent().x to it.size.width.toFloat()
+                                slotInWindow = it.positionInWindow()
                             }
+                            .zIndex(if (held) 1f else 0f)
                             .semantics {
                                 role = Role.Tab; selected = tab.id == activeId
                                 onClick { onSelect(tab.id); true }
@@ -173,11 +179,12 @@ private val TabHeight = 28.dp
                                     reorder?.let { CustomAccessibilityAction("Move tab right") { move(tab.id, 1); true } },
                                 )
                             }
+                            // Outside the layer below, so positions are in the slot's own (unmoved) frame:
+                            // the held tab's offset is simply where the finger is now minus where it took hold.
                             .pointerInput(tab.id) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown()
                                     // Before the hold a sideways slide scrolls the strip; after it, it carries the tab.
-                                    var lifted = false
                                     val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                                         while (true) {
                                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
@@ -190,45 +197,55 @@ private val TabHeight = 28.dp
                                     when (released) {
                                         true -> { onSelect(tab.id); return@awaitEachGesture }
                                         false -> return@awaitEachGesture
-                                        null -> lifted = true
+                                        null -> Unit
                                     }
-                                    if (!lifted || (reorder == null && split == null)) return@awaitEachGesture
+                                    if (reorder == null && split == null) return@awaitEachGesture
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     dragged = tab.id; dragX = 0f; dragY = 0f; order = ids
-                                    var moved = false
+                                    var wasDetached = false
+                                    var cancelled = false
                                     while (true) {
-                                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                                        if (change == null) { cancelled = true; break }
                                         if (!change.pressed) break
-                                        val delta = change.position - change.previousPosition
                                         change.consume()
-                                        dragX += delta.x; dragY += delta.y
-                                        if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                                        dragX = change.position.x - down.position.x
+                                        dragY = change.position.y - down.position.y
+                                        val off = split != null && dragY > splitReach
+                                        if (off != wasDetached) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); wasDetached = off }
+                                        tabDrag?.value = if (off) TabDrag(tab.id, tab.title, slotInWindow + change.position) else null
+                                        if (off) continue
                                         // Swap with a neighbour once the held tab's middle passes the neighbour's middle.
                                         val current = order ?: break
                                         val at = current.indexOf(tab.id)
                                         val (start, width) = bounds[tab.id] ?: continue
                                         val middle = start + dragX + width / 2
-                                        val next = current.getOrNull(at + 1)?.let { id -> bounds[id]?.let { id to it } }
-                                        val previous = current.getOrNull(at - 1)?.let { id -> bounds[id]?.let { id to it } }
-                                        if (reorder != null && next != null && middle > next.second.first + next.second.second / 2) {
+                                        val next = current.getOrNull(at + 1)?.let { id -> bounds[id] }
+                                        val previous = current.getOrNull(at - 1)?.let { id -> bounds[id] }
+                                        if (reorder != null && next != null && middle > next.first + next.second / 2) {
                                             order = current.toMutableList().apply { add(at + 1, removeAt(at)) }
-                                            dragX -= next.second.second + spacing
-                                        } else if (reorder != null && previous != null && middle < previous.second.first + previous.second.second / 2) {
+                                        } else if (reorder != null && previous != null && middle < previous.first + previous.second / 2) {
                                             order = current.toMutableList().apply { add(at - 1, removeAt(at)) }
-                                            dragX += previous.second.second + spacing
                                         }
                                     }
                                     val final = order
-                                    val split = split?.takeIf { dragY > splitReach || !moved }
                                     dragged = null; dragX = 0f; dragY = 0f
+                                    tabDrag?.value = null
                                     when {
-                                        // Pulled down onto the page, or held still: open it beside the editor.
-                                        split != null -> { order = null; split.openBeside(tab.id) }
+                                        cancelled -> order = null
+                                        // Dropped onto the page: open it beside the editor.
+                                        wasDetached && split != null -> { order = null; split.openBeside(tab.id) }
                                         final != null && final != ids -> reorder?.invoke(final)
+                                        else -> order = null
                                     }
-                                    // Keep the dropped order on screen until the store's order catches up.
-                                    if (final == null || final == ids) order = null
                                 }
+                            }
+                            .graphicsLayer {
+                                if (held && !detached) {
+                                    translationX = dragX; translationY = dragY.coerceIn(0f, splitReach)
+                                    shadowElevation = 6.dp.toPx()
+                                }
+                                if (detached) alpha = .35f
                             })
                 } }
             }
@@ -238,7 +255,7 @@ private val TabHeight = 28.dp
     LaunchedEffect(ids) { if (order == ids) order = null }
 }
 
-@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, splitting: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
+@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
     val title = tab.title.ifBlank { "Untitled" }
     val accent = MaterialTheme.colorScheme.primary
     val shape = if (held) RoundedCornerShape(FolioShapes.mediumRadius) else RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
@@ -247,12 +264,10 @@ private val TabHeight = 28.dp
         // Both halves of a split wear the bar's colour, so the pair reads as one joined tab; the
         // half the toolbar is working on carries the accent line.
         color = when {
-            splitting -> MaterialTheme.colorScheme.primaryContainer
             active || held || tab.split -> BarTones.container
             else -> Color.Transparent
         },
         contentColor = when {
-            splitting -> MaterialTheme.colorScheme.onPrimaryContainer
             active || held -> BarTones.content
             tab.split -> BarTones.content.copy(alpha = .75f)
             else -> BarTones.stripContent
@@ -264,11 +279,11 @@ private val TabHeight = 28.dp
             } else Modifier),
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
-            if (splitting || tab.split) {
-                Icon(Icons.Rounded.VerticalSplit, if (tab.split) "In split view" else null, Modifier.size(14.dp))
+            if (tab.split) {
+                Icon(Icons.Rounded.VerticalSplit, "In split view", Modifier.size(14.dp))
                 Spacer(Modifier.width(FolioSpacing.dp4))
             }
-            Text(if (splitting) "Open beside" else title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
+            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(FolioSpacing.dp2))
             IconButton({ onClose(tab.id) }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
