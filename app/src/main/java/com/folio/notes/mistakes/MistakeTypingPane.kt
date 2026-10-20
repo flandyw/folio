@@ -87,7 +87,8 @@ import com.folio.notes.*
     val current = TypedEdit(value.text, value.selection.start, value.selection.end)
     val showPreview = preview && value.text.isNotBlank()
 
-    Column(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp16).padding(bottom = FolioSpacing.dp8),
+    Column(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp16)
+        .padding(top = if (compact) FolioSpacing.dp4 else FolioSpacing.dp12, bottom = FolioSpacing.dp8),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         if (!editable) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = colors.error)
