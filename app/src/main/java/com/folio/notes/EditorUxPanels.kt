@@ -26,12 +26,12 @@ import java.util.UUID
     val quickShare by rememberPref(prefs, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
     Column {
         if (state.saveFailed) Surface(color = MaterialTheme.colorScheme.errorContainer) {
-            Row(Modifier.fillMaxWidth().padding(8.dp).semantics { liveRegion = LiveRegionMode.Assertive }) {
+            Row(Modifier.fillMaxWidth().padding(8.dp).semantics { liveRegion = LiveRegionMode.Assertive }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(state.saveFailureReason ?: "Changes have not saved. Keep Folio open and retry.", Modifier.weight(1f))
                 TextButton(model::retrySave, enabled = !state.retryingSave) { Text(if (state.retryingSave) "Retrying…" else "Retry save") }
             }
         }
-        if (hints) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        if (hints) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text(if (quickShare == ShareShortcut.OFF) "Ctrl+K finds actions. Configure quick sharing and pencil double-tap in Settings." else "Ctrl+K finds actions. Hold Share: ${quickShare.label}. Configure pencil double-tap in Settings.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onGuide) { Text("Guide") }
             TextButton({ prefs.write { putBoolean(AppPrefs.UX_EDITOR_HINT_DISMISSED, true) } }) { Text("Dismiss") }
@@ -82,7 +82,7 @@ import java.util.UUID
     FolioPanel("Undo history", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Next action is first. Page ink history applies to the current page; document and page-organisation actions follow their recorded order.")
-            if (entries.isEmpty()) Text("Nothing to undo on this page.")
+            if (entries.isEmpty()) Text("Nothing to undo on this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             entries.forEachIndexed { index, label -> Text("${index + 1}. $label") }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(model::undo, enabled = state.canUndo && !state.documentHistoryBusy) { Text("Undo next") }

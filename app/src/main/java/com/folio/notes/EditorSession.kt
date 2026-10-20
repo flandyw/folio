@@ -74,6 +74,8 @@ internal class EditorOverlayState {
     val searchMatches = mutableStateOf<List<Int>>(emptyList())
     val searchMatch = mutableIntStateOf(0)
     val searchCaption = mutableStateOf("")
+    /** The results bar reopens the search it came from: PDF text or the notes. */
+    val searchFromPdf = mutableStateOf(false)
     val palette = mutableStateOf(false)
     val noteSearch = mutableStateOf(false)
     val keyboardShortcuts = mutableStateOf(false)

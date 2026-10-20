@@ -633,6 +633,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         restoringVisit = target
         viewportCoordinator.jump(index)
     }
+    /** The bar, Ctrl+F and the command panel all search the same thing: a PDF page's text, or the notes. */
+    fun openSearch() { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true }
     fun newNotebook() { context.startActivity(Intent(context, MainActivity::class.java).setAction("com.folio.notes.NEW_NOTE").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }
     fun switchNotebook(back: Boolean) {
         val tabs = state.tabs
@@ -921,7 +923,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             Key.K -> { commandPalette = true; true }
             Key.Z -> { if (event.isShiftPressed) redoEditor() else undoEditor(); true }
             Key.Y -> { redoEditor(); true }
-            Key.F -> { noteSearchOpen = true; true }
+            Key.F -> { openSearch(); true }
             Key.G -> { pageBrowser = true; editor.browser.jumpExpanded.value = true; true }
             Key.Zero -> { resetZoom(); true }
             Key.C -> { copyPicked(false); true }
@@ -956,6 +958,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 selectedImage != null -> { selectedImage = null; activeInkView?.clearImageSelection(); true }
                 documentSelection.isNotEmpty() || selected.isNotEmpty() -> { clearPicked(); true }
                 pageMenu != null -> { pageMenu = null; true }
+                editor.overlays.searchMatches.value.isNotEmpty() -> { editor.overlays.searchMatches.value = emptyList(); true }
                 else -> false
             }
             appPrefs.getBoolean(AppPrefs.UX_TOOL_KEYS, AppPrefs.DEFAULT_UX_TOOL_KEYS) -> {
@@ -975,13 +978,27 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         } else false
     }) {
         EditorUxStatus(state, model, onGuide = { gestureGuide = true })
-        if (editor.overlays.searchMatches.value.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        if (editor.overlays.searchMatches.value.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
             val matches = editor.overlays.searchMatches.value
             val match = editor.overlays.searchMatch.intValue.coerceIn(0, matches.lastIndex)
-            TextButton({ val next = (match + matches.size - 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }) { Text("Previous matching page") }
-            TextButton({ noteSearchOpen = true }) { Text("${editor.overlays.searchCaption.value} · ${match + 1}/${matches.size} · Results") }
-            TextButton({ val next = (match + 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }) { Text("Next matching page") }
-            TextButton({ editor.overlays.searchMatches.value = emptyList() }) { Text("Close search") }
+            // One match has nowhere else to go, so the arrows rest instead of re-jumping to the same page.
+            val cycles = matches.size > 1
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp4),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                Icon(Icons.Rounded.Search, null, Modifier.padding(horizontal = FolioSpacing.dp8).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    TextButton({ if (editor.overlays.searchFromPdf.value) pdfSearchOpen = true else noteSearchOpen = true }) {
+                        Text("${editor.overlays.searchCaption.value} · ${match + 1} of ${matches.size}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                IconButton({ val next = (match + matches.size - 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }, enabled = cycles) {
+                    Icon(Icons.Rounded.KeyboardArrowUp, "Previous matching page")
+                }
+                IconButton({ val next = (match + 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }, enabled = cycles) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, "Next matching page")
+                }
+                IconButton({ editor.overlays.searchMatches.value = emptyList() }) { Icon(Icons.Rounded.Close, "Close search") }
+            }
         }
         LongResponseBar(note, page, model, onAttempts = { responseAttempts = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
@@ -1379,6 +1396,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
             val followToolbarWidth = 40.dp * 5 + 48.dp + 8.dp + (if (responseTextButton) 120.dp else 0.dp) + (if (page.infinite) 40.dp else 0.dp)
             val followInset = if (maxWidth < 180.dp) FolioSpacing.dp4 else FloatingToolbarDefaults.ScreenOffset
             val overflowFollowActions = maxWidth - followInset * 2 < followToolbarWidth
+            // What the follow bar actually occupies now, so the page navigator can tell whether it fits beside it.
+            val followShownWidth = 8.dp + 48.dp + 40.dp + (if (responseTextButton) 120.dp else 40.dp) +
+                (if (showOverviewControl) 40.dp else 0.dp) + (if (writingFollowEnabled && !overflowFollowActions) 120.dp else 0.dp)
+            val navigatorWidth = 40.dp * 3 + 52.dp + 8.dp
+            val navigatorAbove = maxWidth - followInset * 2 < followShownWidth + navigatorWidth + FolioSpacing.dp8
             fun toggleFollowPause() {
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
@@ -1416,6 +1438,10 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 val responseLabel = if (writingFollowEnabled) "Finish response" else "Write a response"
                 if (responseTextButton) TextButton(
                     onClick = { setWritingFollow(!writingFollowEnabled) }, enabled = !peekOpen && overviewReturn == null,
+                    // Lit like the icon controls beside it while a response is open, so its state reads at a glance.
+                    colors = if (writingFollowEnabled) ButtonDefaults.textButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer) else ButtonDefaults.textButtonColors(),
                 ) { Text(responseLabel) }
                 else WritingFollowControl(
                     if (page.infinite) Icons.Rounded.TextFields else Icons.Rounded.SwipeRight,
@@ -1542,7 +1568,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 }
             }
             if (tool == Tool.MARK_AREA && page.pdfIndex != null) MarkAreaHint(
-                Modifier.align(Alignment.BottomCenter).zIndex(11f).padding(bottom = FolioSpacing.dp16))
+                Modifier.align(Alignment.BottomCenter).zIndex(11f)
+                    .padding(start = FolioSpacing.dp16, end = FolioSpacing.dp16, bottom = followInset + 44.dp + FolioSpacing.dp8))
             if (!page.infinite && music == null && !paged) Box(Modifier.align(Alignment.CenterEnd).padding(end = stripInset).padding(top = trackTop, bottom = trackBottom).width(110.dp).fillMaxHeight()) {
                 FastScrollTrack(pages, note.pages.size, scrubbing, Modifier.fillMaxSize())
             }
@@ -1555,7 +1582,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 onTurn = ::turnPage, onJumpToEnd = ::jumpToEnd, onToggleView = { setSinglePage(!singlePage) },
                 onBrowse = { pageBrowser = true },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
-                    .padding(followInset).guardUiTouches().zIndex(11f))
+                    .padding(followInset).padding(bottom = if (navigatorAbove) 44.dp + FolioSpacing.dp8 else 0.dp)
+                    .guardUiTouches().zIndex(11f))
             val toolbarTools: @Composable () -> Unit = {
 
                 if (music == null || (music.showToolbar && !music.performance)) FloatingInkToolbar(
@@ -1634,14 +1662,13 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onFit = ::resetZoom,
                             onFitAll = if (page.infinite) ::fitAllContent else null,
                             onAdd = ::addPage,
-                            onSearch = {
-                                if (page.pdfIndex != null) { pdfSearchOpen = true }
-                                else { noteSearchOpen = true }
-                            },
+                            onSearch = ::openSearch,
+                            searchLabel = if (page.pdfIndex != null) "Search PDF text" else "Find in notes",
                             onLayers = { finishTextEditing(); layersPopover = true },
                             layerStatus = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.let { layer ->
                                 when { !layer.visible -> "Hidden layer: ${layer.name}"; layer.locked -> "Locked layer: ${layer.name}"; else -> null }
                             },
+                            layerHidden = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.visible == false,
                             onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                             bookmarked = page.bookmarked,
                             onBookmark = { model.togglePageBookmark(page.id) },
@@ -1826,7 +1853,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                 Text(destination.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${index + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Move to page ${index + 1}")
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1877,17 +1904,24 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         EditorCommand("New notebook", "Ctrl+N", run = ::newNotebook),
         EditorCommand("Insert page after this page", "Ctrl+Enter", run = { revealNewPage(model.insertPage(state.pageIndex + 1)) }),
         EditorCommand("Duplicate page", "Ctrl+Shift+D", run = { model.duplicatePage()?.let(::revealNewPage) }),
-        EditorCommand("Find in document", "Ctrl+F", run = { noteSearchOpen = true }),
+        EditorCommand(if (page.pdfIndex != null) "Search PDF text" else "Find in document", "Ctrl+F", run = ::openSearch),
         EditorCommand("Go to page", "Ctrl+G", run = { pageBrowser = true; editor.browser.jumpExpanded.value = true }),
         EditorCommand("Choose paper", run = { openPaperMenu(false) }),
-        EditorCommand("Export pages", run = onExport), EditorCommand("Reset zoom", "Ctrl+0", run = ::resetZoom),
+        EditorCommand("Browse pages", run = { pageBrowser = true }),
+        EditorCommand(if (page.bookmarked) "Remove bookmark from this page" else "Bookmark this page", run = { model.togglePageBookmark(page.id) }),
+        EditorCommand("Rename notebook", run = { finishTextEditing(); renameTitle = note.title; rename = true }),
+        EditorCommand("Insert picture", run = { imagePicker.launch(arrayOf("image/*")) }),
+        EditorCommand(if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
+            enabled = music == null && !page.infinite, reason = "Canvases always scroll freely", run = { setSinglePage(!singlePage) }),
+        EditorCommand(if (rulerOn) "Hide ruler" else "Show ruler", run = { rulerOn = !rulerOn }),
+        EditorCommand("Export pages", run = { finishTextEditing(); onExport() }), EditorCommand("Reset zoom", "Ctrl+0", run = ::resetZoom),
         EditorCommand("Undo history", run = { historyOpen = true }),
         EditorCommand("Saving, sync and backups", run = { protectionOpen = true }),
         EditorCommand("Align and distribute selection", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.size >= 2 }, reason = "Select two or more objects on a page", run = { placementOpen = true }),
         EditorCommand("Saved snippets", run = { snippetsOpen = true }),
         EditorCommand("Convert handwriting to text", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.strokes.isNotEmpty() || it.texts.any { box -> box.stickyInk.isNotEmpty() } }, reason = "Select handwriting first", run = { convertSelectionToText(page.id, selected) }),
-        EditorCommand("Gestures and shortcuts", run = { gestureGuide = true }), EditorCommand("Settings", run = onSettings)
-    ) + LocalWorkspaceCommands.current + listOf(Tool.PEN, Tool.ERASER, Tool.HIGHLIGHTER, Tool.LASSO, Tool.HAND, Tool.TEXT).map { value -> EditorCommand("Tool: ${toolLabel(value)}", run = { selectTool(value) }) }) { commandPalette = false }
+        EditorCommand("Gestures and shortcuts", run = { gestureGuide = true }), EditorCommand("Settings", run = { finishTextEditing(); onSettings() })
+    ) + LocalWorkspaceCommands.current + listOf(Tool.PEN, Tool.ERASER, Tool.HIGHLIGHTER, Tool.LASSO, Tool.HAND, Tool.TEXT, Tool.STICKY_NOTE, Tool.LASER).map { value -> EditorCommand("Tool: ${toolLabel(value)}", run = { selectTool(value) }) }) { commandPalette = false }
     if (gestureGuide) GestureGuide { gestureGuide = false }
     if (historyOpen) EditorHistoryPanel(model) { historyOpen = false }
     if (protectionOpen) ProtectionPanel(state, model) { protectionOpen = false }
@@ -1907,7 +1941,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
     Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
+            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
                 IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
             }
         } else {
@@ -1925,7 +1959,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 icon = when {
                     done -> Icons.Rounded.Flag
                     timer.paused -> Icons.Rounded.Pause
-                    reading -> Icons.Rounded.Visibility
+                    reading -> Icons.AutoMirrored.Rounded.MenuBook
                     else -> Icons.Rounded.Timer
                 },
                 value = clock,

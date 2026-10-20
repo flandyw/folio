@@ -95,6 +95,7 @@ import kotlinx.coroutines.withContext
                         overlays.searchMatches.value = hits.map { it.second.pageIndex }.distinct()
                         overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(hit.pageIndex).coerceAtLeast(0)
                         overlays.searchCaption.value = noteQuery
+                        overlays.searchFromPdf.value = false
                         jumpTo(hit.pageIndex); noteSearchOpen = false
                     }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(12.dp)) {
@@ -122,7 +123,7 @@ import kotlinx.coroutines.withContext
     if (pdfSearchOpen) ReferenceSearchPanel(
         search = state.pdfSearch, currentIndex = state.pageIndex,
         onQuery = model::searchPdf,
-        onJump = { index -> overlays.searchMatches.value = state.pdfSearch.results.map { it.pageIndex }; overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(index).coerceAtLeast(0); overlays.searchCaption.value = state.pdfSearch.query; jumpTo(index); pdfSearchOpen = false },
+        onJump = { index -> overlays.searchMatches.value = state.pdfSearch.results.map { it.pageIndex }.distinct(); overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(index).coerceAtLeast(0); overlays.searchCaption.value = state.pdfSearch.query; overlays.searchFromPdf.value = true; jumpTo(index); pdfSearchOpen = false },
         onDismiss = { pdfSearchOpen = false },
         onFindNotes = { pdfSearchOpen = false; noteSearchOpen = true }
     )

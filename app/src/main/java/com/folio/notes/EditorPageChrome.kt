@@ -46,9 +46,15 @@ import androidx.compose.ui.unit.dp
         PageNavigationArrow(false, index > 0, { if (settled()) onTurn(false) }, { if (settled()) onJumpToEnd(false) })
         // Sized for the widest label ("12 / 12") with tabular digits, so the arrows never shift as the page changes.
         val counter = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
-        Box(Modifier.height(40.dp).widthIn(min = 44.dp).clickable(onClickLabel = "Browse notebook pages", onClick = onBrowse), contentAlignment = Alignment.Center) {
-            Text("$count / $count", style = counter, color = Color.Transparent)
-            Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+            tooltip = { PlainTooltip { Text("Browse pages") } }, state = rememberTooltipState()) {
+            // Clipped like its neighbours, so the press ripple is a pill instead of a hard rectangle.
+            Box(Modifier.height(40.dp).widthIn(min = 44.dp).clip(FolioShapes.extraLarge)
+                .clickable(onClickLabel = "Browse notebook pages", onClick = onBrowse).padding(horizontal = FolioSpacing.dp4),
+                contentAlignment = Alignment.Center) {
+                Text("$count / $count", style = counter, color = Color.Transparent)
+                Text("${index + 1} / $count", textAlign = TextAlign.Center, style = counter, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         PageNavigationArrow(true, index < count - 1, { if (settled()) onTurn(true) }, { if (settled()) onJumpToEnd(true) })
     }

@@ -81,8 +81,12 @@ internal val DockGap = FolioSpacing.dp4
     onFitAll: (() -> Unit)? = null,
     onAdd: () -> Unit,
     onSearch: () -> Unit,
+    /** What the search button finds here: an imported PDF searches its printed text. */
+    searchLabel: String = "Find in notes",
     onLayers: () -> Unit,
     layerStatus: String?,
+    /** The active layer is hidden rather than locked, which picks the banner's icon. */
+    layerHidden: Boolean = false,
     bookmarked: Boolean,
     onBookmark: () -> Unit,
     onInsertImage: () -> Unit,
@@ -126,7 +130,7 @@ internal val DockGap = FolioSpacing.dp4
             DockButton(Icons.Rounded.Image, "Insert picture", onInsertImage)
             DockButton(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%", onFit)
         }
-        @Composable fun NotebookMenu(timerInMenu: Boolean) {
+        @Composable fun NotebookMenu(timerInMenu: Boolean, pageExtrasInMenu: Boolean) {
             FolioPopover({ overflow = false }, width = 320.dp) {
                 val dismiss = { overflow = false }
                 val run: (() -> Unit) -> Unit = { dismiss(); it() }
@@ -140,15 +144,20 @@ internal val DockGap = FolioSpacing.dp4
                     PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    PopoverGroup("Add page") {
+                    PopoverGroup("Page") {
                         PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
                         PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
                         PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
+                        // The bar only shows the bookmark when it is wide; it must still be reachable here.
+                        if (pageExtrasInMenu) PopoverRow(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                            if (bookmarked) "Remove bookmark" else "Bookmark this page") { run(onBookmark) }
                     }
                     HorizontalDivider()
-                    if (onFitAll != null) {
+                    if (onFitAll != null || pageExtrasInMenu) {
                         PopoverGroup("View") {
-                            PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
+                            if (pageExtrasInMenu) PopoverRow(Icons.Rounded.FitScreen,
+                                (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
+                            if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
                         }
                         HorizontalDivider()
                     }
@@ -191,14 +200,14 @@ internal val DockGap = FolioSpacing.dp4
                     DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
                     if (fold) Box {
                         DockButton(Icons.Rounded.MoreHoriz, "Find and layers", { navMenu = true })
-                        FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
+                        FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Find & layers") {
                             val closeThen: (() -> Unit) -> Unit = { navMenu = false; it() }
-                            FolioMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                            FolioMenuItem({ Text(searchLabel) }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
                             FolioMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
                         }
                         layersPopover()
                     } else {
-                        DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
+                        DockButton(Icons.Rounded.Search, searchLabel, onSearch)
                         Box {
                             DockButton(Icons.Rounded.Layers, "Layers", onLayers)
                             layersPopover()
@@ -229,7 +238,7 @@ internal val DockGap = FolioSpacing.dp4
                             if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
                             { overflow = true },
                             tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
-                        if (overflow) NotebookMenu(timerInMenu = !timerInline)
+                        if (overflow) NotebookMenu(timerInMenu = !timerInline, pageExtrasInMenu = !denseBar)
                     }
                 }
             }
@@ -255,7 +264,7 @@ internal val DockGap = FolioSpacing.dp4
                 }
                 if (layerStatus != null) TextButton(onLayers, Modifier.align(Alignment.CenterHorizontally).padding(bottom = FolioSpacing.dp4),
                     colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current)) {
-                    Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Icon(if (layerHidden) Icons.Rounded.VisibilityOff else Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
                 }
@@ -350,13 +359,17 @@ internal val DockGap = FolioSpacing.dp4
             else -> "All queued changes have been written to this device."
         }) },
         confirmButton = {
-            if (saveFailed && !retryingSave) TextButton({ detailsOpen = false; onRetrySave() }) { Text("Retry save") }
-            else TextButton({ detailsOpen = false }) { Text("Stay here") }
+            when {
+                saveFailed && !retryingSave -> TextButton({ detailsOpen = false; onRetrySave() }) { Text("Retry save") }
+                saving -> TextButton({ detailsOpen = false }) { Text("Stay here") }
+                else -> TextButton({ detailsOpen = false }) { Text("OK") }
+            }
         },
+        // Two buttons only when they do different things; a finished save has nothing to choose.
         dismissButton = {
             if (!saveFailed && saving) TextButton({ detailsOpen = false; onClose() }) {
                 Text("Library · save continues")
-            } else TextButton({ detailsOpen = false }) { Text("Close") }
+            } else if (saveFailed && !retryingSave) TextButton({ detailsOpen = false }) { Text("Close") }
         }
     )
 }

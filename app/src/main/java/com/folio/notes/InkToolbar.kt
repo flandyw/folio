@@ -219,11 +219,11 @@ import kotlin.math.roundToInt
             val shapeIcon = shapeIcon(if (isShape) tool else lastShape)
             Box {
                 FolioToolToggle(isShape, { onPalette(false); if (isShape) shapePicker = true else chooseShape(lastShape) }, shapeIcon,
-                    if (isShape) "Shapes, ${tool.name.lowercase()} — tap again to choose shape" else "Shapes, ${lastShape.name.lowercase()}",
+                    if (isShape) "Shapes, ${shapeLabel(tool).lowercase()} — tap again to choose shape" else "Shapes, ${shapeLabel(lastShape).lowercase()}",
                     onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
                 Icon(Icons.Rounded.ArrowDropDown, null,
                     Modifier.align(Alignment.BottomEnd).size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    tint = if (isShape) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (shapePicker) ShapePickerPopover(tool, shapes = shapeTools, onPick = { value ->
                 chooseShape(value); shapePicker = false
@@ -253,10 +253,10 @@ import kotlin.math.roundToInt
         // The … menu holds what the user put there plus whatever this pane is too narrow to show.
         val overflow = toolbarLayout.order.filterNot { it in primary }
         val hasTray = primary.isNotEmpty() || (showExtras && (pinnedPresets.isNotEmpty() || actions.isNotEmpty()))
-        if (showUndo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
+        if (showUndo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
         }
-        if (showRedo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
+        if (showRedo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
             IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.size(20.dp)) }
         }
         if (showUndo && hasTray) ToolbarDivider(Modifier.padding(start = DividerAir / 2, end = DividerAir))
@@ -307,10 +307,10 @@ import kotlin.math.roundToInt
             var toolSub by remember { mutableStateOf<ToolSub?>(null) }
             val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text("More options") } }, state = rememberTooltipState()) {
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("More options") } }, state = rememberTooltipState()) {
                     IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(ToolbarButton)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
                 }
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above), tooltip = { PlainTooltip { Text(if (quickBarOpen) "Hide ink options" else "Show ink options") } }, state = rememberTooltipState()) {
+                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(if (quickBarOpen) "Hide ink options" else "Show ink options") } }, state = rememberTooltipState()) {
                     IconButton(stripGuard.click { quickBarOpen = !quickBarOpen }, modifier = Modifier.size(ToolbarButton)) {
                         Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
                     }
@@ -575,9 +575,8 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                         } else {
                             TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("To … menu") }
                         }
-                        Icon(
-                            Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}",
-                            Modifier.size(20.dp).pointerInput(slot, index, layout.order.size) {
+                        // A full 40dp grip: the glyph alone was too small to catch with a finger.
+                        Box(Modifier.size(40.dp).pointerInput(slot, index, layout.order.size) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = { dragFrom = index; dragDelta = 0f },
                                     onDrag = { change, amount -> change.consume(); dragDelta += amount.y },
@@ -588,9 +587,10 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                                     },
                                     onDragCancel = { dragFrom = null; dragDelta = 0f }
                                 )
-                            },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}", Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }

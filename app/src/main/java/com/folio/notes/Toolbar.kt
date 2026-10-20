@@ -35,6 +35,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
@@ -237,7 +238,18 @@ private val TabHeight = 28.dp
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
             Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
-            Box(Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null)) {
+            val stripColor = BarTones.strip
+            Box(Modifier.weight(1f, fill = false).fillMaxHeight().drawWithContent {
+                drawContent()
+                // Fade tabs that run past either end, so a long strip shows there is more to scroll to.
+                val fade = 20.dp.toPx().coerceAtMost(size.width / 4f)
+                val startHidden = if (rightToLeft) scroll.canScrollForward else scroll.canScrollBackward
+                val endHidden = if (rightToLeft) scroll.canScrollBackward else scroll.canScrollForward
+                if (startHidden) drawRect(Brush.horizontalGradient(listOf(stripColor, stripColor.copy(alpha = 0f)), 0f, fade),
+                    size = androidx.compose.ui.geometry.Size(fade, size.height))
+                if (endHidden) drawRect(Brush.horizontalGradient(listOf(stripColor.copy(alpha = 0f), stripColor), size.width - fade, size.width),
+                    topLeft = Offset(size.width - fade, 0f), size = androidx.compose.ui.geometry.Size(fade, size.height))
+            }.horizontalScroll(scroll, enabled = dragged == null)) {
                 val first = entries.find { it.chip.id == firstSplit }
                 val second = entries.find { it.chip.id == secondSplit }
                 if (first != null && second != null) SplitTabGroup(
@@ -270,6 +282,8 @@ private val TabHeight = 28.dp
                         val lift = animateFloatAsState(if (held && !detached) 1f else 0f, folioSpring(), label = "tabLift")
                         val opacity = animateFloatAsState(if (detached) .25f else 1f, tween(120), label = "tabDragOpacity")
                         var inputCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                        // The gesture below is hand-rolled, so it shows its own press instead of a ripple.
+                        var pressed by remember { mutableStateOf(false) }
                         val leading by animateDpAsState(if (tab.id == firstSplit) 24.dp else 0.dp, folioSpring(), label = "splitTabInset")
                         Box(
                             Modifier.onPlaced {
@@ -291,15 +305,18 @@ private val TabHeight = 28.dp
                                     awaitEachGesture {
                                         val down = awaitFirstDown()
                                         val downWindow = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(down.position) ?: return@awaitEachGesture
-                                        val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                                            while (true) {
-                                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
-                                                if (!change.pressed) return@withTimeoutOrNull !change.isConsumed
-                                                val window = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(change.position) ?: return@withTimeoutOrNull false
-                                                if (change.isConsumed || (window - downWindow).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                                        pressed = true
+                                        val released = try {
+                                            withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                                while (true) {
+                                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                                                    if (!change.pressed) return@withTimeoutOrNull !change.isConsumed
+                                                    val window = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(change.position) ?: return@withTimeoutOrNull false
+                                                    if (change.isConsumed || (window - downWindow).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                                                }
+                                                @Suppress("UNREACHABLE_CODE") false
                                             }
-                                            @Suppress("UNREACHABLE_CODE") false
-                                        }
+                                        } finally { pressed = false }
                                         when (released) {
                                             true -> { latestSelect(tab.id); return@awaitEachGesture }
                                             false -> return@awaitEachGesture
@@ -361,7 +378,7 @@ private val TabHeight = 28.dp
                                     Modifier.height(TabHeight + 4.dp).padding(start = leading.coerceAtLeast(0.dp), end = FolioSpacing.dp4),
                                     verticalAlignment = Alignment.Bottom,
                                 ) {
-                                    Tab(tab, tab.id == activeId, held, onClose,
+                                    Tab(tab, tab.id == activeId, held, pressed, onClose,
                                         modifier = Modifier.semantics {
                                             role = Role.Tab
                                             selected = tab.id == activeId
@@ -430,7 +447,7 @@ private val TabHeight = 28.dp
     }
 }
 
-@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, onClose: (String) -> Unit, modifier: Modifier, enabled: Boolean) {
+@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, pressed: Boolean, onClose: (String) -> Unit, modifier: Modifier, enabled: Boolean) {
     val title = tab.title.ifBlank { "Untitled" }
     val accent = MaterialTheme.colorScheme.primary
     val bottomRadius by animateDpAsState(if (held) FolioShapes.mediumRadius else 0.dp, folioSpring(), label = "tabCorners")
@@ -441,8 +458,12 @@ private val TabHeight = 28.dp
     // Both halves of a split wear the bar's colour, so the pair reads as one joined tab; the
     // half the toolbar is working on carries the accent line.
     val containerColor by animateColorAsState(
-        if (active || held || tab.split) BarTones.container else BarTones.container.copy(alpha = 0f),
-        tween(160), label = "tabContainer",
+        when {
+            active || held || tab.split -> BarTones.container
+            pressed -> BarTones.container.copy(alpha = .6f)
+            else -> BarTones.container.copy(alpha = 0f)
+        },
+        tween(if (pressed) 60 else 160), label = "tabContainer",
     )
     val contentColor by animateColorAsState(
         when {
@@ -464,11 +485,10 @@ private val TabHeight = 28.dp
             },
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
-
             Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.width(FolioSpacing.dp2))
-            IconButton({ onClose(tab.id) }, enabled = enabled, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
+            // The whole height of the tab is the close target; the glyph stays small.
+            IconButton({ onClose(tab.id) }, enabled = enabled, modifier = Modifier.size(TabHeight), shapes = IconButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Close, "Close $title", Modifier.size(14.dp),
                     tint = LocalContentColor.current.copy(alpha = if (active) 1f else .7f))
             }
