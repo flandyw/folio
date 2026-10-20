@@ -21,7 +21,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +60,15 @@ import com.folio.notes.*
     val keyboard = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val colors = MaterialTheme.colorScheme
+    // The embedded editor owns its toolbar and viewport surfaces. Match them to
+    // the review background so the two panes share one continuous backdrop.
+    val responseColors = remember(colors) { colors.copy(
+        surfaceContainerLowest = colors.surface,
+        surfaceContainerLow = colors.surface,
+        surfaceContainer = colors.surface,
+        surfaceContainerHigh = colors.surface,
+        surfaceContainerHighest = colors.surface,
+    ) }
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     // The shell only carries metadata: its pages stay unloaded even after the editor
     // loads them. Observe this review's content in both Write and Type modes.
@@ -139,6 +147,7 @@ import com.folio.notes.*
         if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry saving your response before rating.", duration = SnackbarDuration.Long)
     }
     Scaffold(
+        containerColor = colors.surface,
         // Keep the editor mounted while the next page is prepared, but do not let
         // a stray stroke or tap edit a notebook during the handoff.
         modifier = Modifier.then(if (typing) Modifier.imePadding() else Modifier).onKeyEvent { event ->
@@ -160,7 +169,8 @@ import com.folio.notes.*
             BoxWithConstraints {
                 val roomyHeader = maxWidth >= 600.dp * density.fontScale
                 TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.surfaceContainer),
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = colors.surface, scrolledContainerColor = colors.surface),
                     // The card's own name is the heading of the question pane, so the bar only
                     // carries progress: one quiet line instead of a repeated title and subtitle.
                     title = {
@@ -235,7 +245,7 @@ import com.folio.notes.*
             // One slim strip. Before the reveal: recall strength and the optional confidence
             // call on the left, Skip and Compare on the right. After: just the four ratings.
             // Explanations live in labels and content descriptions, not in permanent captions.
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+            Surface(color = colors.surface) {
                 BoxWithConstraints(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
                     val roomy = maxWidth >= 640.dp
                     val strength = MistakePracticeProgress.strength(m)
@@ -245,10 +255,7 @@ import com.folio.notes.*
                             RecallStrength(strength, rematch)
                             Text("Confidence", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             listOf("low" to "Guessing", "medium" to "Unsure", "high" to "Confident").forEach { (value, label) ->
-                                FilterChip(selected = confidence == value, onClick = { confidence = if (confidence == value) null else value }, enabled = !busy, label = { Text(label) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = colors.primaryContainer,
-                                        selectedLabelColor = colors.onPrimaryContainer))
+                                FilterChip(selected = confidence == value, onClick = { confidence = if (confidence == value) null else value }, enabled = !busy, label = { Text(label) })
                             }
                         }
                         val actions: @Composable () -> Unit = {
@@ -264,7 +271,7 @@ import com.folio.notes.*
                                 Spacer(Modifier.width(FolioSpacing.dp4))
                                 Text("Done typing")
                             }
-                            Button({ confirmDoubleTap("compare", ::revealAnswer) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+                            FilledTonalButton({ confirmDoubleTap("compare", ::revealAnswer) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                                 Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
@@ -314,15 +321,11 @@ import com.folio.notes.*
                                             if (label.isNotBlank()) Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(.75f))
                                         }
                                     }
-                                    val (container, foreground) = when (rating) {
-                                        ReviewRating.AGAIN -> colors.errorContainer to colors.onErrorContainer
-                                        ReviewRating.HARD -> colors.tertiaryContainer to colors.onTertiaryContainer
-                                        ReviewRating.GOOD -> colors.primary to colors.onPrimary
-                                        ReviewRating.EASY -> colors.secondaryContainer to colors.onSecondaryContainer
+                                    when (rating) {
+                                        ReviewRating.AGAIN -> OutlinedButton({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        ReviewRating.GOOD -> Button({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
+                                        else -> FilledTonalButton({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier, shapes = ButtonDefaults.shapes(), content = content)
                                     }
-                                    Button({ finishTyping(); onRate(rating, confidence) }, enabled = canRate, modifier = modifier,
-                                        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = foreground),
-                                        shapes = ButtonDefaults.shapes(), content = content)
                                 }
                             }
                         }
@@ -366,15 +369,14 @@ import com.folio.notes.*
                 }
             }
             @Composable fun ReferencePane(modifier: Modifier) {
-                Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(modifier, color = colors.surface) {
                     Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.fillMaxWidth().background(colors.surfaceContainerHigh)
-                            .padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                             // A collapsed portrait panel has no heading of its own, so it names the card.
                             Text(
                                 if (!wide && !referenceExpanded) m.question else if (revealed) "Compare & reflect" else "Question",
                                 Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelLarge, color = colors.primary
+                                style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant
                             )
                             ShareTextButton(typed = typing,
                                 onShare = { questionOnly ->
@@ -421,10 +423,11 @@ import com.folio.notes.*
                                 enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(if (reviewPreferences.practiceEffects) 180 else 0)),
                                 exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(0))) {
                                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                    ReviewFeedback("Correction", m.correction.ifBlank { "No correction saved in Focal." },
-                                        colors.secondaryContainer, colors.onSecondaryContainer, textScale)
-                                    ReviewFeedback("What went wrong", m.explanation.ifBlank { "No explanation saved in Focal." },
-                                        colors.tertiaryContainer, colors.onTertiaryContainer, textScale)
+                                    HorizontalDivider()
+                                    Text("Correction", style = MaterialTheme.typography.titleMedium)
+                                    RichText(m.correction.ifBlank { "No correction saved in Focal." }, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
+                                    Text("What went wrong", style = MaterialTheme.typography.titleMedium)
+                                    RichText(m.explanation.ifBlank { "No explanation saved in Focal." }, style = MaterialTheme.typography.bodyMedium.scaledBy(textScale))
                                 }
                             }
                         }
@@ -433,10 +436,12 @@ import com.folio.notes.*
             }
             @Composable fun ResponsePane(modifier: Modifier) {
                 Box(modifier) {
-                    if (typing) MistakeTypingPane(practicePage, attempt.reviewId, state, folio, busy, typeFocusRequest, compactTyping,
-                        revealed = revealed, onCompare = if (revealed) null else ::revealAnswer, onDone = ::finishTyping,
-                        onFocusChanged = { typingFocused = it })
-                    else EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress)
+                    MaterialTheme(colorScheme = responseColors) {
+                        if (typing) MistakeTypingPane(practicePage, attempt.reviewId, state, folio, busy, typeFocusRequest, compactTyping,
+                            revealed = revealed, onCompare = if (revealed) null else ::revealAnswer, onDone = ::finishTyping,
+                            onFocusChanged = { typingFocused = it })
+                        else EditorScreen(state, folio, finger, haptics, shapes, onSettings, onExport, showBack = false, onShareLongPress = onShareLongPress)
+                    }
                 }
             }
             if (wide) Row(Modifier.fillMaxSize()) {
@@ -510,9 +515,8 @@ import com.folio.notes.*
                     .semantics { contentDescription = "$label response${if (waiting) ", has working" else ""}" },
                 shape = SegmentedButtonDefaults.itemShape(index, 2),
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.primary, activeContentColor = colors.onPrimary, activeBorderColor = colors.primary,
-                    inactiveContainerColor = colors.surfaceContainerHigh, inactiveContentColor = colors.onSurfaceVariant,
-                    inactiveBorderColor = colors.outlineVariant),
+                    activeContainerColor = colors.secondaryContainer, activeContentColor = colors.onSecondaryContainer,
+                    inactiveContainerColor = colors.surface, inactiveContentColor = colors.onSurfaceVariant),
                 icon = {},
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
@@ -522,15 +526,6 @@ import com.folio.notes.*
                     if (showLabels) Text(label, maxLines = 1)
                 }
             }
-        }
-    }
-}
-
-@Composable private fun ReviewFeedback(title: String, source: String, container: Color, foreground: Color, textScale: Float) {
-    Surface(shape = FolioShapes.large, color = container, contentColor = foreground) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            RichText(source, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale).copy(color = foreground))
         }
     }
 }
