@@ -274,7 +274,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
         PopoverRow(Icons.Rounded.CreateNewFolder, if (openFolder != null) "New folder in ${openFolder.name}" else "New folder") { close(); startNewFolder(openFolder?.id) }
         HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
         PopoverRow(Icons.Rounded.PictureAsPdf, "Import PDF document") { close(); onImport() }
-        PopoverRow(Icons.Rounded.School, "VCAA exam library") { close(); selecting = false; selectedIds = emptyList(); section = LibrarySection.VCAA; onLibrary() }
+        PopoverRow(Icons.Rounded.LocalLibrary, "VCAA exam library") { close(); selecting = false; selectedIds = emptyList(); section = LibrarySection.VCAA; onLibrary() }
         PopoverRow(Icons.Rounded.FolderZip, "Import Folio backup") { close(); onImportArchive() }
     }
     // Never put the library's palm guard above the native handwriting surface.
@@ -316,7 +316,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                         if (navShown(SidebarItem.MISTAKES)) RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
                         if (navShown(SidebarItem.STUDY)) RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
                         if (navShown(SidebarItem.PROGRESS)) RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
-                        if (navShown(SidebarItem.VCAA)) RailItem("VCAA", Icons.Rounded.WorkspacePremium, !otherPane && section == LibrarySection.VCAA) { section = LibrarySection.VCAA; onLibrary() }
+                        if (navShown(SidebarItem.VCAA)) RailItem("VCAA", Icons.Rounded.LocalLibrary, !otherPane && section == LibrarySection.VCAA) { section = LibrarySection.VCAA; onLibrary() }
                         if (navShown(SidebarItem.MUSIC)) RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
                     }
                     Spacer(Modifier.height(FolioSpacing.dp4))
@@ -722,7 +722,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
             if (navShown(SidebarItem.PROGRESS)) ShortNavigationBarItem(!otherPane && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
                 icon = { Icon(Icons.Rounded.Insights, null) }, label = { Text("Progress") })
             if (navShown(SidebarItem.VCAA)) ShortNavigationBarItem(!otherPane && section == LibrarySection.VCAA, { section = LibrarySection.VCAA; onLibrary() },
-                icon = { Icon(Icons.Rounded.WorkspacePremium, null) }, label = { Text("VCAA") })
+                icon = { Icon(Icons.Rounded.LocalLibrary, null) }, label = { Text("VCAA") })
             if (navShown(SidebarItem.MUSIC)) ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
         }
         }

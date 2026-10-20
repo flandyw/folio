@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -75,11 +74,11 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     var paperFilter by rememberSaveable { mutableStateOf("All papers") }
     var yearFilter by rememberSaveable { mutableStateOf("All years") }
     var sort by rememberSaveable { mutableStateOf("Newest first") }
-    val folioState by model.state.collectAsStateWithLifecycle()
-    var libraryYear by rememberSaveable { mutableStateOf("All years") }
-    var libraryPaper by rememberSaveable { mutableStateOf("All papers") }
-    var completion by rememberSaveable { mutableStateOf("All papers") }
     var listSection by rememberSaveable { mutableStateOf("Progression") }
+    // Older saved screens may still point at the removed catalogue tab.
+    LaunchedEffect(listSection) {
+        if (listSection !in listOf("Progression", "Notebooks")) listSection = "Progression"
+    }
     var draft by rememberSaveable { mutableStateOf<String?>(null) }
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var mistakeId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -114,16 +113,6 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             "${it.title} ${it.subject} ${it.provider} ${it.paper} ${it.examYear} ${it.json.optString("comment")}".contains(query.trim(), true) }
         when (sort) { "Oldest first" -> matching.sortedBy { it.completedAt }; "Highest mark" -> matching.sortedByDescending { it.percentage }
             "Lowest mark" -> matching.sortedBy { it.percentage }; else -> matching }
-    }
-    val official = remember(state.catalog, subject, query, completion, libraryYear, libraryPaper, exams, state.cache.completedIds) {
-        state.catalog.exams.filter { exam ->
-            val done = exam.logged(exams) != null || exam.resource.url in state.cache.completedIds
-            (subject == ALL_SUBJECTS || exam.subject == subject) &&
-                "${exam.subject} ${exam.year} ${exam.paper} ${exam.provider}".contains(query.trim(), true) &&
-                (libraryYear == "All years" || exam.year.toString() == libraryYear) &&
-                (libraryPaper == "All papers" || exam.paper == libraryPaper) &&
-                (completion == "All papers" || if (completion == "Completed") done else !done)
-        }.sortedWith(compareByDescending<OfficialExam> { it.year }.thenBy { it.subject }.thenBy { it.paper })
     }
     val mistakes = remember(state.cache.rows) { state.cache.mistakes }
     val enabled = !state.loading && state.readable && !busy
@@ -173,31 +162,6 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             finally { busy = false }
         }
     }
-    fun startTimed(exam: OfficialExam) {
-        val preset = exam.draft()
-        val note = notes.firstOrNull { it.exam.year == exam.year && comparisonName(focalNotebookSubject(it)) == comparisonName(exam.subject) &&
-            comparisonName(it.exam.type?.label ?: "Exam") == comparisonName(exam.paper) && comparisonName(it.exam.company) == comparisonName(exam.provider) }
-        if (note != null) onOpenNotebook(note.id)
-        else {
-            val study = VceSubject.match(exam.subject)
-            model.create("${exam.provider} ${exam.year} ${exam.subject} · ${exam.paper}", 0, study?.paper ?: Paper.RULED,
-                ExamTags(subjectText = exam.subject, year = exam.year, company = exam.provider,
-                    type = when (exam.paper) { "Exam 1" -> ExamType.EXAM_1; "Exam 2" -> ExamType.EXAM_2; else -> ExamType.EXAM }, marksTotal = preset.optInt("rawMax")), infinite = true)
-        }
-        val number = Regex("\\d+").find(exam.paper)?.value?.toIntOrNull()
-        val writing = when (comparisonName(exam.subject)) { "mathematical methods", "specialist mathematics" -> if (number == 1) 60 else 120
-            "general mathematics" -> 90; "english", "english as an additional language" -> 180
-            "biology", "chemistry", "physics", "psychology" -> 150; else -> 120 }
-        model.startTimer(ExamTimerPreset("${exam.subject} · ${exam.paper}", writing * 60, 15 * 60))
-    }
-    fun toggleCompleted(exam: OfficialExam) {
-        val owner = state.userId; val ids = state.cache.completedIds.toMutableSet()
-        scope.launch {
-            if (!ids.add(exam.resource.url)) ids.remove(exam.resource.url)
-            manager.saveValue("completedExamIds", JSONArray(ids.toList()), owner)
-        }
-    }
-
     Column(modifier.fillMaxSize()) {
         ProgressHeader(state, enabled = enabled && exams.isNotEmpty(), onSync = manager::sync, onShare = ::shareReport,
             onAccount = { showAccount = true }, onSettings = onSettings)
@@ -269,21 +233,14 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                         wide("list-controls") {
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 FolioButtonGroup(Modifier.fillMaxWidth()) {
-                                    listOf("Progression" to Icons.Rounded.Route, "VCAA library" to Icons.Rounded.LocalLibrary, "Notebooks" to Icons.AutoMirrored.Rounded.MenuBook).forEach { (label, icon) ->
+                                    listOf("Progression" to Icons.Rounded.Route, "Notebooks" to Icons.AutoMirrored.Rounded.MenuBook).forEach { (label, icon) ->
                                         toggleableItem(listSection == label, label, { listSection = label }, icon = { Icon(icon, null, Modifier.size(18.dp)) })
                                     }
                                 }
-                                SearchField(query, { query = it }, when (listSection) { "Progression" -> "Search planned papers"; "VCAA library" -> "Search official papers"; else -> "Search exam notebooks" })
+                                SearchField(query, { query = it }, if (listSection == "Progression") "Search planned papers" else "Search exam notebooks")
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, Icons.Rounded.School)
-                                    if (listSection == "VCAA library") {
-                                        MenuChip("Year", libraryYear, listOf("All years") + state.catalog.exams.map { it.year.toString() }.distinct().sortedDescending(), { libraryYear = it })
-                                        MenuChip("Paper", libraryPaper, listOf("All papers") + state.catalog.exams.map { it.paper }.distinct().sorted(), { libraryPaper = it })
-                                        MenuChip("Status", completion, listOf("All papers", "To do", "Completed"), { completion = it }, Icons.Rounded.TaskAlt)
-                                        if (subject != ALL_SUBJECTS || libraryYear != "All years" || libraryPaper != "All papers" || completion != "All papers" || query.isNotEmpty())
-                                            AssistChip({ subject = ALL_SUBJECTS; libraryYear = "All years"; libraryPaper = "All papers"; completion = "All papers"; query = "" },
-                                                { Text("Clear filters") }, leadingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) })
-                                    }
+
                                 }
                             }
                         }
@@ -291,29 +248,6 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                             "Progression" -> progressionItems(state.cache.progression, exams, subject, query, enabled,
                                 canEdit = enabled && "user_state:examProgression" !in state.cache.conflicts, onEdit = { showPlan = true },
                                 onResult = { detailId = it }, onLog = { draft = it })
-                            "VCAA library" -> {
-                                wide("library-note") {
-                                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                        Text("Import a paper to write on it in Folio. Subject, year and exam details are filled in automatically.",
-                                            style = MaterialTheme.typography.bodyMedium)
-                                        Text("${official.size} papers · newest first · catalogue ${state.catalog.generatedAt.take(10)}. Older papers may follow a different study design.",
-                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        folioState.importProgress?.let { progress ->
-                                            LinearProgressIndicator(Modifier.fillMaxWidth())
-                                            Text(progress, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                    }
-                                }
-                                items(official, key = { it.resource.url }) { exam -> OfficialExamCard(exam, exams, state.cache.completedIds,
-                                    onLog = { draft = exam.draft().toString() }, onResult = { detailId = it }, onToggle = { toggleCompleted(exam) },
-                                    onTimed = { startTimed(exam) }, enabled = enabled,
-                                    owned = VcaaLibrary.imported(exam.importPaper(), notes),
-                                    importEnabled = !folioState.busy && !folioState.loading && !folioState.loadFailed,
-                                    onImport = { model.importVcaaPapers(null, listOf(exam.importPaper())) }, onOpen = onOpenNotebook) }
-                                if (official.isEmpty()) wide("library-empty") {
-                                    EmptyState(Icons.Rounded.LocalLibrary, "No matching papers", "Try another subject, year or paper, or clear the filters.")
-                                }
-                            }
                             else -> {
                                 val notebookList = notes.filter { it.exam.isTagged && it.countsAsExam && (subject == ALL_SUBJECTS || comparisonName(focalNotebookSubject(it)) == comparisonName(subject)) &&
                                     "${it.title} ${it.exam.summaryLine()}".contains(query, true) }.sortedByDescending { it.exam.year ?: 0 }
@@ -670,66 +604,6 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
     } }
     if (plan.isEmpty()) wide("plan-empty") {
         EmptyState(Icons.Rounded.Route, "No papers planned yet", "Build a list by hand or import a Focal progression. Logged papers tick off automatically.")
-    }
-}
-
-/** Keep Progress imports on the same metadata and duplicate rules as Library imports. */
-private fun OfficialExam.importPaper() = VcaaExam(subject, resource.label, resource.url, year, provider,
-    when (paper) { "Exam 1" -> ExamType.EXAM_1; "Exam 2" -> ExamType.EXAM_2; else -> ExamType.EXAM },
-    companions.filter { it.kind == "report" }.map { it.label to it.url })
-
-@Composable private fun OfficialExamCard(exam: OfficialExam, attempts: List<LoggedExam>, completed: Set<String>,
-    onLog: () -> Unit, onResult: (String) -> Unit, onToggle: () -> Unit, onTimed: () -> Unit, enabled: Boolean,
-    owned: Notebook?, importEnabled: Boolean, onImport: () -> Unit, onOpen: (String) -> Unit) {
-    val uri = androidx.compose.ui.platform.LocalUriHandler.current
-    var linkError by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
-    fun open(url: String) { try { uri.openUri(url) } catch (_: Exception) { linkError = true } }
-    val logged = exam.logged(attempts); val done = logged != null || exam.resource.url in completed
-    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Surface(shape = FolioShapes.large, color = if (done) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = if (done) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant) {
-                    Text("${exam.year}", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp10), style = MaterialTheme.typography.titleMedium)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(exam.subject, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(listOfNotNull(exam.provider, exam.paper, knownExamMarks(exam.subject, exam.paper)?.let { "$it marks" }).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                when {
-                    logged != null -> Surface({ onResult(logged.id) }, shape = CircleShape, color = Color.Transparent) { ScoreRing(logged.percentage, 44.dp) }
-                    done -> StatusPill("Done", Icons.Rounded.Check, strong = true)
-                }
-            }
-            if (owned != null) Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Button({ if (owned != null) onOpen(owned.id) else onImport() }, modifier = Modifier.fillMaxWidth(),
-                enabled = importEnabled, shapes = ButtonDefaults.shapes()) {
-                Icon(if (owned != null) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.Download, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text(if (owned != null) "Open in Folio" else "Import into Folio")
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                TextButton(onLog, enabled = enabled) { Text(if (logged != null) "Log again" else "Log result") }
-                Spacer(Modifier.weight(1f))
-                Box {
-                    IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More for ${exam.subject} ${exam.year} ${exam.paper}") }
-                    FolioMenuPopover(menu, { menu = false }, Modifier.guardUiTouches(), title = "Exam actions") {
-                        FolioMenuItem({ Text("Start timed sitting") }, { menu = false; onTimed() }, enabled = enabled, leadingIcon = { Icon(Icons.Rounded.Timer, null) })
-                        if (logged != null) FolioMenuItem({ Text("Compare result") }, { menu = false; onResult(logged.id) }, leadingIcon = { Icon(Icons.Rounded.Insights, null) })
-                        else FolioMenuItem({ Text(if (done) "Mark not done" else "Mark done") }, { menu = false; onToggle() }, enabled = enabled,
-                            leadingIcon = { Icon(if (done) Icons.Rounded.RemoveDone else Icons.Rounded.TaskAlt, null) })
-                        if (exam.companions.isNotEmpty()) HorizontalDivider()
-                        exam.companions.forEach { resource ->
-                            FolioMenuItem({ Text(when (resource.kind) { "report" -> "Examiner report"; "specification" -> "Specifications"; else -> "Sample paper" }) },
-                                { menu = false; open(resource.url) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, null) })
-                        }
-                    }
-                }
-            }
-            if (linkError) Text("Could not open this link. Check that a browser is installed.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
     }
 }
 
