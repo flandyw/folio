@@ -199,7 +199,7 @@ private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupS
     SettingsCategory.BACKUP -> if (backup.progress != null) "Backup in progress" else if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
     // The rows that hold everyday toggles say how they stand right now.
     SettingsCategory.WRITING -> "Finger drawing ${if (app.finger) "on" else "off"} · Shapes ${if (app.shapeRecognition) "on" else "off"}"
-    SettingsCategory.STYLUS -> "Pencil double-tap: ${app.stylus.label}" + if (app.hapticsSupported) " · Haptics ${if (app.haptics) "on" else "off"}" else ""
+    SettingsCategory.STYLUS -> "Pencil double-tap: ${app.stylus.label}" + if (app.hapticsSupported) " · Buzz ${if (app.haptics) "on" else "off"}" else ""
     else -> item.summary
 }
 
@@ -346,7 +346,8 @@ private object SettingsIndex {
         e(SettingsCategory.WRITING, "Tool in hand", "default tool pen highlighter open lasso hand sticky note shape"),
         e(SettingsCategory.WRITING, "Typed text size and alignment", "font default left centre right"),
         e(SettingsCategory.STYLUS, "Pencil double-tap", "stylus shortcut action oneplus oppo"),
-        e(SettingsCategory.STYLUS, "Pen haptics", "vibration buzz bluetooth"),
+        e(SettingsCategory.STYLUS, "Double-tap buzz", "pen haptics vibration bluetooth"),
+        e(SettingsCategory.STYLUS, "Writing feedback", "buzz while writing vibration haptics texture pencil ballpoint feel"),
         e(SettingsCategory.STYLUS, "Palm rejection", "resting hand touch milliseconds"),
         e(SettingsCategory.STYLUS, "Two-finger tap to undo", "gesture redo three fingers"),
         e(SettingsCategory.ERASING, "Pressure-sensitive eraser", "size grows"),

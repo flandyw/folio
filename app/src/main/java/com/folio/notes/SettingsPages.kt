@@ -330,10 +330,11 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             StylusShortcut.entries.forEach { SettingsRadioRow(it.label, it.description, s.stylus == it) { s.onStylus(it) } }
         }
     }
+    if (PenWritingFeedback.isSupported()) WritingFeedbackGroup()
     SettingsGroup("Haptics") {
         SettingsSwitchRow(
-            "Pen haptics",
-            if (s.hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Needs Bluetooth; confirmed on the OnePlus Pencil Pro. This is not the pen's soft writing feedback."
+            "Double-tap buzz",
+            if (s.hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Needs Bluetooth; confirmed on the OnePlus Pencil Pro."
             else "Needs Android 12 or newer and a Bluetooth LE pencil.",
             s.haptics, s.onHaptics, s.hapticsSupported,
         )
@@ -641,6 +642,38 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             SettingsSwitchRow(item.label, item.summary, item !in hidden, { on ->
                 p.write { putString(SidebarItem.PREF_KEY, SidebarItem.encode(if (on) hidden - item else hidden + item)) }
             })
+        }
+    }
+}
+
+/** The Pencil Pro's own soft buzz while the tip is down, through ColorOS's pen service. */
+@Composable private fun WritingFeedbackGroup() {
+    val p = rememberPrefs()
+    val context = LocalContext.current
+    val feedback = remember(context) { (context.applicationContext as? FolioApplication)?.penFeedback }
+    val on by rememberPref(p, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
+    val feel by rememberPref(p, AppPrefs.WRITING_FEEL) { WritingFeel.of(it.getString(AppPrefs.WRITING_FEEL, null)) }
+    val status = when (val st = feedback?.status) {
+        is FeedbackStatus.Connected -> if (st.own) "Connected." else "Connected through a partner app's licence (HiPaint or StarNote)."
+        FeedbackStatus.Connecting -> "Connecting to the pen service…"
+        FeedbackStatus.Refused -> "ColorOS refused the pen service on this tablet."
+        FeedbackStatus.Unavailable -> "This tablet has no ColorOS pen service."
+        else -> "Connects when a notebook is open."
+    }
+    SettingsGroup("Writing feedback", footer = "If nothing buzzes, check that the Pencil's vibration is on in ColorOS settings.") {
+        SettingsSwitchRow(
+            "Buzz while writing",
+            "The Pencil Pro vibrates softly while its tip is down with a pen, shape, highlighter or eraser, like the system notes app. No Bluetooth permission needed. $status",
+            on, { v -> p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, v) } },
+            onReset = if (on != AppPrefs.DEFAULT_WRITING_FEEDBACK) ({ p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) } }) else null,
+        )
+        if (on) {
+            SettingsDivider()
+            SettingsRadioGroup {
+                WritingFeel.entries.forEach { f ->
+                    SettingsRadioRow(f.label, f.description, feel == f) { p.write { putString(AppPrefs.WRITING_FEEL, f.name) } }
+                }
+            }
         }
     }
 }

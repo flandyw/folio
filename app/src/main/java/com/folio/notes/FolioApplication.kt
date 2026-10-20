@@ -16,6 +16,8 @@ class FolioApplication : Application() {
     val storageGate = Mutex()
     /** App-scoped so a pen connection survives configuration changes but is still editor-bound. */
     val penHaptics by lazy { PenHapticsManager(this) }
+    /** Continuous in-pen writing feedback, on with the same setting and lifetime as [penHaptics]. */
+    val penFeedback by lazy { PenWritingFeedback(this) }
     val focalStudy by lazy { FocalStudyManager(this) }
     val focalProgress by lazy { com.folio.notes.progress.ExamProgressManager(this) }
 

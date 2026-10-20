@@ -40,3 +40,6 @@
 # java.util.Random's constructor runs ("Setting the seed on the shared Random object is not
 # permitted"), crashing the editor the first time ink recognition loads. Keep them separate.
 -keep,allowobfuscation class * extends java.util.Random { *; }
+
+# The OPPO capability service unmarshals this by class name (PenWritingFeedback).
+-keep class com.oplus.ocs.base.common.Feature { *; }

@@ -70,12 +70,18 @@ row shows *Custom* once any of those is changed by hand.
 
 ## Drawing the stroke
 
-Pen ink of varying width is one filled outline (`InkOutline`, pure): the union of a disc at each centreline
-point and the tangent hulls between neighbours, all wound the same way so a non-zero fill paints it once.
-Width follows every sample, so pressure ramps and soft ends are smooth (the old renderer drew width
-*runs* snapped to half-unit steps, which showed as nubs and necks at stroke ends), and translucent ink no
-longer darkens where runs overlapped. Discs are added only at the ends and where the stroke turns or changes
-width; an even-width stroke is still drawn as one round-capped line, which is the same shape.
+Pen ink of varying width is one filled outline (`InkOutline`, pure): exactly the shape a round nib of changing
+size sweeps (the union of a disc at every centreline point and the tangent hulls between neighbours), traced as
+**one closed contour per stroke** — down the right edge, round the end cap, back up the left edge, round the
+start cap. Outer edges of turns follow an arc of the nib; inner edges are trimmed where the two sides cross,
+taking at most half of either side. Where that is not enough (a turn tighter than the nib, a hairpin, a sample
+one disc swallows) the contour ends in a round cap and the next one starts, so no piece ever folds back on
+itself. Collinear vertices are dropped, so an even run is a handful of vertices rather than a disc and a hull
+per sample (the previous renderer), which rasterizes faster and anti-aliases without internal edges. Every
+contour winds the same way, so a non-zero fill paints the union once: loops and crossings fill solidly,
+translucent ink never darkens, and the hole of an "o" stays open. An even-width stroke is still drawn as one
+round-capped line, which is the same shape. `node tools/handwriting-smoke.cjs` probes coverage against the
+swept nib on waves, hairpins, zigzags, reversals, curls, spirals and random walks with wild widths.
 
 `StrokeEnds.settle` runs when a pen stroke is stored: the pen-down and lift samples take their neighbours'
 pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke). Positions
@@ -114,3 +120,7 @@ On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke t
 8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
 9. **Low-latency ink:** with it on, write on a finite page, a canvas, in split view and with a floating toolbar; look for flicker or a ghost at pen-up, a double-heavy edge while writing, anything left behind after undo, and rotation/multi-window behaviour. Turn it off again and confirm the overlay is gone. This path has not been run on a device.
 10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.
+
+## Writing feedback (OnePlus / OPPO Pencil Pro)
+
+With Settings › Stylus & touch › *Buzz while writing* on (`AppPrefs.WRITING_FEEDBACK`, default on; independent of the Bluetooth double-tap buzz), `PenWritingFeedback` asks ColorOS's open capability service for `IPE_PENCIL_CLIENT` and, once granted, calls the pen service's `startFeedBackVibration`/`stopFeedBackVibration` on pen down/up (`InkView.writingFeedback`), with a texture per tool or one fixed `WritingFeel` (`AppPrefs.WRITING_FEEL`). Settings shows the live `FeedbackStatus`. OCS licenses that capability per app by the stated package name: Folio asks as itself first, then as each licensed app (`LICENSED_APPS`: HiPaint, then StarNote). OCS trusts the stated name, so neither app needs to be installed (confirmed on device). If all are refused, it stays silent. Device check: `adb logcat -s PenWritingFeedback` shows which identity was accepted or the refusal code; then write, erase and highlight and confirm the buzz runs only while the tip is down, stops on lift, palm cancel and second finger, and never runs with lasso/hand/text/laser.

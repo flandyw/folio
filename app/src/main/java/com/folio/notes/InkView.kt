@@ -2181,11 +2181,27 @@ class InkView(context: Context) : View(context) {
         val predicting = tool == Tool.PEN && !readOnly && (0 until admitted.pointerCount).any { isStylus(admitted, it) }
         if (predicting) recordForPrediction(admitted)
         val handled = handleTouchEvent(admitted)
+        writingFeedback(admitted)
         if (predicting) refreshPrediction(admitted) else clearPrediction()
         // A held pause turned the stroke into a shape the page draws; the freehand preview must not linger over it.
         if (heldShape != null) lowLatency?.let { it.cancel(); lowLatency = null }
         onLiveInk(draft?.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }, isWritingGesture)
         handled
+    }
+
+    private val penFeedback = (context.applicationContext as? FolioApplication)?.penFeedback
+
+    /** Buzzes the pen while its tip is down with a writing tool; lift, cancel or a second finger stops it. */
+    private fun writingFeedback(event: MotionEvent) {
+        val feedback = penFeedback?.takeIf { it.isReady } ?: return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (readOnly || !isStylus(event, 0)) return
+                val eraserTip = event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+                PenWritingFeedback.textureFor(tool, eraserTip)?.let(feedback::begin)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> feedback.end()
+        }
     }
 
     private fun handleWritingWindow(event: MotionEvent): Boolean {

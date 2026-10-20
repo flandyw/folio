@@ -259,39 +259,65 @@ private class Polygons : InkOutline.Sink {
     }
 }
 
-private fun outline() {
-    // A wavy stroke whose width swells and tapers to a point at both ends, like a pressure ramp.
-    val centre = (0..200).map { InkPoint(it * .5f, 8f * sin(it * .06f)) }
-    val radius = { i: Int -> .2f + 2f * sin(PI.toFloat() * i / 200f) }
+/** Coverage of [centre]/[radius] against the swept nib it stands for, at [samples] random probes. */
+private fun covers(name: String, centre: List<InkPoint>, radius: (Int) -> Float, samples: Int = 4000, seed: Long = 3): Polygons {
     val polygons = Polygons()
     InkOutline.build(centre, radius, polygons)
     // Every piece is wound the same way, so a non-zero fill paints the union exactly once.
-    check(polygons.shapes.all { polygons.area(it) > 0f }) { "a piece is wound backwards" }
-    // Coverage matches the swept nib: inside every disc is filled, and well outside all of them is not.
-    val probe = java.util.Random(3)
-    repeat(4000) {
-        val x = probe.nextFloat() * 110f - 5f; val y = probe.nextFloat() * 24f - 12f
+    check(polygons.shapes.all { polygons.area(it) > 0f }) { "$name: a piece is wound backwards" }
+    val minX = centre.minOf { it.x } - 6f; val maxX = centre.maxOf { it.x } + 6f
+    val minY = centre.minOf { it.y } - 6f; val maxY = centre.maxOf { it.y } + 6f
+    val probe = java.util.Random(seed)
+    repeat(samples) {
+        val x = minX + probe.nextFloat() * (maxX - minX); val y = minY + probe.nextFloat() * (maxY - minY)
         var inside = false; var near = false
         for (i in centre.indices) {
             val d = hypot(x - centre[i].x, y - centre[i].y)
             if (d < radius(i) - .02f) inside = true
             if (d < radius(i) + .35f) near = true
+            if (i > 0 && distance(InkPoint(x, y), listOf(centre[i - 1], centre[i])) < maxOf(radius(i - 1), radius(i)) + .35f) near = true
         }
+        val w = polygons.winding(x, y)
+        check(w >= 0) { "$name: negative winding at $x,$y" }
         // Between samples the hull also covers the gap, so only "inside a disc" and "far from all" are certain.
-        if (inside) check(polygons.winding(x, y) != 0) { "hole at $x,$y" }
-        if (!near) check(polygons.winding(x, y) == 0) { "spill at $x,$y" }
+        if (inside) check(w != 0) { "$name: hole at $x,$y" }
+        if (!near) check(w == 0) { "$name: spill at $x,$y" }
     }
-    // At most one hull and one disc per sample; a straight, even run needs no joint discs at all.
-    check(polygons.shapes.size <= 2 * centre.size + 2) { "too many pieces: ${polygons.shapes.size}" }
-    val straight = Polygons()
-    InkOutline.build((0..100).map { InkPoint(it * .5f, 0f) }, { 1f }, straight)
-    check(straight.shapes.size == 100 + 2) { "straight run pieces: ${straight.shapes.size}" }
+    return polygons
+}
+
+private fun outline() {
+    // A wavy stroke whose width swells and tapers to a point at both ends, like a pressure ramp.
+    val wave = covers("wave", (0..200).map { InkPoint(it * .5f, 8f * sin(it * .06f)) }, { i -> .2f + 2f * sin(PI.toFloat() * i / 200f) })
+    // A smooth stroke is one contour, not a piece per sample.
+    check(wave.shapes.size == 1) { "wave pieces: ${wave.shapes.size}" }
+    val straight = covers("straight", (0..100).map { InkPoint(it * .5f, 0f) }, { 1f })
+    check(straight.shapes.size == 1) { "straight run pieces: ${straight.shapes.size}" }
+    check(straight.shapes[0].size < 80) { "straight run vertices: ${straight.shapes[0].size}" }
+    // Tight turns, cusps and loops smaller than the nib: the inner edge folds and must split, never leave a hole.
+    covers("hairpin", listOf(InkPoint(0f, 0f), InkPoint(10f, 0f), InkPoint(0f, 1f)), { 1.5f })
+    covers("zigzag", (0..40).map { InkPoint(it * .8f, if (it % 2 == 0) 0f else 3f) }, { 1.2f })
+    covers("reversal", (0..30).map { InkPoint(if (it <= 15) it * .5f else (30 - it) * .5f, 0f) }, { i -> .6f + .04f * i })
+    covers("curl", (0..120).map { val t = it * .15f; InkPoint(t * .6f + 1.2f * cos(t * 3f), 1.2f * sin(t * 3f)) }, { 1.6f })
+    covers("spiral", (0..300).map { val t = it * .05f; InkPoint((.2f + t * .3f) * cos(t * 2f), (.2f + t * .3f) * sin(t * 2f)) }, { i -> .3f + i * .004f })
+    val random = java.util.Random(11)
+    repeat(40) { k ->
+        var px = 0f; var py = 0f; var heading = 0f
+        val pts = (0..60).map { heading += (random.nextFloat() - .5f) * 2.4f; val step = .05f + random.nextFloat() * 1.2f
+            px += step * cos(heading); py += step * sin(heading); InkPoint(px, py) }
+        val radii = FloatArray(pts.size) { .05f + random.nextFloat() * 1.8f }
+        covers("random $k", pts, { radii[it] }, samples = 1500, seed = k.toLong())
+    }
+    // A thin "o" keeps its hole open.
+    val o = (0..80).map { val t = it / 80f * 2f * PI.toFloat(); InkPoint(5f * cos(t), 5f * sin(t)) }
+    val ring = covers("o", o, { .5f })
+    check(ring.winding(0f, 0f) == 0) { "the inside of an o was filled" }
     // Degenerate input: a lone point is a disc, coincident points don't crash, zero radius emits nothing.
     val dot = Polygons(); InkOutline.build(listOf(InkPoint(1f, 1f)), { 1f }, dot); check(dot.shapes.size == 1)
     val same = Polygons(); InkOutline.build(listOf(InkPoint(1f, 1f), InkPoint(1f, 1f), InkPoint(2f, 1f)), { 1f }, same)
     check(same.shapes.all { same.area(it) > 0f })
-    val sharp = Polygons(); InkOutline.build(listOf(InkPoint(0f, 0f), InkPoint(10f, 0f), InkPoint(0f, 1f)), { 1.5f }, sharp)
-    check(sharp.winding(10.9f, 0f) != 0) { "a sharp corner must stay round and filled" }
+    val swallowed = covers("swallowed", listOf(InkPoint(0f, 0f), InkPoint(.1f, 0f), InkPoint(6f, 0f)), { i -> if (i == 0) 2f else .3f })
+    check(swallowed.shapes.isNotEmpty())
 }
 
 private fun ends() {

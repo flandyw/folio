@@ -501,7 +501,7 @@ object InkRenderer {
     }
 
     /**
-     * Pressure- and taper-varying ink as one filled outline ([InkOutline]): one `drawPath` per stroke.
+     * Pressure- and taper-varying ink as one filled outline ([InkOutline], one contour per stroke): one `drawPath`.
      * Width multipliers come precomputed from [RenderedStroke.widths] (one sqrt per point, once).
      */
     private fun drawTaperedLines(

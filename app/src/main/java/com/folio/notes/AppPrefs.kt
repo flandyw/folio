@@ -136,6 +136,8 @@ object AppPrefs {
     fun shapeHoldMs(value: Long?): Long =
         (value ?: DEFAULT_SHAPE_HOLD_MS).coerceIn(SHAPE_HOLD_MIN_MS, SHAPE_HOLD_MAX_MS)
     const val FAST_PAN = "input.fastPan"
+    const val WRITING_FEEDBACK = "pen.writingFeedback"
+    const val WRITING_FEEL = "pen.writingFeel"
     const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"
     const val TIMER_READING_MIN = "timer.readingMinutes"
@@ -190,6 +192,7 @@ object AppPrefs {
     const val PALM_MIN_MS = 0L
     const val PALM_MAX_MS = 1500L
     const val DEFAULT_FAST_PAN = false
+    const val DEFAULT_WRITING_FEEDBACK = true
     const val DEFAULT_FAST_PAN_MULTIPLIER = 2f
     const val FAST_PAN_MIN = 1.25f
     const val FAST_PAN_MAX = 5f

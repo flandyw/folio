@@ -215,6 +215,14 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         if (haptics) penHaptics?.start() else penHaptics?.stop()
         onDispose { penHaptics?.stop() }
     }
+    // Writing feedback needs no Bluetooth, so it has its own switch; a new feel applies on reconnect.
+    val writingFeedback by rememberPref(appPrefs, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
+    val writingFeel by rememberPref(appPrefs, AppPrefs.WRITING_FEEL) { it.getString(AppPrefs.WRITING_FEEL, null) }
+    DisposableEffect(writingFeedback, writingFeel) {
+        val penFeedback = (context.applicationContext as? FolioApplication)?.penFeedback
+        if (writingFeedback) penFeedback?.start()
+        onDispose { penFeedback?.stop() }
+    }
     val mainInkView = editor.surfaces.find(EditorSurfaceRole.MAIN, page.id)
     var zoomPaneOpen by rememberSaveable(note.id, page.id) { mutableStateOf(false) }
     var zoomTarget by followSession.zoomTarget

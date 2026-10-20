@@ -379,7 +379,7 @@ import kotlinx.coroutines.withContext
         val allowed = granted.values.all { it }
         haptics = allowed
         prefs.edit().putBoolean("penHaptics", allowed).apply()
-        if (!allowed) model.reportError("Pen haptics need Bluetooth permission")
+        if (!allowed) model.reportError("Double-tap buzz needs Bluetooth permission")
     }
     fun installUpdate() {
         val ready = updateState.ready ?: return
